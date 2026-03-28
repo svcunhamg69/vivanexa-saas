@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/router';
 import * as pricing from '../lib/pricing';
 
-// Configuração inicial (vazia, será preenchida pelo Supabase)
+// Configuração inicial – será preenchida do banco
 let configData = {
   plans: [],
   productNames: {},
@@ -47,7 +47,12 @@ export default function Chat() {
     });
   }, []);
 
-  // Carrega configurações do Supabase
+  // Rola para a última mensagem
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Carrega planos, produtos, preços e vouchers do Supabase
   useEffect(() => {
     async function loadConfig() {
       // 1. Planos
@@ -62,6 +67,8 @@ export default function Chat() {
           users: p.max_users,
           unlimited: p.unlimited
         }));
+      } else {
+        console.error('Erro ao carregar planos:', plansError);
       }
 
       // 2. Produtos e preços
@@ -83,7 +90,7 @@ export default function Chat() {
           productNames[key] = prod.name;
           prices[key] = {};
           for (const price of prod.prices) {
-            // Encontra o plano correspondente pelo internal_id
+            // Encontra o plano pelo id (precisa mapear)
             const plan = configData.plans.find(p => p.id === price.plan_id);
             if (plan) {
               prices[key][plan.id] = [price.adesao, price.mensalidade];
@@ -92,6 +99,8 @@ export default function Chat() {
         }
         configData.prices = prices;
         configData.productNames = productNames;
+      } else {
+        console.error('Erro ao carregar produtos:', productsError);
       }
 
       // 3. Vouchers
@@ -100,6 +109,8 @@ export default function Chat() {
         .select('*');
       if (!vouchersError && vouchersData) {
         configData.vouchers = vouchersData;
+      } else {
+        console.error('Erro ao carregar vouchers:', vouchersError);
       }
 
       setConfigLoaded(true);
@@ -107,16 +118,11 @@ export default function Chat() {
     loadConfig();
   }, []);
 
-  // Rolagem automática
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
   const addMessage = (role, content, isHtml = false) => {
     setMessages(prev => [...prev, { role, content, isHtml }]);
   };
 
-  // Renderização dos cards de preço (igual ao HTML original)
+  // Renderização dos cards de preço (adaptado do HTML original)
   const renderFullPriceOnly = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = '';
@@ -150,21 +156,23 @@ export default function Chat() {
     return html;
   };
 
-  // Processamento das mensagens
+  // Processamento da mensagem
   const processInput = async (text) => {
     const t = text.trim(), low = t.toLowerCase();
+
     if (stage === 'await_doc') {
       const doc = pricing.cleanDoc(t);
       if (!pricing.isCNPJ(doc) && !pricing.isCPF(doc)) {
         return { type: 'text', content: 'Por favor, informe o CPF ou CNPJ do cliente (somente números).' };
       }
       setState(prev => ({ ...prev, doc }));
-      // Simula dados do cliente (depois integra com busca)
+      // Simula dados do cliente (depois vai buscar no Supabase)
       const clientData = { nome: 'Empresa Teste', fantasia: 'Teste LTDA', cnpj: doc };
       setState(prev => ({ ...prev, clientData }));
       setStage('await_users');
       return { type: 'html', content: `<div>${clientData.nome}</div><div style="margin-top:10px">Quantos <strong>usuários</strong> ele possui atualmente?</div>` };
     }
+
     if (stage === 'await_users') {
       const users = pricing.parseUsers(t);
       if (!users || users < 1) return { type: 'text', content: 'Quantos usuários? (informe um número)' };
@@ -172,31 +180,37 @@ export default function Chat() {
       setStage('await_modules');
       return { type: 'text', content: `👥 ${users} usuário(s) registrado(s)!\n\nQuais módulos deseja incluir?\n(Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos)` };
     }
+
     if (stage === 'await_modules') {
       const mods = pricing.parseModules(t, configData.productNames);
       if (mods.length === 0) {
         return { type: 'text', content: `Quais módulos deseja incluir?\n(Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos)` };
       }
       setState(prev => ({ ...prev, modules: mods }));
+      // Verifica se precisa de CNPJs
       const needsCNPJ = mods.some(m => !['IF','Tributos','EP'].includes(m));
       if (needsCNPJ && !state.cnpjs) {
         setStage('await_cnpjs');
         return { type: 'text', content: 'Quantos CNPJs o cliente possui?' };
       }
+      // Se não precisar, avança
       return finalizeQuote();
     }
+
     if (stage === 'await_cnpjs') {
       const cnpjs = pricing.parseCNPJsQty(t);
       if (!cnpjs || cnpjs < 1) return { type: 'text', content: 'Quantos CNPJs? (informe um número)' };
       setState(prev => ({ ...prev, cnpjs }));
       return finalizeQuote();
     }
+
     if (stage === 'await_if_plan') {
       const ifPlan = pricing.parseIFPlan(t, configData.plans);
       if (!ifPlan) return { type: 'text', content: `Informe o plano do IF: Basic, Pro ou Top` };
       setState(prev => ({ ...prev, ifPlan }));
       return finalizeQuote();
     }
+
     if (stage === 'await_notas') {
       const notas = parseInt(t);
       if (!notas || notas < 1) return { type: 'text', content: 'Quantas notas fiscais por mês?' };
@@ -204,6 +218,7 @@ export default function Chat() {
       return finalizeQuote();
     }
 
+    // Função auxiliar que finaliza a cotação
     async function finalizeQuote() {
       const needsCNPJ = state.modules.some(m => !['IF','Tributos','EP'].includes(m));
       let plan = null;
@@ -238,15 +253,11 @@ export default function Chat() {
     if (resp) addMessage('bot', resp.content, resp.type === 'html');
   };
 
-  // Expor funções para os botões gerados no HTML
+  // Funções expostas para os botões no HTML
   useEffect(() => {
     window.handleShowDiscount = (yes) => {
-      if (yes) {
-        // Chama lógica de desconto (a implementar)
-        addMessage('bot', 'Funcionalidade de desconto será implementada em breve.');
-      } else {
-        addMessage('bot', 'Sem problema!');
-      }
+      // Por enquanto, apenas avisa
+      addMessage('bot', yes ? 'Você escolheu ver os descontos!' : 'OK, mantemos preços cheios.', false);
     };
     window.tryVoucher = () => {
       const input = document.getElementById('voucherInput');
@@ -255,8 +266,8 @@ export default function Chat() {
       const voucher = configData.vouchers.find(v => v.code.toUpperCase() === code.toUpperCase());
       const msgDiv = document.getElementById('voucherMsg');
       if (voucher) {
-        msgDiv.innerHTML = `<div class="voucher-msg ok">✅ Voucher ${code} aplicado!</div>`;
-        addMessage('bot', `Voucher aplicado: ${voucher.disc_ad_pct}% off na adesão e ${voucher.disc_men_pct}% off na mensalidade.`);
+        msgDiv.innerHTML = `<div class="voucher-msg ok">✅ Voucher ${code} aplicado! (${voucher.disc_ad_pct}% off adesão, ${voucher.disc_men_pct}% off mensalidade)</div>`;
+        // Aqui você pode aplicar o desconto e recalcular
       } else {
         msgDiv.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido.</div>`;
       }
@@ -307,6 +318,7 @@ export default function Chat() {
         </button>
       </div>
 
+      {/* Estilos copiados do HTML original */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
@@ -434,21 +446,21 @@ export default function Chat() {
           cursor: pointer;
           white-space: nowrap;
         }
-        .voucher-msg {
-          font-size: 12px;
-          margin-top: 6px;
-          padding: 6px 10px;
-          border-radius: 8px;
-        }
         .voucher-msg.ok {
           background: rgba(16,185,129,.1);
           color: #10b981;
           border: 1px solid rgba(16,185,129,.2);
+          padding: 6px 10px;
+          border-radius: 8px;
+          margin-top: 6px;
         }
         .voucher-msg.err {
           background: rgba(239,68,68,.1);
           color: #ef4444;
           border: 1px solid rgba(239,68,68,.2);
+          padding: 6px 10px;
+          border-radius: 8px;
+          margin-top: 6px;
         }
       `}</style>
     </div>
