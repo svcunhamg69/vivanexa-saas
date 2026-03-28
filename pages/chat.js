@@ -37,6 +37,9 @@ export default function Chat() {
     appliedVoucher: null
   });
   const [configLoaded, setConfigLoaded] = useState(false);
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [generatedProposalHtml, setGeneratedProposalHtml] = useState('');
+  const [showProposalModal, setShowProposalModal] = useState(false);
   const messagesEndRef = useRef(null);
   const router = useRouter();
 
@@ -121,7 +124,7 @@ export default function Chat() {
     setMessages(prev => [...prev, { role, content, isHtml }]);
   };
 
-  // Renderização do card do cliente (igual ao HTML original)
+  // Renderização do card do cliente
   const renderClientCard = (cd) => {
     const endFormatado = [cd.logradouro, cd.bairro, cd.municipio && cd.uf ? cd.municipio + ' – ' + cd.uf : cd.municipio || cd.uf].filter(Boolean).join(', ');
     const cepFmt = cd.cep ? cd.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2') : '';
@@ -135,7 +138,7 @@ export default function Chat() {
     </div>`;
   };
 
-  // Renderização dos cards de preço (como antes)
+  // Renderização dos cards de preço (versão cheia)
   const renderFullPriceOnly = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = '';
@@ -166,10 +169,22 @@ export default function Chat() {
     }
     html += `<div class="section-label">Próximos vencimentos</div>
       <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
+    // Botão para gerar proposta
+    html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta</button></div>`;
     return html;
   };
 
-  // Busca CNPJ na BrasilAPI e retorna dados formatados
+  // Renderização com desconto (ainda não implementada – placeholder)
+  const renderWithDiscount = (data, dates, clientName) => {
+    return `<div>Desconto – em breve</div>`;
+  };
+
+  // Renderização do fechamento (ainda não implementada)
+  const renderClosingResult = (data, dates) => {
+    return `<div>Fechamento – em breve</div>`;
+  };
+
+  // Busca CNPJ na BrasilAPI
   async function fetchCNPJ(cnpj) {
     try {
       const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
@@ -196,7 +211,7 @@ export default function Chat() {
     }
   }
 
-  // Processamento da mensagem (agora com busca CNPJ real)
+  // Processamento da mensagem
   const processInput = async (text) => {
     const t = text.trim(), low = t.toLowerCase();
 
@@ -206,7 +221,6 @@ export default function Chat() {
         return { type: 'text', content: 'Por favor, informe o CPF ou CNPJ do cliente (somente números).' };
       }
       setState(prev => ({ ...prev, doc }));
-      // Tenta buscar na BrasilAPI se for CNPJ
       let clientData = null;
       if (pricing.isCNPJ(doc)) {
         setLoading(true);
@@ -219,10 +233,9 @@ export default function Chat() {
       setState(prev => ({ ...prev, clientData }));
       setStage('await_users');
       const cardHtml = renderClientCard(clientData);
-      const src = clientData.fromDB ? '<small style="color:var(--accent3);font-size:11px">(base local)</small>' : '';
       return {
         type: 'html',
-        content: `${cardHtml}<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ ${clientData.nome || 'Cliente'}${src}<br><br>Quantos <strong style="color:var(--text)">usuários</strong> ele possui atualmente?</div>`
+        content: `${cardHtml}<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ ${clientData.nome || 'Cliente'}<br><br>Quantos <strong style="color:var(--text)">usuários</strong> ele possui atualmente?</div>`
       };
     }
 
@@ -303,16 +316,14 @@ export default function Chat() {
     if (resp) addMessage('bot', resp.content, resp.type === 'html');
   };
 
-  // Função para salvar o cliente no Supabase (será chamada ao gerar proposta)
+  // Salva o cliente no Supabase
   const saveClientToDB = async (clientData, contactData) => {
-    // Verifica se já existe pelo doc
     const { data: existing } = await supabase
       .from('clients')
       .select('id')
       .eq('doc', clientData.cnpj)
-      .single();
+      .maybeSingle();
     if (existing) {
-      // Atualiza
       const { error } = await supabase
         .from('clients')
         .update({
@@ -337,7 +348,6 @@ export default function Chat() {
       if (error) console.error(error);
       return existing.id;
     } else {
-      // Insere
       const { data, error } = await supabase
         .from('clients')
         .insert({
@@ -365,10 +375,133 @@ export default function Chat() {
     }
   };
 
-  // Funções expostas para os botões no HTML
+  // Gera o HTML da proposta (reaproveitando o formato original)
+  const generateProposalHtml = (clientData, contactData, quoteData, plan) => {
+    const isClosing = state.closingToday === true;
+    const results = isClosing ? quoteData.results : quoteData.results;
+    const tAd = isClosing ? quoteData.tAd : quoteData.tAdD;
+    const tMen = isClosing ? quoteData.tMen : quoteData.tMenD;
+    const today = new Date().toLocaleDateString('pt-BR');
+    const validity = isClosing ? 'Válida até as 18h de hoje' : 'Válida por 7 dias';
+    const logo = 'data:image/png;base64, iVBORw0KGgoAAAANSUhEUgAA...'; // coloque aqui a base64 da sua logo
+    // Como o logo original é enorme, vamos usar um placeholder simples
+    // Você pode substituir pela sua logo depois.
+
+    // Monta as linhas da tabela de produtos
+    let rows = '';
+    for (const r of results) {
+      const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : r.adD);
+      const menS = pricing.fmt(isClosing ? r.men : r.menD);
+      rows += `<tr>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;font-weight:500">${r.name}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${adS}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${state.cnpjs || '—'}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#10b981;font-weight:700;text-align:right">${pricing.fmt(menS)}</td>
+      </tr>`;
+    }
+
+    const html = `
+    <div style="background:#fff;font-family:'Inter',sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
+      <!-- HEADER -->
+      <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px;text-align:center">
+        <div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:6px">${configData.productNames['proposta'] ? configData.productNames['proposta'] : 'Proposta Comercial'}</div>
+        <div style="font-size:12px;color:#94a3b8">${CFG.company || 'Vivanexa'}</div>
+      </div>
+      <div style="padding:36px 44px">
+        <p style="font-size:13px;color:#475569;margin-bottom:28px">Prezado(a) ${contactData.contato || clientData.fantasia || clientData.nome},</p>
+        <p style="font-size:13px;color:#475569;margin-bottom:28px">Segue nossa proposta comercial para os serviços abaixo:</p>
+
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+          <thead><tr style="background:#f8fafc">
+            <th style="padding:10px 14px;text-align:left">Produto</th>
+            <th style="padding:10px 14px;text-align:center">Adesão</th>
+            <th style="padding:10px 14px;text-align:center">Mensalidade</th>
+            <th style="padding:10px 14px;text-align:center">CNPJs</th>
+            <th style="padding:10px 14px;text-align:right">Total/mês</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981;text-align:right">${pricing.fmt(tMen)}/mês</td></tr>
+            <tr style="background:#fffbeb"><td colspan="4" style="padding:10px 14px;font-weight:700">Adesão (único)</td><td style="padding:10px 14px;font-weight:700;color:#b45309;text-align:right">${pricing.fmt(tAd)}</td></tr>
+          </tfoot>
+        </table>
+
+        <div style="margin-top:14px;padding:14px 18px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#92400e">
+          <strong>Condições:</strong> Pagamento à vista ou parcelado no cartão (consulte). Vencimento da adesão: a combinar. Primeira mensalidade: a combinar.
+        </div>
+
+        <div style="margin-top:24px;font-size:12px;color:#64748b;text-align:center">
+          Esta proposta é válida até ${validity}.<br>
+          ${CFG.company} – CNPJ 32.125.987/0001-67 – contato@vivanexa.com.br – (69) 98405-9125
+        </div>
+      </div>
+    </div>`;
+    return html;
+  };
+
+  // Salva o documento no Supabase e exibe o modal
+  const saveProposal = async (clientId, clientData, contactData) => {
+    const html = generateProposalHtml(clientData, contactData, state.quoteData, state.plan);
+    const signToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const { data, error } = await supabase
+      .from('documents')
+      .insert({
+        type: 'proposta',
+        client_id: clientId,
+        html: html,
+        status: 'draft',
+        sign_token: signToken,
+        consultant_id: (await supabase.auth.getUser()).data.user?.id,
+        t_ad: state.quoteData.tAdD,
+        t_men: state.quoteData.tMenD,
+        created_at: new Date()
+      })
+      .select('id');
+    if (error) {
+      console.error(error);
+      alert('Erro ao salvar proposta.');
+      return;
+    }
+    setGeneratedProposalHtml(html);
+    setShowProposalModal(true);
+  };
+
+  // Função chamada ao clicar em "Gerar Proposta"
+  const openClientModal = () => {
+    setShowClientModal(true);
+  };
+
+  // Quando o usuário salva os dados do modal
+  const handleSaveClient = async (e) => {
+    e.preventDefault();
+    const contactData = {
+      contato: document.getElementById('clientName').value,
+      email: document.getElementById('clientEmail').value,
+      telefone: document.getElementById('clientPhone').value,
+      cidade: document.getElementById('clientCity').value,
+      uf: document.getElementById('clientUf').value,
+      cpfContato: document.getElementById('clientCpf').value,
+      regime: document.getElementById('clientRegime').value,
+      rimpNome: document.getElementById('rimpName').value,
+      rimpEmail: document.getElementById('rimpEmail').value,
+      rimpTel: document.getElementById('rimpPhone').value,
+      rfinNome: document.getElementById('rfinName').value,
+      rfinEmail: document.getElementById('rfinEmail').value,
+      rfinTel: document.getElementById('rfinPhone').value,
+    };
+    setState(prev => ({ ...prev, contactData }));
+    const clientId = await saveClientToDB(state.clientData, contactData);
+    if (clientId) {
+      await saveProposal(clientId, state.clientData, contactData);
+    }
+    setShowClientModal(false);
+  };
+
+  // Funções globais para os botões no HTML
   useEffect(() => {
     window.handleShowDiscount = (yes) => {
-      // Por enquanto, apenas avisa
+      // Placeholder
       addMessage('bot', yes ? 'Você escolheu ver os descontos!' : 'OK, mantemos preços cheios.', false);
     };
     window.tryVoucher = () => {
@@ -379,15 +512,12 @@ export default function Chat() {
       const msgDiv = document.getElementById('voucherMsg');
       if (voucher) {
         msgDiv.innerHTML = `<div class="voucher-msg ok">✅ Voucher ${code} aplicado! (${voucher.disc_ad_pct}% off adesão, ${voucher.disc_men_pct}% off mensalidade)</div>`;
-        // Aqui você pode aplicar o desconto e recalcular
       } else {
         msgDiv.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido.</div>`;
       }
     };
-    // Expor também a função de abrir modal de cliente (para gerar proposta)
     window.openClientModal = () => {
-      // Mostrar modal (simplificado por enquanto)
-      alert('Funcionalidade de gerar proposta será implementada em breve.');
+      openClientModal();
     };
   }, [state, configData]);
 
@@ -396,46 +526,128 @@ export default function Chat() {
   }
 
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', padding: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-        <h1>Assistente Comercial</h1>
-        <button onClick={() => supabase.auth.signOut()}>Sair</button>
-      </div>
+    <>
+      <div style={{ maxWidth: 820, margin: '0 auto', padding: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h1>Assistente Comercial</h1>
+          <button onClick={() => supabase.auth.signOut()}>Sair</button>
+        </div>
 
-      <div style={{ height: '60vh', overflowY: 'auto', border: '1px solid #ccc', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-        {messages.map((msg, idx) => (
-          <div key={idx} style={{ textAlign: msg.role === 'user' ? 'right' : 'left', marginBottom: 10 }}>
-            <div style={{
-              display: 'inline-block',
-              background: msg.role === 'user' ? '#0070f3' : '#eaeaea',
-              color: msg.role === 'user' ? '#fff' : '#000',
-              borderRadius: 12,
-              padding: '8px 12px',
-              maxWidth: '80%'
-            }}>
-              {msg.isHtml ? <div dangerouslySetInnerHTML={{ __html: msg.content }} /> : msg.content}
+        <div style={{ height: '60vh', overflowY: 'auto', border: '1px solid #ccc', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+          {messages.map((msg, idx) => (
+            <div key={idx} style={{ textAlign: msg.role === 'user' ? 'right' : 'left', marginBottom: 10 }}>
+              <div style={{
+                display: 'inline-block',
+                background: msg.role === 'user' ? '#0070f3' : '#eaeaea',
+                color: msg.role === 'user' ? '#fff' : '#000',
+                borderRadius: 12,
+                padding: '8px 12px',
+                maxWidth: '80%'
+              }}>
+                {msg.isHtml ? <div dangerouslySetInnerHTML={{ __html: msg.content }} /> : msg.content}
+              </div>
             </div>
+          ))}
+          {loading && <div style={{ textAlign: 'left' }}>Assistente está pensando...</div>}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+            placeholder="Digite aqui..."
+            rows={2}
+            style={{ flex: 1, padding: 8, borderRadius: 8, border: '1px solid #ccc' }}
+          />
+          <button onClick={sendMessage} style={{ padding: '0 16px', borderRadius: 8, background: '#0070f3', color: '#fff', border: 'none' }}>
+            Enviar
+          </button>
+        </div>
+      </div>
+
+      {/* Modal para dados do cliente */}
+      {showClientModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#111827', borderRadius: 16, padding: 24, maxWidth: 500, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
+            <h2 style={{ color: '#00d4ff', marginBottom: 16 }}>Dados do Cliente</h2>
+            <form onSubmit={handleSaveClient}>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Nome do Contato *</label>
+                <input id="clientName" required style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>E-mail *</label>
+                <input id="clientEmail" type="email" required style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Telefone</label>
+                <input id="clientPhone" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Cidade</label>
+                  <input id="clientCity" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>UF</label>
+                  <input id="clientUf" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+                </div>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>CPF do Contato</label>
+                <input id="clientCpf" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Regime Tributário</label>
+                <select id="clientRegime" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }}>
+                  <option value="">Selecione</option>
+                  <option>Simples Nacional</option>
+                  <option>Lucro Presumido</option>
+                  <option>Lucro Real</option>
+                  <option>MEI</option>
+                </select>
+              </div>
+              <div style={{ borderTop: '1px solid #1e2d4a', margin: '16px 0 12px', paddingTop: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 'bold', color: '#00d4ff', marginBottom: 8 }}>Responsável pela Implantação</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <input id="rimpName" placeholder="Nome" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+                  <input id="rimpEmail" placeholder="E-mail" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+                  <input id="rimpPhone" placeholder="Telefone" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+                </div>
+              </div>
+              <div style={{ borderTop: '1px solid #1e2d4a', margin: '16px 0 12px', paddingTop: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 'bold', color: '#fbbf24', marginBottom: 8 }}>Responsável Financeiro</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <input id="rfinName" placeholder="Nome" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+                  <input id="rfinEmail" placeholder="E-mail" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+                  <input id="rfinPhone" placeholder="Telefone" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+                <button type="submit" style={{ flex: 1, padding: 10, borderRadius: 8, background: '#10b981', border: 'none', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>Salvar e Gerar Proposta</button>
+                <button type="button" onClick={() => setShowClientModal(false)} style={{ padding: '10px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#64748b', cursor: 'pointer' }}>Cancelar</button>
+              </div>
+            </form>
           </div>
-        ))}
-        {loading && <div style={{ textAlign: 'left' }}>Assistente está pensando...</div>}
-        <div ref={messagesEndRef} />
-      </div>
+        </div>
+      )}
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-          placeholder="Digite aqui..."
-          rows={2}
-          style={{ flex: 1, padding: 8, borderRadius: 8, border: '1px solid #ccc' }}
-        />
-        <button onClick={sendMessage} style={{ padding: '0 16px', borderRadius: 8, background: '#0070f3', color: '#fff', border: 'none' }}>
-          Enviar
-        </button>
-      </div>
+      {/* Modal para visualizar a proposta */}
+      {showProposalModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, overflowY: 'auto', padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, overflow: 'hidden' }}>
+            <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => window.print()} style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}>🖨️ Imprimir</button>
+              <button onClick={() => setShowProposalModal(false)} style={{ padding: '8px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#fff', cursor: 'pointer' }}>Fechar</button>
+            </div>
+            <div dangerouslySetInnerHTML={{ __html: generatedProposalHtml }} />
+          </div>
+        </div>
+      )}
 
-      {/* Estilos (mesmos de antes) */}
+      {/* Estilos do chat e cards */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
@@ -503,9 +715,6 @@ export default function Chat() {
           background: rgba(16,185,129,.15);
           border-color: rgba(16,185,129,.4);
           color: #10b981;
-        }
-        .yn-btn.yes:hover {
-          background: rgba(16,185,129,.25);
         }
         .yn-btn.no {
           background: rgba(100,116,139,.12);
@@ -610,7 +819,20 @@ export default function Chat() {
           color: #e2e8f0;
           font-size: 13px;
         }
+        .proposal-btn {
+          width: 100%;
+          padding: 12px;
+          border-radius: 10px;
+          background: linear-gradient(135deg, #00d4ff, #0099bb);
+          border: none;
+          color: #fff;
+          font-family: 'DM Mono', monospace;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          margin-top: 8px;
+        }
       `}</style>
-    </div>
+    </>
   );
 }
