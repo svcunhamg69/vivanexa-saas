@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/router';
 import * as pricing from '../lib/pricing';
 
-// Configuração inicial – será preenchida do banco
 let configData = {
   plans: [],
   productNames: {},
@@ -43,25 +42,19 @@ export default function Chat() {
   const messagesEndRef = useRef(null);
   const router = useRouter();
 
-  // Verifica se o usuário está logado
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) router.push('/');
     });
   }, []);
 
-  // Rola para a última mensagem
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Carrega planos, produtos, preços e vouchers do Supabase
   useEffect(() => {
     async function loadConfig() {
-      // 1. Planos
-      const { data: plansData, error: plansError } = await supabase
-        .from('plans')
-        .select('*');
+      const { data: plansData, error: plansError } = await supabase.from('plans').select('*');
       if (!plansError && plansData) {
         configData.plans = plansData.map(p => ({
           id: p.internal_id,
@@ -70,21 +63,10 @@ export default function Chat() {
           users: p.max_users,
           unlimited: p.unlimited
         }));
-      } else {
-        console.error('Erro ao carregar planos:', plansError);
       }
-
-      // 2. Produtos e preços
       const { data: productsData, error: productsError } = await supabase
         .from('products')
-        .select(`
-          *,
-          prices (
-            plan_id,
-            adesao,
-            mensalidade
-          )
-        `);
+        .select(`*, prices (plan_id, adesao, mensalidade)`);
       if (!productsError && productsData) {
         const prices = {};
         const productNames = {};
@@ -94,27 +76,14 @@ export default function Chat() {
           prices[key] = {};
           for (const price of prod.prices) {
             const plan = configData.plans.find(p => p.id === price.plan_id);
-            if (plan) {
-              prices[key][plan.id] = [price.adesao, price.mensalidade];
-            }
+            if (plan) prices[key][plan.id] = [price.adesao, price.mensalidade];
           }
         }
         configData.prices = prices;
         configData.productNames = productNames;
-      } else {
-        console.error('Erro ao carregar produtos:', productsError);
       }
-
-      // 3. Vouchers
-      const { data: vouchersData, error: vouchersError } = await supabase
-        .from('vouchers')
-        .select('*');
-      if (!vouchersError && vouchersData) {
-        configData.vouchers = vouchersData;
-      } else {
-        console.error('Erro ao carregar vouchers:', vouchersError);
-      }
-
+      const { data: vouchersData, error: vouchersError } = await supabase.from('vouchers').select('*');
+      if (!vouchersError && vouchersData) configData.vouchers = vouchersData;
       setConfigLoaded(true);
     }
     loadConfig();
@@ -124,7 +93,6 @@ export default function Chat() {
     setMessages(prev => [...prev, { role, content, isHtml }]);
   };
 
-  // Renderização do card do cliente
   const renderClientCard = (cd) => {
     const endFormatado = [cd.logradouro, cd.bairro, cd.municipio && cd.uf ? cd.municipio + ' – ' + cd.uf : cd.municipio || cd.uf].filter(Boolean).join(', ');
     const cepFmt = cd.cep ? cd.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2') : '';
@@ -138,7 +106,6 @@ export default function Chat() {
     </div>`;
   };
 
-  // Renderização dos cards de preço (versão cheia)
   const renderFullPriceOnly = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = '';
@@ -169,22 +136,13 @@ export default function Chat() {
     }
     html += `<div class="section-label">Próximos vencimentos</div>
       <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
-    // Botão para gerar proposta
     html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta</button></div>`;
     return html;
   };
 
-  // Renderização com desconto (ainda não implementada – placeholder)
-  const renderWithDiscount = (data, dates, clientName) => {
-    return `<div>Desconto – em breve</div>`;
-  };
+  const renderWithDiscount = (data, dates, clientName) => `<div>Desconto – em breve</div>`;
+  const renderClosingResult = (data, dates) => `<div>Fechamento – em breve</div>`;
 
-  // Renderização do fechamento (ainda não implementada)
-  const renderClosingResult = (data, dates) => {
-    return `<div>Fechamento – em breve</div>`;
-  };
-
-  // Busca CNPJ na BrasilAPI
   async function fetchCNPJ(cnpj) {
     try {
       const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
@@ -211,9 +169,8 @@ export default function Chat() {
     }
   }
 
-  // Processamento da mensagem
   const processInput = async (text) => {
-    const t = text.trim(), low = t.toLowerCase();
+    const t = text.trim();
 
     if (stage === 'await_doc') {
       const doc = pricing.cleanDoc(t);
@@ -227,16 +184,11 @@ export default function Chat() {
         clientData = await fetchCNPJ(doc);
         setLoading(false);
       }
-      if (!clientData) {
-        clientData = { nome: 'Cliente PF', fantasia: '', cnpj: doc, tipo: pricing.isCPF(doc) ? 'PF' : 'PJ' };
-      }
+      if (!clientData) clientData = { nome: 'Cliente PF', fantasia: '', cnpj: doc, tipo: pricing.isCPF(doc) ? 'PF' : 'PJ' };
       setState(prev => ({ ...prev, clientData }));
       setStage('await_users');
       const cardHtml = renderClientCard(clientData);
-      return {
-        type: 'html',
-        content: `${cardHtml}<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ ${clientData.nome || 'Cliente'}<br><br>Quantos <strong style="color:var(--text)">usuários</strong> ele possui atualmente?</div>`
-      };
+      return { type: 'html', content: `${cardHtml}<div style="margin-top:10px;font-size:14px;color:#64748b">✅ ${clientData.nome || 'Cliente'}<br><br>Quantos <strong>usuários</strong> ele possui atualmente?</div>` };
     }
 
     if (stage === 'await_users') {
@@ -284,12 +236,8 @@ export default function Chat() {
 
     async function finalizeQuote() {
       const needsCNPJ = state.modules.some(m => !['IF','Tributos','EP'].includes(m));
-      let plan = null;
-      if (needsCNPJ && state.cnpjs) {
-        plan = pricing.getPlan(state.cnpjs, configData.plans);
-      } else {
-        plan = 'basic';
-      }
+      let plan = 'basic';
+      if (needsCNPJ && state.cnpjs) plan = pricing.getPlan(state.cnpjs, configData.plans);
       setState(prev => ({ ...prev, plan }));
       const quoteData = pricing.calcQuoteFullPrice(state.modules, plan, state.ifPlan, state.cnpjs, state.notas, {
         prices: configData.prices,
@@ -316,7 +264,6 @@ export default function Chat() {
     if (resp) addMessage('bot', resp.content, resp.type === 'html');
   };
 
-  // Salva o cliente no Supabase
   const saveClientToDB = async (clientData, contactData) => {
     const { data: existing } = await supabase
       .from('clients')
@@ -375,19 +322,15 @@ export default function Chat() {
     }
   };
 
-  // Gera o HTML da proposta (reaproveitando o formato original)
   const generateProposalHtml = (clientData, contactData, quoteData, plan) => {
     const isClosing = state.closingToday === true;
-    const results = isClosing ? quoteData.results : quoteData.results;
+    const results = quoteData.results;
     const tAd = isClosing ? quoteData.tAd : quoteData.tAdD;
     const tMen = isClosing ? quoteData.tMen : quoteData.tMenD;
     const today = new Date().toLocaleDateString('pt-BR');
     const validity = isClosing ? 'Válida até as 18h de hoje' : 'Válida por 7 dias';
-    const logo = 'data:image/png;base64, iVBORw0KGgoAAAANSUhEUgAA...'; // coloque aqui a base64 da sua logo
-    // Como o logo original é enorme, vamos usar um placeholder simples
-    // Você pode substituir pela sua logo depois.
+    const companyName = configData.productNames['company'] || 'Vivanexa';
 
-    // Monta as linhas da tabela de produtos
     let rows = '';
     for (const r of results) {
       const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : r.adD);
@@ -403,10 +346,9 @@ export default function Chat() {
 
     const html = `
     <div style="background:#fff;font-family:'Inter',sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
-      <!-- HEADER -->
       <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px;text-align:center">
-        <div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:6px">${configData.productNames['proposta'] ? configData.productNames['proposta'] : 'Proposta Comercial'}</div>
-        <div style="font-size:12px;color:#94a3b8">${CFG.company || 'Vivanexa'}</div>
+        <div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:6px">Proposta Comercial</div>
+        <div style="font-size:12px;color:#94a3b8">${companyName}</div>
       </div>
       <div style="padding:36px 44px">
         <p style="font-size:13px;color:#475569;margin-bottom:28px">Prezado(a) ${contactData.contato || clientData.fantasia || clientData.nome},</p>
@@ -433,15 +375,19 @@ export default function Chat() {
 
         <div style="margin-top:24px;font-size:12px;color:#64748b;text-align:center">
           Esta proposta é válida até ${validity}.<br>
-          ${CFG.company} – CNPJ 32.125.987/0001-67 – contato@vivanexa.com.br – (69) 98405-9125
+          ${companyName} – CNPJ 32.125.987/0001-67 – contato@vivanexa.com.br – (69) 98405-9125
         </div>
       </div>
     </div>`;
     return html;
   };
 
-  // Salva o documento no Supabase e exibe o modal
   const saveProposal = async (clientId, clientData, contactData) => {
+    if (!state.quoteData) {
+      console.error('quoteData não encontrado');
+      alert('Erro: Dados de cotação não disponíveis.');
+      return;
+    }
     const html = generateProposalHtml(clientData, contactData, state.quoteData, state.plan);
     const signToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
     const { data, error } = await supabase
@@ -459,36 +405,30 @@ export default function Chat() {
       })
       .select('id');
     if (error) {
-      console.error(error);
-      alert('Erro ao salvar proposta.');
+      console.error('Erro ao salvar proposta:', error);
+      alert('Erro ao salvar proposta. Verifique o console.');
       return;
     }
     setGeneratedProposalHtml(html);
     setShowProposalModal(true);
   };
 
-  // Função chamada ao clicar em "Gerar Proposta"
-  const openClientModal = () => {
-    setShowClientModal(true);
-  };
-
-  // Quando o usuário salva os dados do modal
   const handleSaveClient = async (e) => {
     e.preventDefault();
     const contactData = {
-      contato: document.getElementById('clientName').value,
-      email: document.getElementById('clientEmail').value,
-      telefone: document.getElementById('clientPhone').value,
-      cidade: document.getElementById('clientCity').value,
-      uf: document.getElementById('clientUf').value,
-      cpfContato: document.getElementById('clientCpf').value,
-      regime: document.getElementById('clientRegime').value,
-      rimpNome: document.getElementById('rimpName').value,
-      rimpEmail: document.getElementById('rimpEmail').value,
-      rimpTel: document.getElementById('rimpPhone').value,
-      rfinNome: document.getElementById('rfinName').value,
-      rfinEmail: document.getElementById('rfinEmail').value,
-      rfinTel: document.getElementById('rfinPhone').value,
+      contato: document.getElementById('clientName')?.value || '',
+      email: document.getElementById('clientEmail')?.value || '',
+      telefone: document.getElementById('clientPhone')?.value || '',
+      cidade: document.getElementById('clientCity')?.value || '',
+      uf: document.getElementById('clientUf')?.value || '',
+      cpfContato: document.getElementById('clientCpf')?.value || '',
+      regime: document.getElementById('clientRegime')?.value || '',
+      rimpNome: document.getElementById('rimpName')?.value || '',
+      rimpEmail: document.getElementById('rimpEmail')?.value || '',
+      rimpTel: document.getElementById('rimpPhone')?.value || '',
+      rfinNome: document.getElementById('rfinName')?.value || '',
+      rfinEmail: document.getElementById('rfinEmail')?.value || '',
+      rfinTel: document.getElementById('rfinPhone')?.value || '',
     };
     setState(prev => ({ ...prev, contactData }));
     const clientId = await saveClientToDB(state.clientData, contactData);
@@ -498,10 +438,12 @@ export default function Chat() {
     setShowClientModal(false);
   };
 
-  // Funções globais para os botões no HTML
+  const openClientModal = () => {
+    setShowClientModal(true);
+  };
+
   useEffect(() => {
     window.handleShowDiscount = (yes) => {
-      // Placeholder
       addMessage('bot', yes ? 'Você escolheu ver os descontos!' : 'OK, mantemos preços cheios.', false);
     };
     window.tryVoucher = () => {
@@ -516,9 +458,7 @@ export default function Chat() {
         msgDiv.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido.</div>`;
       }
     };
-    window.openClientModal = () => {
-      openClientModal();
-    };
+    window.openClientModal = openClientModal;
   }, [state, configData]);
 
   if (!configLoaded) {
@@ -647,7 +587,6 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Estilos do chat e cards */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
