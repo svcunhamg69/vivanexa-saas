@@ -3,31 +3,11 @@ import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/router';
 import * as pricing from '../lib/pricing';
 
-// Dados iniciais (depois serão buscados do Supabase)
+// Configuração inicial (vazia, será preenchida pelo Supabase)
 let configData = {
-  plans: [
-    { id: 'basic',   name: 'Basic',   maxCnpjs: 25,  users: 1,  unlimited: false },
-    { id: 'pro',     name: 'Pro',     maxCnpjs: 80,  users: 1,  unlimited: false },
-    { id: 'top',     name: 'Top',     maxCnpjs: 150, users: 5,  unlimited: false },
-    { id: 'topplus', name: 'Top Plus',maxCnpjs: 999, users: 999, unlimited: true }
-  ],
-  productNames: {
-    'Gestão Fiscal': 'Gestão Fiscal',
-    'CND':           'CND',
-    'XML':           'XML',
-    'BIA':           'BIA',
-    'IF':            'Inteligência Fiscal',
-    'EP':            'e-PROCESSOS',
-    'Tributos':      'Tributos'
-  },
-  prices: {
-    'Gestão Fiscal': { basic: [478, 318], pro: [590, 409], top: [1032, 547], topplus: [1398, 679] },
-    'CND':           { basic: [0, 48],    pro: [0, 90],    top: [0, 150],    topplus: [0, 200]    },
-    'XML':           { basic: [478, 199], pro: [590, 299],  top: [1032, 349], topplus: [1398, 399] },
-    'BIA':           { basic: [478, 129], pro: [590, 169],  top: [1032, 280], topplus: [1398, 299] },
-    'IF':            { basic: [1600, 379], pro: [1600, 619], top: [1600, 920] },
-    'EP':            { basic: [0, 39],    pro: [0, 82],     top: [0, 167]    }
-  },
+  plans: [],
+  productNames: {},
+  prices: {},
   discAdPct: 50,
   discMenPct: 0,
   discClosePct: 40,
@@ -40,7 +20,7 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [stage, setStage] = useState('await_doc'); // estados do fluxo
+  const [stage, setStage] = useState('await_doc');
   const [state, setState] = useState({
     doc: null,
     clientData: null,
@@ -56,15 +36,78 @@ export default function Chat() {
     closingToday: null,
     appliedVoucher: null
   });
+  const [configLoaded, setConfigLoaded] = useState(false);
   const messagesEndRef = useRef(null);
   const router = useRouter();
 
+  // Verifica se o usuário está logado
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) router.push('/');
     });
   }, []);
 
+  // Carrega configurações do Supabase
+  useEffect(() => {
+    async function loadConfig() {
+      // 1. Planos
+      const { data: plansData, error: plansError } = await supabase
+        .from('plans')
+        .select('*');
+      if (!plansError && plansData) {
+        configData.plans = plansData.map(p => ({
+          id: p.internal_id,
+          name: p.name,
+          maxCnpjs: p.max_cnpjs,
+          users: p.max_users,
+          unlimited: p.unlimited
+        }));
+      }
+
+      // 2. Produtos e preços
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select(`
+          *,
+          prices (
+            plan_id,
+            adesao,
+            mensalidade
+          )
+        `);
+      if (!productsError && productsData) {
+        const prices = {};
+        const productNames = {};
+        for (const prod of productsData) {
+          const key = prod.internal_key;
+          productNames[key] = prod.name;
+          prices[key] = {};
+          for (const price of prod.prices) {
+            // Encontra o plano correspondente pelo internal_id
+            const plan = configData.plans.find(p => p.id === price.plan_id);
+            if (plan) {
+              prices[key][plan.id] = [price.adesao, price.mensalidade];
+            }
+          }
+        }
+        configData.prices = prices;
+        configData.productNames = productNames;
+      }
+
+      // 3. Vouchers
+      const { data: vouchersData, error: vouchersError } = await supabase
+        .from('vouchers')
+        .select('*');
+      if (!vouchersError && vouchersData) {
+        configData.vouchers = vouchersData;
+      }
+
+      setConfigLoaded(true);
+    }
+    loadConfig();
+  }, []);
+
+  // Rolagem automática
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -73,7 +116,7 @@ export default function Chat() {
     setMessages(prev => [...prev, { role, content, isHtml }]);
   };
 
-  // Função para renderizar os cards de preço (copiado do HTML)
+  // Renderização dos cards de preço (igual ao HTML original)
   const renderFullPriceOnly = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = '';
@@ -116,7 +159,7 @@ export default function Chat() {
         return { type: 'text', content: 'Por favor, informe o CPF ou CNPJ do cliente (somente números).' };
       }
       setState(prev => ({ ...prev, doc }));
-      // Simula dados do cliente (depois vai buscar no Supabase)
+      // Simula dados do cliente (depois integra com busca)
       const clientData = { nome: 'Empresa Teste', fantasia: 'Teste LTDA', cnpj: doc };
       setState(prev => ({ ...prev, clientData }));
       setStage('await_users');
@@ -135,13 +178,11 @@ export default function Chat() {
         return { type: 'text', content: `Quais módulos deseja incluir?\n(Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos)` };
       }
       setState(prev => ({ ...prev, modules: mods }));
-      // Verifica se precisa de CNPJs
       const needsCNPJ = mods.some(m => !['IF','Tributos','EP'].includes(m));
       if (needsCNPJ && !state.cnpjs) {
         setStage('await_cnpjs');
         return { type: 'text', content: 'Quantos CNPJs o cliente possui?' };
       }
-      // Se não precisar, avança
       return finalizeQuote();
     }
     if (stage === 'await_cnpjs') {
@@ -150,7 +191,6 @@ export default function Chat() {
       setState(prev => ({ ...prev, cnpjs }));
       return finalizeQuote();
     }
-    // Se precisar de IFPlan
     if (stage === 'await_if_plan') {
       const ifPlan = pricing.parseIFPlan(t, configData.plans);
       if (!ifPlan) return { type: 'text', content: `Informe o plano do IF: Basic, Pro ou Top` };
@@ -165,7 +205,6 @@ export default function Chat() {
     }
 
     async function finalizeQuote() {
-      // Determina o plano
       const needsCNPJ = state.modules.some(m => !['IF','Tributos','EP'].includes(m));
       let plan = null;
       if (needsCNPJ && state.cnpjs) {
@@ -185,7 +224,6 @@ export default function Chat() {
       return { type: 'html', content: renderFullPriceOnly(quoteData, dates) };
     }
 
-    // Fallback
     return { type: 'text', content: 'Não entendi. Pode repetir?' };
   };
 
@@ -199,6 +237,35 @@ export default function Chat() {
     setLoading(false);
     if (resp) addMessage('bot', resp.content, resp.type === 'html');
   };
+
+  // Expor funções para os botões gerados no HTML
+  useEffect(() => {
+    window.handleShowDiscount = (yes) => {
+      if (yes) {
+        // Chama lógica de desconto (a implementar)
+        addMessage('bot', 'Funcionalidade de desconto será implementada em breve.');
+      } else {
+        addMessage('bot', 'Sem problema!');
+      }
+    };
+    window.tryVoucher = () => {
+      const input = document.getElementById('voucherInput');
+      if (!input) return;
+      const code = input.value.trim();
+      const voucher = configData.vouchers.find(v => v.code.toUpperCase() === code.toUpperCase());
+      const msgDiv = document.getElementById('voucherMsg');
+      if (voucher) {
+        msgDiv.innerHTML = `<div class="voucher-msg ok">✅ Voucher ${code} aplicado!</div>`;
+        addMessage('bot', `Voucher aplicado: ${voucher.disc_ad_pct}% off na adesão e ${voucher.disc_men_pct}% off na mensalidade.`);
+      } else {
+        msgDiv.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido.</div>`;
+      }
+    };
+  }, [state, configData]);
+
+  if (!configLoaded) {
+    return <div style={{ textAlign: 'center', padding: '50px' }}>Carregando configurações...</div>;
+  }
 
   return (
     <div style={{ maxWidth: 820, margin: '0 auto', padding: '20px' }}>
@@ -240,7 +307,6 @@ export default function Chat() {
         </button>
       </div>
 
-      {/* Incluir os estilos do HTML original (copiados) */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
@@ -367,6 +433,22 @@ export default function Chat() {
           padding: 10px 14px;
           cursor: pointer;
           white-space: nowrap;
+        }
+        .voucher-msg {
+          font-size: 12px;
+          margin-top: 6px;
+          padding: 6px 10px;
+          border-radius: 8px;
+        }
+        .voucher-msg.ok {
+          background: rgba(16,185,129,.1);
+          color: #10b981;
+          border: 1px solid rgba(16,185,129,.2);
+        }
+        .voucher-msg.err {
+          background: rgba(239,68,68,.1);
+          color: #ef4444;
+          border: 1px solid rgba(239,68,68,.2);
         }
       `}</style>
     </div>
