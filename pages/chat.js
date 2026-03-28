@@ -90,7 +90,6 @@ export default function Chat() {
           productNames[key] = prod.name;
           prices[key] = {};
           for (const price of prod.prices) {
-            // Encontra o plano pelo id (precisa mapear)
             const plan = configData.plans.find(p => p.id === price.plan_id);
             if (plan) {
               prices[key][plan.id] = [price.adesao, price.mensalidade];
@@ -122,7 +121,21 @@ export default function Chat() {
     setMessages(prev => [...prev, { role, content, isHtml }]);
   };
 
-  // Renderização dos cards de preço (adaptado do HTML original)
+  // Renderização do card do cliente (igual ao HTML original)
+  const renderClientCard = (cd) => {
+    const endFormatado = [cd.logradouro, cd.bairro, cd.municipio && cd.uf ? cd.municipio + ' – ' + cd.uf : cd.municipio || cd.uf].filter(Boolean).join(', ');
+    const cepFmt = cd.cep ? cd.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2') : '';
+    return `<div class="client-card"><div class="cl-name">${cd.fantasia || cd.nome || pricing.fmtDoc(cd.cnpj)}</div>
+      ${cd.nome && cd.fantasia ? `<div class="client-row"><span class="cl-label">Razão Social</span><span class="cl-val">${cd.nome}</span></div>` : ''}
+      ${cd.cnpj ? `<div class="client-row"><span class="cl-label">CNPJ</span><span class="cl-val">${pricing.fmtDoc(cd.cnpj)}</span></div>` : ''}
+      ${endFormatado ? `<div class="client-row"><span class="cl-label">Endereço</span><span class="cl-val">${endFormatado}</span></div>` : ''}
+      ${cepFmt ? `<div class="client-row"><span class="cl-label">CEP</span><span class="cl-val">${cepFmt}</span></div>` : ''}
+      ${cd.telefone ? `<div class="client-row"><span class="cl-label">Telefone</span><span class="cl-val">${cd.telefone}</span></div>` : ''}
+      ${cd.email ? `<div class="client-row"><span class="cl-label">E-mail</span><span class="cl-val">${cd.email}</span></div>` : ''}
+    </div>`;
+  };
+
+  // Renderização dos cards de preço (como antes)
   const renderFullPriceOnly = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = '';
@@ -156,7 +169,34 @@ export default function Chat() {
     return html;
   };
 
-  // Processamento da mensagem
+  // Busca CNPJ na BrasilAPI e retorna dados formatados
+  async function fetchCNPJ(cnpj) {
+    try {
+      const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      const fone = (d.ddd_telefone_1 || d.ddd_telefone_2 || '').replace(/\D/g, '');
+      const logr = (d.descricao_tipo_logradouro ? d.descricao_tipo_logradouro + ' ' : '') +
+                   (d.logradouro || '') + (d.numero && d.numero !== 'S/N' ? ' ' + d.numero : '') + (d.complemento ? ' – ' + d.complemento : '');
+      return {
+        nome: d.razao_social || '',
+        fantasia: d.nome_fantasia || d.razao_social || '',
+        email: d.email || '',
+        telefone: fone.length >= 10 ? `(${fone.slice(0,2)}) ${fone.slice(2)}` : '',
+        municipio: d.municipio || '',
+        uf: d.uf || '',
+        cep: d.cep?.replace(/\D/g, '') || '',
+        logradouro: logr.trim(),
+        bairro: d.bairro || '',
+        cnpj,
+        tipo: 'PJ'
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Processamento da mensagem (agora com busca CNPJ real)
   const processInput = async (text) => {
     const t = text.trim(), low = t.toLowerCase();
 
@@ -166,11 +206,24 @@ export default function Chat() {
         return { type: 'text', content: 'Por favor, informe o CPF ou CNPJ do cliente (somente números).' };
       }
       setState(prev => ({ ...prev, doc }));
-      // Simula dados do cliente (depois vai buscar no Supabase)
-      const clientData = { nome: 'Empresa Teste', fantasia: 'Teste LTDA', cnpj: doc };
+      // Tenta buscar na BrasilAPI se for CNPJ
+      let clientData = null;
+      if (pricing.isCNPJ(doc)) {
+        setLoading(true);
+        clientData = await fetchCNPJ(doc);
+        setLoading(false);
+      }
+      if (!clientData) {
+        clientData = { nome: 'Cliente PF', fantasia: '', cnpj: doc, tipo: pricing.isCPF(doc) ? 'PF' : 'PJ' };
+      }
       setState(prev => ({ ...prev, clientData }));
       setStage('await_users');
-      return { type: 'html', content: `<div>${clientData.nome}</div><div style="margin-top:10px">Quantos <strong>usuários</strong> ele possui atualmente?</div>` };
+      const cardHtml = renderClientCard(clientData);
+      const src = clientData.fromDB ? '<small style="color:var(--accent3);font-size:11px">(base local)</small>' : '';
+      return {
+        type: 'html',
+        content: `${cardHtml}<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ ${clientData.nome || 'Cliente'}${src}<br><br>Quantos <strong style="color:var(--text)">usuários</strong> ele possui atualmente?</div>`
+      };
     }
 
     if (stage === 'await_users') {
@@ -187,13 +240,11 @@ export default function Chat() {
         return { type: 'text', content: `Quais módulos deseja incluir?\n(Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos)` };
       }
       setState(prev => ({ ...prev, modules: mods }));
-      // Verifica se precisa de CNPJs
       const needsCNPJ = mods.some(m => !['IF','Tributos','EP'].includes(m));
       if (needsCNPJ && !state.cnpjs) {
         setStage('await_cnpjs');
         return { type: 'text', content: 'Quantos CNPJs o cliente possui?' };
       }
-      // Se não precisar, avança
       return finalizeQuote();
     }
 
@@ -218,7 +269,6 @@ export default function Chat() {
       return finalizeQuote();
     }
 
-    // Função auxiliar que finaliza a cotação
     async function finalizeQuote() {
       const needsCNPJ = state.modules.some(m => !['IF','Tributos','EP'].includes(m));
       let plan = null;
@@ -253,6 +303,68 @@ export default function Chat() {
     if (resp) addMessage('bot', resp.content, resp.type === 'html');
   };
 
+  // Função para salvar o cliente no Supabase (será chamada ao gerar proposta)
+  const saveClientToDB = async (clientData, contactData) => {
+    // Verifica se já existe pelo doc
+    const { data: existing } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('doc', clientData.cnpj)
+      .single();
+    if (existing) {
+      // Atualiza
+      const { error } = await supabase
+        .from('clients')
+        .update({
+          fantasia: clientData.fantasia,
+          razao: clientData.nome,
+          contato: contactData.contato,
+          email: contactData.email || clientData.email,
+          telefone: contactData.telefone || clientData.telefone,
+          cidade: contactData.cidade || clientData.municipio,
+          uf: contactData.uf || clientData.uf,
+          cpf_contato: contactData.cpfContato,
+          regime: contactData.regime,
+          rimp_nome: contactData.rimpNome,
+          rimp_email: contactData.rimpEmail,
+          rimp_telefone: contactData.rimpTel,
+          rfin_nome: contactData.rfinNome,
+          rfin_email: contactData.rfinEmail,
+          rfin_telefone: contactData.rfinTel,
+          updated_at: new Date()
+        })
+        .eq('id', existing.id);
+      if (error) console.error(error);
+      return existing.id;
+    } else {
+      // Insere
+      const { data, error } = await supabase
+        .from('clients')
+        .insert({
+          doc: clientData.cnpj,
+          fantasia: clientData.fantasia,
+          razao: clientData.nome,
+          contato: contactData.contato,
+          email: contactData.email || clientData.email,
+          telefone: contactData.telefone || clientData.telefone,
+          cidade: contactData.cidade || clientData.municipio,
+          uf: contactData.uf || clientData.uf,
+          cpf_contato: contactData.cpfContato,
+          regime: contactData.regime,
+          rimp_nome: contactData.rimpNome,
+          rimp_email: contactData.rimpEmail,
+          rimp_telefone: contactData.rimpTel,
+          rfin_nome: contactData.rfinNome,
+          rfin_email: contactData.rfinEmail,
+          rfin_telefone: contactData.rfinTel,
+          created_at: new Date()
+        })
+        .select('id');
+      if (error) console.error(error);
+      return data?.[0]?.id;
+    }
+  };
+
   // Funções expostas para os botões no HTML
   useEffect(() => {
     window.handleShowDiscount = (yes) => {
@@ -271,6 +383,11 @@ export default function Chat() {
       } else {
         msgDiv.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido.</div>`;
       }
+    };
+    // Expor também a função de abrir modal de cliente (para gerar proposta)
+    window.openClientModal = () => {
+      // Mostrar modal (simplificado por enquanto)
+      alert('Funcionalidade de gerar proposta será implementada em breve.');
     };
   }, [state, configData]);
 
@@ -318,7 +435,7 @@ export default function Chat() {
         </button>
       </div>
 
-      {/* Estilos copiados do HTML original */}
+      {/* Estilos (mesmos de antes) */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
@@ -461,6 +578,37 @@ export default function Chat() {
           padding: 6px 10px;
           border-radius: 8px;
           margin-top: 6px;
+        }
+        .client-card {
+          background: linear-gradient(135deg,rgba(0,212,255,.08),rgba(0,212,255,.02));
+          border: 1px solid rgba(0,212,255,.2);
+          border-radius: 12px;
+          padding: 15px 18px;
+          margin: 4px 0;
+          font-size: 14px;
+        }
+        .cl-name {
+          font-family: 'Syne',sans-serif;
+          font-size: 16px;
+          font-weight: 700;
+          color: #00d4ff;
+          margin-bottom: 10px;
+        }
+        .client-row {
+          display: flex;
+          gap: 8px;
+          padding: 3px 0;
+          align-items: flex-start;
+        }
+        .cl-label {
+          color: #64748b;
+          min-width: 90px;
+          flex-shrink: 0;
+          font-size: 13px;
+        }
+        .cl-val {
+          color: #e2e8f0;
+          font-size: 13px;
         }
       `}</style>
     </div>
