@@ -48,7 +48,7 @@ export default function Dashboard() {
       .select('*');
     if (!goalsError) setGoals(goalsData || []);
 
-    // Buscar usuários (vendedores com role = 'user')
+    // Buscar usuários (apenas vendedores com role = 'user')
     const { data: usersData, error: usersError } = await supabase
       .from('profiles')
       .select('id, name, role')
@@ -85,7 +85,25 @@ export default function Dashboard() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: 20 }}>
-      <h1>Dashboard de Vendas</h1>
+      {/* Cabeçalho com botão de voltar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h1>Dashboard de Vendas</h1>
+        <button
+          onClick={() => router.push('/chat')}
+          style={{
+            padding: '8px 16px',
+            background: '#00d4ff',
+            border: 'none',
+            borderRadius: 8,
+            color: '#000',
+            cursor: 'pointer',
+            fontWeight: 'bold'
+          }}
+        >
+          ← Voltar ao Chat
+        </button>
+      </div>
+
       <p>Período: {new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</p>
 
       {/* Cards de resumo */}
@@ -110,52 +128,58 @@ export default function Dashboard() {
 
       {/* Tabela de metas por vendedor */}
       <h2>Metas dos Vendedores</h2>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #1e2d4a' }}>
-              <th style={{ textAlign: 'left', padding: 12 }}>Vendedor</th>
-              <th style={{ textAlign: 'right', padding: 12 }}>Adesão (R$)</th>
-              <th style={{ textAlign: 'right', padding: 12 }}>Meta</th>
-              <th style={{ textAlign: 'right', padding: 12 }}>Mensalidade (R$)</th>
-              <th style={{ textAlign: 'right', padding: 12 }}>Meta</th>
-              <th style={{ textAlign: 'right', padding: 12 }}>Contratos</th>
-             </tr>
-          </thead>
-          <tbody>
-            {users.map(user => {
-              const real = salesByUser[user.id] || { ad: 0, men: 0, count: 0 };
-              const goal = getGoalForUser(user.id);
-              const adPct = goal.ad_meta > 0 ? Math.min(100, (real.ad / goal.ad_meta) * 100) : 0;
-              const menPct = goal.men_meta > 0 ? Math.min(100, (real.men / goal.men_meta) * 100) : 0;
-              return (
-                <tr key={user.id} style={{ borderBottom: '1px solid #1e2d4a' }}>
-                  <td style={{ padding: 12 }}>{user.name || user.id}</td>
-                  <td style={{ textAlign: 'right', padding: 12 }}>{fmt(real.ad)}</td>
-                  <td style={{ textAlign: 'right', padding: 12 }}>
-                    {goal.ad_meta > 0 && (
-                      <div style={{ background: '#1e2d4a', borderRadius: 4, marginTop: 4 }}>
-                        <div style={{ width: `${adPct}%`, background: '#10b981', height: 4, borderRadius: 4 }}></div>
-                      </div>
-                    )}
-                    {fmt(goal.ad_meta)}
-                  </td>
-                  <td style={{ textAlign: 'right', padding: 12 }}>{fmt(real.men)}</td>
-                  <td style={{ textAlign: 'right', padding: 12 }}>
-                    {goal.men_meta > 0 && (
-                      <div style={{ background: '#1e2d4a', borderRadius: 4, marginTop: 4 }}>
-                        <div style={{ width: `${menPct}%`, background: '#fbbf24', height: 4, borderRadius: 4 }}></div>
-                      </div>
-                    )}
-                    {fmt(goal.men_meta)}
-                  </td>
-                  <td style={{ textAlign: 'right', padding: 12 }}>{real.count} / {goal.contracts_meta}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {users.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
+          Nenhum vendedor cadastrado ainda. Crie usuários com perfil 'user' na tabela profiles.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #1e2d4a' }}>
+                <th style={{ textAlign: 'left', padding: 12 }}>Vendedor</th>
+                <th style={{ textAlign: 'right', padding: 12 }}>Adesão (R$)</th>
+                <th style={{ textAlign: 'right', padding: 12 }}>Meta</th>
+                <th style={{ textAlign: 'right', padding: 12 }}>Mensalidade (R$)</th>
+                <th style={{ textAlign: 'right', padding: 12 }}>Meta</th>
+                <th style={{ textAlign: 'right', padding: 12 }}>Contratos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(user => {
+                const real = salesByUser[user.id] || { ad: 0, men: 0, count: 0 };
+                const goal = getGoalForUser(user.id);
+                const adPct = goal.ad_meta > 0 ? Math.min(100, (real.ad / goal.ad_meta) * 100) : 0;
+                const menPct = goal.men_meta > 0 ? Math.min(100, (real.men / goal.men_meta) * 100) : 0;
+                return (
+                  <tr key={user.id} style={{ borderBottom: '1px solid #1e2d4a' }}>
+                    <td style={{ padding: 12 }}>{user.name || user.id}</td>
+                    <td style={{ textAlign: 'right', padding: 12 }}>{fmt(real.ad)}</td>
+                    <td style={{ textAlign: 'right', padding: 12 }}>
+                      {goal.ad_meta > 0 && (
+                        <div style={{ background: '#1e2d4a', borderRadius: 4, marginTop: 4 }}>
+                          <div style={{ width: `${adPct}%`, background: '#10b981', height: 4, borderRadius: 4 }}></div>
+                        </div>
+                      )}
+                      {fmt(goal.ad_meta)}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: 12 }}>{fmt(real.men)}</td>
+                    <td style={{ textAlign: 'right', padding: 12 }}>
+                      {goal.men_meta > 0 && (
+                        <div style={{ background: '#1e2d4a', borderRadius: 4, marginTop: 4 }}>
+                          <div style={{ width: `${menPct}%`, background: '#fbbf24', height: 4, borderRadius: 4 }}></div>
+                        </div>
+                      )}
+                      {fmt(goal.men_meta)}
+                    </td>
+                    <td style={{ textAlign: 'right', padding: 12 }}>{real.count} / {goal.contracts_meta}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
