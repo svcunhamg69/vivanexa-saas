@@ -3,14 +3,15 @@ import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/router';
 import * as pricing from '../lib/pricing';
 
+// Configuração inicial – será preenchida do banco
 let configData = {
   plans: [],
   productNames: {},
   prices: {},
-  discAdPct: 50,
-  discMenPct: 0,
-  discClosePct: 40,
-  discMode: 'screen',
+  discAdPct: 50,          // desconto padrão na adesão (tela)
+  discMenPct: 0,          // desconto padrão na mensalidade (tela)
+  discClosePct: 40,       // desconto de fechamento (adesão)
+  discMode: 'screen',     // 'screen' ou 'voucher'
   unlimitedStrategy: true,
   vouchers: []
 };
@@ -30,7 +31,8 @@ export default function Chat() {
     plan: null,
     ifPlan: null,
     notas: null,
-    quoteData: null,
+    quoteData: null,           // dados da cotação sem desconto (full price)
+    quoteDataDisc: null,       // dados da cotação com desconto padrão
     closingData: null,
     closingToday: null,
     appliedVoucher: null
@@ -39,22 +41,30 @@ export default function Chat() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [generatedProposalHtml, setGeneratedProposalHtml] = useState('');
   const [showProposalModal, setShowProposalModal] = useState(false);
+  const [generatedContractHtml, setGeneratedContractHtml] = useState('');
+  const [showContractModal, setShowContractModal] = useState(false);
   const messagesEndRef = useRef(null);
   const router = useRouter();
 
+  // Verifica se o usuário está logado
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) router.push('/');
     });
   }, []);
 
+  // Rola para a última mensagem
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Carrega planos, produtos, preços e vouchers do Supabase
   useEffect(() => {
     async function loadConfig() {
-      const { data: plansData, error: plansError } = await supabase.from('plans').select('*');
+      // 1. Planos
+      const { data: plansData, error: plansError } = await supabase
+        .from('plans')
+        .select('*');
       if (!plansError && plansData) {
         configData.plans = plansData.map(p => ({
           id: p.internal_id,
@@ -63,10 +73,21 @@ export default function Chat() {
           users: p.max_users,
           unlimited: p.unlimited
         }));
+      } else {
+        console.error('Erro ao carregar planos:', plansError);
       }
+
+      // 2. Produtos e preços
       const { data: productsData, error: productsError } = await supabase
         .from('products')
-        .select(`*, prices (plan_id, adesao, mensalidade)`);
+        .select(`
+          *,
+          prices (
+            plan_id,
+            adesao,
+            mensalidade
+          )
+        `);
       if (!productsError && productsData) {
         const prices = {};
         const productNames = {};
@@ -76,14 +97,27 @@ export default function Chat() {
           prices[key] = {};
           for (const price of prod.prices) {
             const plan = configData.plans.find(p => p.id === price.plan_id);
-            if (plan) prices[key][plan.id] = [price.adesao, price.mensalidade];
+            if (plan) {
+              prices[key][plan.id] = [price.adesao, price.mensalidade];
+            }
           }
         }
         configData.prices = prices;
         configData.productNames = productNames;
+      } else {
+        console.error('Erro ao carregar produtos:', productsError);
       }
-      const { data: vouchersData, error: vouchersError } = await supabase.from('vouchers').select('*');
-      if (!vouchersError && vouchersData) configData.vouchers = vouchersData;
+
+      // 3. Vouchers
+      const { data: vouchersData, error: vouchersError } = await supabase
+        .from('vouchers')
+        .select('*');
+      if (!vouchersError && vouchersData) {
+        configData.vouchers = vouchersData;
+      } else {
+        console.error('Erro ao carregar vouchers:', vouchersError);
+      }
+
       setConfigLoaded(true);
     }
     loadConfig();
@@ -93,6 +127,7 @@ export default function Chat() {
     setMessages(prev => [...prev, { role, content, isHtml }]);
   };
 
+  // Renderização do card do cliente
   const renderClientCard = (cd) => {
     const endFormatado = [cd.logradouro, cd.bairro, cd.municipio && cd.uf ? cd.municipio + ' – ' + cd.uf : cd.municipio || cd.uf].filter(Boolean).join(', ');
     const cepFmt = cd.cep ? cd.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2') : '';
@@ -106,6 +141,7 @@ export default function Chat() {
     </div>`;
   };
 
+  // Renderização dos cards de preço (versão cheia)
   const renderFullPriceOnly = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = '';
@@ -136,13 +172,79 @@ export default function Chat() {
     }
     html += `<div class="section-label">Próximos vencimentos</div>
       <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
+    // Botão para gerar proposta
     html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta</button></div>`;
     return html;
   };
 
-  const renderWithDiscount = (data, dates, clientName) => `<div>Desconto – em breve</div>`;
-  const renderClosingResult = (data, dates) => `<div>Fechamento – em breve</div>`;
+  // Renderização dos cards com desconto padrão
+  const renderWithDiscount = (data, dates, clientName) => {
+    const { results, tAd, tMen, tAdD, tMenD } = data;
+    let html = '';
+    for (const r of results) {
+      html += `<div class="price-card"><h4>🔹 ${r.name}</h4>`;
+      if (!r.isTributos && !r.isEP) html += `<div class="price-row"><span class="label">Adesão</span><span class="val">${pricing.fmt(r.ad)}</span></div>`;
+      html += `<div class="price-row"><span class="label">Mensalidade</span><span class="val">${pricing.fmt(r.men)}</span></div>`;
+      html += `<hr class="section-divider">`;
+      if (!r.isTributos && !r.isEP) html += `<div class="price-row"><span class="label">Valor de Tabela</span><span class="val discount">${pricing.fmt(r.adD)}</span></div>`;
+      html += `<div class="price-row"><span class="label">Mensalidade c/ desconto</span><span class="val discount">${pricing.fmt(r.menD)}</span></div>`;
+      html += `</div>`;
+    }
+    html += `<div class="price-card"><h4>🔸 Total</h4>
+      <div class="price-row"><span class="label">Adesão total</span><span class="val">${pricing.fmt(tAd)}</span></div>
+      <div class="price-row"><span class="label">Mensalidade total</span><span class="val">${pricing.fmt(tMen)}</span></div>
+      <hr class="section-divider">
+      <div class="price-row"><span class="label">Adesão — Valor de Tabela</span><span class="val discount">${pricing.fmt(tAdD)}</span></div>
+      <div class="price-row"><span class="label">Mensalidade — Valor de Tabela</span><span class="val discount">${pricing.fmt(tMenD)}</span></div>
+    </div>`;
 
+    // OPP BANNER
+    html += `<div class="opp-banner">
+      <div class="opp-title">🔥 Oportunidade de Negociação</div>
+      <div class="opp-body">
+        <strong style="color:var(--gold)">${clientName}</strong> pode fechar agora com condições ainda melhores:<br>
+        • Adesão com <strong style="color:var(--gold)">${configData.discClosePct}% OFF</strong> sobre o valor base<br>
+        • Mensalidade calculada por CNPJ ativo<br>
+        ${configData.unlimitedStrategy ? `• <span class="unlimited-badge">♾ Usuários Ilimitados</span><br>` : ''}<br>
+        Oferta válida somente até as <strong style="color:var(--gold)">18h de hoje</strong>.
+      </div>
+      <div class="yn-row">
+        <button class="yn-btn yes" onclick="window.handleClosingToday(true)">✅ Sim, fechar hoje!</button>
+        <button class="yn-btn no" onclick="window.handleClosingToday(false)">Não por agora</button>
+      </div>
+    </div>`;
+
+    html += `<div class="section-label">Próximos vencimentos</div>
+      <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
+    return html;
+  };
+
+  // Renderização do fechamento (desconto extra)
+  const renderClosingResult = (data, dates) => {
+    const { results, tAd, tMen } = data;
+    let html = `<div class="timer-card">
+      <div class="timer-label">⏱ Oferta válida até as 18h de hoje</div>
+      <div class="timer-display" id="timerDisplay">--:--:--</div>
+      <div class="timer-sub">Após este horário retornam os valores com desconto padrão</div>
+    </div>`;
+    for (const r of results) {
+      html += `<div class="price-card"><h4>🔹 ${r.name}</h4>`;
+      if (!r.isTributos && !r.isEP) html += `<div class="price-row"><span class="label">Adesão (fechamento)</span><span class="val closing">${pricing.fmt(r.ad)}</span></div>`;
+      html += `<div class="price-row"><span class="label">Mensalidade</span><span class="val closing">${pricing.fmt(r.men)}</span></div>`;
+      html += `</div>`;
+    }
+    html += `<div class="price-card"><h4>🔸 Total – Fechamento</h4>
+      <div class="price-row"><span class="label">Adesão total</span><span class="val closing">${pricing.fmt(tAd)}</span></div>
+      <div class="price-row"><span class="label">Mensalidade total</span><span class="val closing">${pricing.fmt(tMen)}</span></div>
+    </div>`;
+    html += `<div class="section-label">Próximos vencimentos</div>
+      <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
+    // Botão para gerar contrato
+    html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openContractModal()">📝 Gerar Contrato</button></div>`;
+    return html;
+  };
+
+  // Busca CNPJ na BrasilAPI
   async function fetchCNPJ(cnpj) {
     try {
       const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
@@ -169,8 +271,9 @@ export default function Chat() {
     }
   }
 
+  // Processamento da mensagem (inclui desconto e fechamento)
   const processInput = async (text) => {
-    const t = text.trim();
+    const t = text.trim(), low = t.toLowerCase();
 
     if (stage === 'await_doc') {
       const doc = pricing.cleanDoc(t);
@@ -184,11 +287,16 @@ export default function Chat() {
         clientData = await fetchCNPJ(doc);
         setLoading(false);
       }
-      if (!clientData) clientData = { nome: 'Cliente PF', fantasia: '', cnpj: doc, tipo: pricing.isCPF(doc) ? 'PF' : 'PJ' };
+      if (!clientData) {
+        clientData = { nome: 'Cliente PF', fantasia: '', cnpj: doc, tipo: pricing.isCPF(doc) ? 'PF' : 'PJ' };
+      }
       setState(prev => ({ ...prev, clientData }));
       setStage('await_users');
       const cardHtml = renderClientCard(clientData);
-      return { type: 'html', content: `${cardHtml}<div style="margin-top:10px;font-size:14px;color:#64748b">✅ ${clientData.nome || 'Cliente'}<br><br>Quantos <strong>usuários</strong> ele possui atualmente?</div>` };
+      return {
+        type: 'html',
+        content: `${cardHtml}<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ ${clientData.nome || 'Cliente'}<br><br>Quantos <strong style="color:var(--text)">usuários</strong> ele possui atualmente?</div>`
+      };
     }
 
     if (stage === 'await_users') {
@@ -236,8 +344,12 @@ export default function Chat() {
 
     async function finalizeQuote() {
       const needsCNPJ = state.modules.some(m => !['IF','Tributos','EP'].includes(m));
-      let plan = 'basic';
-      if (needsCNPJ && state.cnpjs) plan = pricing.getPlan(state.cnpjs, configData.plans);
+      let plan = null;
+      if (needsCNPJ && state.cnpjs) {
+        plan = pricing.getPlan(state.cnpjs, configData.plans);
+      } else {
+        plan = 'basic';
+      }
       setState(prev => ({ ...prev, plan }));
       const quoteData = pricing.calcQuoteFullPrice(state.modules, plan, state.ifPlan, state.cnpjs, state.notas, {
         prices: configData.prices,
@@ -264,6 +376,71 @@ export default function Chat() {
     if (resp) addMessage('bot', resp.content, resp.type === 'html');
   };
 
+  // Função para mostrar os preços com desconto padrão
+  const handleShowDiscount = (yes) => {
+    if (yes) {
+      const quoteDataDisc = pricing.calcQuoteWithDiscount(state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
+        discAdPct: configData.discAdPct,
+        discMenPct: configData.discMenPct,
+        unlimitedStrategy: configData.unlimitedStrategy,
+        prices: configData.prices,
+        plans: configData.plans,
+        productNames: configData.productNames
+      });
+      setState(prev => ({ ...prev, quoteDataDisc }));
+      setStage('discounted');
+      const dates = pricing.getNextDates();
+      addMessage('bot', renderWithDiscount(quoteDataDisc, dates, state.clientData?.fantasia || state.clientData?.nome || 'Cliente'), true);
+    } else {
+      setStage('discounted_no'); // apenas mostra proposta direto
+      addMessage('bot', 'Sem problemas! 😊', false);
+      setTimeout(() => addMessage('bot', 'Clique no botão "📄 Gerar Proposta" para gerar sua proposta comercial.', false), 500);
+    }
+  };
+
+  // Função para fechar com desconto extra
+  const handleClosingToday = (yes) => {
+    if (yes) {
+      const closingData = pricing.calcClosing(state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
+        discClosePct: configData.discClosePct,
+        unlimitedStrategy: configData.unlimitedStrategy,
+        prices: configData.prices,
+        plans: configData.plans,
+        productNames: configData.productNames
+      });
+      setState(prev => ({ ...prev, closingData, closingToday: true }));
+      setStage('closing');
+      const dates = pricing.getNextDates();
+      addMessage('bot', renderClosingResult(closingData, dates), true);
+      // Iniciar timer visual
+      setTimeout(() => startTimer(), 200);
+    } else {
+      setStage('discounted');
+      addMessage('bot', 'OK, mantemos os valores com desconto padrão.', false);
+    }
+  };
+
+  // Timer para a oferta de fechamento
+  let timerInt = null;
+  const startTimer = () => {
+    if (timerInt) clearInterval(timerInt);
+    const deadline = new Date();
+    deadline.setHours(18, 0, 0, 0);
+    function tick() {
+      const el = document.getElementById('timerDisplay');
+      if (!el) { clearInterval(timerInt); return; }
+      const diff = deadline - new Date();
+      if (diff <= 0) { el.textContent = 'EXPIRADO'; el.style.color = '#64748b'; clearInterval(timerInt); return; }
+      const hh = Math.floor(diff / 3600000);
+      const mm = Math.floor((diff % 3600000) / 60000);
+      const ss = Math.floor((diff % 60000) / 1000);
+      el.textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    }
+    tick();
+    timerInt = setInterval(tick, 1000);
+  };
+
+  // Salva o cliente no Supabase
   const saveClientToDB = async (clientData, contactData) => {
     const { data: existing } = await supabase
       .from('clients')
@@ -322,14 +499,13 @@ export default function Chat() {
     }
   };
 
-  const generateProposalHtml = (clientData, contactData, quoteData, plan) => {
-    const isClosing = state.closingToday === true;
-    const results = quoteData.results;
-    const tAd = isClosing ? quoteData.tAd : quoteData.tAdD;
-    const tMen = isClosing ? quoteData.tMen : quoteData.tMenD;
+  // Gera o HTML da proposta (reaproveitando o formato original)
+  const generateProposalHtml = (clientData, contactData, quoteData, plan, isClosing = false) => {
     const today = new Date().toLocaleDateString('pt-BR');
     const validity = isClosing ? 'Válida até as 18h de hoje' : 'Válida por 7 dias';
-    const companyName = configData.productNames['company'] || 'Vivanexa';
+    const results = isClosing ? quoteData.results : quoteData.results;
+    const tAd = isClosing ? quoteData.tAd : quoteData.tAdD;
+    const tMen = isClosing ? quoteData.tMen : quoteData.tMenD;
 
     let rows = '';
     for (const r of results) {
@@ -346,9 +522,10 @@ export default function Chat() {
 
     const html = `
     <div style="background:#fff;font-family:'Inter',sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
+      <!-- HEADER -->
       <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px;text-align:center">
         <div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:6px">Proposta Comercial</div>
-        <div style="font-size:12px;color:#94a3b8">${companyName}</div>
+        <div style="font-size:12px;color:#94a3b8">${configData.productNames['empresa'] || 'Vivanexa'}</div>
       </div>
       <div style="padding:36px 44px">
         <p style="font-size:13px;color:#475569;margin-bottom:28px">Prezado(a) ${contactData.contato || clientData.fantasia || clientData.nome},</p>
@@ -375,77 +552,107 @@ export default function Chat() {
 
         <div style="margin-top:24px;font-size:12px;color:#64748b;text-align:center">
           Esta proposta é válida até ${validity}.<br>
-          ${companyName} – CNPJ 32.125.987/0001-67 – contato@vivanexa.com.br – (69) 98405-9125
+          ${configData.productNames['empresa'] || 'Vivanexa'} – CNPJ 32.125.987/0001-67 – contato@vivanexa.com.br – (69) 98405-9125
         </div>
       </div>
     </div>`;
     return html;
   };
 
-  const saveProposal = async (clientId, clientData, contactData) => {
-    if (!state.quoteData) {
-      console.error('quoteData não encontrado');
-      alert('Erro: Dados de cotação não disponíveis.');
-      return;
+  // Gera o HTML do contrato (simplificado, similar à proposta)
+  const generateContractHtml = (clientData, contactData, quoteData, plan, isClosing = false) => {
+    // Para contrato, usamos os mesmos dados mas com um título diferente
+    const html = generateProposalHtml(clientData, contactData, quoteData, plan, isClosing);
+    // Substitui o título
+    return html.replace('Proposta Comercial', 'Termo de Pedido e Registro de Software');
+  };
+
+  // Salva o documento no Supabase e exibe o modal
+  const saveDocument = async (clientId, clientData, contactData, docType, quoteData, isClosing = false) => {
+    let html = '';
+    if (docType === 'proposta') {
+      html = generateProposalHtml(clientData, contactData, quoteData, state.plan, isClosing);
+    } else {
+      html = generateContractHtml(clientData, contactData, quoteData, state.plan, isClosing);
     }
-    const html = generateProposalHtml(clientData, contactData, state.quoteData, state.plan);
     const signToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
     const { data, error } = await supabase
       .from('documents')
       .insert({
-        type: 'proposta',
+        type: docType,
         client_id: clientId,
         html: html,
         status: 'draft',
         sign_token: signToken,
         consultant_id: (await supabase.auth.getUser()).data.user?.id,
-        t_ad: state.quoteData.tAdD,
-        t_men: state.quoteData.tMenD,
+        t_ad: isClosing ? quoteData.tAd : quoteData.tAdD,
+        t_men: isClosing ? quoteData.tMen : quoteData.tMenD,
         created_at: new Date()
       })
       .select('id');
     if (error) {
-      console.error('Erro ao salvar proposta:', error);
-      alert('Erro ao salvar proposta. Verifique o console.');
-      return;
+      console.error(error);
+      alert('Erro ao salvar documento.');
+      return null;
     }
-    setGeneratedProposalHtml(html);
-    setShowProposalModal(true);
+    return { html, docId: data?.[0]?.id };
   };
 
-  const handleSaveClient = async (e) => {
-    e.preventDefault();
-    const contactData = {
-      contato: document.getElementById('clientName')?.value || '',
-      email: document.getElementById('clientEmail')?.value || '',
-      telefone: document.getElementById('clientPhone')?.value || '',
-      cidade: document.getElementById('clientCity')?.value || '',
-      uf: document.getElementById('clientUf')?.value || '',
-      cpfContato: document.getElementById('clientCpf')?.value || '',
-      regime: document.getElementById('clientRegime')?.value || '',
-      rimpNome: document.getElementById('rimpName')?.value || '',
-      rimpEmail: document.getElementById('rimpEmail')?.value || '',
-      rimpTel: document.getElementById('rimpPhone')?.value || '',
-      rfinNome: document.getElementById('rfinName')?.value || '',
-      rfinEmail: document.getElementById('rfinEmail')?.value || '',
-      rfinTel: document.getElementById('rfinPhone')?.value || '',
-    };
-    setState(prev => ({ ...prev, contactData }));
-    const clientId = await saveClientToDB(state.clientData, contactData);
-    if (clientId) {
-      await saveProposal(clientId, state.clientData, contactData);
-    }
-    setShowClientModal(false);
-  };
-
+  // Função chamada ao clicar em "Gerar Proposta"
   const openClientModal = () => {
     setShowClientModal(true);
   };
 
-  useEffect(() => {
-    window.handleShowDiscount = (yes) => {
-      addMessage('bot', yes ? 'Você escolheu ver os descontos!' : 'OK, mantemos preços cheios.', false);
+  // Função chamada ao clicar em "Gerar Contrato" (no banner de fechamento)
+  const openContractModal = () => {
+    setShowClientModal(true);
+    // Guardamos uma flag para depois gerar contrato em vez de proposta
+    window._generateContractAfter = true;
+  };
+
+  // Quando o usuário salva os dados do modal
+  const handleSaveClient = async (e) => {
+    e.preventDefault();
+    const contactData = {
+      contato: document.getElementById('clientName').value,
+      email: document.getElementById('clientEmail').value,
+      telefone: document.getElementById('clientPhone').value,
+      cidade: document.getElementById('clientCity').value,
+      uf: document.getElementById('clientUf').value,
+      cpfContato: document.getElementById('clientCpf').value,
+      regime: document.getElementById('clientRegime').value,
+      rimpNome: document.getElementById('rimpName').value,
+      rimpEmail: document.getElementById('rimpEmail').value,
+      rimpTel: document.getElementById('rimpPhone').value,
+      rfinNome: document.getElementById('rfinName').value,
+      rfinEmail: document.getElementById('rfinEmail').value,
+      rfinTel: document.getElementById('rfinPhone').value,
     };
+    setState(prev => ({ ...prev, contactData }));
+    const clientId = await saveClientToDB(state.clientData, contactData);
+    if (clientId) {
+      const isClosing = state.closingToday === true;
+      const docType = (window._generateContractAfter) ? 'contrato' : 'proposta';
+      const quoteData = isClosing ? state.closingData : (state.quoteDataDisc || state.quoteData);
+      const result = await saveDocument(clientId, state.clientData, contactData, docType, quoteData, isClosing);
+      if (result) {
+        if (docType === 'proposta') {
+          setGeneratedProposalHtml(result.html);
+          setShowProposalModal(true);
+        } else {
+          setGeneratedContractHtml(result.html);
+          setShowContractModal(true);
+        }
+      }
+    }
+    setShowClientModal(false);
+    window._generateContractAfter = false;
+  };
+
+  // Funções globais para os botões no HTML
+  useEffect(() => {
+    window.handleShowDiscount = (yes) => handleShowDiscount(yes);
+    window.handleClosingToday = (yes) => handleClosingToday(yes);
     window.tryVoucher = () => {
       const input = document.getElementById('voucherInput');
       if (!input) return;
@@ -454,11 +661,13 @@ export default function Chat() {
       const msgDiv = document.getElementById('voucherMsg');
       if (voucher) {
         msgDiv.innerHTML = `<div class="voucher-msg ok">✅ Voucher ${code} aplicado! (${voucher.disc_ad_pct}% off adesão, ${voucher.disc_men_pct}% off mensalidade)</div>`;
+        // Aqui aplicar desconto e recalcular
       } else {
         msgDiv.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido.</div>`;
       }
     };
-    window.openClientModal = openClientModal;
+    window.openClientModal = () => openClientModal();
+    window.openContractModal = () => openContractModal();
   }, [state, configData]);
 
   if (!configLoaded) {
@@ -507,7 +716,7 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Modal para dados do cliente */}
+      {/* Modal para dados do cliente (igual ao anterior) */}
       {showClientModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: '#111827', borderRadius: 16, padding: 24, maxWidth: 500, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
@@ -566,7 +775,7 @@ export default function Chat() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-                <button type="submit" style={{ flex: 1, padding: 10, borderRadius: 8, background: '#10b981', border: 'none', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>Salvar e Gerar Proposta</button>
+                <button type="submit" style={{ flex: 1, padding: 10, borderRadius: 8, background: '#10b981', border: 'none', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>Salvar e Gerar</button>
                 <button type="button" onClick={() => setShowClientModal(false)} style={{ padding: '10px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#64748b', cursor: 'pointer' }}>Cancelar</button>
               </div>
             </form>
@@ -587,6 +796,20 @@ export default function Chat() {
         </div>
       )}
 
+      {/* Modal para visualizar o contrato */}
+      {showContractModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, overflowY: 'auto', padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, overflow: 'hidden' }}>
+            <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => window.print()} style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}>🖨️ Imprimir</button>
+              <button onClick={() => setShowContractModal(false)} style={{ padding: '8px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#fff', cursor: 'pointer' }}>Fechar</button>
+            </div>
+            <div dangerouslySetInnerHTML={{ __html: generatedContractHtml }} />
+          </div>
+        </div>
+      )}
+
+      {/* Estilos do chat e cards (mesmos de antes) */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
@@ -611,6 +834,13 @@ export default function Chat() {
           font-weight: 600;
           font-size: 15px;
         }
+        .discount {
+          color: #10b981;
+        }
+        .closing {
+          color: #fbbf24;
+          font-weight: 700;
+        }
         .teaser-card {
           background: linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.03));
           border: 1px solid rgba(16,185,129,.3);
@@ -619,6 +849,52 @@ export default function Chat() {
           margin: 4px 0;
           position: relative;
           overflow: hidden;
+        }
+        .opp-banner {
+          background: linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04));
+          border: 1px solid rgba(251,191,36,.35);
+          border-radius: 12px;
+          padding: 16px 18px;
+          margin: 4px 0;
+          position: relative;
+          overflow: hidden;
+        }
+        .opp-title {
+          font-family: 'Syne',sans-serif;
+          font-weight: 700;
+          font-size: 15px;
+          color: #fbbf24;
+          margin-bottom: 8px;
+        }
+        .opp-body {
+          font-size: 14px;
+          color: #d4b96a;
+          line-height: 1.7;
+          margin-bottom: 12px;
+        }
+        .timer-card {
+          background: linear-gradient(135deg,rgba(239,68,68,.12),rgba(239,68,68,.04));
+          border: 1px solid rgba(239,68,68,.35);
+          border-radius: 12px;
+          padding: 16px 18px;
+          margin: 4px 0;
+          text-align: center;
+          position: relative;
+          overflow: hidden;
+        }
+        .timer-label {
+          font-size: 11px;
+          color: #64748b;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          margin-bottom: 6px;
+        }
+        .timer-display {
+          font-family: 'Syne',sans-serif;
+          font-size: 34px;
+          font-weight: 800;
+          color: #ef4444;
+          letter-spacing: 6px;
         }
         .teaser-title {
           font-family: 'Syne',sans-serif;
@@ -770,6 +1046,25 @@ export default function Chat() {
           font-weight: 600;
           cursor: pointer;
           margin-top: 8px;
+        }
+        .section-divider {
+          border: none;
+          border-top: 1px solid #1e2d4a;
+          margin: 10px 0;
+        }
+        .unlimited-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          background: linear-gradient(135deg,rgba(16,185,129,.2),rgba(16,185,129,.08));
+          border: 1px solid rgba(16,185,129,.4);
+          color: #10b981;
+          padding: 4px 12px;
+          border-radius: 20px;
+          font-size: 13px;
+          font-weight: 600;
+          letter-spacing: .5px;
+          white-space: nowrap;
         }
       `}</style>
     </>
