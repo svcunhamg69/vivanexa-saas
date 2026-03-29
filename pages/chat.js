@@ -295,7 +295,6 @@ export default function Chat() {
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace('/'); return }
-      // Buscar perfil do usuário
       const { data: profile } = await supabase
         .from('perfis')
         .select('*')
@@ -303,7 +302,6 @@ export default function Chat() {
         .single()
       const userName = profile?.nome || session.user.email?.split('@')[0] || 'Consultor'
       setUserProfile({ ...session.user, nome: userName, perfil: profile })
-      // Carregar configuração da empresa
       await loadCfg(profile?.empresa_id)
     })
     const { data: listener } = supabase.auth.onAuthStateChange((_e, session) => {
@@ -551,9 +549,13 @@ export default function Chat() {
   }
 
   // ══════════════════════════════════════════
-  // RENDER DAS MENSAGENS
+  // RENDER
   // ══════════════════════════════════════════
-  if (!userProfile) return <div style={{ background: '#0a0f1e', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontFamily: 'DM Mono, monospace' }}>Carregando...</div>
+  if (!userProfile) return (
+    <div style={{ background: '#0a0f1e', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontFamily: 'DM Mono, monospace' }}>
+      Carregando...
+    </div>
+  )
 
   return (
     <>
@@ -576,6 +578,44 @@ export default function Chat() {
           <h1>{cfg.company}</h1>
           <p>{cfg.slogan}</p>
         </div>
+
+        {/* ── NAVEGAÇÃO ── */}
+        <nav className="header-nav">
+          <button
+            className="nav-btn nav-btn--active"
+            onClick={() => router.push('/chat')}
+            title="Chat"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Chat
+          </button>
+          <button
+            className="nav-btn"
+            onClick={() => router.push('/dashboard')}
+            title="Dashboard"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+              <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+            </svg>
+            Dashboard
+          </button>
+          <button
+            className="nav-btn"
+            onClick={() => router.push('/configuracoes')}
+            title="Configurações"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+              <path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>
+            </svg>
+            Config.
+          </button>
+        </nav>
+
         <div className="status-dot">online</div>
         <div className="header-user">
           <span>{userProfile.nome}</span>
@@ -603,7 +643,6 @@ export default function Chat() {
               <div className="thinking"><span /><span /><span /></div>
             </div>
           )}
-          {/* Timer de fechamento */}
           {timerVal && (
             <div id="timerDisplay" className="timer-live">{timerVal}</div>
           )}
@@ -767,7 +806,15 @@ const CSS = `
   .header-logo img{height:44px;width:44px;object-fit:contain;border-radius:10px;flex-shrink:0}
   .header-text h1{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;letter-spacing:.5px}
   .header-text p{font-size:11px;color:var(--muted);margin-top:2px;letter-spacing:.5px}
-  .status-dot{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent3);letter-spacing:.5px}
+
+  /* ── NAV BUTTONS ── */
+  .header-nav{display:flex;align-items:center;gap:4px;margin-left:auto}
+  .nav-btn{display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:9px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;font-weight:500;cursor:pointer;transition:all .2s;letter-spacing:.3px;white-space:nowrap}
+  .nav-btn:hover{color:var(--accent);border-color:rgba(0,212,255,.35);background:rgba(0,212,255,.06)}
+  .nav-btn--active{color:var(--accent);border-color:rgba(0,212,255,.4);background:rgba(0,212,255,.1)}
+  .nav-btn svg{flex-shrink:0;opacity:.8}
+
+  .status-dot{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent3);letter-spacing:.5px}
   .status-dot::before{content:'';width:7px;height:7px;background:var(--accent3);border-radius:50%;box-shadow:0 0 8px var(--accent3);animation:pulse 2s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   .header-user{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px}
@@ -863,4 +910,10 @@ const CSS = `
   #userInput::placeholder{color:var(--muted)}
   .send-btn{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#0099bb);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s}
   .send-btn:hover{box-shadow:0 0 16px rgba(0,212,255,.4);transform:translateY(-1px)}
+
+  /* ── RESPONSIVO ── */
+  @media(max-width:600px){
+    .header-nav{order:3;width:100%;margin-left:0;margin-top:4px}
+    .nav-btn{flex:1;justify-content:center;padding:6px 10px}
+  }
 `
