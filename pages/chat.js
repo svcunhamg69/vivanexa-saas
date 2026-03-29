@@ -142,7 +142,7 @@ export default function Chat() {
     </div>`;
   };
 
-  // Renderização dos cards de preço (versão cheia)
+  // Renderização dos cards de preço (versão cheia) – agora com dois botões
   const renderFullPriceOnly = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = '';
@@ -181,7 +181,7 @@ export default function Chat() {
     return html;
   };
 
-  // Renderização com desconto
+  // Renderização com desconto – também com dois botões
   const renderWithDiscount = (data, dates, clientName) => {
     const { results, tAd, tMen, tAdD, tMenD } = data;
     let html = '';
@@ -226,7 +226,7 @@ export default function Chat() {
     return html;
   };
 
-  // Renderização do fechamento
+  // Renderização do fechamento – também com dois botões
   const renderClosingResult = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = `<div class="timer-card">
@@ -556,7 +556,7 @@ export default function Chat() {
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${state.cnpjs || '—'}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#10b981;font-weight:700;text-align:right">${pricing.fmt(menS)}</td>
-       </tr>`;
+      </tr>`;
     }
 
     const html = `
@@ -576,7 +576,7 @@ export default function Chat() {
             <th style="padding:10px 14px;text-align:center">Mensalidade</th>
             <th style="padding:10px 14px;text-align:center">CNPJs</th>
             <th style="padding:10px 14px;text-align:right">Total/mês</th>
-           </tr></thead>
+          </tr></thead>
           <tbody>${rows}</tbody>
           <tfoot>
             <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981;text-align:right">${pricing.fmt(tMen)}/mês</td></tr>
@@ -614,7 +614,7 @@ export default function Chat() {
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${state.cnpjs || '—'}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#10b981;font-weight:700;text-align:right">${pricing.fmt(menS)}</td>
-       </tr>`;
+      </tr>`;
     }
 
     const html = `
@@ -639,9 +639,7 @@ export default function Chat() {
         <div style="margin-bottom:24px">
           <div style="font-weight:700;margin-bottom:8px">3 – PLANO CONTRATADO E VALORES</div>
           <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
-            <thead><tr style="background:#f8fafc">
-              <th style="padding:10px 14px;text-align:left">Produto</th><th>Adesão</th><th>Mensalidade</th><th>CNPJs</th><th>Total/mês</th>
-             </tr></thead>
+            <thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Produto</th><th>Adesão</th><th>Mensalidade</th><th>CNPJs</th><th>Total/mês</th></tr></thead>
             <tbody>${rows}</tbody>
             <tfoot>
               <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981">${pricing.fmt(tMen)}/mês</td></tr>
@@ -918,7 +916,7 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Modal para visualizar o documento – COM BOTÕES WHATSAPP E E-MAIL */}
+      {/* Modal para visualizar o documento com botões de compartilhamento */}
       {showDocModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, display: 'flex', flexDirection: 'column', maxHeight: '90vh', height: 'auto' }}>
@@ -947,10 +945,9 @@ export default function Chat() {
                 <button
                   onClick={() => {
                     const link = `${window.location.origin}/sign/${currentDocumentToken}`;
-                    const clientEmail = state.contactData.email || '';
                     const subject = encodeURIComponent('Assinatura eletrônica de documento');
                     const body = encodeURIComponent(`Olá! Segue o link para assinar o documento: ${link}`);
-                    window.location.href = `mailto:${clientEmail}?subject=${subject}&body=${body}`;
+                    window.location.href = `mailto:?subject=${subject}&body=${body}`;
                   }}
                   style={{ padding: '8px 16px', borderRadius: 8, background: '#EA4335', border: 'none', color: '#fff', cursor: 'pointer' }}
                 >
@@ -973,7 +970,7 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Estilos */}
+      {/* Estilos (mesmos de antes) */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
