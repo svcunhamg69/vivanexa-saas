@@ -85,7 +85,6 @@ export default function Dashboard() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: 20 }}>
-      {/* Cabeçalho com botão de voltar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h1>Dashboard de Vendas</h1>
         <button
