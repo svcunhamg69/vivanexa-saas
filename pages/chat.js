@@ -13,7 +13,8 @@ let configData = {
   discClosePct: 40,
   discMode: 'screen',
   unlimitedStrategy: true,
-  vouchers: []
+  vouchers: [],
+  company: 'Vivanexa'  // será sobrescrito por dados da empresa depois
 };
 
 export default function Chat() {
@@ -31,16 +32,17 @@ export default function Chat() {
     plan: null,
     ifPlan: null,
     notas: null,
-    quoteData: null,          // dados do preço cheio
-    discountedData: null,     // dados com desconto (tela)
-    closingData: null,        // dados de fechamento
+    quoteData: null,
+    discountedData: null,
+    closingData: null,
     closingToday: null,
     appliedVoucher: null
   });
   const [configLoaded, setConfigLoaded] = useState(false);
   const [showClientModal, setShowClientModal] = useState(false);
-  const [generatedProposalHtml, setGeneratedProposalHtml] = useState('');
-  const [showProposalModal, setShowProposalModal] = useState(false);
+  const [generatedDocHtml, setGeneratedDocHtml] = useState('');
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [generateType, setGenerateType] = useState('proposta'); // 'proposta' ou 'contrato'
   const messagesEndRef = useRef(null);
   const router = useRouter();
 
@@ -116,6 +118,8 @@ export default function Chat() {
         console.error('Erro ao carregar vouchers:', vouchersError);
       }
 
+      // 4. Dados da empresa (tentar carregar de uma tabela "companies" ou usar padrão)
+      // Por enquanto, mantém o padrão "Vivanexa". Pode ser customizado depois.
       setConfigLoaded(true);
     }
     loadConfig();
@@ -139,7 +143,7 @@ export default function Chat() {
     </div>`;
   };
 
-  // Renderização dos cards de preço (versão cheia)
+  // Renderização dos cards de preço (versão cheia) – agora com dois botões
   const renderFullPriceOnly = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = '';
@@ -170,12 +174,15 @@ export default function Chat() {
     }
     html += `<div class="section-label">Próximos vencimentos</div>
       <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
-    // Botão para gerar proposta
-    html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta</button></div>`;
+    // Botões para gerar proposta e contrato
+    html += `<div style="display: flex; gap: 12px; margin-top: 12px;">
+      <button class="proposal-btn" onclick="window.openClientModal('proposta')" style="flex:1;">📄 Gerar Proposta</button>
+      <button class="proposal-btn" onclick="window.openClientModal('contrato')" style="flex:1; background: linear-gradient(135deg, #fbbf24, #b45309);">📝 Gerar Contrato</button>
+    </div>`;
     return html;
   };
 
-  // Renderização dos cards com desconto (tela)
+  // Renderização com desconto – também com dois botões
   const renderWithDiscount = (data, dates, clientName) => {
     const { results, tAd, tMen, tAdD, tMenD } = data;
     let html = '';
@@ -213,11 +220,14 @@ export default function Chat() {
     </div>`;
     html += `<div class="section-label">Próximos vencimentos</div>
       <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
-    html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta</button></div>`;
+    html += `<div style="display: flex; gap: 12px; margin-top: 12px;">
+      <button class="proposal-btn" onclick="window.openClientModal('proposta')" style="flex:1;">📄 Gerar Proposta</button>
+      <button class="proposal-btn" onclick="window.openClientModal('contrato')" style="flex:1; background: linear-gradient(135deg, #fbbf24, #b45309);">📝 Gerar Contrato</button>
+    </div>`;
     return html;
   };
 
-  // Renderização do fechamento
+  // Renderização do fechamento – também com dois botões
   const renderClosingResult = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = `<div class="timer-card">
@@ -238,7 +248,10 @@ export default function Chat() {
     </div>`;
     html += `<div class="section-label">Próximos vencimentos</div>
       <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
-    html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta</button></div>`;
+    html += `<div style="display: flex; gap: 12px; margin-top: 12px;">
+      <button class="proposal-btn" onclick="window.openClientModal('proposta')" style="flex:1;">📄 Gerar Proposta</button>
+      <button class="proposal-btn" onclick="window.openClientModal('contrato')" style="flex:1; background: linear-gradient(135deg, #fbbf24, #b45309);">📝 Gerar Contrato</button>
+    </div>`;
     // Inicia o timer (simples)
     setTimeout(() => {
       const deadline = new Date(); deadline.setHours(18,0,0,0);
@@ -393,7 +406,6 @@ export default function Chat() {
   // Funções para desconto e fechamento
   const showDiscount = (yes) => {
     if (yes) {
-      // Calcular com desconto padrão
       const discountedData = pricing.calcQuoteWithDiscount(
         state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
           discAdPct: configData.discAdPct,
@@ -410,11 +422,13 @@ export default function Chat() {
       const clientName = state.clientData?.fantasia || state.clientData?.nome || pricing.fmtDoc(state.doc);
       addMessage('bot', renderWithDiscount(discountedData, dates, clientName), true);
     } else {
-      // Mantém preços cheios
       setStage('closed');
       addMessage('bot', 'Sem problema! 😊');
       setTimeout(() => {
-        addMessage('bot', `<div style="margin-top: 8px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta (preço cheio)</button></div>`, true);
+        addMessage('bot', `<div style="margin-top: 8px; display: flex; gap: 12px;">
+          <button class="proposal-btn" onclick="window.openClientModal('proposta')" style="flex:1;">📄 Gerar Proposta (preço cheio)</button>
+          <button class="proposal-btn" onclick="window.openClientModal('contrato')" style="flex:1; background: linear-gradient(135deg, #fbbf24, #b45309);">📝 Gerar Contrato (preço cheio)</button>
+        </div>`, true);
       }, 500);
     }
   };
@@ -435,7 +449,6 @@ export default function Chat() {
       const dates = pricing.getNextDates();
       addMessage('bot', renderClosingResult(closingData, dates), true);
     } else {
-      // Fica no estágio de desconto normal
       addMessage('bot', 'OK, mantemos os valores com desconto padrão.', false);
     }
   };
@@ -448,7 +461,6 @@ export default function Chat() {
     const msgDiv = document.getElementById('voucherMsg');
     if (voucher) {
       msgDiv.innerHTML = `<div class="voucher-msg ok">✅ Voucher ${code} aplicado! (${voucher.disc_ad_pct}% off adesão, ${voucher.disc_men_pct}% off mensalidade)</div>`;
-      // Recalcula com desconto do voucher
       const discountedData = pricing.calcQuoteWithDiscount(
         state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
           discAdPct: voucher.disc_ad_pct,
@@ -528,14 +540,13 @@ export default function Chat() {
     }
   };
 
-  // Gera o HTML da proposta (reaproveitando o formato original)
-  const generateProposalHtml = (clientData, contactData, quoteData, plan, isClosing = false) => {
-    const results = isClosing ? quoteData.results : quoteData.results;
-    const tAd = isClosing ? quoteData.tAd : (state.discountedData ? state.discountedData.tAdD : quoteData.tAdD);
-    const tMen = isClosing ? quoteData.tMen : (state.discountedData ? state.discountedData.tMenD : quoteData.tMenD);
+  // Gera o HTML da proposta (igual ao anterior)
+  const generateProposalHtml = (clientData, contactData, dataToUse, isClosing = false) => {
+    const results = dataToUse.results;
+    const tAd = isClosing ? dataToUse.tAd : (state.discountedData ? state.discountedData.tAdD : dataToUse.tAdD);
+    const tMen = isClosing ? dataToUse.tMen : (state.discountedData ? state.discountedData.tMenD : dataToUse.tMenD);
     const today = new Date().toLocaleDateString('pt-BR');
     const validity = isClosing ? 'Válida até as 18h de hoje' : 'Válida por 7 dias';
-    // Monta as linhas da tabela de produtos
     let rows = '';
     for (const r of results) {
       const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : (state.discountedData ? r.adD : r.ad));
@@ -546,12 +557,11 @@ export default function Chat() {
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${state.cnpjs || '—'}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#10b981;font-weight:700;text-align:right">${pricing.fmt(menS)}</td>
-      </tr>`;
+       </tr>`;
     }
 
     const html = `
     <div style="background:#fff;font-family:'Inter',sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
-      <!-- HEADER -->
       <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px;text-align:center">
         <div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:6px">Proposta Comercial</div>
         <div style="font-size:12px;color:#94a3b8">${configData.company || 'Vivanexa'}</div>
@@ -567,7 +577,7 @@ export default function Chat() {
             <th style="padding:10px 14px;text-align:center">Mensalidade</th>
             <th style="padding:10px 14px;text-align:center">CNPJs</th>
             <th style="padding:10px 14px;text-align:right">Total/mês</th>
-          </tr></thead>
+           </tr></thead>
           <tbody>${rows}</tbody>
           <tfoot>
             <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981;text-align:right">${pricing.fmt(tMen)}/mês</td></tr>
@@ -588,16 +598,109 @@ export default function Chat() {
     return html;
   };
 
+  // Gera o HTML do contrato (baseado no original)
+  const generateContractHtml = (clientData, contactData, dataToUse, isClosing = false) => {
+    const results = dataToUse.results;
+    const tAd = isClosing ? dataToUse.tAd : (state.discountedData ? state.discountedData.tAdD : dataToUse.tAdD);
+    const tMen = isClosing ? dataToUse.tMen : (state.discountedData ? state.discountedData.tMenD : dataToUse.tMenD);
+    const today = new Date().toLocaleDateString('pt-BR');
+    const addr = [contactData.endereco, contactData.bairro, contactData.cidade, contactData.uf].filter(Boolean).join(', ');
+    let rows = '';
+    for (const r of results) {
+      const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : (state.discountedData ? r.adD : r.ad));
+      const menS = pricing.fmt(isClosing ? r.men : (state.discountedData ? r.menD : r.men));
+      rows += `<tr>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;font-weight:500">${r.name}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${adS}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${state.cnpjs || '—'}</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#10b981;font-weight:700;text-align:right">${pricing.fmt(menS)}</td>
+       </tr>`;
+    }
+
+    const html = `
+    <div style="background:#fff;font-family:'Inter',sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
+      <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px;text-align:center">
+        <div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:6px">Termo de Pedido e Registro de Software</div>
+        <div style="font-size:12px;color:#94a3b8">${configData.company || 'Vivanexa'}</div>
+      </div>
+      <div style="padding:36px 44px">
+        <p style="font-size:13px;color:#475569;margin-bottom:28px;padding:14px 18px;background:#f8fafc;border-left:3px solid #00d4ff">Confira os dados abaixo e assine eletronicamente.</p>
+
+        <div style="margin-bottom:24px">
+          <div style="font-weight:700;margin-bottom:8px">1 – CONTRATADA</div>
+          <div><strong>VIVANEXA DESENVOLVIMENTO E LICENCIAMENTO DE PROGRAMAS LTDA</strong><br>CNPJ 32.125.987/0001-67<br>Rua Dom Augusto, 1488, Sala D, Centro, Ji-Paraná RO, 76900-103<br>contato@vivanexa.com.br</div>
+        </div>
+
+        <div style="margin-bottom:24px">
+          <div style="font-weight:700;margin-bottom:8px">2 – CONTRATANTE</div>
+          <div><strong>${contactData.razao || clientData.nome || ''}</strong><br>CNPJ: ${pricing.fmtDoc(state.doc || '')}<br>Endereço: ${addr}<br>E-mail: ${contactData.email || clientData.email || ''}<br>Telefone: ${contactData.telefone || clientData.telefone || ''}<br>Contato: ${contactData.contato || ''}<br>CPF: ${contactData.cpfContato || ''}</div>
+        </div>
+
+        <div style="margin-bottom:24px">
+          <div style="font-weight:700;margin-bottom:8px">3 – PLANO CONTRATADO E VALORES</div>
+          <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+            <thead><tr style="background:#f8fafc">
+              <th style="padding:10px 14px;text-align:left">Produto</th><th>Adesão</th><th>Mensalidade</th><th>CNPJs</th><th>Total/mês</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+            <tfoot>
+              <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981">${pricing.fmt(tMen)}/mês</td></tr>
+              <tr style="background:#fffbeb"><td colspan="4" style="padding:10px 14px;font-weight:700">Adesão (único)</td><td style="padding:10px 14px;font-weight:700;color:#b45309">${pricing.fmt(tAd)}</td></tr>
+            </tfoot>
+          </table>
+          <div style="font-size:12px;color:#64748b">Validade: 12 meses. Renovação automática.</div>
+        </div>
+
+        <div style="margin-bottom:24px">
+          <div style="font-weight:700;margin-bottom:8px">4 – CONDIÇÕES DE PAGAMENTO</div>
+          <div>Adesão: a combinar. Primeira mensalidade: a combinar. Pagamento via boleto ou cartão.</div>
+        </div>
+
+        <div style="margin-bottom:24px;padding:12px;background:#f0f9ff;border-radius:8px">
+          <strong>Informações adicionais:</strong><br>
+          Regime Tributário: ${contactData.regime || '—'}<br>
+          Responsável pela implantação: ${contactData.rimpNome || '—'} (${contactData.rimpEmail || '—'}, ${contactData.rimpTel || '—'})<br>
+          Responsável financeiro: ${contactData.rfinNome || '—'} (${contactData.rfinEmail || '—'}, ${contactData.rfinTel || '—'})
+        </div>
+
+        <div style="margin-bottom:24px;font-size:12px;color:#475569">
+          <p>Este contrato é regido pela Lei nº 14.063/2020 e pela MP 2.200-2/2001, que estabelecem a validade jurídica das assinaturas eletrônicas. As partes declaram estar de acordo com os Termos de Uso e Política de Privacidade disponíveis em <a href="https://vivanexa.com.br/termos">vivanexa.com.br/termos</a>.</p>
+          <p>A rescisão antecipada implicará na cobrança de multa de 20% sobre o saldo remanescente.</p>
+        </div>
+
+        <div style="margin-top:44px;border-top:1px solid #e2e8f0;padding-top:24px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;text-align:center">
+            <div>
+              <div style="height:50px;border-bottom:1px solid #1e293b;margin-bottom:8px"></div>
+              <div><strong>${configData.company || 'Vivanexa'}</strong><br>Contratada</div>
+              <div style="font-size:11px;color:#94a3b8">Data: ${today}</div>
+            </div>
+            <div>
+              <div style="height:50px;border-bottom:1px solid #1e293b;margin-bottom:8px"></div>
+              <div><strong>${contactData.contato || clientData.fantasia || clientData.nome || 'Cliente'}</strong><br>Contratante</div>
+              <div style="font-size:11px;color:#94a3b8">CPF: ${contactData.cpfContato || '—'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="background:#f8fafc;padding:16px 44px;font-size:11px;color:#94a3b8;text-align:center">${configData.company || 'Vivanexa'} – www.vivanexa.com.br</div>
+    </div>`;
+    return html;
+  };
+
   // Salva o documento no Supabase e exibe o modal
-  const saveProposal = async (clientId, clientData, contactData) => {
+  const saveDocument = async (clientId, clientData, contactData, type) => {
     const isClosing = state.closingToday === true;
     const dataToUse = isClosing ? state.closingData : (state.discountedData || state.quoteData);
-    const html = generateProposalHtml(clientData, contactData, dataToUse, state.plan, isClosing);
+    const html = type === 'proposta'
+      ? generateProposalHtml(clientData, contactData, dataToUse, isClosing)
+      : generateContractHtml(clientData, contactData, dataToUse, isClosing);
     const signToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
     const { data, error } = await supabase
       .from('documents')
       .insert({
-        type: 'proposta',
+        type: type,
         client_id: clientId,
         html: html,
         status: 'draft',
@@ -610,15 +713,16 @@ export default function Chat() {
       .select('id');
     if (error) {
       console.error(error);
-      alert('Erro ao salvar proposta. Verifique o console.');
+      alert('Erro ao salvar documento. Verifique o console.');
       return;
     }
-    setGeneratedProposalHtml(html);
-    setShowProposalModal(true);
+    setGeneratedDocHtml(html);
+    setShowDocModal(true);
   };
 
-  // Função chamada ao clicar em "Gerar Proposta"
-  const openClientModal = () => {
+  // Função chamada ao clicar em "Gerar Proposta" ou "Gerar Contrato"
+  const openClientModal = (type) => {
+    setGenerateType(type);
     setShowClientModal(true);
   };
 
@@ -639,11 +743,14 @@ export default function Chat() {
       rfinNome: document.getElementById('rfinName').value,
       rfinEmail: document.getElementById('rfinEmail').value,
       rfinTel: document.getElementById('rfinPhone').value,
+      endereco: document.getElementById('clientEndereco')?.value || '',
+      bairro: document.getElementById('clientBairro')?.value || '',
+      razao: document.getElementById('clientRazao')?.value || '',
     };
     setState(prev => ({ ...prev, contactData }));
     const clientId = await saveClientToDB(state.clientData, contactData);
     if (clientId) {
-      await saveProposal(clientId, state.clientData, contactData);
+      await saveDocument(clientId, state.clientData, contactData, generateType);
     }
     setShowClientModal(false);
   };
@@ -706,8 +813,12 @@ export default function Chat() {
       {showClientModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: '#111827', borderRadius: 16, padding: 24, maxWidth: 500, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
-            <h2 style={{ color: '#00d4ff', marginBottom: 16 }}>Dados do Cliente</h2>
+            <h2 style={{ color: '#00d4ff', marginBottom: 16 }}>{generateType === 'proposta' ? 'Dados para a Proposta' : 'Dados para o Contrato'}</h2>
             <form onSubmit={handleSaveClient}>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Razão Social</label>
+                <input id="clientRazao" defaultValue={state.clientData?.nome || ''} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+              </div>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Nome do Contato *</label>
                 <input id="clientName" required style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
@@ -729,6 +840,14 @@ export default function Chat() {
                   <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>UF</label>
                   <input id="clientUf" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
                 </div>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Endereço</label>
+                <input id="clientEndereco" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Bairro</label>
+                <input id="clientBairro" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
               </div>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>CPF do Contato</label>
@@ -761,7 +880,7 @@ export default function Chat() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-                <button type="submit" style={{ flex: 1, padding: 10, borderRadius: 8, background: '#10b981', border: 'none', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>Salvar e Gerar Proposta</button>
+                <button type="submit" style={{ flex: 1, padding: 10, borderRadius: 8, background: '#10b981', border: 'none', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>Salvar e Gerar {generateType === 'proposta' ? 'Proposta' : 'Contrato'}</button>
                 <button type="button" onClick={() => setShowClientModal(false)} style={{ padding: '10px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#64748b', cursor: 'pointer' }}>Cancelar</button>
               </div>
             </form>
@@ -769,20 +888,20 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Modal para visualizar a proposta */}
-      {showProposalModal && (
+      {/* Modal para visualizar o documento */}
+      {showDocModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, overflowY: 'auto', padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, overflow: 'hidden' }}>
             <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button onClick={() => window.print()} style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}>🖨️ Imprimir</button>
-              <button onClick={() => setShowProposalModal(false)} style={{ padding: '8px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#fff', cursor: 'pointer' }}>Fechar</button>
+              <button onClick={() => setShowDocModal(false)} style={{ padding: '8px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#fff', cursor: 'pointer' }}>Fechar</button>
             </div>
-            <div dangerouslySetInnerHTML={{ __html: generatedProposalHtml }} />
+            <div dangerouslySetInnerHTML={{ __html: generatedDocHtml }} />
           </div>
         </div>
       )}
 
-      {/* Estilos do chat e cards */}
+      {/* Estilos (mesmos de antes) */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
@@ -807,12 +926,8 @@ export default function Chat() {
           font-weight: 600;
           font-size: 15px;
         }
-        .discount {
-          color: #10b981;
-        }
-        .closing {
-          color: #fbbf24;
-        }
+        .discount { color: #10b981; }
+        .closing { color: #fbbf24; }
         .teaser-card {
           background: linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.03));
           border: 1px solid rgba(16,185,129,.3);
@@ -869,7 +984,7 @@ export default function Chat() {
         }
         .timer-label {
           font-size: 11px;
-          color: var(--muted);
+          color: #64748b;
           letter-spacing: 1.5px;
           text-transform: uppercase;
           margin-bottom: 6px;
@@ -1012,7 +1127,6 @@ export default function Chat() {
           font-size: 13px;
         }
         .proposal-btn {
-          width: 100%;
           padding: 12px;
           border-radius: 10px;
           background: linear-gradient(135deg, #00d4ff, #0099bb);
