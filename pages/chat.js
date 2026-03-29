@@ -8,10 +8,10 @@ let configData = {
   plans: [],
   productNames: {},
   prices: {},
-  discAdPct: 50,          // desconto padrão na adesão (tela)
-  discMenPct: 0,          // desconto padrão na mensalidade (tela)
-  discClosePct: 40,       // desconto de fechamento (adesão)
-  discMode: 'screen',     // 'screen' ou 'voucher'
+  discAdPct: 50,
+  discMenPct: 0,
+  discClosePct: 40,
+  discMode: 'screen',
   unlimitedStrategy: true,
   vouchers: []
 };
@@ -31,9 +31,9 @@ export default function Chat() {
     plan: null,
     ifPlan: null,
     notas: null,
-    quoteData: null,           // dados da cotação sem desconto (full price)
-    quoteDataDisc: null,       // dados da cotação com desconto padrão
-    closingData: null,
+    quoteData: null,          // dados do preço cheio
+    discountedData: null,     // dados com desconto (tela)
+    closingData: null,        // dados de fechamento
     closingToday: null,
     appliedVoucher: null
   });
@@ -41,8 +41,6 @@ export default function Chat() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [generatedProposalHtml, setGeneratedProposalHtml] = useState('');
   const [showProposalModal, setShowProposalModal] = useState(false);
-  const [generatedContractHtml, setGeneratedContractHtml] = useState('');
-  const [showContractModal, setShowContractModal] = useState(false);
   const messagesEndRef = useRef(null);
   const router = useRouter();
 
@@ -177,7 +175,7 @@ export default function Chat() {
     return html;
   };
 
-  // Renderização dos cards com desconto padrão
+  // Renderização dos cards com desconto (tela)
   const renderWithDiscount = (data, dates, clientName) => {
     const { results, tAd, tMen, tAdD, tMenD } = data;
     let html = '';
@@ -190,7 +188,8 @@ export default function Chat() {
       html += `<div class="price-row"><span class="label">Mensalidade c/ desconto</span><span class="val discount">${pricing.fmt(r.menD)}</span></div>`;
       html += `</div>`;
     }
-    html += `<div class="price-card"><h4>🔸 Total</h4>
+    html += `<div class="price-card" style="border-color:rgba(0,212,255,.25)">
+      <h4>🔸 Total</h4>
       <div class="price-row"><span class="label">Adesão total</span><span class="val">${pricing.fmt(tAd)}</span></div>
       <div class="price-row"><span class="label">Mensalidade total</span><span class="val">${pricing.fmt(tMen)}</span></div>
       <hr class="section-divider">
@@ -205,7 +204,6 @@ export default function Chat() {
         <strong style="color:var(--gold)">${clientName}</strong> pode fechar agora com condições ainda melhores:<br>
         • Adesão com <strong style="color:var(--gold)">${configData.discClosePct}% OFF</strong> sobre o valor base<br>
         • Mensalidade calculada por CNPJ ativo<br>
-        ${configData.unlimitedStrategy ? `• <span class="unlimited-badge">♾ Usuários Ilimitados</span><br>` : ''}<br>
         Oferta válida somente até as <strong style="color:var(--gold)">18h de hoje</strong>.
       </div>
       <div class="yn-row">
@@ -213,13 +211,13 @@ export default function Chat() {
         <button class="yn-btn no" onclick="window.handleClosingToday(false)">Não por agora</button>
       </div>
     </div>`;
-
     html += `<div class="section-label">Próximos vencimentos</div>
       <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
+    html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta</button></div>`;
     return html;
   };
 
-  // Renderização do fechamento (desconto extra)
+  // Renderização do fechamento
   const renderClosingResult = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = `<div class="timer-card">
@@ -233,14 +231,30 @@ export default function Chat() {
       html += `<div class="price-row"><span class="label">Mensalidade</span><span class="val closing">${pricing.fmt(r.men)}</span></div>`;
       html += `</div>`;
     }
-    html += `<div class="price-card"><h4>🔸 Total – Fechamento</h4>
+    html += `<div class="price-card" style="border-color:rgba(251,191,36,.3)">
+      <h4 style="color:var(--gold)">🔸 Total – Fechamento</h4>
       <div class="price-row"><span class="label">Adesão total</span><span class="val closing">${pricing.fmt(tAd)}</span></div>
       <div class="price-row"><span class="label">Mensalidade total</span><span class="val closing">${pricing.fmt(tMen)}</span></div>
     </div>`;
     html += `<div class="section-label">Próximos vencimentos</div>
       <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
-    // Botão para gerar contrato
-    html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openContractModal()">📝 Gerar Contrato</button></div>`;
+    html += `<div style="margin-top: 12px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta</button></div>`;
+    // Inicia o timer (simples)
+    setTimeout(() => {
+      const deadline = new Date(); deadline.setHours(18,0,0,0);
+      const tick = () => {
+        const el = document.getElementById('timerDisplay');
+        if (!el) return;
+        const diff = deadline - new Date();
+        if (diff <= 0) { el.textContent = 'EXPIRADO'; clearInterval(interval); return; }
+        const hh = Math.floor(diff / 3600000);
+        const mm = Math.floor((diff % 3600000) / 60000);
+        const ss = Math.floor((diff % 60000) / 1000);
+        el.textContent = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+      };
+      tick();
+      const interval = setInterval(tick, 1000);
+    }, 100);
     return html;
   };
 
@@ -271,7 +285,7 @@ export default function Chat() {
     }
   }
 
-  // Processamento da mensagem (inclui desconto e fechamento)
+  // Processamento da mensagem
   const processInput = async (text) => {
     const t = text.trim(), low = t.toLowerCase();
 
@@ -376,68 +390,83 @@ export default function Chat() {
     if (resp) addMessage('bot', resp.content, resp.type === 'html');
   };
 
-  // Função para mostrar os preços com desconto padrão
-  const handleShowDiscount = (yes) => {
+  // Funções para desconto e fechamento
+  const showDiscount = (yes) => {
     if (yes) {
-      const quoteDataDisc = pricing.calcQuoteWithDiscount(state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
-        discAdPct: configData.discAdPct,
-        discMenPct: configData.discMenPct,
-        unlimitedStrategy: configData.unlimitedStrategy,
-        prices: configData.prices,
-        plans: configData.plans,
-        productNames: configData.productNames
-      });
-      setState(prev => ({ ...prev, quoteDataDisc }));
+      // Calcular com desconto padrão
+      const discountedData = pricing.calcQuoteWithDiscount(
+        state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
+          discAdPct: configData.discAdPct,
+          discMenPct: configData.discMenPct,
+          unlimitedStrategy: configData.unlimitedStrategy,
+          prices: configData.prices,
+          plans: configData.plans,
+          productNames: configData.productNames
+        }
+      );
+      setState(prev => ({ ...prev, discountedData, closingToday: false }));
       setStage('discounted');
       const dates = pricing.getNextDates();
-      addMessage('bot', renderWithDiscount(quoteDataDisc, dates, state.clientData?.fantasia || state.clientData?.nome || 'Cliente'), true);
+      const clientName = state.clientData?.fantasia || state.clientData?.nome || pricing.fmtDoc(state.doc);
+      addMessage('bot', renderWithDiscount(discountedData, dates, clientName), true);
     } else {
-      setStage('discounted_no'); // apenas mostra proposta direto
-      addMessage('bot', 'Sem problemas! 😊', false);
-      setTimeout(() => addMessage('bot', 'Clique no botão "📄 Gerar Proposta" para gerar sua proposta comercial.', false), 500);
+      // Mantém preços cheios
+      setStage('closed');
+      addMessage('bot', 'Sem problema! 😊');
+      setTimeout(() => {
+        addMessage('bot', `<div style="margin-top: 8px;"><button class="proposal-btn" onclick="window.openClientModal()">📄 Gerar Proposta (preço cheio)</button></div>`, true);
+      }, 500);
     }
   };
 
-  // Função para fechar com desconto extra
   const handleClosingToday = (yes) => {
     if (yes) {
-      const closingData = pricing.calcClosing(state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
-        discClosePct: configData.discClosePct,
-        unlimitedStrategy: configData.unlimitedStrategy,
-        prices: configData.prices,
-        plans: configData.plans,
-        productNames: configData.productNames
-      });
+      const closingData = pricing.calcClosing(
+        state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
+          discClosePct: configData.discClosePct,
+          unlimitedStrategy: configData.unlimitedStrategy,
+          prices: configData.prices,
+          plans: configData.plans,
+          productNames: configData.productNames
+        }
+      );
       setState(prev => ({ ...prev, closingData, closingToday: true }));
       setStage('closing');
       const dates = pricing.getNextDates();
       addMessage('bot', renderClosingResult(closingData, dates), true);
-      // Iniciar timer visual
-      setTimeout(() => startTimer(), 200);
     } else {
-      setStage('discounted');
+      // Fica no estágio de desconto normal
       addMessage('bot', 'OK, mantemos os valores com desconto padrão.', false);
     }
   };
 
-  // Timer para a oferta de fechamento
-  let timerInt = null;
-  const startTimer = () => {
-    if (timerInt) clearInterval(timerInt);
-    const deadline = new Date();
-    deadline.setHours(18, 0, 0, 0);
-    function tick() {
-      const el = document.getElementById('timerDisplay');
-      if (!el) { clearInterval(timerInt); return; }
-      const diff = deadline - new Date();
-      if (diff <= 0) { el.textContent = 'EXPIRADO'; el.style.color = '#64748b'; clearInterval(timerInt); return; }
-      const hh = Math.floor(diff / 3600000);
-      const mm = Math.floor((diff % 3600000) / 60000);
-      const ss = Math.floor((diff % 60000) / 1000);
-      el.textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  const tryVoucher = () => {
+    const inputEl = document.getElementById('voucherInput');
+    if (!inputEl) return;
+    const code = inputEl.value.trim().toUpperCase();
+    const voucher = configData.vouchers.find(v => v.code.toUpperCase() === code);
+    const msgDiv = document.getElementById('voucherMsg');
+    if (voucher) {
+      msgDiv.innerHTML = `<div class="voucher-msg ok">✅ Voucher ${code} aplicado! (${voucher.disc_ad_pct}% off adesão, ${voucher.disc_men_pct}% off mensalidade)</div>`;
+      // Recalcula com desconto do voucher
+      const discountedData = pricing.calcQuoteWithDiscount(
+        state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
+          discAdPct: voucher.disc_ad_pct,
+          discMenPct: voucher.disc_men_pct,
+          unlimitedStrategy: configData.unlimitedStrategy,
+          prices: configData.prices,
+          plans: configData.plans,
+          productNames: configData.productNames
+        }
+      );
+      setState(prev => ({ ...prev, discountedData, appliedVoucher: voucher }));
+      setStage('discounted');
+      const dates = pricing.getNextDates();
+      const clientName = state.clientData?.fantasia || state.clientData?.nome || pricing.fmtDoc(state.doc);
+      addMessage('bot', renderWithDiscount(discountedData, dates, clientName), true);
+    } else {
+      msgDiv.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido.</div>`;
     }
-    tick();
-    timerInt = setInterval(tick, 1000);
   };
 
   // Salva o cliente no Supabase
@@ -501,16 +530,16 @@ export default function Chat() {
 
   // Gera o HTML da proposta (reaproveitando o formato original)
   const generateProposalHtml = (clientData, contactData, quoteData, plan, isClosing = false) => {
+    const results = isClosing ? quoteData.results : quoteData.results;
+    const tAd = isClosing ? quoteData.tAd : (state.discountedData ? state.discountedData.tAdD : quoteData.tAdD);
+    const tMen = isClosing ? quoteData.tMen : (state.discountedData ? state.discountedData.tMenD : quoteData.tMenD);
     const today = new Date().toLocaleDateString('pt-BR');
     const validity = isClosing ? 'Válida até as 18h de hoje' : 'Válida por 7 dias';
-    const results = isClosing ? quoteData.results : quoteData.results;
-    const tAd = isClosing ? quoteData.tAd : quoteData.tAdD;
-    const tMen = isClosing ? quoteData.tMen : quoteData.tMenD;
-
+    // Monta as linhas da tabela de produtos
     let rows = '';
     for (const r of results) {
-      const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : r.adD);
-      const menS = pricing.fmt(isClosing ? r.men : r.menD);
+      const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : (state.discountedData ? r.adD : r.ad));
+      const menS = pricing.fmt(isClosing ? r.men : (state.discountedData ? r.menD : r.men));
       rows += `<tr>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;font-weight:500">${r.name}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${adS}</td>
@@ -525,7 +554,7 @@ export default function Chat() {
       <!-- HEADER -->
       <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px;text-align:center">
         <div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:6px">Proposta Comercial</div>
-        <div style="font-size:12px;color:#94a3b8">${configData.productNames['empresa'] || 'Vivanexa'}</div>
+        <div style="font-size:12px;color:#94a3b8">${configData.company || 'Vivanexa'}</div>
       </div>
       <div style="padding:36px 44px">
         <p style="font-size:13px;color:#475569;margin-bottom:28px">Prezado(a) ${contactData.contato || clientData.fantasia || clientData.nome},</p>
@@ -552,62 +581,45 @@ export default function Chat() {
 
         <div style="margin-top:24px;font-size:12px;color:#64748b;text-align:center">
           Esta proposta é válida até ${validity}.<br>
-          ${configData.productNames['empresa'] || 'Vivanexa'} – CNPJ 32.125.987/0001-67 – contato@vivanexa.com.br – (69) 98405-9125
+          ${configData.company || 'Vivanexa'} – CNPJ 32.125.987/0001-67 – contato@vivanexa.com.br – (69) 98405-9125
         </div>
       </div>
     </div>`;
     return html;
   };
 
-  // Gera o HTML do contrato (simplificado, similar à proposta)
-  const generateContractHtml = (clientData, contactData, quoteData, plan, isClosing = false) => {
-    // Para contrato, usamos os mesmos dados mas com um título diferente
-    const html = generateProposalHtml(clientData, contactData, quoteData, plan, isClosing);
-    // Substitui o título
-    return html.replace('Proposta Comercial', 'Termo de Pedido e Registro de Software');
-  };
-
   // Salva o documento no Supabase e exibe o modal
-  const saveDocument = async (clientId, clientData, contactData, docType, quoteData, isClosing = false) => {
-    let html = '';
-    if (docType === 'proposta') {
-      html = generateProposalHtml(clientData, contactData, quoteData, state.plan, isClosing);
-    } else {
-      html = generateContractHtml(clientData, contactData, quoteData, state.plan, isClosing);
-    }
+  const saveProposal = async (clientId, clientData, contactData) => {
+    const isClosing = state.closingToday === true;
+    const dataToUse = isClosing ? state.closingData : (state.discountedData || state.quoteData);
+    const html = generateProposalHtml(clientData, contactData, dataToUse, state.plan, isClosing);
     const signToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
     const { data, error } = await supabase
       .from('documents')
       .insert({
-        type: docType,
+        type: 'proposta',
         client_id: clientId,
         html: html,
         status: 'draft',
         sign_token: signToken,
         consultant_id: (await supabase.auth.getUser()).data.user?.id,
-        t_ad: isClosing ? quoteData.tAd : quoteData.tAdD,
-        t_men: isClosing ? quoteData.tMen : quoteData.tMenD,
+        t_ad: isClosing ? state.closingData?.tAd : (state.discountedData?.tAdD || state.quoteData.tAdD),
+        t_men: isClosing ? state.closingData?.tMen : (state.discountedData?.tMenD || state.quoteData.tMenD),
         created_at: new Date()
       })
       .select('id');
     if (error) {
       console.error(error);
-      alert('Erro ao salvar documento.');
-      return null;
+      alert('Erro ao salvar proposta. Verifique o console.');
+      return;
     }
-    return { html, docId: data?.[0]?.id };
+    setGeneratedProposalHtml(html);
+    setShowProposalModal(true);
   };
 
   // Função chamada ao clicar em "Gerar Proposta"
   const openClientModal = () => {
     setShowClientModal(true);
-  };
-
-  // Função chamada ao clicar em "Gerar Contrato" (no banner de fechamento)
-  const openContractModal = () => {
-    setShowClientModal(true);
-    // Guardamos uma flag para depois gerar contrato em vez de proposta
-    window._generateContractAfter = true;
   };
 
   // Quando o usuário salva os dados do modal
@@ -631,43 +643,17 @@ export default function Chat() {
     setState(prev => ({ ...prev, contactData }));
     const clientId = await saveClientToDB(state.clientData, contactData);
     if (clientId) {
-      const isClosing = state.closingToday === true;
-      const docType = (window._generateContractAfter) ? 'contrato' : 'proposta';
-      const quoteData = isClosing ? state.closingData : (state.quoteDataDisc || state.quoteData);
-      const result = await saveDocument(clientId, state.clientData, contactData, docType, quoteData, isClosing);
-      if (result) {
-        if (docType === 'proposta') {
-          setGeneratedProposalHtml(result.html);
-          setShowProposalModal(true);
-        } else {
-          setGeneratedContractHtml(result.html);
-          setShowContractModal(true);
-        }
-      }
+      await saveProposal(clientId, state.clientData, contactData);
     }
     setShowClientModal(false);
-    window._generateContractAfter = false;
   };
 
   // Funções globais para os botões no HTML
   useEffect(() => {
-    window.handleShowDiscount = (yes) => handleShowDiscount(yes);
-    window.handleClosingToday = (yes) => handleClosingToday(yes);
-    window.tryVoucher = () => {
-      const input = document.getElementById('voucherInput');
-      if (!input) return;
-      const code = input.value.trim();
-      const voucher = configData.vouchers.find(v => v.code.toUpperCase() === code.toUpperCase());
-      const msgDiv = document.getElementById('voucherMsg');
-      if (voucher) {
-        msgDiv.innerHTML = `<div class="voucher-msg ok">✅ Voucher ${code} aplicado! (${voucher.disc_ad_pct}% off adesão, ${voucher.disc_men_pct}% off mensalidade)</div>`;
-        // Aqui aplicar desconto e recalcular
-      } else {
-        msgDiv.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido.</div>`;
-      }
-    };
-    window.openClientModal = () => openClientModal();
-    window.openContractModal = () => openContractModal();
+    window.handleShowDiscount = showDiscount;
+    window.handleClosingToday = handleClosingToday;
+    window.tryVoucher = tryVoucher;
+    window.openClientModal = openClientModal;
   }, [state, configData]);
 
   if (!configLoaded) {
@@ -716,7 +702,7 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Modal para dados do cliente (igual ao anterior) */}
+      {/* Modal para dados do cliente */}
       {showClientModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: '#111827', borderRadius: 16, padding: 24, maxWidth: 500, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
@@ -775,7 +761,7 @@ export default function Chat() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-                <button type="submit" style={{ flex: 1, padding: 10, borderRadius: 8, background: '#10b981', border: 'none', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>Salvar e Gerar</button>
+                <button type="submit" style={{ flex: 1, padding: 10, borderRadius: 8, background: '#10b981', border: 'none', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>Salvar e Gerar Proposta</button>
                 <button type="button" onClick={() => setShowClientModal(false)} style={{ padding: '10px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#64748b', cursor: 'pointer' }}>Cancelar</button>
               </div>
             </form>
@@ -796,20 +782,7 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Modal para visualizar o contrato */}
-      {showContractModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, overflowY: 'auto', padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, overflow: 'hidden' }}>
-            <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={() => window.print()} style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}>🖨️ Imprimir</button>
-              <button onClick={() => setShowContractModal(false)} style={{ padding: '8px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#fff', cursor: 'pointer' }}>Fechar</button>
-            </div>
-            <div dangerouslySetInnerHTML={{ __html: generatedContractHtml }} />
-          </div>
-        </div>
-      )}
-
-      {/* Estilos do chat e cards (mesmos de antes) */}
+      {/* Estilos do chat e cards */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
@@ -839,7 +812,6 @@ export default function Chat() {
         }
         .closing {
           color: #fbbf24;
-          font-weight: 700;
         }
         .teaser-card {
           background: linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.03));
@@ -849,6 +821,19 @@ export default function Chat() {
           margin: 4px 0;
           position: relative;
           overflow: hidden;
+        }
+        .teaser-title {
+          font-family: 'Syne',sans-serif;
+          font-weight: 700;
+          font-size: 15px;
+          color: #10b981;
+          margin-bottom: 8px;
+        }
+        .teaser-body {
+          font-size: 14px;
+          color: #6ee7b7;
+          line-height: 1.6;
+          margin-bottom: 12px;
         }
         .opp-banner {
           background: linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04));
@@ -884,7 +869,7 @@ export default function Chat() {
         }
         .timer-label {
           font-size: 11px;
-          color: #64748b;
+          color: var(--muted);
           letter-spacing: 1.5px;
           text-transform: uppercase;
           margin-bottom: 6px;
@@ -896,18 +881,10 @@ export default function Chat() {
           color: #ef4444;
           letter-spacing: 6px;
         }
-        .teaser-title {
-          font-family: 'Syne',sans-serif;
-          font-weight: 700;
-          font-size: 15px;
-          color: #10b981;
-          margin-bottom: 8px;
-        }
-        .teaser-body {
-          font-size: 14px;
-          color: #6ee7b7;
-          line-height: 1.6;
-          margin-bottom: 12px;
+        .timer-sub {
+          font-size: 12px;
+          color: #64748b;
+          margin-top: 5px;
         }
         .yn-row {
           display: flex;
@@ -1049,22 +1026,8 @@ export default function Chat() {
         }
         .section-divider {
           border: none;
-          border-top: 1px solid #1e2d4a;
+          border-top: 1px solid var(--border);
           margin: 10px 0;
-        }
-        .unlimited-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          background: linear-gradient(135deg,rgba(16,185,129,.2),rgba(16,185,129,.08));
-          border: 1px solid rgba(16,185,129,.4);
-          color: #10b981;
-          padding: 4px 12px;
-          border-radius: 20px;
-          font-size: 13px;
-          font-weight: 600;
-          letter-spacing: .5px;
-          white-space: nowrap;
         }
       `}</style>
     </>
