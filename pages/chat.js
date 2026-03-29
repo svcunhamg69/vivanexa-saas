@@ -14,7 +14,7 @@ let configData = {
   discMode: 'screen',
   unlimitedStrategy: true,
   vouchers: [],
-  company: 'Vivanexa'  // será sobrescrito por dados da empresa depois
+  company: 'Vivanexa'
 };
 
 export default function Chat() {
@@ -42,7 +42,8 @@ export default function Chat() {
   const [showClientModal, setShowClientModal] = useState(false);
   const [generatedDocHtml, setGeneratedDocHtml] = useState('');
   const [showDocModal, setShowDocModal] = useState(false);
-  const [generateType, setGenerateType] = useState('proposta'); // 'proposta' ou 'contrato'
+  const [currentDocumentToken, setCurrentDocumentToken] = useState('');
+  const [generateType, setGenerateType] = useState('proposta');
   const messagesEndRef = useRef(null);
   const router = useRouter();
 
@@ -118,8 +119,6 @@ export default function Chat() {
         console.error('Erro ao carregar vouchers:', vouchersError);
       }
 
-      // 4. Dados da empresa (tentar carregar de uma tabela "companies" ou usar padrão)
-      // Por enquanto, mantém o padrão "Vivanexa". Pode ser customizado depois.
       setConfigLoaded(true);
     }
     loadConfig();
@@ -551,7 +550,7 @@ export default function Chat() {
     for (const r of results) {
       const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : (state.discountedData ? r.adD : r.ad));
       const menS = pricing.fmt(isClosing ? r.men : (state.discountedData ? r.menD : r.men));
-      rows += `<tr>
+      rows += `<table>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;font-weight:500">${r.name}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${adS}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
@@ -577,7 +576,7 @@ export default function Chat() {
             <th style="padding:10px 14px;text-align:center">Mensalidade</th>
             <th style="padding:10px 14px;text-align:center">CNPJs</th>
             <th style="padding:10px 14px;text-align:right">Total/mês</th>
-           </tr></thead>
+          </tr></thead>
           <tbody>${rows}</tbody>
           <tfoot>
             <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981;text-align:right">${pricing.fmt(tMen)}/mês</td></tr>
@@ -710,13 +709,15 @@ export default function Chat() {
         t_men: isClosing ? state.closingData?.tMen : (state.discountedData?.tMenD || state.quoteData.tMenD),
         created_at: new Date()
       })
-      .select('id');
+      .select('sign_token')
+      .single();
     if (error) {
       console.error(error);
       alert('Erro ao salvar documento. Verifique o console.');
       return;
     }
     setGeneratedDocHtml(html);
+    setCurrentDocumentToken(data.sign_token);
     setShowDocModal(true);
   };
 
@@ -892,16 +893,34 @@ export default function Chat() {
       {showDocModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, overflowY: 'auto', padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, overflow: 'hidden' }}>
-            <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={() => window.print()} style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}>🖨️ Imprimir</button>
-              <button onClick={() => setShowDocModal(false)} style={{ padding: '8px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#fff', cursor: 'pointer' }}>Fechar</button>
+            <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <div>
+                <button
+                  onClick={() => {
+                    const link = `${window.location.origin}/sign/${currentDocumentToken}`;
+                    navigator.clipboard.writeText(link);
+                    alert('Link copiado! Envie para o cliente.');
+                  }}
+                  style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}
+                >
+                  📋 Copiar link de assinatura
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => window.print()} style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}>
+                  🖨️ Imprimir
+                </button>
+                <button onClick={() => setShowDocModal(false)} style={{ padding: '8px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#fff', cursor: 'pointer' }}>
+                  Fechar
+                </button>
+              </div>
             </div>
             <div dangerouslySetInnerHTML={{ __html: generatedDocHtml }} />
           </div>
         </div>
       )}
 
-      {/* Estilos (mesmos de antes) */}
+      {/* Estilos */}
       <style jsx>{`
         .price-card {
           background: #1a2540;
