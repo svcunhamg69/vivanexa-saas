@@ -26,7 +26,7 @@ export default function SignPage() {
         return;
       }
       setDocument(data);
-      if (data.status === 'signed') {
+      if (data.status === 'signed' || data.signed_at) {
         setSigned(true);
       }
       setLoading(false);
@@ -48,7 +48,6 @@ export default function SignPage() {
     setError('');
 
     const now = new Date().toISOString();
-    // Atualiza o documento com os dados da assinatura
     const updates = {
       signed_at: now,
       signed_by: form.name,
