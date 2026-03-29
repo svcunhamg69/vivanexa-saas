@@ -22,7 +22,7 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     setLoading(true);
-    // Buscar contratos assinados (status = signed)
+    // Buscar contratos assinados (status = 'signed')
     const { data: docs, error: docsError } = await supabase
       .from('documents')
       .select(`
