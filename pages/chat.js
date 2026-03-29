@@ -142,7 +142,7 @@ export default function Chat() {
     </div>`;
   };
 
-  // Renderização dos cards de preço (versão cheia) – agora com dois botões
+  // Renderização dos cards de preço (versão cheia)
   const renderFullPriceOnly = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = '';
@@ -181,7 +181,7 @@ export default function Chat() {
     return html;
   };
 
-  // Renderização com desconto – também com dois botões
+  // Renderização com desconto
   const renderWithDiscount = (data, dates, clientName) => {
     const { results, tAd, tMen, tAdD, tMenD } = data;
     let html = '';
@@ -226,7 +226,7 @@ export default function Chat() {
     return html;
   };
 
-  // Renderização do fechamento – também com dois botões
+  // Renderização do fechamento
   const renderClosingResult = (data, dates) => {
     const { results, tAd, tMen } = data;
     let html = `<div class="timer-card">
@@ -539,7 +539,7 @@ export default function Chat() {
     }
   };
 
-  // Gera o HTML da proposta (igual ao anterior)
+  // Gera o HTML da proposta
   const generateProposalHtml = (clientData, contactData, dataToUse, isClosing = false) => {
     const results = dataToUse.results;
     const tAd = isClosing ? dataToUse.tAd : (state.discountedData ? state.discountedData.tAdD : dataToUse.tAdD);
@@ -597,7 +597,7 @@ export default function Chat() {
     return html;
   };
 
-  // Gera o HTML do contrato (baseado no original)
+  // Gera o HTML do contrato
   const generateContractHtml = (clientData, contactData, dataToUse, isClosing = false) => {
     const results = dataToUse.results;
     const tAd = isClosing ? dataToUse.tAd : (state.discountedData ? state.discountedData.tAdD : dataToUse.tAdD);
@@ -614,7 +614,7 @@ export default function Chat() {
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${state.cnpjs || '—'}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#10b981;font-weight:700;text-align:right">${pricing.fmt(menS)}</td>
-      </tr>`;
+       </tr>`;
     }
 
     const html = `
@@ -641,7 +641,7 @@ export default function Chat() {
           <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
             <thead><tr style="background:#f8fafc">
               <th style="padding:10px 14px;text-align:left">Produto</th><th>Adesão</th><th>Mensalidade</th><th>CNPJs</th><th>Total/mês</th>
-            </tr></thead>
+             </tr></thead>
             <tbody>${rows}</tbody>
             <tfoot>
               <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981">${pricing.fmt(tMen)}/mês</td></tr>
@@ -918,12 +918,12 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Modal para visualizar o documento */}
+      {/* Modal para visualizar o documento – COM BOTÕES WHATSAPP E E-MAIL */}
       {showDocModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, display: 'flex', flexDirection: 'column', maxHeight: '90vh', height: 'auto' }}>
             <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
-              <div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   onClick={() => {
                     const link = `${window.location.origin}/sign/${currentDocumentToken}`;
@@ -932,7 +932,29 @@ export default function Chat() {
                   }}
                   style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}
                 >
-                  📋 Copiar link de assinatura
+                  📋 Copiar link
+                </button>
+                <button
+                  onClick={() => {
+                    const link = `${window.location.origin}/sign/${currentDocumentToken}`;
+                    const message = encodeURIComponent(`Olá! Segue o link para assinatura eletrônica do documento: ${link}`);
+                    window.open(`https://wa.me/?text=${message}`, '_blank');
+                  }}
+                  style={{ padding: '8px 16px', borderRadius: 8, background: '#25D366', border: 'none', color: '#fff', cursor: 'pointer' }}
+                >
+                  💬 WhatsApp
+                </button>
+                <button
+                  onClick={() => {
+                    const link = `${window.location.origin}/sign/${currentDocumentToken}`;
+                    const clientEmail = state.contactData.email || '';
+                    const subject = encodeURIComponent('Assinatura eletrônica de documento');
+                    const body = encodeURIComponent(`Olá! Segue o link para assinar o documento: ${link}`);
+                    window.location.href = `mailto:${clientEmail}?subject=${subject}&body=${body}`;
+                  }}
+                  style={{ padding: '8px 16px', borderRadius: 8, background: '#EA4335', border: 'none', color: '#fff', cursor: 'pointer' }}
+                >
+                  📧 E-mail
                 </button>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
