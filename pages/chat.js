@@ -576,7 +576,7 @@ export default function Chat() {
             <th style="padding:10px 14px;text-align:center">Mensalidade</th>
             <th style="padding:10px 14px;text-align:center">CNPJs</th>
             <th style="padding:10px 14px;text-align:right">Total/mês</th>
-          </tr></thead>
+           </tr></thead>
           <tbody>${rows}</tbody>
           <tfoot>
             <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981;text-align:right">${pricing.fmt(tMen)}/mês</td></tr>
@@ -771,9 +771,38 @@ export default function Chat() {
   return (
     <>
       <div style={{ maxWidth: 820, margin: '0 auto', padding: '20px' }}>
+        {/* Cabeçalho com botão do dashboard */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
           <h1>Assistente Comercial</h1>
-          <button onClick={() => supabase.auth.signOut()}>Sair</button>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              onClick={() => router.push('/dashboard')}
+              style={{
+                padding: '8px 12px',
+                background: '#00d4ff',
+                border: 'none',
+                borderRadius: 8,
+                color: '#000',
+                cursor: 'pointer',
+                fontWeight: 'bold'
+              }}
+            >
+              📊 Dashboard
+            </button>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              style={{
+                padding: '8px 12px',
+                background: '#1e2d4a',
+                border: 'none',
+                borderRadius: 8,
+                color: '#e2e8f0',
+                cursor: 'pointer'
+              }}
+            >
+              Sair
+            </button>
+          </div>
         </div>
 
         <div style={{ height: '60vh', overflowY: 'auto', border: '1px solid #ccc', borderRadius: 8, padding: 10, marginBottom: 10 }}>
@@ -889,7 +918,7 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Modal para visualizar o documento – CORRIGIDO */}
+      {/* Modal para visualizar o documento */}
       {showDocModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, display: 'flex', flexDirection: 'column', maxHeight: '90vh', height: 'auto' }}>
