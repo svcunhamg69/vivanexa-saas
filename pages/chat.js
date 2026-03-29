@@ -550,7 +550,7 @@ export default function Chat() {
     for (const r of results) {
       const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : (state.discountedData ? r.adD : r.ad));
       const menS = pricing.fmt(isClosing ? r.men : (state.discountedData ? r.menD : r.men));
-      rows += `<table>
+      rows += `<tr>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;font-weight:500">${r.name}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${adS}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
@@ -614,7 +614,7 @@ export default function Chat() {
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${state.cnpjs || '—'}</td>
         <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#10b981;font-weight:700;text-align:right">${pricing.fmt(menS)}</td>
-       </tr>`;
+      </tr>`;
     }
 
     const html = `
@@ -889,11 +889,11 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Modal para visualizar o documento */}
+      {/* Modal para visualizar o documento – CORRIGIDO */}
       {showDocModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, overflowY: 'auto', padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, overflow: 'hidden' }}>
-            <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, display: 'flex', flexDirection: 'column', maxHeight: '90vh', height: 'auto' }}>
+            <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
               <div>
                 <button
                   onClick={() => {
@@ -915,7 +915,9 @@ export default function Chat() {
                 </button>
               </div>
             </div>
-            <div dangerouslySetInnerHTML={{ __html: generatedDocHtml }} />
+            <div style={{ overflowY: 'auto', padding: '0 20px 20px 20px' }}>
+              <div dangerouslySetInnerHTML={{ __html: generatedDocHtml }} />
+            </div>
           </div>
         </div>
       )}
