@@ -1,1218 +1,866 @@
-import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabase';
-import { useRouter } from 'next/router';
-import * as pricing from '../lib/pricing';
+// ============================================================
+// pages/chat.js — Assistente Comercial Vivanexa SaaS
+// Copie este arquivo para: vivanexa-saas/pages/chat.js
+// ============================================================
 
-// Configuração inicial – será preenchida do banco
-let configData = {
-  plans: [],
-  productNames: {},
-  prices: {},
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/router'
+import Head from 'next/head'
+import { supabase } from '../lib/supabase'
+
+// ══════════════════════════════════════════
+// CONFIGURAÇÃO PADRÃO (espelho do HTML original)
+// ══════════════════════════════════════════
+const DEFAULT_CFG = {
+  company: 'VIVANEXA',
+  slogan: 'Assistente Comercial de Preços',
+  theme: 'dark',
+  discMode: 'screen',
   discAdPct: 50,
   discMenPct: 0,
   discClosePct: 40,
-  discMode: 'screen',
   unlimitedStrategy: true,
+  plans: [
+    { id: 'basic',   name: 'Basic',    maxCnpjs: 25,  users: 1,   unlimited: false },
+    { id: 'pro',     name: 'Pro',      maxCnpjs: 80,  users: 1,   unlimited: false },
+    { id: 'top',     name: 'Top',      maxCnpjs: 150, users: 5,   unlimited: false },
+    { id: 'topplus', name: 'Top Plus', maxCnpjs: 999, users: 999, unlimited: true  },
+  ],
+  prices: {
+    'Gestão Fiscal': { basic:[478,318], pro:[590,409], top:[1032,547], topplus:[1398,679] },
+    'CND':           { basic:[0,48],    pro:[0,90],    top:[0,150],    topplus:[0,200]    },
+    'XML':           { basic:[478,199], pro:[590,299], top:[1032,349], topplus:[1398,399] },
+    'BIA':           { basic:[478,129], pro:[590,169], top:[1032,280], topplus:[1398,299] },
+    'IF':            { basic:[1600,379],pro:[1600,619],top:[1600,920]                    },
+    'EP':            { basic:[0,39],    pro:[0,82],    top:[0,167]                        },
+  },
   vouchers: [],
-  company: 'Vivanexa'
-};
+  productNames: {
+    'Gestão Fiscal': 'Gestão Fiscal',
+    'CND':           'CND',
+    'XML':           'XML',
+    'BIA':           'BIA',
+    'IF':            'Inteligência Fiscal',
+    'EP':            'e-PROCESSOS',
+    'Tributos':      'Tributos',
+  },
+}
 
+const IF_NO_CNPJ = ['IF', 'Tributos', 'EP']
+const IF_USERS   = { basic: 1, pro: 1, top: 5 }
+
+// ══════════════════════════════════════════
+// UTILITÁRIOS DE PRICING
+// ══════════════════════════════════════════
+const fmt = n => 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const cleanDoc = s => s.replace(/\D/g, '')
+const isCNPJ   = s => s.length === 14
+const isCPF    = s => s.length === 11
+
+function fmtDoc(s) {
+  if (!s) return '—'
+  if (s.length === 14) return s.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+  if (s.length === 11) return s.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+  return s
+}
+
+function getPlan(n, plans) {
+  const sorted = [...plans].sort((a, b) => a.maxCnpjs - b.maxCnpjs)
+  for (const p of sorted) if (n <= p.maxCnpjs) return p.id
+  return sorted[sorted.length - 1].id
+}
+
+function getPlanObj(id, plans) { return plans.find(p => p.id === id) || plans[0] }
+function planLabel(id, plans) {
+  if (!id) return '—'
+  const p = getPlanObj(id, plans)
+  return p ? p.name : id.charAt(0).toUpperCase() + id.slice(1)
+}
+
+function prodName(key, cfg) {
+  if (!key) return key
+  if (cfg?.productNames?.[key]) return cfg.productNames[key]
+  return key
+}
+
+function calcTributos(n) {
+  if (!n || n <= 0) return 0
+  if (n <= 50)  return 169.90
+  if (n <= 100) return 200
+  return 200 + (n - 100) * 0.80
+}
+
+function getPriceForPlan(mod, planId, cfg) {
+  const prices = cfg.prices[mod]
+  const defPrices = DEFAULT_CFG.prices[mod]
+  const lookup = prices || defPrices
+  if (!lookup) return [0, 0]
+  if (lookup[planId]) return lookup[planId]
+  const keys = Object.keys(lookup)
+  if (!keys.length) return [0, 0]
+  return lookup[keys[keys.length - 1]] || [0, 0]
+}
+
+function calcQuoteFullPrice(mods, plan, ifPlan, cnpjs, notas, cfg) {
+  const results = []; let tAd = 0, tMen = 0
+  for (const mod of mods) {
+    if (mod === 'IF') {
+      const p = ifPlan || 'basic'
+      const [aB, mB] = getPriceForPlan('IF', p, cfg)
+      const ad = aB * 2, men = mB * 1.2
+      results.push({ name: prodName('IF', cfg), ad, men, adD: ad, menD: men, isPrepaid: true, plan: p, isIF: true })
+      tAd += ad; tMen += men; continue
+    }
+    if (mod === 'Tributos') {
+      const m = calcTributos(notas)
+      results.push({ name: prodName('Tributos', cfg), ad: 0, men: m, adD: 0, menD: m, isTributos: true, notas })
+      tMen += m; continue
+    }
+    if (mod === 'EP') {
+      const epPlan = plan === 'topplus' ? 'top' : plan
+      const [, mB] = getPriceForPlan('EP', epPlan, cfg)
+      const men = mB * 1.2
+      results.push({ name: prodName('EP', cfg), ad: 0, men, adD: 0, menD: men, isEP: true, plan: epPlan })
+      tMen += men; continue
+    }
+    const [aB, mB] = getPriceForPlan(mod, plan, cfg)
+    let ad = aB > 0 ? Math.max(aB * 2, 1000) : 0
+    let men = mB * 1.2
+    if (mod === 'XML') men = Math.max(men, 175)
+    if (mod === 'Gestão Fiscal') men = Math.max(men, 200)
+    results.push({ name: mod, ad, men, adD: ad, menD: men, plan })
+    tAd += ad; tMen += men
+  }
+  return { results, tAd, tMen, tAdD: tAd, tMenD: tMen }
+}
+
+function calcQuoteWithDiscount(mods, plan, ifPlan, cnpjs, notas, cfg) {
+  const results = []; let tAd = 0, tMen = 0, tAdD = 0, tMenD = 0
+  for (const mod of mods) {
+    if (mod === 'IF') {
+      const p = ifPlan || 'basic'
+      const [aB, mB] = getPriceForPlan('IF', p, cfg)
+      const ad = aB * 2, men = mB * 1.2, adD = aB, menD = mB
+      results.push({ name: prodName('IF', cfg), ad, men, adD, menD, isPrepaid: true, plan: p, isIF: true })
+      tAd += ad; tMen += men; tAdD += adD; tMenD += menD; continue
+    }
+    if (mod === 'Tributos') {
+      const m = calcTributos(notas)
+      results.push({ name: prodName('Tributos', cfg), ad: 0, men: m, adD: 0, menD: m, isTributos: true, notas })
+      tMen += m; tMenD += m; continue
+    }
+    if (mod === 'EP') {
+      const epPlan = plan === 'topplus' ? 'top' : plan
+      const [, mB] = getPriceForPlan('EP', epPlan, cfg)
+      const men = mB * 1.2, menD = mB
+      results.push({ name: prodName('EP', cfg), ad: 0, men, adD: 0, menD, isEP: true, plan: epPlan })
+      tMen += men; tMenD += menD; continue
+    }
+    const [aB, mB] = getPriceForPlan(mod, plan, cfg)
+    let ad = aB > 0 ? Math.max(aB * 2, 1000) : 0
+    let men = mB * 1.2
+    if (mod === 'XML') men = Math.max(men, 175)
+    if (mod === 'Gestão Fiscal') men = Math.max(men, 200)
+    const adD = aB > 0 ? aB : 0, menD = mB
+    results.push({ name: mod, ad, men, adD, menD, plan })
+    tAd += ad; tMen += men; tAdD += adD; tMenD += menD
+  }
+  return { results, tAd, tMen, tAdD, tMenD }
+}
+
+function calcClosing(mods, plan, ifPlan, cnpjs, notas, cfg) {
+  const cp = (cfg.discClosePct || 40) / 100
+  const results = []; let tAd = 0, tMen = 0
+  for (const mod of mods) {
+    if (mod === 'IF') {
+      const p = ifPlan || 'basic'
+      const [aB, mB] = getPriceForPlan('IF', p, cfg)
+      results.push({ name: prodName('IF', cfg), ad: aB * (1 - cp), men: mB, isPrepaid: true, plan: p, isIF: true })
+      tAd += aB * (1 - cp); tMen += mB; continue
+    }
+    if (mod === 'Tributos') {
+      const m = calcTributos(notas)
+      results.push({ name: prodName('Tributos', cfg), ad: 0, men: m, isTributos: true })
+      tMen += m; continue
+    }
+    if (mod === 'EP') {
+      const epPlan = plan === 'topplus' ? 'top' : plan
+      const [, mB] = getPriceForPlan('EP', epPlan, cfg)
+      results.push({ name: prodName('EP', cfg), ad: 0, men: mB, isEP: true, plan: epPlan })
+      tMen += mB; continue
+    }
+    const [aB] = getPriceForPlan(mod, plan, cfg)
+    const ad = aB > 0 ? Math.max(aB * (1 - cp), 0) : 0
+    let men = 0
+    if (mod === 'BIA')          men = 0.85 * (cnpjs || 0)
+    else if (mod === 'CND')     men = 0.40 * (cnpjs || 0)
+    else if (mod === 'Gestão Fiscal') men = Math.max(2.00 * (cnpjs || 0), 200)
+    else if (mod === 'XML')     men = Math.max(1.75 * (cnpjs || 0), 175)
+    results.push({ name: mod, ad, men, plan })
+    tAd += ad; tMen += men
+  }
+  return { results, tAd, tMen }
+}
+
+function getNextDates() {
+  const now = new Date(), day = now.getDate(), m = now.getMonth(), y = now.getFullYear()
+  let tm, ty
+  if (day <= 20) {
+    tm = m + 1; ty = y; if (tm > 11) { tm = 0; ty++ }
+    return [5, 10, 15, 20, 25].map(d => `${String(d).padStart(2,'0')}/${String(tm + 1).padStart(2,'0')}`)
+  } else {
+    tm = m + 2; ty = y; if (tm > 11) { tm -= 12; ty++ }
+    return [5, 10, 15].map(d => `${String(d).padStart(2,'0')}/${String(tm + 1).padStart(2,'0')}`)
+  }
+}
+
+function parseModules(text, cfg) {
+  const t = text.toLowerCase(), found = []
+  const ifName = (prodName('IF', cfg) || '').toLowerCase()
+  const hasIF  = /intelig[eê]ncia\s*fiscal|intelig.*fiscal/i.test(t) || (ifName && t.includes(ifName))
+  if (hasIF) found.push('IF')
+  const tNoIF = t.replace(/intelig[eê]ncia\s*fiscal|intelig[\w\s]*fiscal/gi, '')
+  const gfName = (prodName('Gestão Fiscal', cfg) || '').toLowerCase()
+  if (/gest[aã]o\s*(e\s*an[aá]lise|fiscal)/i.test(tNoIF) || (/\bfiscal\b/i.test(tNoIF) && !/intelig/i.test(tNoIF)) || (gfName && tNoIF.includes(gfName))) found.push('Gestão Fiscal')
+  if (/\bbia\b/i.test(t)) found.push('BIA')
+  if (/\bcnd\b/i.test(t)) found.push('CND')
+  if (/\bxml\b/i.test(t)) found.push('XML')
+  if (/tributos/i.test(t)) found.push('Tributos')
+  const epName = (prodName('EP', cfg) || '').toLowerCase()
+  if (/e[\s-]?process[o]?s?|eprocess/i.test(t) || (epName && t.includes(epName))) found.push('EP')
+  return found
+}
+
+function parseIFPlan(text, plans) {
+  const t = text.toLowerCase()
+  for (const p of plans) { if (t.includes(p.name.toLowerCase()) || t.includes(p.id)) return p.id }
+  if (/\btop\b/i.test(t)) return 'top'
+  if (/\bpro\b/i.test(t)) return 'pro'
+  if (/\bbasic\b/i.test(t)) return 'basic'
+  return null
+}
+
+async function fetchCNPJ(cnpj) {
+  try {
+    const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`)
+    if (!r.ok) return null
+    const d = await r.json()
+    const fone = (d.ddd_telefone_1 || d.ddd_telefone_2 || '').replace(/\D/g, '')
+    const logr = (d.descricao_tipo_logradouro ? d.descricao_tipo_logradouro + ' ' : '') +
+      (d.logradouro || '') + (d.numero && d.numero !== 'S/N' ? ' ' + d.numero : '') +
+      (d.complemento ? ' – ' + d.complemento : '')
+    return {
+      nome: d.razao_social || '',
+      fantasia: d.nome_fantasia || d.razao_social || '',
+      email: d.email || '',
+      telefone: fone.length >= 10 ? `(${fone.slice(0, 2)}) ${fone.slice(2)}` : '',
+      municipio: d.municipio || '',
+      uf: d.uf || '',
+      cep: d.cep?.replace(/\D/g, '') || '',
+      logradouro: logr.trim(),
+      bairro: d.bairro || '',
+      cnpj, tipo: 'PJ'
+    }
+  } catch (e) { return null }
+}
+
+// ══════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ══════════════════════════════════════════
 export default function Chat() {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [stage, setStage] = useState('await_doc');
-  const [state, setState] = useState({
-    doc: null,
-    clientData: null,
-    contactData: {},
-    users: null,
-    cnpjs: null,
-    modules: [],
-    plan: null,
-    ifPlan: null,
-    notas: null,
-    quoteData: null,
-    discountedData: null,
-    closingData: null,
-    closingToday: null,
-    appliedVoucher: null
-  });
-  const [configLoaded, setConfigLoaded] = useState(false);
-  const [showClientModal, setShowClientModal] = useState(false);
-  const [generatedDocHtml, setGeneratedDocHtml] = useState('');
-  const [showDocModal, setShowDocModal] = useState(false);
-  const [currentDocumentToken, setCurrentDocumentToken] = useState('');
-  const [generateType, setGenerateType] = useState('proposta');
-  const messagesEndRef = useRef(null);
-  const router = useRouter();
+  const router  = useRouter()
+  const msgRef  = useRef(null)
+  const inputRef = useRef(null)
 
-  // Verifica se o usuário está logado
+  const [userProfile, setUserProfile] = useState(null)
+  const [cfg, setCfg] = useState(DEFAULT_CFG)
+  const [messages, setMessages] = useState([])
+  const [input, setInput]   = useState('')
+  const [thinking, setThinking] = useState(false)
+  const [chips, setChips]   = useState([])
+  const [timerVal, setTimerVal] = useState('')
+  const [timerDeadline, setTimerDeadline] = useState(null)
+
+  // Estado da conversa
+  const stateRef = useRef({
+    stage: 'await_doc',
+    doc: null, clientData: null,
+    users: null, cnpjs: null, modules: [], plan: null,
+    ifPlan: null, notas: null,
+    quoteData: null, appliedVoucher: null,
+  })
+  const S = stateRef.current
+
+  // ── Autenticação ───────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) router.push('/');
-    });
-  }, []);
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { router.replace('/'); return }
+      // Buscar perfil do usuário
+      const { data: profile } = await supabase
+        .from('perfis')
+        .select('*')
+        .eq('id', session.user.id)
+        .single()
+      const userName = profile?.nome || session.user.email?.split('@')[0] || 'Consultor'
+      setUserProfile({ ...session.user, nome: userName, perfil: profile })
+      // Carregar configuração da empresa
+      await loadCfg(profile?.empresa_id)
+    })
+    const { data: listener } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (!session) router.replace('/')
+    })
+    return () => listener.subscription.unsubscribe()
+  }, [router])
 
-  // Rola para a última mensagem
+  // ── Mensagem de boas-vindas ────────────────────────────────
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  // Carrega planos, produtos, preços e vouchers do Supabase
-  useEffect(() => {
-    async function loadConfig() {
-      // 1. Planos
-      const { data: plansData, error: plansError } = await supabase
-        .from('plans')
-        .select('*');
-      if (!plansError && plansData) {
-        configData.plans = plansData.map(p => ({
-          id: p.internal_id,
-          name: p.name,
-          maxCnpjs: p.max_cnpjs,
-          users: p.max_users,
-          unlimited: p.unlimited
-        }));
-      } else {
-        console.error('Erro ao carregar planos:', plansError);
-      }
-
-      // 2. Produtos e preços
-      const { data: productsData, error: productsError } = await supabase
-        .from('products')
-        .select(`
-          *,
-          prices (
-            plan_id,
-            adesao,
-            mensalidade
-          )
-        `);
-      if (!productsError && productsData) {
-        const prices = {};
-        const productNames = {};
-        for (const prod of productsData) {
-          const key = prod.internal_key;
-          productNames[key] = prod.name;
-          prices[key] = {};
-          for (const price of prod.prices) {
-            const plan = configData.plans.find(p => p.id === price.plan_id);
-            if (plan) {
-              prices[key][plan.id] = [price.adesao, price.mensalidade];
-            }
-          }
-        }
-        configData.prices = prices;
-        configData.productNames = productNames;
-      } else {
-        console.error('Erro ao carregar produtos:', productsError);
-      }
-
-      // 3. Vouchers
-      const { data: vouchersData, error: vouchersError } = await supabase
-        .from('vouchers')
-        .select('*');
-      if (!vouchersError && vouchersData) {
-        configData.vouchers = vouchersData;
-      } else {
-        console.error('Erro ao carregar vouchers:', vouchersError);
-      }
-
-      setConfigLoaded(true);
-    }
-    loadConfig();
-  }, []);
-
-  const addMessage = (role, content, isHtml = false) => {
-    setMessages(prev => [...prev, { role, content, isHtml }]);
-  };
-
-  // Renderização do card do cliente
-  const renderClientCard = (cd) => {
-    const endFormatado = [cd.logradouro, cd.bairro, cd.municipio && cd.uf ? cd.municipio + ' – ' + cd.uf : cd.municipio || cd.uf].filter(Boolean).join(', ');
-    const cepFmt = cd.cep ? cd.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2') : '';
-    return `<div class="client-card"><div class="cl-name">${cd.fantasia || cd.nome || pricing.fmtDoc(cd.cnpj)}</div>
-      ${cd.nome && cd.fantasia ? `<div class="client-row"><span class="cl-label">Razão Social</span><span class="cl-val">${cd.nome}</span></div>` : ''}
-      ${cd.cnpj ? `<div class="client-row"><span class="cl-label">CNPJ</span><span class="cl-val">${pricing.fmtDoc(cd.cnpj)}</span></div>` : ''}
-      ${endFormatado ? `<div class="client-row"><span class="cl-label">Endereço</span><span class="cl-val">${endFormatado}</span></div>` : ''}
-      ${cepFmt ? `<div class="client-row"><span class="cl-label">CEP</span><span class="cl-val">${cepFmt}</span></div>` : ''}
-      ${cd.telefone ? `<div class="client-row"><span class="cl-label">Telefone</span><span class="cl-val">${cd.telefone}</span></div>` : ''}
-      ${cd.email ? `<div class="client-row"><span class="cl-label">E-mail</span><span class="cl-val">${cd.email}</span></div>` : ''}
-    </div>`;
-  };
-
-  // Renderização dos cards de preço (versão cheia) – agora com dois botões
-  const renderFullPriceOnly = (data, dates) => {
-    const { results, tAd, tMen } = data;
-    let html = '';
-    for (const r of results) {
-      html += `<div class="price-card"><h4>🔹 ${r.name}</h4>`;
-      if (!r.isTributos && !r.isEP) html += `<div class="price-row"><span class="label">Adesão</span><span class="val">${pricing.fmt(r.ad)}</span></div>`;
-      html += `<div class="price-row"><span class="label">Mensalidade</span><span class="val">${pricing.fmt(r.men)}</span></div>`;
-      html += `</div>`;
-    }
-    html += `<div class="price-card"><h4>🔸 Total</h4>
-      <div class="price-row"><span class="label">Adesão total</span><span class="val">${pricing.fmt(tAd)}</span></div>
-      <div class="price-row"><span class="label">Mensalidade total</span><span class="val">${pricing.fmt(tMen)}</span></div>
-    </div>`;
-    if (configData.discMode === 'voucher') {
-      html += `<div class="teaser-card"><div class="teaser-title">🎫 Possui um voucher de desconto?</div>
-        <div class="teaser-body">Digite seu código para desbloquear condições especiais.</div>
-        <div class="voucher-row">
-          <input class="voucher-input" id="voucherInput" type="text" placeholder="Digite o código do voucher">
-          <button class="voucher-apply-btn" onclick="window.tryVoucher()">Aplicar</button>
-        </div><div id="voucherMsg"></div></div>`;
-    } else {
-      html += `<div class="teaser-card"><div class="teaser-title">🎫 Há licenças com desconto disponíveis!</div>
-        <div class="teaser-body">Temos condições especiais para novos clientes.<br>Deseja ver os valores com desconto?</div>
-        <div class="yn-row">
-          <button class="yn-btn yes" onclick="window.handleShowDiscount(true)">✅ Sim, quero ver!</button>
-          <button class="yn-btn no" onclick="window.handleShowDiscount(false)">Não, obrigado</button>
-        </div></div>`;
-    }
-    html += `<div class="section-label">Próximos vencimentos</div>
-      <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
-    // Botões para gerar proposta e contrato
-    html += `<div style="display: flex; gap: 12px; margin-top: 12px;">
-      <button class="proposal-btn" onclick="window.openClientModal('proposta')" style="flex:1;">📄 Gerar Proposta</button>
-      <button class="proposal-btn" onclick="window.openClientModal('contrato')" style="flex:1; background: linear-gradient(135deg, #fbbf24, #b45309);">📝 Gerar Contrato</button>
-    </div>`;
-    return html;
-  };
-
-  // Renderização com desconto – também com dois botões
-  const renderWithDiscount = (data, dates, clientName) => {
-    const { results, tAd, tMen, tAdD, tMenD } = data;
-    let html = '';
-    for (const r of results) {
-      html += `<div class="price-card"><h4>🔹 ${r.name}</h4>`;
-      if (!r.isTributos && !r.isEP) html += `<div class="price-row"><span class="label">Adesão</span><span class="val">${pricing.fmt(r.ad)}</span></div>`;
-      html += `<div class="price-row"><span class="label">Mensalidade</span><span class="val">${pricing.fmt(r.men)}</span></div>`;
-      html += `<hr class="section-divider">`;
-      if (!r.isTributos && !r.isEP) html += `<div class="price-row"><span class="label">Valor de Tabela</span><span class="val discount">${pricing.fmt(r.adD)}</span></div>`;
-      html += `<div class="price-row"><span class="label">Mensalidade c/ desconto</span><span class="val discount">${pricing.fmt(r.menD)}</span></div>`;
-      html += `</div>`;
-    }
-    html += `<div class="price-card" style="border-color:rgba(0,212,255,.25)">
-      <h4>🔸 Total</h4>
-      <div class="price-row"><span class="label">Adesão total</span><span class="val">${pricing.fmt(tAd)}</span></div>
-      <div class="price-row"><span class="label">Mensalidade total</span><span class="val">${pricing.fmt(tMen)}</span></div>
-      <hr class="section-divider">
-      <div class="price-row"><span class="label">Adesão — Valor de Tabela</span><span class="val discount">${pricing.fmt(tAdD)}</span></div>
-      <div class="price-row"><span class="label">Mensalidade — Valor de Tabela</span><span class="val discount">${pricing.fmt(tMenD)}</span></div>
-    </div>`;
-
-    // OPP BANNER
-    html += `<div class="opp-banner">
-      <div class="opp-title">🔥 Oportunidade de Negociação</div>
-      <div class="opp-body">
-        <strong style="color:var(--gold)">${clientName}</strong> pode fechar agora com condições ainda melhores:<br>
-        • Adesão com <strong style="color:var(--gold)">${configData.discClosePct}% OFF</strong> sobre o valor base<br>
-        • Mensalidade calculada por CNPJ ativo<br>
-        Oferta válida somente até as <strong style="color:var(--gold)">18h de hoje</strong>.
-      </div>
-      <div class="yn-row">
-        <button class="yn-btn yes" onclick="window.handleClosingToday(true)">✅ Sim, fechar hoje!</button>
-        <button class="yn-btn no" onclick="window.handleClosingToday(false)">Não por agora</button>
-      </div>
-    </div>`;
-    html += `<div class="section-label">Próximos vencimentos</div>
-      <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
-    html += `<div style="display: flex; gap: 12px; margin-top: 12px;">
-      <button class="proposal-btn" onclick="window.openClientModal('proposta')" style="flex:1;">📄 Gerar Proposta</button>
-      <button class="proposal-btn" onclick="window.openClientModal('contrato')" style="flex:1; background: linear-gradient(135deg, #fbbf24, #b45309);">📝 Gerar Contrato</button>
-    </div>`;
-    return html;
-  };
-
-  // Renderização do fechamento – também com dois botões
-  const renderClosingResult = (data, dates) => {
-    const { results, tAd, tMen } = data;
-    let html = `<div class="timer-card">
-      <div class="timer-label">⏱ Oferta válida até as 18h de hoje</div>
-      <div class="timer-display" id="timerDisplay">--:--:--</div>
-      <div class="timer-sub">Após este horário retornam os valores com desconto padrão</div>
-    </div>`;
-    for (const r of results) {
-      html += `<div class="price-card"><h4>🔹 ${r.name}</h4>`;
-      if (!r.isTributos && !r.isEP) html += `<div class="price-row"><span class="label">Adesão (fechamento)</span><span class="val closing">${pricing.fmt(r.ad)}</span></div>`;
-      html += `<div class="price-row"><span class="label">Mensalidade</span><span class="val closing">${pricing.fmt(r.men)}</span></div>`;
-      html += `</div>`;
-    }
-    html += `<div class="price-card" style="border-color:rgba(251,191,36,.3)">
-      <h4 style="color:var(--gold)">🔸 Total – Fechamento</h4>
-      <div class="price-row"><span class="label">Adesão total</span><span class="val closing">${pricing.fmt(tAd)}</span></div>
-      <div class="price-row"><span class="label">Mensalidade total</span><span class="val closing">${pricing.fmt(tMen)}</span></div>
-    </div>`;
-    html += `<div class="section-label">Próximos vencimentos</div>
-      <div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`;
-    html += `<div style="display: flex; gap: 12px; margin-top: 12px;">
-      <button class="proposal-btn" onclick="window.openClientModal('proposta')" style="flex:1;">📄 Gerar Proposta</button>
-      <button class="proposal-btn" onclick="window.openClientModal('contrato')" style="flex:1; background: linear-gradient(135deg, #fbbf24, #b45309);">📝 Gerar Contrato</button>
-    </div>`;
-    // Inicia o timer (simples)
+    if (!userProfile) return
     setTimeout(() => {
-      const deadline = new Date(); deadline.setHours(18,0,0,0);
-      const tick = () => {
-        const el = document.getElementById('timerDisplay');
-        if (!el) return;
-        const diff = deadline - new Date();
-        if (diff <= 0) { el.textContent = 'EXPIRADO'; clearInterval(interval); return; }
-        const hh = Math.floor(diff / 3600000);
-        const mm = Math.floor((diff % 3600000) / 60000);
-        const ss = Math.floor((diff % 60000) / 1000);
-        el.textContent = `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
-      };
-      tick();
-      const interval = setInterval(tick, 1000);
-    }, 100);
-    return html;
-  };
+      addBotMsg(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da Vivanexa.\nPara começar, informe o **CPF ou CNPJ** do cliente:`)
+    }, 300)
+  }, [userProfile])
 
-  // Busca CNPJ na BrasilAPI
-  async function fetchCNPJ(cnpj) {
-    try {
-      const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-      if (!r.ok) return null;
-      const d = await r.json();
-      const fone = (d.ddd_telefone_1 || d.ddd_telefone_2 || '').replace(/\D/g, '');
-      const logr = (d.descricao_tipo_logradouro ? d.descricao_tipo_logradouro + ' ' : '') +
-                   (d.logradouro || '') + (d.numero && d.numero !== 'S/N' ? ' ' + d.numero : '') + (d.complemento ? ' – ' + d.complemento : '');
-      return {
-        nome: d.razao_social || '',
-        fantasia: d.nome_fantasia || d.razao_social || '',
-        email: d.email || '',
-        telefone: fone.length >= 10 ? `(${fone.slice(0,2)}) ${fone.slice(2)}` : '',
-        municipio: d.municipio || '',
-        uf: d.uf || '',
-        cep: d.cep?.replace(/\D/g, '') || '',
-        logradouro: logr.trim(),
-        bairro: d.bairro || '',
-        cnpj,
-        tipo: 'PJ'
-      };
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // Processamento da mensagem
-  const processInput = async (text) => {
-    const t = text.trim(), low = t.toLowerCase();
-
-    if (stage === 'await_doc') {
-      const doc = pricing.cleanDoc(t);
-      if (!pricing.isCNPJ(doc) && !pricing.isCPF(doc)) {
-        return { type: 'text', content: 'Por favor, informe o CPF ou CNPJ do cliente (somente números).' };
-      }
-      setState(prev => ({ ...prev, doc }));
-      let clientData = null;
-      if (pricing.isCNPJ(doc)) {
-        setLoading(true);
-        clientData = await fetchCNPJ(doc);
-        setLoading(false);
-      }
-      if (!clientData) {
-        clientData = { nome: 'Cliente PF', fantasia: '', cnpj: doc, tipo: pricing.isCPF(doc) ? 'PF' : 'PJ' };
-      }
-      setState(prev => ({ ...prev, clientData }));
-      setStage('await_users');
-      const cardHtml = renderClientCard(clientData);
-      return {
-        type: 'html',
-        content: `${cardHtml}<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ ${clientData.nome || 'Cliente'}<br><br>Quantos <strong style="color:var(--text)">usuários</strong> ele possui atualmente?</div>`
-      };
-    }
-
-    if (stage === 'await_users') {
-      const users = pricing.parseUsers(t);
-      if (!users || users < 1) return { type: 'text', content: 'Quantos usuários? (informe um número)' };
-      setState(prev => ({ ...prev, users }));
-      setStage('await_modules');
-      return { type: 'text', content: `👥 ${users} usuário(s) registrado(s)!\n\nQuais módulos deseja incluir?\n(Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos)` };
-    }
-
-    if (stage === 'await_modules') {
-      const mods = pricing.parseModules(t, configData.productNames);
-      if (mods.length === 0) {
-        return { type: 'text', content: `Quais módulos deseja incluir?\n(Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos)` };
-      }
-      setState(prev => ({ ...prev, modules: mods }));
-      const needsCNPJ = mods.some(m => !['IF','Tributos','EP'].includes(m));
-      if (needsCNPJ && !state.cnpjs) {
-        setStage('await_cnpjs');
-        return { type: 'text', content: 'Quantos CNPJs o cliente possui?' };
-      }
-      return finalizeQuote();
-    }
-
-    if (stage === 'await_cnpjs') {
-      const cnpjs = pricing.parseCNPJsQty(t);
-      if (!cnpjs || cnpjs < 1) return { type: 'text', content: 'Quantos CNPJs? (informe um número)' };
-      setState(prev => ({ ...prev, cnpjs }));
-      return finalizeQuote();
-    }
-
-    if (stage === 'await_if_plan') {
-      const ifPlan = pricing.parseIFPlan(t, configData.plans);
-      if (!ifPlan) return { type: 'text', content: `Informe o plano do IF: Basic, Pro ou Top` };
-      setState(prev => ({ ...prev, ifPlan }));
-      return finalizeQuote();
-    }
-
-    if (stage === 'await_notas') {
-      const notas = parseInt(t);
-      if (!notas || notas < 1) return { type: 'text', content: 'Quantas notas fiscais por mês?' };
-      setState(prev => ({ ...prev, notas }));
-      return finalizeQuote();
-    }
-
-    async function finalizeQuote() {
-      const needsCNPJ = state.modules.some(m => !['IF','Tributos','EP'].includes(m));
-      let plan = null;
-      if (needsCNPJ && state.cnpjs) {
-        plan = pricing.getPlan(state.cnpjs, configData.plans);
-      } else {
-        plan = 'basic';
-      }
-      setState(prev => ({ ...prev, plan }));
-      const quoteData = pricing.calcQuoteFullPrice(state.modules, plan, state.ifPlan, state.cnpjs, state.notas, {
-        prices: configData.prices,
-        plans: configData.plans,
-        productNames: configData.productNames
-      });
-      setState(prev => ({ ...prev, quoteData }));
-      setStage('full_quoted');
-      const dates = pricing.getNextDates();
-      return { type: 'html', content: renderFullPriceOnly(quoteData, dates) };
-    }
-
-    return { type: 'text', content: 'Não entendi. Pode repetir?' };
-  };
-
-  const sendMessage = async () => {
-    if (!input.trim()) return;
-    const userMsg = input;
-    setInput('');
-    addMessage('user', userMsg);
-    setLoading(true);
-    const resp = await processInput(userMsg);
-    setLoading(false);
-    if (resp) addMessage('bot', resp.content, resp.type === 'html');
-  };
-
-  // Funções para desconto e fechamento
-  const showDiscount = (yes) => {
-    if (yes) {
-      const discountedData = pricing.calcQuoteWithDiscount(
-        state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
-          discAdPct: configData.discAdPct,
-          discMenPct: configData.discMenPct,
-          unlimitedStrategy: configData.unlimitedStrategy,
-          prices: configData.prices,
-          plans: configData.plans,
-          productNames: configData.productNames
-        }
-      );
-      setState(prev => ({ ...prev, discountedData, closingToday: false }));
-      setStage('discounted');
-      const dates = pricing.getNextDates();
-      const clientName = state.clientData?.fantasia || state.clientData?.nome || pricing.fmtDoc(state.doc);
-      addMessage('bot', renderWithDiscount(discountedData, dates, clientName), true);
-    } else {
-      setStage('closed');
-      addMessage('bot', 'Sem problema! 😊');
-      setTimeout(() => {
-        addMessage('bot', `<div style="margin-top: 8px; display: flex; gap: 12px;">
-          <button class="proposal-btn" onclick="window.openClientModal('proposta')" style="flex:1;">📄 Gerar Proposta (preço cheio)</button>
-          <button class="proposal-btn" onclick="window.openClientModal('contrato')" style="flex:1; background: linear-gradient(135deg, #fbbf24, #b45309);">📝 Gerar Contrato (preço cheio)</button>
-        </div>`, true);
-      }, 500);
-    }
-  };
-
-  const handleClosingToday = (yes) => {
-    if (yes) {
-      const closingData = pricing.calcClosing(
-        state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
-          discClosePct: configData.discClosePct,
-          unlimitedStrategy: configData.unlimitedStrategy,
-          prices: configData.prices,
-          plans: configData.plans,
-          productNames: configData.productNames
-        }
-      );
-      setState(prev => ({ ...prev, closingData, closingToday: true }));
-      setStage('closing');
-      const dates = pricing.getNextDates();
-      addMessage('bot', renderClosingResult(closingData, dates), true);
-    } else {
-      addMessage('bot', 'OK, mantemos os valores com desconto padrão.', false);
-    }
-  };
-
-  const tryVoucher = () => {
-    const inputEl = document.getElementById('voucherInput');
-    if (!inputEl) return;
-    const code = inputEl.value.trim().toUpperCase();
-    const voucher = configData.vouchers.find(v => v.code.toUpperCase() === code);
-    const msgDiv = document.getElementById('voucherMsg');
-    if (voucher) {
-      msgDiv.innerHTML = `<div class="voucher-msg ok">✅ Voucher ${code} aplicado! (${voucher.disc_ad_pct}% off adesão, ${voucher.disc_men_pct}% off mensalidade)</div>`;
-      const discountedData = pricing.calcQuoteWithDiscount(
-        state.modules, state.plan, state.ifPlan, state.cnpjs, state.notas, {
-          discAdPct: voucher.disc_ad_pct,
-          discMenPct: voucher.disc_men_pct,
-          unlimitedStrategy: configData.unlimitedStrategy,
-          prices: configData.prices,
-          plans: configData.plans,
-          productNames: configData.productNames
-        }
-      );
-      setState(prev => ({ ...prev, discountedData, appliedVoucher: voucher }));
-      setStage('discounted');
-      const dates = pricing.getNextDates();
-      const clientName = state.clientData?.fantasia || state.clientData?.nome || pricing.fmtDoc(state.doc);
-      addMessage('bot', renderWithDiscount(discountedData, dates, clientName), true);
-    } else {
-      msgDiv.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido.</div>`;
-    }
-  };
-
-  // Salva o cliente no Supabase
-  const saveClientToDB = async (clientData, contactData) => {
-    const { data: existing } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('doc', clientData.cnpj)
-      .maybeSingle();
-    if (existing) {
-      const { error } = await supabase
-        .from('clients')
-        .update({
-          fantasia: clientData.fantasia,
-          razao: clientData.nome,
-          contato: contactData.contato,
-          email: contactData.email || clientData.email,
-          telefone: contactData.telefone || clientData.telefone,
-          cidade: contactData.cidade || clientData.municipio,
-          uf: contactData.uf || clientData.uf,
-          cpf_contato: contactData.cpfContato,
-          regime: contactData.regime,
-          rimp_nome: contactData.rimpNome,
-          rimp_email: contactData.rimpEmail,
-          rimp_telefone: contactData.rimpTel,
-          rfin_nome: contactData.rfinNome,
-          rfin_email: contactData.rfinEmail,
-          rfin_telefone: contactData.rfinTel,
-          updated_at: new Date()
-        })
-        .eq('id', existing.id);
-      if (error) console.error(error);
-      return existing.id;
-    } else {
-      const { data, error } = await supabase
-        .from('clients')
-        .insert({
-          doc: clientData.cnpj,
-          fantasia: clientData.fantasia,
-          razao: clientData.nome,
-          contato: contactData.contato,
-          email: contactData.email || clientData.email,
-          telefone: contactData.telefone || clientData.telefone,
-          cidade: contactData.cidade || clientData.municipio,
-          uf: contactData.uf || clientData.uf,
-          cpf_contato: contactData.cpfContato,
-          regime: contactData.regime,
-          rimp_nome: contactData.rimpNome,
-          rimp_email: contactData.rimpEmail,
-          rimp_telefone: contactData.rimpTel,
-          rfin_nome: contactData.rfinNome,
-          rfin_email: contactData.rfinEmail,
-          rfin_telefone: contactData.rfinTel,
-          created_at: new Date()
-        })
-        .select('id');
-      if (error) console.error(error);
-      return data?.[0]?.id;
-    }
-  };
-
-  // Gera o HTML da proposta
-  const generateProposalHtml = (clientData, contactData, dataToUse, isClosing = false) => {
-    const results = dataToUse.results;
-    const tAd = isClosing ? dataToUse.tAd : (state.discountedData ? state.discountedData.tAdD : dataToUse.tAdD);
-    const tMen = isClosing ? dataToUse.tMen : (state.discountedData ? state.discountedData.tMenD : dataToUse.tMenD);
-    const today = new Date().toLocaleDateString('pt-BR');
-    const validity = isClosing ? 'Válida até as 18h de hoje' : 'Válida por 7 dias';
-    let rows = '';
-    for (const r of results) {
-      const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : (state.discountedData ? r.adD : r.ad));
-      const menS = pricing.fmt(isClosing ? r.men : (state.discountedData ? r.menD : r.men));
-      rows += `<tr>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;font-weight:500">${r.name}</td>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${adS}</td>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${state.cnpjs || '—'}</td>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#10b981;font-weight:700;text-align:right">${pricing.fmt(menS)}</td>
-      </tr>`;
-    }
-
-    const html = `
-    <div style="background:#fff;font-family:'Inter',sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
-      <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px;text-align:center">
-        <div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:6px">Proposta Comercial</div>
-        <div style="font-size:12px;color:#94a3b8">${configData.company || 'Vivanexa'}</div>
-      </div>
-      <div style="padding:36px 44px">
-        <p style="font-size:13px;color:#475569;margin-bottom:28px">Prezado(a) ${contactData.contato || clientData.fantasia || clientData.nome},</p>
-        <p style="font-size:13px;color:#475569;margin-bottom:28px">Segue nossa proposta comercial para os serviços abaixo:</p>
-
-        <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-          <thead><tr style="background:#f8fafc">
-            <th style="padding:10px 14px;text-align:left">Produto</th>
-            <th style="padding:10px 14px;text-align:center">Adesão</th>
-            <th style="padding:10px 14px;text-align:center">Mensalidade</th>
-            <th style="padding:10px 14px;text-align:center">CNPJs</th>
-            <th style="padding:10px 14px;text-align:right">Total/mês</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-          <tfoot>
-            <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981;text-align:right">${pricing.fmt(tMen)}/mês</td></tr>
-            <tr style="background:#fffbeb"><td colspan="4" style="padding:10px 14px;font-weight:700">Adesão (único)</td><td style="padding:10px 14px;font-weight:700;color:#b45309;text-align:right">${pricing.fmt(tAd)}</td></tr>
-          </tfoot>
-        </table>
-
-        <div style="margin-top:14px;padding:14px 18px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#92400e">
-          <strong>Condições:</strong> Pagamento à vista ou parcelado no cartão (consulte). Vencimento da adesão: a combinar. Primeira mensalidade: a combinar.
-        </div>
-
-        <div style="margin-top:24px;font-size:12px;color:#64748b;text-align:center">
-          Esta proposta é válida até ${validity}.<br>
-          ${configData.company || 'Vivanexa'} – CNPJ 32.125.987/0001-67 – contato@vivanexa.com.br – (69) 98405-9125
-        </div>
-      </div>
-    </div>`;
-    return html;
-  };
-
-  // Gera o HTML do contrato
-  const generateContractHtml = (clientData, contactData, dataToUse, isClosing = false) => {
-    const results = dataToUse.results;
-    const tAd = isClosing ? dataToUse.tAd : (state.discountedData ? state.discountedData.tAdD : dataToUse.tAdD);
-    const tMen = isClosing ? dataToUse.tMen : (state.discountedData ? state.discountedData.tMenD : dataToUse.tMenD);
-    const today = new Date().toLocaleDateString('pt-BR');
-    const addr = [contactData.endereco, contactData.bairro, contactData.cidade, contactData.uf].filter(Boolean).join(', ');
-    let rows = '';
-    for (const r of results) {
-      const adS = (r.isTributos || r.isEP) ? '—' : pricing.fmt(isClosing ? r.ad : (state.discountedData ? r.adD : r.ad));
-      const menS = pricing.fmt(isClosing ? r.men : (state.discountedData ? r.menD : r.men));
-      rows += `<tr>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;font-weight:500">${r.name}</td>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${adS}</td>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${menS}</td>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#1e293b;text-align:center">${state.cnpjs || '—'}</td>
-        <td style="padding:10px 14px;border-bottom:1px solid #f1f5f9;font-size:13px;color:#10b981;font-weight:700;text-align:right">${pricing.fmt(menS)}</td>
-      </tr>`;
-    }
-
-    const html = `
-    <div style="background:#fff;font-family:'Inter',sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
-      <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px;text-align:center">
-        <div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;color:#fff;margin-bottom:6px">Termo de Pedido e Registro de Software</div>
-        <div style="font-size:12px;color:#94a3b8">${configData.company || 'Vivanexa'}</div>
-      </div>
-      <div style="padding:36px 44px">
-        <p style="font-size:13px;color:#475569;margin-bottom:28px;padding:14px 18px;background:#f8fafc;border-left:3px solid #00d4ff">Confira os dados abaixo e assine eletronicamente.</p>
-
-        <div style="margin-bottom:24px">
-          <div style="font-weight:700;margin-bottom:8px">1 – CONTRATADA</div>
-          <div><strong>VIVANEXA DESENVOLVIMENTO E LICENCIAMENTO DE PROGRAMAS LTDA</strong><br>CNPJ 32.125.987/0001-67<br>Rua Dom Augusto, 1488, Sala D, Centro, Ji-Paraná RO, 76900-103<br>contato@vivanexa.com.br</div>
-        </div>
-
-        <div style="margin-bottom:24px">
-          <div style="font-weight:700;margin-bottom:8px">2 – CONTRATANTE</div>
-          <div><strong>${contactData.razao || clientData.nome || ''}</strong><br>CNPJ: ${pricing.fmtDoc(state.doc || '')}<br>Endereço: ${addr}<br>E-mail: ${contactData.email || clientData.email || ''}<br>Telefone: ${contactData.telefone || clientData.telefone || ''}<br>Contato: ${contactData.contato || ''}<br>CPF: ${contactData.cpfContato || ''}</div>
-        </div>
-
-        <div style="margin-bottom:24px">
-          <div style="font-weight:700;margin-bottom:8px">3 – PLANO CONTRATADO E VALORES</div>
-          <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
-            <thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Produto</th><th>Adesão</th><th>Mensalidade</th><th>CNPJs</th><th>Total/mês</th></tr></thead>
-            <tbody>${rows}</tbody>
-            <tfoot>
-              <tr style="background:#f0fdf4"><td colspan="4" style="padding:12px 14px;font-weight:700">Total Mensalidade</td><td style="padding:12px 14px;font-weight:800;color:#10b981">${pricing.fmt(tMen)}/mês</td></tr>
-              <tr style="background:#fffbeb"><td colspan="4" style="padding:10px 14px;font-weight:700">Adesão (único)</td><td style="padding:10px 14px;font-weight:700;color:#b45309">${pricing.fmt(tAd)}</td></tr>
-            </tfoot>
-          </table>
-          <div style="font-size:12px;color:#64748b">Validade: 12 meses. Renovação automática.</div>
-        </div>
-
-        <div style="margin-bottom:24px">
-          <div style="font-weight:700;margin-bottom:8px">4 – CONDIÇÕES DE PAGAMENTO</div>
-          <div>Adesão: a combinar. Primeira mensalidade: a combinar. Pagamento via boleto ou cartão.</div>
-        </div>
-
-        <div style="margin-bottom:24px;padding:12px;background:#f0f9ff;border-radius:8px">
-          <strong>Informações adicionais:</strong><br>
-          Regime Tributário: ${contactData.regime || '—'}<br>
-          Responsável pela implantação: ${contactData.rimpNome || '—'} (${contactData.rimpEmail || '—'}, ${contactData.rimpTel || '—'})<br>
-          Responsável financeiro: ${contactData.rfinNome || '—'} (${contactData.rfinEmail || '—'}, ${contactData.rfinTel || '—'})
-        </div>
-
-        <div style="margin-bottom:24px;font-size:12px;color:#475569">
-          <p>Este contrato é regido pela Lei nº 14.063/2020 e pela MP 2.200-2/2001, que estabelecem a validade jurídica das assinaturas eletrônicas. As partes declaram estar de acordo com os Termos de Uso e Política de Privacidade disponíveis em <a href="https://vivanexa.com.br/termos">vivanexa.com.br/termos</a>.</p>
-          <p>A rescisão antecipada implicará na cobrança de multa de 20% sobre o saldo remanescente.</p>
-        </div>
-
-        <div style="margin-top:44px;border-top:1px solid #e2e8f0;padding-top:24px">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;text-align:center">
-            <div>
-              <div style="height:50px;border-bottom:1px solid #1e293b;margin-bottom:8px"></div>
-              <div><strong>${configData.company || 'Vivanexa'}</strong><br>Contratada</div>
-              <div style="font-size:11px;color:#94a3b8">Data: ${today}</div>
-            </div>
-            <div>
-              <div style="height:50px;border-bottom:1px solid #1e293b;margin-bottom:8px"></div>
-              <div><strong>${contactData.contato || clientData.fantasia || clientData.nome || 'Cliente'}</strong><br>Contratante</div>
-              <div style="font-size:11px;color:#94a3b8">CPF: ${contactData.cpfContato || '—'}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div style="background:#f8fafc;padding:16px 44px;font-size:11px;color:#94a3b8;text-align:center">${configData.company || 'Vivanexa'} – www.vivanexa.com.br</div>
-    </div>`;
-    return html;
-  };
-
-  // Salva o documento no Supabase e exibe o modal
-  const saveDocument = async (clientId, clientData, contactData, type) => {
-    const isClosing = state.closingToday === true;
-    const dataToUse = isClosing ? state.closingData : (state.discountedData || state.quoteData);
-    const html = type === 'proposta'
-      ? generateProposalHtml(clientData, contactData, dataToUse, isClosing)
-      : generateContractHtml(clientData, contactData, dataToUse, isClosing);
-    const signToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const { data, error } = await supabase
-      .from('documents')
-      .insert({
-        type: type,
-        client_id: clientId,
-        html: html,
-        status: 'draft',
-        sign_token: signToken,
-        consultant_id: (await supabase.auth.getUser()).data.user?.id,
-        t_ad: isClosing ? state.closingData?.tAd : (state.discountedData?.tAdD || state.quoteData.tAdD),
-        t_men: isClosing ? state.closingData?.tMen : (state.discountedData?.tMenD || state.quoteData.tMenD),
-        created_at: new Date()
-      })
-      .select('sign_token')
-      .single();
-    if (error) {
-      console.error(error);
-      alert('Erro ao salvar documento. Verifique o console.');
-      return;
-    }
-    setGeneratedDocHtml(html);
-    setCurrentDocumentToken(data.sign_token);
-    setShowDocModal(true);
-  };
-
-  // Função chamada ao clicar em "Gerar Proposta" ou "Gerar Contrato"
-  const openClientModal = (type) => {
-    setGenerateType(type);
-    setShowClientModal(true);
-  };
-
-  // Quando o usuário salva os dados do modal
-  const handleSaveClient = async (e) => {
-    e.preventDefault();
-    const contactData = {
-      contato: document.getElementById('clientName').value,
-      email: document.getElementById('clientEmail').value,
-      telefone: document.getElementById('clientPhone').value,
-      cidade: document.getElementById('clientCity').value,
-      uf: document.getElementById('clientUf').value,
-      cpfContato: document.getElementById('clientCpf').value,
-      regime: document.getElementById('clientRegime').value,
-      rimpNome: document.getElementById('rimpName').value,
-      rimpEmail: document.getElementById('rimpEmail').value,
-      rimpTel: document.getElementById('rimpPhone').value,
-      rfinNome: document.getElementById('rfinName').value,
-      rfinEmail: document.getElementById('rfinEmail').value,
-      rfinTel: document.getElementById('rfinPhone').value,
-      endereco: document.getElementById('clientEndereco')?.value || '',
-      bairro: document.getElementById('clientBairro')?.value || '',
-      razao: document.getElementById('clientRazao')?.value || '',
-    };
-    setState(prev => ({ ...prev, contactData }));
-    const clientId = await saveClientToDB(state.clientData, contactData);
-    if (clientId) {
-      await saveDocument(clientId, state.clientData, contactData, generateType);
-    }
-    setShowClientModal(false);
-  };
-
-  // Funções globais para os botões no HTML
+  // ── Timer de fechamento ────────────────────────────────────
   useEffect(() => {
-    window.handleShowDiscount = showDiscount;
-    window.handleClosingToday = handleClosingToday;
-    window.tryVoucher = tryVoucher;
-    window.openClientModal = openClientModal;
-  }, [state, configData]);
+    if (!timerDeadline) return
+    const iv = setInterval(() => {
+      const diff = timerDeadline - new Date()
+      if (diff <= 0) { setTimerVal('EXPIRADO'); clearInterval(iv); return }
+      const hh = Math.floor(diff / 3600000)
+      const mm = Math.floor((diff % 3600000) / 60000)
+      const ss = Math.floor((diff % 60000) / 1000)
+      setTimerVal(`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`)
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [timerDeadline])
 
-  if (!configLoaded) {
-    return <div style={{ textAlign: 'center', padding: '50px' }}>Carregando configurações...</div>;
+  // ── Scroll automático ──────────────────────────────────────
+  useEffect(() => {
+    if (msgRef.current) msgRef.current.scrollTop = msgRef.current.scrollHeight
+  }, [messages, thinking])
+
+  // ── Carregar config da empresa ─────────────────────────────
+  async function loadCfg(empresaId) {
+    if (!empresaId) return
+    try {
+      const { data: empresa } = await supabase.from('empresas').select('*').eq('id', empresaId).single()
+      const { data: planos }  = await supabase.from('planos').select('*').eq('empresa_id', empresaId)
+      const { data: precos }  = await supabase.from('precos').select('*').eq('empresa_id', empresaId)
+      const { data: vouchers } = await supabase.from('vales').select('*').eq('empresa_id', empresaId)
+      if (empresa) {
+        const newCfg = { ...DEFAULT_CFG }
+        if (empresa.nome)        newCfg.company = empresa.nome
+        if (empresa.slogan)      newCfg.slogan  = empresa.slogan
+        if (empresa.disc_ad_pct != null) newCfg.discAdPct   = empresa.disc_ad_pct
+        if (empresa.disc_men_pct != null) newCfg.discMenPct = empresa.disc_men_pct
+        if (empresa.disc_close_pct != null) newCfg.discClosePct = empresa.disc_close_pct
+        if (empresa.disc_mode)   newCfg.discMode = empresa.disc_mode
+        if (planos?.length)      newCfg.plans    = planos.map(p => ({ id: p.id, name: p.nome, maxCnpjs: p.max_cnpjs, users: p.max_usuarios, unlimited: p.ilimitado }))
+        if (vouchers?.length)    newCfg.vouchers = vouchers.map(v => ({ code: v.codigo, discAdPct: v.desc_ad_pct, discMenPct: v.desc_men_pct, event: v.evento }))
+        setCfg(newCfg)
+      }
+    } catch (e) { console.warn('Erro ao carregar config:', e) }
   }
+
+  // ── Helpers de mensagem ────────────────────────────────────
+  function addBotMsg(content, isHTML = false) {
+    setMessages(prev => [...prev, { role: 'bot', content, isHTML, id: Date.now() + Math.random() }])
+  }
+  function addUserMsg(content) {
+    setMessages(prev => [...prev, { role: 'user', content, isHTML: false, id: Date.now() + Math.random() }])
+  }
+  function resetState() {
+    Object.assign(S, {
+      stage: 'await_doc', doc: null, clientData: null,
+      users: null, cnpjs: null, modules: [], plan: null,
+      ifPlan: null, notas: null, quoteData: null, appliedVoucher: null
+    })
+  }
+
+  // ── Processamento da conversa ──────────────────────────────
+  async function processInput(text) {
+    const t = text.trim(), low = t.toLowerCase()
+    if (S.stage === 'closed') return null
+
+    if (['valeu','obrigado','obrigada','tchau'].some(w => low.includes(w)) && S.stage !== 'await_doc') {
+      S.stage = 'closed'
+      return { type: 'text', content: 'Perfeito! Boas vendas! 🚀' }
+    }
+
+    // ETAPA 1: CPF / CNPJ
+    if (S.stage === 'await_doc') {
+      const doc = cleanDoc(t)
+      if (!isCNPJ(doc) && !isCPF(doc)) return { type: 'text', content: 'Por favor, informe o CPF ou CNPJ do cliente (somente números).' }
+      S.doc = doc
+      if (isCNPJ(doc)) {
+        setThinking(true)
+        const cd = await fetchCNPJ(doc)
+        setThinking(false)
+        if (cd) {
+          S.clientData = cd
+          S.stage = 'await_users'
+          return { type: 'html', content: renderClientCard(cd) + `<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ Empresa encontrada!<br><br>Quantos <strong style="color:var(--text)">usuários</strong> o cliente possui atualmente?</div>` }
+        }
+      }
+      S.clientData = { nome: isCPF(doc) ? 'Cliente PF' : 'Empresa', fantasia: '', cnpj: doc, tipo: isCPF(doc) ? 'PF' : 'PJ' }
+      S.stage = 'await_users'
+      return { type: 'text', content: (isCNPJ(doc) ? `⚠️ CNPJ ${fmtDoc(doc)} não localizado.\n` : '') + `Quantos usuários o cliente possui atualmente?` }
+    }
+
+    // ETAPA 2: Usuários
+    if (S.stage === 'await_users') {
+      const u = parseInt(t.match(/\d+/)?.[0])
+      if (!u || u < 1) return { type: 'text', content: 'Quantos usuários? (informe um número)' }
+      S.users = u; S.stage = 'await_modules'
+      return { type: 'text', content: `👥 ${u} usuário${u > 1 ? 's' : ''} registrado${u > 1 ? 's' : ''}!\n\nQuais módulos deseja incluir?\n(${prodName('Gestão Fiscal', cfg)} · ${prodName('BIA', cfg)} · ${prodName('CND', cfg)} · ${prodName('XML', cfg)} · ${prodName('IF', cfg)} · ${prodName('EP', cfg)} · ${prodName('Tributos', cfg)})` }
+    }
+
+    // ETAPA 3: Plano IF
+    if (S.stage === 'await_if_plan') {
+      const p = parseIFPlan(t, cfg.plans)
+      if (!p) return { type: 'text', content: `Informe o plano ${prodName('IF', cfg)}:\n(${cfg.plans.map(p => p.name).join(', ')})` }
+      S.ifPlan = p; S.stage = 'await_modules'; return checkAndCalc()
+    }
+
+    // ETAPA 4: Notas fiscais
+    if (S.stage === 'await_notas') {
+      const n = parseInt(t)
+      if (!n || n < 1) return { type: 'text', content: 'Quantas notas fiscais por mês?' }
+      S.notas = n; S.stage = 'await_modules'; return checkAndCalc()
+    }
+
+    // ETAPA 5: Módulos
+    const mods = parseModules(t, cfg)
+    for (const m of mods) if (!S.modules.includes(m)) S.modules.push(m)
+    const willNeedCNPJ = S.modules.length === 0 || S.modules.some(m => !IF_NO_CNPJ.includes(m))
+    if (willNeedCNPJ) { const n = parseInt(t.match(/\b(\d+)\s*(cnpj[s]?)?\b/i)?.[1]); if (n && !S.cnpjs) S.cnpjs = n }
+    return checkAndCalc()
+  }
+
+  function checkAndCalc() {
+    if (S.modules.length === 0)
+      return { type: 'text', content: `Quais módulos deseja incluir?\n(${prodName('Gestão Fiscal', cfg)} · ${prodName('BIA', cfg)} · ${prodName('CND', cfg)} · ${prodName('XML', cfg)} · ${prodName('IF', cfg)} · ${prodName('EP', cfg)} · ${prodName('Tributos', cfg)})` }
+    if (S.modules.includes('EP') && !S.modules.includes('Gestão Fiscal')) {
+      S.modules = S.modules.filter(m => m !== 'EP')
+      return { type: 'text', content: `⚠️ O ${prodName('EP', cfg)} exige o módulo ${prodName('Gestão Fiscal', cfg)}.\nPor favor, inclua também o ${prodName('Gestão Fiscal', cfg)}.` }
+    }
+    if (S.modules.includes('IF') && !S.ifPlan) {
+      S.stage = 'await_if_plan'
+      return { type: 'text', content: `Qual o plano de ${prodName('IF', cfg)}?\n(${cfg.plans.map(p => p.name).join(', ')})` }
+    }
+    if (S.modules.includes('Tributos') && !S.notas) {
+      S.stage = 'await_notas'
+      return { type: 'text', content: 'Quantas notas fiscais por mês?' }
+    }
+    const needsCNPJ = S.modules.some(m => !IF_NO_CNPJ.includes(m))
+    if (needsCNPJ && !S.cnpjs) return { type: 'text', content: 'Quantos CNPJs o cliente possui?' }
+
+    S.plan = needsCNPJ ? getPlan(S.cnpjs, cfg.plans) : 'basic'
+    S.quoteData = calcQuoteFullPrice(S.modules, S.plan, S.ifPlan, S.cnpjs, S.notas, cfg)
+    const dates = getNextDates()
+    S.stage = 'full_quoted'
+    return { type: 'html', content: renderFullPriceOnly(S.quoteData, dates) }
+  }
+
+  // ── Enviar mensagem ────────────────────────────────────────
+  async function sendMessage(text) {
+    const txt = (text || input).trim()
+    if (!txt) return
+    setInput('')
+    addUserMsg(txt)
+    setChips([])
+    setThinking(true)
+    const resp = await processInput(txt)
+    setThinking(false)
+    if (resp) addBotMsg(resp.content, resp.type === 'html')
+    if (S.stage === 'await_modules') {
+      setChips([
+        `${prodName('Gestão Fiscal', cfg)} + ${prodName('BIA', cfg)}`,
+        `${prodName('BIA', cfg)} + ${prodName('CND', cfg)} + ${prodName('XML', cfg)}`,
+        `${prodName('Gestão Fiscal', cfg)} + ${prodName('EP', cfg)}`,
+        prodName('IF', cfg),
+      ])
+    }
+  }
+
+  // ── Handlers dos botões inline ─────────────────────────────
+  useEffect(() => {
+    window.handleShowDiscount = (yes) => {
+      const dates = getNextDates()
+      const cn = S.clientData?.fantasia || S.clientData?.nome || fmtDoc(S.doc || '')
+      if (yes) {
+        S.stage = 'discounted'
+        S.quoteData = calcQuoteWithDiscount(S.modules, S.plan, S.ifPlan, S.cnpjs, S.notas, cfg)
+        addUserMsg('✅ Sim, quero ver!')
+        addBotMsg(renderWithDiscount(S.quoteData, dates, cn, cfg), true)
+      } else {
+        S.stage = 'closed'
+        addUserMsg('Não, obrigado')
+        addBotMsg('Sem problemas! 😊')
+        setTimeout(() => addBotMsg(
+          `<div style="display:flex;flex-direction:column;gap:8px">
+            <button class="prop-btn" onclick="window.resetConsulta()">🔄 Iniciar nova consulta</button>
+          </div>`, true
+        ), 400)
+      }
+      setChips([])
+    }
+    window.handleClosingToday = (yes) => {
+      const dates = getNextDates()
+      if (yes) {
+        const data = calcClosing(S.modules, S.plan, S.ifPlan, S.cnpjs, S.notas, cfg)
+        S.stage = 'closed'
+        addUserMsg('✅ Sim, fechar hoje!')
+        const deadline = new Date(); deadline.setHours(18, 0, 0, 0)
+        setTimerDeadline(deadline)
+        addBotMsg(renderClosingResult(data, dates, cfg), true)
+      } else {
+        S.stage = 'closed'
+        addUserMsg('Não por agora')
+        addBotMsg('Entendido! Os valores com desconto padrão continuam válidos.')
+        setTimeout(() => addBotMsg(
+          `<div style="display:flex;flex-direction:column;gap:8px">
+            <button class="prop-btn" onclick="window.resetConsulta()">🔄 Iniciar nova consulta</button>
+          </div>`, true
+        ), 400)
+      }
+      setChips([])
+    }
+    window.tryVoucher = () => {
+      const code = (document.getElementById('voucherInput')?.value || '').toUpperCase().trim()
+      const v = cfg.vouchers.find(x => x.code === code)
+      const msgEl = document.getElementById('voucherMsg')
+      if (v) {
+        S.appliedVoucher = v
+        if (msgEl) msgEl.innerHTML = `<div class="voucher-msg ok">✅ Voucher <strong>${v.code}</strong> aplicado!</div>`
+        setTimeout(() => window.handleShowDiscount(true), 800)
+      } else {
+        if (msgEl) msgEl.innerHTML = `<div class="voucher-msg err">❌ Voucher inválido ou expirado.</div>`
+      }
+    }
+    window.resetConsulta = () => {
+      resetState()
+      setChips([])
+      addBotMsg('🔄 Nova consulta iniciada!\n\nInforme o CPF ou CNPJ do próximo cliente:')
+    }
+  }, [cfg])
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.replace('/')
+  }
+
+  // ══════════════════════════════════════════
+  // RENDER DAS MENSAGENS
+  // ══════════════════════════════════════════
+  if (!userProfile) return <div style={{ background: '#0a0f1e', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontFamily: 'DM Mono, monospace' }}>Carregando...</div>
 
   return (
     <>
-      <div style={{ maxWidth: 820, margin: '0 auto', padding: '20px' }}>
-        {/* Cabeçalho com botão do dashboard */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h1>Assistente Comercial</h1>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              onClick={() => router.push('/dashboard')}
-              style={{
-                padding: '8px 12px',
-                background: '#00d4ff',
-                border: 'none',
-                borderRadius: 8,
-                color: '#000',
-                cursor: 'pointer',
-                fontWeight: 'bold'
-              }}
-            >
-              📊 Dashboard
-            </button>
-            <button
-              onClick={() => supabase.auth.signOut()}
-              style={{
-                padding: '8px 12px',
-                background: '#1e2d4a',
-                border: 'none',
-                borderRadius: 8,
-                color: '#e2e8f0',
-                cursor: 'pointer'
-              }}
-            >
-              Sair
-            </button>
-          </div>
-        </div>
+      <Head>
+        <title>{cfg.company} – Assistente Comercial</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+      </Head>
 
-        <div style={{ height: '60vh', overflowY: 'auto', border: '1px solid #ccc', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-          {messages.map((msg, idx) => (
-            <div key={idx} style={{ textAlign: msg.role === 'user' ? 'right' : 'left', marginBottom: 10 }}>
-              <div style={{
-                display: 'inline-block',
-                background: msg.role === 'user' ? '#0070f3' : '#eaeaea',
-                color: msg.role === 'user' ? '#fff' : '#000',
-                borderRadius: 12,
-                padding: '8px 12px',
-                maxWidth: '80%'
-              }}>
-                {msg.isHtml ? <div dangerouslySetInnerHTML={{ __html: msg.content }} /> : msg.content}
-              </div>
+      <style>{CSS}</style>
+
+      <div className="orb orb1" /><div className="orb orb2" />
+
+      {/* ── HEADER ── */}
+      <header>
+        <div className="header-logo">
+          <img src="/logo.png" alt={cfg.company} onError={e => e.target.style.display='none'} />
+        </div>
+        <div className="header-text">
+          <h1>{cfg.company}</h1>
+          <p>{cfg.slogan}</p>
+        </div>
+        <div className="status-dot">online</div>
+        <div className="header-user">
+          <span>{userProfile.nome}</span>
+        </div>
+        <button className="logout-btn" onClick={handleLogout}>Sair</button>
+      </header>
+
+      {/* ── CHAT ── */}
+      <div className="chat-wrap">
+        <div id="messages" ref={msgRef}>
+          {messages.map(m => (
+            <div key={m.id} className={`msg ${m.role}`}>
+              <div className="msg-label">{m.role === 'user' ? 'Você' : 'Assistente'}</div>
+              <div
+                className="bubble"
+                {...(m.isHTML
+                  ? { dangerouslySetInnerHTML: { __html: m.content } }
+                  : { children: m.content }
+                )}
+              />
             </div>
           ))}
-          {loading && <div style={{ textAlign: 'left' }}>Assistente está pensando...</div>}
-          <div ref={messagesEndRef} />
+          {thinking && (
+            <div className="msg bot">
+              <div className="thinking"><span /><span /><span /></div>
+            </div>
+          )}
+          {/* Timer de fechamento */}
+          {timerVal && (
+            <div id="timerDisplay" className="timer-live">{timerVal}</div>
+          )}
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        {/* Chips de sugestão */}
+        {chips.length > 0 && (
+          <div id="chips">
+            {chips.map((c, i) => (
+              <button key={i} className="chip" onClick={() => sendMessage(c)}>{c}</button>
+            ))}
+          </div>
+        )}
+
+        {/* Input */}
+        <div id="inputArea">
           <textarea
+            ref={inputRef}
+            id="userInput"
+            placeholder="Digite CPF, CNPJ, módulos..."
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-            placeholder="Digite aqui..."
-            rows={2}
-            style={{ flex: 1, padding: 8, borderRadius: 8, border: '1px solid #ccc' }}
+            onChange={e => { setInput(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px' }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+            rows={1}
           />
-          <button onClick={sendMessage} style={{ padding: '0 16px', borderRadius: 8, background: '#0070f3', color: '#fff', border: 'none' }}>
-            Enviar
+          <button className="send-btn" onClick={() => sendMessage()}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>
       </div>
-
-      {/* Modal para dados do cliente */}
-      {showClientModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#111827', borderRadius: 16, padding: 24, maxWidth: 500, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
-            <h2 style={{ color: '#00d4ff', marginBottom: 16 }}>{generateType === 'proposta' ? 'Dados para a Proposta' : 'Dados para o Contrato'}</h2>
-            <form onSubmit={handleSaveClient}>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Razão Social</label>
-                <input id="clientRazao" defaultValue={state.clientData?.nome || ''} style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Nome do Contato *</label>
-                <input id="clientName" required style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>E-mail *</label>
-                <input id="clientEmail" type="email" required style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Telefone</label>
-                <input id="clientPhone" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Cidade</label>
-                  <input id="clientCity" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>UF</label>
-                  <input id="clientUf" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-                </div>
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Endereço</label>
-                <input id="clientEndereco" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Bairro</label>
-                <input id="clientBairro" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>CPF do Contato</label>
-                <input id="clientCpf" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 4 }}>Regime Tributário</label>
-                <select id="clientRegime" style={{ width: '100%', padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }}>
-                  <option value="">Selecione</option>
-                  <option>Simples Nacional</option>
-                  <option>Lucro Presumido</option>
-                  <option>Lucro Real</option>
-                  <option>MEI</option>
-                </select>
-              </div>
-              <div style={{ borderTop: '1px solid #1e2d4a', margin: '16px 0 12px', paddingTop: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 'bold', color: '#00d4ff', marginBottom: 8 }}>Responsável pela Implantação</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <input id="rimpName" placeholder="Nome" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-                  <input id="rimpEmail" placeholder="E-mail" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-                  <input id="rimpPhone" placeholder="Telefone" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-                </div>
-              </div>
-              <div style={{ borderTop: '1px solid #1e2d4a', margin: '16px 0 12px', paddingTop: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 'bold', color: '#fbbf24', marginBottom: 8 }}>Responsável Financeiro</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <input id="rfinName" placeholder="Nome" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-                  <input id="rfinEmail" placeholder="E-mail" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-                  <input id="rfinPhone" placeholder="Telefone" style={{ padding: 8, borderRadius: 8, border: '1px solid #1e2d4a', background: '#0f172a', color: '#e2e8f0' }} />
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-                <button type="submit" style={{ flex: 1, padding: 10, borderRadius: 8, background: '#10b981', border: 'none', color: '#fff', fontWeight: 'bold', cursor: 'pointer' }}>Salvar e Gerar {generateType === 'proposta' ? 'Proposta' : 'Contrato'}</button>
-                <button type="button" onClick={() => setShowClientModal(false)} style={{ padding: '10px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#64748b', cursor: 'pointer' }}>Cancelar</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal para visualizar o documento com botões de compartilhamento */}
-      {showDocModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ maxWidth: 820, width: '100%', background: '#fff', borderRadius: 16, display: 'flex', flexDirection: 'column', maxHeight: '90vh', height: 'auto' }}>
-            <div style={{ padding: 16, background: '#0f172a', display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => {
-                    const link = `${window.location.origin}/sign/${currentDocumentToken}`;
-                    navigator.clipboard.writeText(link);
-                    alert('Link copiado! Envie para o cliente.');
-                  }}
-                  style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}
-                >
-                  📋 Copiar link
-                </button>
-                <button
-                  onClick={() => {
-                    const link = `${window.location.origin}/sign/${currentDocumentToken}`;
-                    const message = encodeURIComponent(`Olá! Segue o link para assinatura eletrônica do documento: ${link}`);
-                    window.open(`https://wa.me/?text=${message}`, '_blank');
-                  }}
-                  style={{ padding: '8px 16px', borderRadius: 8, background: '#25D366', border: 'none', color: '#fff', cursor: 'pointer' }}
-                >
-                  💬 WhatsApp
-                </button>
-                <button
-                  onClick={() => {
-                    const link = `${window.location.origin}/sign/${currentDocumentToken}`;
-                    const subject = encodeURIComponent('Assinatura eletrônica de documento');
-                    const body = encodeURIComponent(`Olá! Segue o link para assinar o documento: ${link}`);
-                    window.location.href = `mailto:?subject=${subject}&body=${body}`;
-                  }}
-                  style={{ padding: '8px 16px', borderRadius: 8, background: '#EA4335', border: 'none', color: '#fff', cursor: 'pointer' }}
-                >
-                  📧 E-mail
-                </button>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => window.print()} style={{ padding: '8px 16px', borderRadius: 8, background: '#00d4ff', border: 'none', color: '#000', cursor: 'pointer' }}>
-                  🖨️ Imprimir
-                </button>
-                <button onClick={() => setShowDocModal(false)} style={{ padding: '8px 16px', borderRadius: 8, background: '#1e2d4a', border: 'none', color: '#fff', cursor: 'pointer' }}>
-                  Fechar
-                </button>
-              </div>
-            </div>
-            <div style={{ overflowY: 'auto', padding: '0 20px 20px 20px' }}>
-              <div dangerouslySetInnerHTML={{ __html: generatedDocHtml }} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Estilos (mesmos de antes) */}
-      <style jsx>{`
-        .price-card {
-          background: #1a2540;
-          border: 1px solid #1e2d4a;
-          border-radius: 12px;
-          padding: 15px 18px;
-          margin: 4px 0;
-          font-size: 15px;
-        }
-        .price-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 5px 0;
-          border-bottom: 1px solid rgba(128,128,128,.1);
-        }
-        .label {
-          color: #64748b;
-          font-size: 13px;
-        }
-        .val {
-          font-weight: 600;
-          font-size: 15px;
-        }
-        .discount { color: #10b981; }
-        .closing { color: #fbbf24; }
-        .teaser-card {
-          background: linear-gradient(135deg,rgba(16,185,129,.1),rgba(16,185,129,.03));
-          border: 1px solid rgba(16,185,129,.3);
-          border-radius: 12px;
-          padding: 16px 18px;
-          margin: 4px 0;
-          position: relative;
-          overflow: hidden;
-        }
-        .teaser-title {
-          font-family: 'Syne',sans-serif;
-          font-weight: 700;
-          font-size: 15px;
-          color: #10b981;
-          margin-bottom: 8px;
-        }
-        .teaser-body {
-          font-size: 14px;
-          color: #6ee7b7;
-          line-height: 1.6;
-          margin-bottom: 12px;
-        }
-        .opp-banner {
-          background: linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04));
-          border: 1px solid rgba(251,191,36,.35);
-          border-radius: 12px;
-          padding: 16px 18px;
-          margin: 4px 0;
-          position: relative;
-          overflow: hidden;
-        }
-        .opp-title {
-          font-family: 'Syne',sans-serif;
-          font-weight: 700;
-          font-size: 15px;
-          color: #fbbf24;
-          margin-bottom: 8px;
-        }
-        .opp-body {
-          font-size: 14px;
-          color: #d4b96a;
-          line-height: 1.7;
-          margin-bottom: 12px;
-        }
-        .timer-card {
-          background: linear-gradient(135deg,rgba(239,68,68,.12),rgba(239,68,68,.04));
-          border: 1px solid rgba(239,68,68,.35);
-          border-radius: 12px;
-          padding: 16px 18px;
-          margin: 4px 0;
-          text-align: center;
-          position: relative;
-          overflow: hidden;
-        }
-        .timer-label {
-          font-size: 11px;
-          color: #64748b;
-          letter-spacing: 1.5px;
-          text-transform: uppercase;
-          margin-bottom: 6px;
-        }
-        .timer-display {
-          font-family: 'Syne',sans-serif;
-          font-size: 34px;
-          font-weight: 800;
-          color: #ef4444;
-          letter-spacing: 6px;
-        }
-        .timer-sub {
-          font-size: 12px;
-          color: #64748b;
-          margin-top: 5px;
-        }
-        .yn-row {
-          display: flex;
-          gap: 10px;
-          margin-top: 12px;
-        }
-        .yn-btn {
-          flex: 1;
-          padding: 11px;
-          border-radius: 10px;
-          font-family: 'DM Mono',monospace;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          border: 1px solid;
-          transition: all .2s;
-          letter-spacing: .3px;
-        }
-        .yn-btn.yes {
-          background: rgba(16,185,129,.15);
-          border-color: rgba(16,185,129,.4);
-          color: #10b981;
-        }
-        .yn-btn.no {
-          background: rgba(100,116,139,.12);
-          border-color: rgba(100,116,139,.3);
-          color: #64748b;
-        }
-        .section-label {
-          font-size: 11px;
-          letter-spacing: 1.5px;
-          color: #64748b;
-          text-transform: uppercase;
-          margin: 10px 0 6px;
-        }
-        .dates-box {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-          margin: 8px 0;
-        }
-        .date-chip {
-          background: rgba(0,212,255,.1);
-          border: 1px solid rgba(0,212,255,.2);
-          color: #00d4ff;
-          padding: 5px 12px;
-          border-radius: 20px;
-          font-size: 13px;
-          letter-spacing: .5px;
-        }
-        .voucher-row {
-          display: flex;
-          gap: 8px;
-          margin-top: 10px;
-        }
-        .voucher-input {
-          flex: 1;
-          background: #111827;
-          border: 1px solid #1e2d4a;
-          border-radius: 9px;
-          padding: 10px 12px;
-          font-family: 'DM Mono',monospace;
-          font-size: 14px;
-          color: #e2e8f0;
-          outline: none;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-        }
-        .voucher-apply-btn {
-          background: rgba(0,212,255,.15);
-          border: 1px solid rgba(0,212,255,.3);
-          border-radius: 9px;
-          color: #00d4ff;
-          font-family: 'DM Mono',monospace;
-          font-size: 13px;
-          padding: 10px 14px;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-        .voucher-msg.ok {
-          background: rgba(16,185,129,.1);
-          color: #10b981;
-          border: 1px solid rgba(16,185,129,.2);
-          padding: 6px 10px;
-          border-radius: 8px;
-          margin-top: 6px;
-        }
-        .voucher-msg.err {
-          background: rgba(239,68,68,.1);
-          color: #ef4444;
-          border: 1px solid rgba(239,68,68,.2);
-          padding: 6px 10px;
-          border-radius: 8px;
-          margin-top: 6px;
-        }
-        .client-card {
-          background: linear-gradient(135deg,rgba(0,212,255,.08),rgba(0,212,255,.02));
-          border: 1px solid rgba(0,212,255,.2);
-          border-radius: 12px;
-          padding: 15px 18px;
-          margin: 4px 0;
-          font-size: 14px;
-        }
-        .cl-name {
-          font-family: 'Syne',sans-serif;
-          font-size: 16px;
-          font-weight: 700;
-          color: #00d4ff;
-          margin-bottom: 10px;
-        }
-        .client-row {
-          display: flex;
-          gap: 8px;
-          padding: 3px 0;
-          align-items: flex-start;
-        }
-        .cl-label {
-          color: #64748b;
-          min-width: 90px;
-          flex-shrink: 0;
-          font-size: 13px;
-        }
-        .cl-val {
-          color: #e2e8f0;
-          font-size: 13px;
-        }
-        .proposal-btn {
-          padding: 12px;
-          border-radius: 10px;
-          background: linear-gradient(135deg, #00d4ff, #0099bb);
-          border: none;
-          color: #fff;
-          font-family: 'DM Mono', monospace;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          margin-top: 8px;
-        }
-        .section-divider {
-          border: none;
-          border-top: 1px solid var(--border);
-          margin: 10px 0;
-        }
-      `}</style>
     </>
-  );
+  )
 }
+
+// ══════════════════════════════════════════
+// RENDER HELPERS (HTML gerado para o chat)
+// ══════════════════════════════════════════
+function renderClientCard(cd) {
+  const end = [cd.logradouro, cd.bairro, cd.municipio && cd.uf ? cd.municipio + ' – ' + cd.uf : cd.municipio || cd.uf].filter(Boolean).join(', ')
+  const cep = cd.cep ? cd.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2') : ''
+  return `<div class="client-card">
+    <div class="cl-name">${cd.fantasia || cd.nome || fmtDoc(cd.cnpj)}</div>
+    ${cd.nome && cd.fantasia ? `<div class="client-row"><span class="cl-label">Razão Social</span><span class="cl-val">${cd.nome}</span></div>` : ''}
+    ${cd.cnpj ? `<div class="client-row"><span class="cl-label">CNPJ</span><span class="cl-val">${fmtDoc(cd.cnpj)}</span></div>` : ''}
+    ${end ? `<div class="client-row"><span class="cl-label">Endereço</span><span class="cl-val">${end}</span></div>` : ''}
+    ${cep ? `<div class="client-row"><span class="cl-label">CEP</span><span class="cl-val">${cep}</span></div>` : ''}
+    ${cd.telefone ? `<div class="client-row"><span class="cl-label">Telefone</span><span class="cl-val">${cd.telefone}</span></div>` : ''}
+    ${cd.email ? `<div class="client-row"><span class="cl-label">E-mail</span><span class="cl-val">${cd.email}</span></div>` : ''}
+  </div>`
+}
+
+function renderFullPriceOnly(data, dates) {
+  const { results, tAd, tMen } = data
+  let h = ''
+  for (const r of results) {
+    h += `<div class="price-card"><h4>🔹 ${r.name}${r.isPrepaid ? ' <small style="font-size:11px;color:var(--warning)">(pré-pago)</small>' : ''}</h4>`
+    if (!r.isTributos && !r.isEP) h += `<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`
+    h += `<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div></div>`
+  }
+  h += `<div class="price-card" style="border-color:rgba(0,212,255,.25)">
+    <h4>🔸 Total</h4>
+    <div class="price-row"><span class="label">Adesão total</span><span class="val">${fmt(tAd)}</span></div>
+    <div class="price-row"><span class="label">Mensalidade total</span><span class="val">${fmt(tMen)}</span></div>
+  </div>`
+  h += `<div class="teaser-card">
+    <div class="teaser-title">🎫 Há licenças com desconto disponíveis!</div>
+    <div class="teaser-body">Temos condições especiais para novos clientes.<br>Deseja ver os valores com desconto?</div>
+    <div class="yn-row">
+      <button class="yn-btn yes" onclick="window.handleShowDiscount(true)">✅ Sim, quero ver!</button>
+      <button class="yn-btn no"  onclick="window.handleShowDiscount(false)">Não, obrigado</button>
+    </div>
+  </div>`
+  h += `<div class="section-label">Próximos vencimentos</div>`
+  h += `<div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`
+  return h
+}
+
+function renderWithDiscount(data, dates, clientName, cfg) {
+  const { results, tAd, tMen, tAdD, tMenD } = data
+  let h = ''
+  for (const r of results) {
+    h += `<div class="price-card"><h4>🔹 ${r.name}</h4>`
+    if (!r.isTributos && !r.isEP) h += `<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`
+    h += `<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div>`
+    h += `<hr class="section-divider">`
+    if (!r.isTributos && !r.isEP) h += `<div class="price-row"><span class="label">Adesão de Tabela</span><span class="val discount">${fmt(r.adD)}</span></div>`
+    h += `<div class="price-row"><span class="label">Mensalidade c/ desconto</span><span class="val discount">${fmt(r.menD)}</span></div>`
+    h += `</div>`
+  }
+  h += `<div class="price-card" style="border-color:rgba(0,212,255,.25)">
+    <h4>🔸 Total</h4>
+    <div class="price-row"><span class="label">Adesão total</span><span class="val">${fmt(tAd)}</span></div>
+    <div class="price-row"><span class="label">Mensalidade total</span><span class="val">${fmt(tMen)}</span></div>
+    <hr class="section-divider">
+    <div class="price-row"><span class="label">Adesão de Tabela</span><span class="val discount">${fmt(tAdD)}</span></div>
+    <div class="price-row"><span class="label">Mensalidade de Tabela</span><span class="val discount">${fmt(tMenD)}</span></div>
+    ${cfg?.unlimitedStrategy ? `<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>` : ''}
+  </div>`
+  h += `<div class="opp-banner">
+    <div class="opp-title">🔥 Oportunidade de Negociação</div>
+    <div class="opp-body">
+      <strong style="color:var(--gold)">${clientName}</strong> pode fechar agora com condições ainda melhores:<br>
+      • Adesão com <strong style="color:var(--gold)">${cfg?.discClosePct || 40}% OFF</strong> sobre o valor base<br>
+      • Mensalidade calculada por CNPJ ativo<br>
+      ${cfg?.unlimitedStrategy ? `• <span class="unlimited-badge" style="display:inline-flex;font-size:12px">♾ Usuários Ilimitados</span><br>` : ''}
+      <br>Oferta válida somente até as <strong style="color:var(--gold)">18h de hoje</strong>.
+    </div>
+    <div class="yn-row">
+      <button class="yn-btn yes" onclick="window.handleClosingToday(true)">✅ Sim, fechar hoje!</button>
+      <button class="yn-btn no"  onclick="window.handleClosingToday(false)">Não por agora</button>
+    </div>
+  </div>`
+  h += `<div class="section-label">Próximos vencimentos</div>`
+  h += `<div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`
+  return h
+}
+
+function renderClosingResult(data, dates, cfg) {
+  const { results, tAd, tMen } = data
+  let h = ''
+  for (const r of results) {
+    h += `<div class="price-card"><h4>🔹 ${r.name}</h4>`
+    if (!r.isTributos && !r.isEP) h += `<div class="price-row"><span class="label">Adesão (fechamento)</span><span class="val closing">${fmt(r.ad)}</span></div>`
+    h += `<div class="price-row"><span class="label">Mensalidade</span><span class="val closing">${fmt(r.men)}</span></div></div>`
+  }
+  h += `<div class="price-card" style="border-color:rgba(251,191,36,.3)">
+    <h4 style="color:var(--gold)">🔸 Total – Fechamento</h4>
+    <div class="price-row"><span class="label">Adesão total</span><span class="val closing">${fmt(tAd)}</span></div>
+    <div class="price-row"><span class="label">Mensalidade total</span><span class="val closing">${fmt(tMen)}</span></div>
+    ${cfg?.unlimitedStrategy ? `<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>` : ''}
+  </div>`
+  h += `<div class="section-label">Próximos vencimentos</div>`
+  h += `<div class="dates-box">${dates.map(d => `<span class="date-chip">${d}</span>`).join('')}</div>`
+  h += `<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+    <button class="reset-btn" onclick="window.resetConsulta()">🔄 Encerrar e iniciar nova consulta</button>
+  </div>`
+  return h
+}
+
+// ══════════════════════════════════════════
+// CSS
+// ══════════════════════════════════════════
+const CSS = `
+  :root {
+    --bg:#0a0f1e; --surface:#111827; --surface2:#1a2540; --border:#1e2d4a;
+    --accent:#00d4ff; --accent2:#7c3aed; --accent3:#10b981;
+    --text:#e2e8f0; --muted:#64748b; --user-bubble:#1e3a5f; --bot-bubble:#131f35;
+    --danger:#ef4444; --warning:#f59e0b; --gold:#fbbf24;
+    --card-bg:#1a2540; --shadow:0 4px 24px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:15px}
+  body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+  .orb{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;opacity:.1}
+  .orb1{width:500px;height:500px;background:var(--accent);top:-200px;right:-150px}
+  .orb2{width:400px;height:400px;background:var(--accent2);bottom:-150px;left:-100px}
+
+  /* ── HEADER ── */
+  header{position:relative;z-index:10;width:100%;max-width:820px;padding:18px 20px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .header-logo img{height:44px;width:44px;object-fit:contain;border-radius:10px;flex-shrink:0}
+  .header-text h1{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;letter-spacing:.5px}
+  .header-text p{font-size:11px;color:var(--muted);margin-top:2px;letter-spacing:.5px}
+  .status-dot{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent3);letter-spacing:.5px}
+  .status-dot::before{content:'';width:7px;height:7px;background:var(--accent3);border-radius:50%;box-shadow:0 0 8px var(--accent3);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .header-user{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .header-user span{color:var(--text);font-weight:500}
+  .logout-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:5px 9px;border-radius:8px;font-family:'DM Mono',monospace;transition:all .2s}
+  .logout-btn:hover{color:var(--danger);background:rgba(239,68,68,.08)}
+
+  /* ── CHAT ── */
+  .chat-wrap{position:relative;z-index:10;width:100%;max-width:820px;padding:14px 20px 0;flex:1;display:flex;flex-direction:column}
+  #messages{display:flex;flex-direction:column;gap:14px;padding-bottom:20px;min-height:400px;max-height:calc(100vh - 230px);overflow-y:auto;scroll-behavior:smooth}
+  #messages::-webkit-scrollbar{width:4px}
+  #messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+  .msg{display:flex;flex-direction:column;max-width:92%;animation:fadeUp .3s ease}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .msg.user{align-self:flex-end;align-items:flex-end}
+  .msg.bot{align-self:flex-start;align-items:flex-start}
+  .bubble{padding:13px 17px;border-radius:14px;font-size:15px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+  .msg.user .bubble{background:var(--user-bubble);border:1px solid rgba(0,212,255,.15);border-bottom-right-radius:4px}
+  .msg.bot .bubble{background:var(--bot-bubble);border:1px solid var(--border);border-bottom-left-radius:4px}
+  .msg-label{font-size:11px;color:var(--muted);margin-bottom:4px;letter-spacing:.5px}
+
+  /* ── THINKING ── */
+  .thinking{display:flex;gap:5px;padding:14px 18px;background:var(--bot-bubble);border:1px solid var(--border);border-radius:14px;border-bottom-left-radius:4px}
+  .thinking span{width:8px;height:8px;background:var(--muted);border-radius:50%;animation:bounce 1.2s infinite}
+  .thinking span:nth-child(2){animation-delay:.2s}
+  .thinking span:nth-child(3){animation-delay:.4s}
+  @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+
+  /* ── PRICE CARDS ── */
+  .price-card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:15px 18px;margin:4px 0;font-size:15px}
+  .price-card h4{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--accent);margin-bottom:10px;letter-spacing:.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .price-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(128,128,128,.1)}
+  .price-row:last-child{border-bottom:none}
+  .price-row .label{color:var(--muted);font-size:13px}
+  .price-row .val{font-weight:600;color:var(--text);font-size:14px}
+  .price-row .val.discount{color:var(--accent3)}
+  .price-row .val.closing{color:var(--gold)}
+  .section-divider{border:none;border-top:1px dashed var(--border);margin:8px 0}
+  .unlimited-badge{background:rgba(0,212,255,.12);color:var(--accent);padding:3px 8px;border-radius:6px;font-size:12px;font-weight:600}
+  .plan-badge{background:rgba(124,58,237,.15);color:var(--accent2);padding:2px 7px;border-radius:6px;font-size:11px}
+
+  /* ── CLIENT CARD ── */
+  .client-card{background:linear-gradient(135deg,rgba(0,212,255,.08),rgba(0,212,255,.03));border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:14px 16px;margin:4px 0}
+  .cl-name{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--accent);margin-bottom:8px}
+  .client-row{display:flex;gap:8px;font-size:13px;padding:3px 0}
+  .cl-label{color:var(--muted);min-width:90px;flex-shrink:0}
+  .cl-val{color:var(--text)}
+
+  /* ── TEASER / VOUCHER ── */
+  .teaser-card{background:linear-gradient(135deg,rgba(124,58,237,.15),rgba(124,58,237,.05));border:1px solid rgba(124,58,237,.3);border-radius:12px;padding:16px 18px;margin:8px 0}
+  .teaser-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--accent2);margin-bottom:8px}
+  .teaser-body{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:12px}
+  .yn-row{display:flex;gap:10px;flex-wrap:wrap}
+  .yn-btn{padding:9px 18px;border-radius:10px;border:none;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+  .yn-btn.yes{background:linear-gradient(135deg,var(--accent3),#059669);color:#fff}
+  .yn-btn.no{background:rgba(100,116,139,.15);border:1px solid var(--border);color:var(--muted)}
+  .yn-btn:hover{transform:translateY(-1px);filter:brightness(1.1)}
+  .voucher-row{display:flex;gap:8px;margin-top:10px}
+  .voucher-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;letter-spacing:1px;text-transform:uppercase}
+  .voucher-input:focus{border-color:var(--accent)}
+  .voucher-apply-btn{padding:9px 16px;border-radius:8px;background:var(--accent2);border:none;color:#fff;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer}
+  .voucher-msg.ok{color:var(--accent3);font-size:13px;margin-top:8px}
+  .voucher-msg.err{color:var(--danger);font-size:13px;margin-top:8px}
+
+  /* ── OPP BANNER ── */
+  .opp-banner{background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04));border:1px solid rgba(251,191,36,.3);border-radius:12px;padding:16px 18px;margin:8px 0}
+  .opp-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--gold);margin-bottom:10px}
+  .opp-body{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:12px}
+
+  /* ── DATES ── */
+  .section-label{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin:12px 0 6px}
+  .dates-box{display:flex;gap:8px;flex-wrap:wrap}
+  .date-chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:13px;color:var(--text)}
+
+  /* ── BOTÕES DE AÇÃO ── */
+  .prop-btn{width:100%;padding:12px;border-radius:10px;background:linear-gradient(135deg,rgba(0,212,255,.15),rgba(0,212,255,.05));border:1px solid rgba(0,212,255,.3);color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;text-align:left}
+  .prop-btn:hover{background:linear-gradient(135deg,rgba(0,212,255,.25),rgba(0,212,255,.1));transform:translateY(-1px)}
+  .reset-btn{width:100%;padding:10px;border-radius:10px;background:rgba(100,116,139,.1);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all .2s}
+  .reset-btn:hover{color:var(--text);border-color:var(--muted)}
+
+  /* ── TIMER ── */
+  .timer-live{text-align:center;font-size:28px;font-weight:700;font-family:'Syne',sans-serif;color:var(--gold);letter-spacing:3px;padding:10px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:10px;margin:8px 0}
+
+  /* ── CHIPS ── */
+  #chips{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0 4px}
+  .chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);cursor:pointer;transition:all .2s}
+  .chip:hover{color:var(--accent);border-color:var(--accent);background:rgba(0,212,255,.08)}
+
+  /* ── INPUT AREA ── */
+  #inputArea{display:flex;gap:10px;align-items:flex-end;padding:14px 0 20px}
+  #userInput{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 16px;font-family:'DM Mono',monospace;font-size:15px;color:var(--text);outline:none;resize:none;line-height:1.5;transition:border-color .2s;min-height:48px}
+  #userInput:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.08)}
+  #userInput::placeholder{color:var(--muted)}
+  .send-btn{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#0099bb);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s}
+  .send-btn:hover{box-shadow:0 0 16px rgba(0,212,255,.4);transform:translateY(-1px)}
+`
