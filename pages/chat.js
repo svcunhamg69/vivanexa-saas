@@ -7,6 +7,7 @@
 // • Módulos clicáveis (chips) — toggle em cfg.modChips
 // • Limpar mensagens ao iniciar nova consulta
 // • Header clicável (logo e nome levam para /chat)
+// • Suporte a templates de proposta/contrato via configurações
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -160,7 +161,7 @@ function openPrint(html,title){
   win.document.close();win.focus()
 }
 
-// ── Build Proposta ────────────────────────────────────────────
+// ── Build Proposta (com suporte a template) ──────────────────
 function buildProposal(S,cfg,user){
   const isC=S.closingToday===true,cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
@@ -171,8 +172,37 @@ function buildProposal(S,cfg,user){
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:r.adD)
     return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}</td><td style="padding:10px 14px;text-align:center">${adS}</td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}</td>`
   }).join('')
-  const f=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
+  const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
+
+  // Se tiver template personalizado, substituir variáveis
+  let template = cfg.propostaTemplate || ''
+  if (template) {
+    const vars = {
+      '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
+      '{{razao}}': co.razao||cd.nome||'',
+      '{{cnpj}}': fmtDoc(S.doc||''),
+      '{{contato}}': co.contato||'',
+      '{{email}}': co.email||cd.email||'',
+      '{{telefone}}': co.telefone||cd.telefone||'',
+      '{{cidade}}': co.cidade||cd.municipio||'',
+      '{{uf}}': co.uf||cd.uf||'',
+      '{{plano}}': S.plan?getPlanLabel(S.plan,cfg.plans):'—',
+      '{{cnpjs_qty}}': S.cnpjs||'0',
+      '{{total_adesao}}': fmt(tAd),
+      '{{total_mensalidade}}': fmt(tMen),
+      '{{data_hoje}}': today,
+      '{{consultor_nome}}': user?.nome||'',
+      '{{company}}': cfg.company||'Vivanexa',
+      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th></tr></thead><tbody>${rows}</tbody></table>`
+    }
+    for (const [k, v] of Object.entries(vars)) {
+      template = template.replace(new RegExp(k, 'g'), v)
+    }
+    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">${template}</div>`
+  }
+
+  // Template padrão
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px">
     ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">`:`<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">${cfg.company||'Vivanexa'}</div>`}
@@ -187,10 +217,10 @@ function buildProposal(S,cfg,user){
   <div style="padding:32px 44px">
     <div style="margin-bottom:26px">${sec('Dados do Cliente')}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        ${f('Empresa',co.empresa||cd.fantasia||cd.nome||'')}${f('Razão Social',co.razao||cd.nome||'')}
-        ${f('CPF / CNPJ',fmtDoc(S.doc||''))}${f('Contato',co.contato||'')}
-        ${f('E-mail',co.email||cd.email||'')}${f('Telefone',co.telefone||cd.telefone||'')}
-        ${f('Cidade',co.cidade||cd.municipio||'')}${f('Estado',co.uf||cd.uf||'')}
+        ${field('Empresa',co.empresa||cd.fantasia||cd.nome||'')}${field('Razão Social',co.razao||cd.nome||'')}
+        ${field('CPF / CNPJ',fmtDoc(S.doc||''))}${field('Contato',co.contato||'')}
+        ${field('E-mail',co.email||cd.email||'')}${field('Telefone',co.telefone||cd.telefone||'')}
+        ${field('Cidade',co.cidade||cd.municipio||'')}${field('Estado',co.uf||cd.uf||'')}
       </div>
     </div>
     <div style="margin-bottom:26px">${sec('Módulos Contratados')}
@@ -219,7 +249,7 @@ function buildProposal(S,cfg,user){
 </div>`
 }
 
-// ── Build Contrato com Manifesto de Assinatura ────────────────
+// ── Build Contrato com Manifesto de Assinatura (suporte a template) ──
 function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   const cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
@@ -269,6 +299,41 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
     </div>
   </div>`
 
+  // Se tiver template personalizado, substituir variáveis e adicionar manifesto
+  let template = cfg.contratoTemplate || ''
+  if (template) {
+    const vars = {
+      '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
+      '{{razao}}': co.razao||cd.nome||'',
+      '{{cnpj}}': fmtDoc(S.doc||''),
+      '{{contato}}': co.contato||'',
+      '{{email}}': co.email||cd.email||'',
+      '{{telefone}}': co.telefone||cd.telefone||'',
+      '{{endereco}}': endStr,
+      '{{regime}}': co.regime||'',
+      '{{plano}}': S.plan?getPlanLabel(S.plan,cfg.plans):'—',
+      '{{cnpjs_qty}}': S.cnpjs||'0',
+      '{{total_adesao}}': fmt(tAd),
+      '{{total_mensalidade}}': fmt(tMen),
+      '{{condicao_pagamento}}': payLabel,
+      '{{vencimento_adesao}}': dateAd||'—',
+      '{{vencimento_mensal}}': dateMen||'—',
+      '{{data_hoje}}': today,
+      '{{consultor_nome}}': user?.nome||'',
+      '{{company}}': cfg.company||'Vivanexa',
+      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0"><thead><tr style="background:#0f172a;color:#fff"><th>Produto</th><th>Adesão</th><th>Qtd. CNPJs</th><th>Mensalidade</th></tr></thead><tbody>${tableRows}</tbody></table>`
+    }
+    for (const [k, v] of Object.entries(vars)) {
+      template = template.replace(new RegExp(k, 'g'), v)
+    }
+    // Adiciona o manifesto no final (se não estiver no template)
+    if (!template.includes('MANIFESTO DE ASSINATURAS')) {
+      template += manifesto
+    }
+    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">${template}</div>`
+  }
+
+  // Template padrão
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
   <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:28px 44px;display:flex;align-items:center;gap:20px">
     ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain">`:''}
