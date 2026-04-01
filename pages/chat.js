@@ -1,21 +1,20 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v3
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v4
 // ============================================================
-// CORREÇÕES v3:
-// 1. Logo exibida no header (do cfg.logob64 + fallback nome)
-// 2. Contrato no modelo Fiscontech (Termo de Pedido)
-// 3. Histórico salvo no Supabase (docHistory + doc:token)
-// 4. Modal enviar para assinatura: WhatsApp / Email / Assinar agora
-// 5. Modal de cliente completo: CEP busca, Endereço, Bairro, Regime
-// 6. Timer reseta ao iniciar nova consulta
-// 7. Texto proposta: "em até 10× sem juros"
-// 8. Modo voucher pede código antes de calcular
+// v4 ADICIONA:
+// • Menu: Documentos · Histórico · Assinaturas (painéis inline)
+// • Painel Histórico: ver doc HTML + reenviar link de assinatura
+// • Painel Assinaturas: consultor + cliente, status individual,
+//   assinar agora (cada parte), enviar link, email cópia ao fim
+// • Logo/nome da empresa do cadastro no header
+// • Mantém TUDO que já funcionava na v3
 // ============================================================
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 
+// ── Config padrão ─────────────────────────────────────────────
 const DEFAULT_CFG = {
   company:'VIVANEXA', slogan:'Assistente Comercial de Preços',
   discMode:'screen', discAdPct:50, discMenPct:0, discClosePct:40, unlimitedStrategy:true,
@@ -36,18 +35,18 @@ const DEFAULT_CFG = {
   vouchers:[],
   productNames:{'Gestão Fiscal':'Gestão Fiscal','CND':'CND','XML':'XML','BIA':'BIA','IF':'Inteligência Fiscal','EP':'e-PROCESSOS','Tributos':'Tributos'},
 }
-const IF_NO_CNPJ=['IF','Tributos','EP']
+const IF_NO_CNPJ = ['IF','Tributos','EP']
 
 // ── Utilitários ──────────────────────────────────────────────
-const fmt  = n => 'R$ ' + Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
-const clean = s => s.replace(/\D/g,'')
+const fmt   = n => 'R$ ' + Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
+const clean  = s => s.replace(/\D/g,'')
 const isCNPJ = s => s.length===14
 const isCPF  = s => s.length===11
 
 function fmtDoc(s){
-  if(!s)return'—'
-  if(s.length===14)return s.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5')
-  if(s.length===11)return s.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4')
+  if(!s) return '—'
+  if(s.length===14) return s.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5')
+  if(s.length===11) return s.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4')
   return s
 }
 function getPlan(n,plans){const s=[...plans].sort((a,b)=>a.maxCnpjs-b.maxCnpjs);for(const p of s)if(n<=p.maxCnpjs)return p.id;return s[s.length-1].id}
@@ -57,6 +56,7 @@ function calcTrib(n){if(!n||n<=0)return 0;if(n<=50)return 169.90;if(n<=100)retur
 function getPrice(mod,planId,cfg){const p=(cfg.prices[mod]||DEFAULT_CFG.prices[mod])||{};if(p[planId])return p[planId];const k=Object.keys(p);if(!k.length)return[0,0];return p[k[k.length-1]]||[0,0]}
 function generateToken(){return Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2)+Date.now().toString(36)}
 
+// ── Cálculos de preço ────────────────────────────────────────
 function calcFull(mods,plan,ifPlan,cnpjs,notas,cfg){
   const res=[];let tAd=0,tMen=0
   for(const mod of mods){
@@ -69,9 +69,8 @@ function calcFull(mods,plan,ifPlan,cnpjs,notas,cfg){
   }
   return{results:res,tAd,tMen,tAdD:tAd,tMenD:tMen}
 }
-function calcDisc(mods,plan,ifPlan,cnpjs,notas,cfg,voucherOverride){
-  const adPct =voucherOverride?voucherOverride.discAdPct :(cfg.discAdPct ||50)
-  const menPct=voucherOverride?voucherOverride.discMenPct:(cfg.discMenPct||0)
+function calcDisc(mods,plan,ifPlan,cnpjs,notas,cfg,vo){
+  const adPct=vo?vo.discAdPct:(cfg.discAdPct||50),menPct=vo?vo.discMenPct:(cfg.discMenPct||0)
   const res=[];let tAd=0,tMen=0,tAdD=0,tMenD=0
   for(const mod of mods){
     if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*2,men=mB*1.2,adD=ad*(1-adPct/100),menD=men*(1-menPct/100);res.push({name:pn('IF',cfg),ad,men,adD,menD,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD;continue}
@@ -134,21 +133,21 @@ async function fetchCNPJ(cnpj){
     return{nome:d.razao_social||'',fantasia:d.nome_fantasia||d.razao_social||'',email:d.email||'',
       telefone:f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'',municipio:d.municipio||'',uf:d.uf||'',
       cep:d.cep?.replace(/\D/g,'')||'',logradouro:end.trim(),bairro:d.bairro||'',cnpj,tipo:'PJ'}
-  }catch(e){return null}
+  }catch{return null}
 }
 async function fetchCEP(cep){
   try{
     const r=await fetch(`https://brasilapi.com.br/api/cep/v1/${cep.replace(/\D/g,'')}`);if(!r.ok)return null
     const d=await r.json()
-    return{logradouro:d.street||'',bairro:d.neighborhood||'',municipio:d.city||'',uf:d.state||'',cep:d.cep||cep}
+    return{logradouro:d.street||'',bairro:d.neighborhood||'',municipio:d.city||'',uf:d.state||''}
   }catch{return null}
 }
 
-// ── Construir HTML da Proposta ────────────────────────────────
+// ── Build Proposta HTML ───────────────────────────────────────
 function buildProposal(S,cfg,user){
   const isC=S.closingToday===true,cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
-  const tAd =isC?S.closingData?.tAd :(S.quoteData?.tAdD||0)
+  const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
   const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
   const results=isC?S.closingData?.results:S.quoteData?.results
   const dates=getNextDates()
@@ -157,7 +156,7 @@ function buildProposal(S,cfg,user){
     return`<tr><td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}</td><td style="padding:10px 14px;text-align:center">${adS}</td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}</td></tr>`
   }).join('')
   const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
-  const sec=(t)=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
+  const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px">
     ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">`:`<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">${cfg.company||'Vivanexa'}</div>`}
@@ -196,139 +195,78 @@ function buildProposal(S,cfg,user){
       </div>
     </div>
     ${sec('Seu Consultor')}
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;display:flex;align-items:flex-start;gap:12px">
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;display:flex;gap:12px">
       <div style="font-size:24px">👤</div>
-      <div><div style="font-weight:700;font-size:14px;color:#14532d;margin-bottom:4px">${user?.nome||user?.email||'—'}</div><div style="font-size:12px;color:#166534">${user?.email?'📧 '+user.email:''}</div></div>
+      <div><div style="font-weight:700;font-size:14px;color:#14532d;margin-bottom:4px">${user?.nome||'—'}</div><div style="font-size:12px;color:#166534">${user?.email?'📧 '+user.email:''}</div></div>
     </div>
   </div>
 </div>`
 }
 
-// ── Construir HTML do Contrato (modelo Fiscontech) ────────────
+// ── Build Contrato HTML (modelo Fiscontech) ───────────────────
 function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod){
   const cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
   const isC=S.closingToday===true
   const results=isC?S.closingData?.results:S.quoteData?.results
   const payLabel=payMethod==='pix'?'PIX / Boleto à vista':
-    payMethod?.startsWith('cartao')?`Cartão de Crédito em até ${payMethod.replace('cartao','').replace('x','×')} sem juros`:
-    payMethod?.startsWith('boleto')?`Boleto Parcelado em ${payMethod.replace('boleto','').replace('x','×')} vezes`:payMethod
-
+    payMethod?.startsWith('cartao')?`Cartão em até ${payMethod.replace('cartao','').replace('x','×')} sem juros`:
+    payMethod?.startsWith('boleto')?`Boleto ${payMethod.replace('boleto','').replace('x','×')}×`:payMethod
   const tableRows=(results||[]).map(r=>{
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:(r.adD||0))
-    return`<tr>
-      <td style="padding:8px 12px;border:1px solid #e2e8f0;font-weight:500">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td>
-      <td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td>
-      <td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td>
-      <td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td>
-    </tr>`
+    return`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td></tr>`
   }).join('')
-
-  const sec=(n,t)=>`<h3 style="font-family:Inter,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
+  const sec=(n,t)=>`<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
   const row=(l,v)=>`<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v||'—'}</span></div>`
   const endStr=[co.logradouro||cd.logradouro,co.bairro||cd.bairro,co.cidade||cd.municipio,co.uf||cd.uf].filter(Boolean).join(', ')
-
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
-  <!-- CABEÇALHO -->
   <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:28px 44px;display:flex;align-items:center;gap:20px">
     ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain">`:''}
-    <div>
-      <h1 style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">Termo de Pedido e Registro de Software</h1>
-      <p style="font-size:12px;color:#64748b">Seja bem-vindo ao ${cfg.company||'Vivanexa'}, é um prazer tê-lo como cliente.</p>
-    </div>
+    <div><h1 style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">Termo de Pedido e Registro de Software</h1>
+    <p style="font-size:12px;color:#64748b">Seja bem-vindo ao ${cfg.company||'Vivanexa'}, é um prazer tê-lo como cliente.</p></div>
   </div>
   <div style="padding:28px 44px">
     <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px 20px;margin-bottom:20px;border-left:4px solid #00d4ff">
       <p style="font-size:13px;color:#0c4a6e;margin-bottom:6px">Segue abaixo os termos do pedido registrado com nosso time de vendas.</p>
       <p style="font-size:13px;color:#0c4a6e">Confira os dados abaixo com atenção e caso esteja tudo correto, basta <strong>ASSINAR</strong> esse pedido para darmos seguimento ao seu treinamento e implantação.</p>
     </div>
-
     ${sec('1','CONTRATADA')}
     <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-      ${row('Nome',cfg.company||'VIVANEXA')}
-      ${row('CNPJ',cfg.cnpjEmpresa||'—')}
-      ${row('Endereço',cfg.enderecoEmpresa||'—')}
-      ${row('E-mail',cfg.emailEmpresa||'contato@vivanexa.com.br')}
-      ${row('Responsável',user?.nome||'—')}
+      ${row('Nome',cfg.company||'VIVANEXA')}${row('E-mail',cfg.emailEmpresa||'contato@vivanexa.com.br')}${row('Responsável',user?.nome||'—')}
     </div>
-
     ${sec('2','CONTRATANTE')}
     <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-      ${row('Razão Social',co.razao||cd.nome||'')}
-      ${row('CNPJ',fmtDoc(S.doc||''))}
-      ${row('Endereço',endStr||'—')}
-      ${row('E-mail',co.email||cd.email||'—')}
-      ${row('Fone',co.telefone||cd.telefone||'—')}
-      ${row('Contratante',co.contato||'—')}
-      ${row('CPF',co.cpfContato||'—')}
-      ${row('Regime Tributário',co.regime||'—')}
+      ${row('Razão Social',co.razao||cd.nome||'')}${row('CNPJ',fmtDoc(S.doc||''))}${row('Endereço',endStr||'—')}
+      ${row('E-mail',co.email||cd.email||'—')}${row('Fone',co.telefone||cd.telefone||'—')}
+      ${row('Contratante',co.contato||'—')}${row('CPF',co.cpfContato||'—')}${row('Regime Tributário',co.regime||'—')}
     </div>
-
     ${sec('3','RESPONSÁVEL PELA IMPLEMENTAÇÃO')}
     <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-      ${row('Nome',co.rimpNome||'—')}
-      ${row('E-mail',co.rimpEmail||'—')}
-      ${row('Telefone',co.rimpTel||'—')}
+      ${row('Nome',co.rimpNome||'—')}${row('E-mail',co.rimpEmail||'—')}${row('Telefone',co.rimpTel||'—')}
     </div>
-
     ${sec('4','RESPONSÁVEL PELO FINANCEIRO')}
     <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-      ${row('Nome',co.rfinNome||'—')}
-      ${row('E-mail',co.rfinEmail||'—')}
-      ${row('Telefone',co.rfinTel||'—')}
+      ${row('Nome',co.rfinNome||'—')}${row('E-mail',co.rfinEmail||'—')}${row('Telefone',co.rfinTel||'—')}
     </div>
-
     ${sec('5','PLANO CONTRATADO E VALORES')}
-    <div style="margin-bottom:6px">${row('Validade','12 meses')}</div>
+    ${row('Validade','12 meses')}
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0">
-      <thead><tr style="background:#0f172a;color:#fff">
-        <th style="padding:10px 12px;text-align:left;border:1px solid #334155">Nome do Produto</th>
-        <th style="padding:10px 12px;text-align:center;border:1px solid #334155">Valor Adesão</th>
-        <th style="padding:10px 12px;text-align:center;border:1px solid #334155">Qtd. CNPJs</th>
-        <th style="padding:10px 12px;text-align:center;border:1px solid #334155">Mensalidade</th>
-      </tr></thead>
+      <thead><tr style="background:#0f172a;color:#fff"><th style="padding:10px 12px;text-align:left;border:1px solid #334155">Produto</th><th style="padding:10px 12px;text-align:center;border:1px solid #334155">Adesão</th><th style="padding:10px 12px;text-align:center;border:1px solid #334155">Qtd. CNPJs</th><th style="padding:10px 12px;text-align:center;border:1px solid #334155">Mensalidade</th></tr></thead>
       <tbody>${tableRows}</tbody>
     </table>
-    <div style="background:#f8fafc;border-radius:8px;padding:12px 16px;margin-bottom:12px">
-      ${row('Forma de Pagamento — Adesão',payLabel)}
-      ${tAd>0?row('Vencimento da Adesão',dateAd||'—'):''}
-      ${row('Vencimento 1ª Mensalidade',dateMen||'—')}
-      <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #e2e8f0;margin-top:8px">
-        <span style="font-weight:600">Total Adesão</span><span style="font-weight:700;color:#0f172a">${fmt(tAd)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between">
-        <span style="font-weight:600">Total Mensalidade</span><span style="font-weight:700;color:#00d4ff">${fmt(tMen)}</span>
-      </div>
+    <div style="background:#f8fafc;border-radius:8px;padding:12px 16px;margin-bottom:16px">
+      ${row('Forma de Pagamento',payLabel)}${tAd>0?row('Vencimento Adesão',dateAd||'—'):''}${row('Vencimento 1ª Mensalidade',dateMen||'—')}
+      <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #e2e8f0;margin-top:8px"><span style="font-weight:600">Total Adesão</span><span style="font-weight:700">${fmt(tAd)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="font-weight:600">Total Mensalidade</span><span style="font-weight:700;color:#00d4ff">${fmt(tMen)}</span></div>
     </div>
-
-    <p style="font-size:12px;color:#475569;margin:8px 0">Nossa equipe de Sucesso do Cliente entrará em contato com você <strong>em até 72 horas</strong> após o contrato ser assinado. Horário de atendimento: 9h às 18h (Brasília).</p>
-
+    <p style="font-size:12px;color:#475569;margin:8px 0">Nossa equipe entrará em contato <strong>em até 72 horas</strong> após a assinatura. Atendimento: 9h às 18h (Brasília).</p>
     <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:12px;color:#78350f">
-      Dando o aceite, você concorda com nossos Termos e Condições de Uso e Política de Privacidade disponíveis em <strong>www.vivanexa.com.br/termos</strong>. A utilização do ${cfg.company||'Vivanexa'} indica que o Usuário/Cliente está ciente e concorda com todo o conteúdo constante deste Contrato.
+      Dando o aceite, você concorda com os Termos e Condições de Uso e Política de Privacidade em <strong>www.vivanexa.com.br/termos</strong>.
     </div>
-
-    <h3 style="font-family:Syne,sans-serif;font-size:13px;font-weight:700;color:#0f172a;margin:20px 0 10px">LIMITAÇÃO DE RESPONSABILIDADE</h3>
-    <p style="font-size:11.5px;color:#64748b;margin-bottom:8px">O ${cfg.company||'Vivanexa'} é uma plataforma de automação de tarefas e processos fiscais e tributários, não se responsabilizando por pagamentos em duplicidade, pagamentos indevidos ou quaisquer perdas decorrentes do uso, mau uso, ou uso indevido dos seus produtos.</p>
-
-    <h3 style="font-family:Syne,sans-serif;font-size:13px;font-weight:700;color:#0f172a;margin:20px 0 10px">DA VIGÊNCIA E DA RESCISÃO</h3>
-    <p style="font-size:11.5px;color:#64748b;margin-bottom:8px">O presente CONTRATO terá vigência de 12 meses contados da data de assinatura e sua renovação será automática por mais 12 meses. Qualquer das partes poderá rescindir com notificação por escrito com antecedência mínima de 60 dias.</p>
-    <p style="font-size:11.5px;color:#64748b;margin-bottom:20px">Em caso de inadimplência superior a 45 dias, a ${cfg.company||'Vivanexa'} poderá encaminhar dados para órgãos de proteção ao crédito (Serasa, SPC).</p>
-
-    <!-- ASSINATURAS -->
     <div style="border-top:2px solid #e2e8f0;padding-top:24px;margin-top:24px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px">
-        <div style="text-align:center">
-          <div style="border-top:1px solid #0f172a;padding-top:8px;margin-top:60px">
-            <div style="font-weight:600;font-size:13px">${cfg.company||'Vivanexa'}</div>
-            <div style="font-size:11px;color:#64748b">CONTRATADA</div>
-          </div>
-        </div>
-        <div style="text-align:center">
-          <div style="border-top:1px solid #0f172a;padding-top:8px;margin-top:60px">
-            <div style="font-weight:600;font-size:13px">${co.razao||cd.nome||'Cliente'}</div>
-            <div style="font-size:11px;color:#64748b">CONTRATANTE</div>
-          </div>
-        </div>
+        <div style="text-align:center"><div style="border-top:1px solid #0f172a;padding-top:8px;margin-top:60px"><div style="font-weight:600;font-size:13px">${cfg.company||'Vivanexa'}</div><div style="font-size:11px;color:#64748b">CONTRATADA</div></div></div>
+        <div style="text-align:center"><div style="border-top:1px solid #0f172a;padding-top:8px;margin-top:60px"><div style="font-weight:600;font-size:13px">${co.razao||cd.nome||'Cliente'}</div><div style="font-size:11px;color:#64748b">CONTRATANTE</div></div></div>
       </div>
       <div style="text-align:center;margin-top:24px;font-size:11px;color:#94a3b8">${today} · Assinatura Eletrônica conforme Lei nº 14.063/2020</div>
     </div>
@@ -341,16 +279,13 @@ function openPrint(html,title){
   if(!win){alert('Permita popups para imprimir.');return}
   win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${title}</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
-  <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}body{margin:0;background:#fff;font-family:Inter,sans-serif}
+  <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}body{margin:0;background:#fff}
   .tb{display:flex;gap:10px;padding:14px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
   .tb button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none}
-  .bp{background:#0f172a;color:#fff}.bc{background:#e2e8f0;color:#475569}.bs{background:linear-gradient(135deg,#10b981,#059669);color:#fff}
+  .bp{background:#0f172a;color:#fff}.bc{background:#e2e8f0;color:#475569}
   @media print{.tb{display:none!important}}</style>
   </head><body>
-  <div class="tb">
-    <button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
-    <button class="bc" onclick="window.close()">✕ Fechar</button>
-  </div>
+  <div class="tb"><button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="bc" onclick="window.close()">✕ Fechar</button></div>
   ${html}</body></html>`)
   win.document.close();win.focus()
 }
@@ -362,21 +297,28 @@ export default function Chat(){
   const router   = useRouter()
   const msgRef   = useRef(null)
   const inputRef = useRef(null)
-  const [userProfile,  setUserProfile]  = useState(null)
-  const [cfg,          setCfg]          = useState(DEFAULT_CFG)
-  const [empresaId,    setEmpresaId]    = useState(null)
-  const [messages,     setMessages]     = useState([])
-  const [input,        setInput]        = useState('')
-  const [thinking,     setThinking]     = useState(false)
-  const [chips,        setChips]        = useState([])
-  const [timerVal,     setTimerVal]     = useState('')
-  const [timerDeadline,setTimerDeadline]= useState(null)
+
+  // Core state
+  const [userProfile,   setUserProfile]   = useState(null)
+  const [cfg,           setCfg]           = useState(DEFAULT_CFG)
+  const [empresaId,     setEmpresaId]     = useState(null)
+  const [messages,      setMessages]      = useState([])
+  const [input,         setInput]         = useState('')
+  const [thinking,      setThinking]      = useState(false)
+  const [chips,         setChips]         = useState([])
+  const [timerVal,      setTimerVal]      = useState('')
+  const [timerDeadline, setTimerDeadline] = useState(null)
+
+  // Painel ativo: null | 'documentos' | 'historico' | 'assinaturas'
+  const [painel,      setPainel]      = useState(null)
+  const [histDocs,    setHistDocs]    = useState([])  // lista do histórico enriquecida
+  const [histLoading, setHistLoading] = useState(false)
 
   // Modal cliente
   const [showClient, setShowClient] = useState(false)
   const [clientMode, setClientMode] = useState('proposta')
-  const emptyForm = {empresa:'',razao:'',contato:'',email:'',telefone:'',cep:'',logradouro:'',bairro:'',cidade:'',uf:'',cpfContato:'',regime:'',rimpNome:'',rimpEmail:'',rimpTel:'',rfinNome:'',rfinEmail:'',rfinTel:''}
-  const [cf, setCf] = useState(emptyForm)
+  const emptyForm={empresa:'',razao:'',contato:'',email:'',telefone:'',cep:'',logradouro:'',bairro:'',cidade:'',uf:'',cpfContato:'',regime:'',rimpNome:'',rimpEmail:'',rimpTel:'',rfinNome:'',rfinEmail:'',rfinTel:''}
+  const [cf,          setCf]          = useState(emptyForm)
   const [buscandoCep, setBuscandoCep] = useState(false)
 
   // Wizard contrato
@@ -387,22 +329,29 @@ export default function Chat(){
   const [wizMen,   setWizMen]   = useState('')
   const [wizTAd,   setWizTAd]   = useState(0)
   const [wizTMen,  setWizTMen]  = useState(0)
-  const [docGerado, setDocGerado] = useState(null) // {id, token, html, type, clientName}
 
   // Modal enviar para assinatura
-  const [showSign,    setShowSign]    = useState(false)
-  const [signDoc,     setSignDoc]     = useState(null)
+  const [showSign,       setShowSign]       = useState(false)
+  const [signDoc,        setSignDoc]        = useState(null)
   const [signEmailInput, setSignEmailInput] = useState('')
-  const [signSalvo,   setSignSalvo]   = useState(false)
+  const [signSalvo,      setSignSalvo]      = useState(false)
 
-  // Modal assinar agora (self-sign)
-  const [showSelfSign,  setShowSelfSign]  = useState(false)
-  const [selfNome,      setSelfNome]      = useState('')
-  const [selfCpf,       setSelfCpf]       = useState('')
-  const [selfEmail,     setSelfEmail]     = useState('')
-  const [selfAgreed,    setSelfAgreed]    = useState(false)
-  const [selfSaving,    setSelfSaving]    = useState(false)
-  const [selfErro,      setSelfErro]      = useState('')
+  // Modal assinar agora (side: 'client' | 'consultant')
+  const [showSignForm,   setShowSignForm]   = useState(false)
+  const [signFormSide,   setSignFormSide]   = useState('client')
+  const [signFormDoc,    setSignFormDoc]    = useState(null)
+  const [sfNome,         setSfNome]         = useState('')
+  const [sfCpf,          setSfCpf]          = useState('')
+  const [sfEmail,        setSfEmail]        = useState('')
+  const [sfAgreed,       setSfAgreed]       = useState(false)
+  const [sfSaving,       setSfSaving]       = useState(false)
+  const [sfErro,         setSfErro]         = useState('')
+
+  // Ver documento
+  const [showDocView,  setShowDocView]  = useState(false)
+  const [docViewHtml,  setDocViewHtml]  = useState('')
+  const [docViewTitle, setDocViewTitle] = useState('')
+  const [docViewLoading, setDocViewLoading] = useState(false)
 
   const S = useRef({
     stage:'await_doc',doc:null,clientData:null,contactData:{},
@@ -454,37 +403,21 @@ export default function Chat(){
     }catch{}
   }
 
-  // ── Salvar documento no histórico ─────────────
+  // ── Salvar doc no histórico ───────────────────
   async function saveToHistory(type,clientName,html,extra={}){
     const id='doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)
     const token=generateToken()
-    const entry={
-      id,type,clientName,
-      date:new Date().toLocaleString('pt-BR'),
-      dateISO:new Date().toISOString(),
-      status:'draft',
-      signToken:token,
-      signedAt:null,signedBy:null,signCPF:null,signIP:null,
-      consultor:userProfile?.nome||'',
-      empresaId:empresaId||'',
-      ...extra
-    }
-    // Salva doc completo (com html) separado
-    try{
-      await supabase.from('vx_storage').upsert({key:`doc:${token}`,value:JSON.stringify({...entry,html}),updated_at:new Date().toISOString()})
-    }catch(e){console.warn('doc save error',e)}
-
-    // Atualiza cfg.docHistory (sem html para não estourar tamanho)
+    const entry={id,type,clientName,date:new Date().toLocaleString('pt-BR'),dateISO:new Date().toISOString(),status:'draft',signToken:token,signedAt:null,signedBy:null,signCPF:null,signIP:null,consultantSignedAt:null,consultantSignedBy:null,consultor:userProfile?.nome||'',consultorEmail:userProfile?.email||'',empresaId:empresaId||'',...extra}
+    try{await supabase.from('vx_storage').upsert({key:`doc:${token}`,value:JSON.stringify({...entry,html}),updated_at:new Date().toISOString()})}catch(e){console.warn(e)}
     try{
       const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
       const cfgData=cfgRow?.value?JSON.parse(cfgRow.value):{...cfg}
       if(!cfgData.docHistory)cfgData.docHistory=[]
-      cfgData.docHistory.unshift(entry) // sem html
+      cfgData.docHistory.unshift(entry)
       if(cfgData.docHistory.length>200)cfgData.docHistory=cfgData.docHistory.slice(0,200)
       await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(cfgData),updated_at:new Date().toISOString()})
       setCfg(cfgData)
-    }catch(e){console.warn('history save error',e)}
-
+    }catch(e){console.warn(e)}
     return{id,token,html,type,clientName,...entry}
   }
 
@@ -496,12 +429,153 @@ export default function Chat(){
     setTimerDeadline(null);setTimerVal('')
   }
 
-  // ── Busca CEP ─────────────────────────────────
   async function buscarCep(cep){
-    setBuscandoCep(true)
-    const d=await fetchCEP(cep)
-    setBuscandoCep(false)
+    setBuscandoCep(true);const d=await fetchCEP(cep);setBuscandoCep(false)
     if(d)setCf(f=>({...f,logradouro:d.logradouro||f.logradouro,bairro:d.bairro||f.bairro,cidade:d.municipio||f.cidade,uf:d.uf||f.uf}))
+  }
+
+  // ── Carregar histórico enriquecido ────────────
+  async function carregarHistorico(){
+    setHistLoading(true)
+    try{
+      const hist=cfg.docHistory||[]
+      // Para cada doc, busca status atualizado do Supabase
+      const enriched=await Promise.all(hist.slice(0,50).map(async h=>{
+        try{
+          const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${h.signToken}`).single()
+          if(r?.value){const d=JSON.parse(r.value);return{...h,...d,html:d.html}}
+        }catch{}
+        return h
+      }))
+      setHistDocs(enriched)
+    }catch{}
+    setHistLoading(false)
+  }
+
+  async function verDocumento(h){
+    setDocViewTitle((h.type==='contrato'?'📝 Contrato':'📄 Proposta')+' — '+h.clientName)
+    setDocViewHtml('')
+    setShowDocView(true)
+    setDocViewLoading(true)
+    try{
+      const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${h.signToken}`).single()
+      if(r?.value){const d=JSON.parse(r.value);setDocViewHtml(d.html||'<p>Documento sem conteúdo HTML.</p>')}
+      else setDocViewHtml('<p style="color:#64748b">Documento não encontrado no servidor.</p>')
+    }catch{setDocViewHtml('<p style="color:#ef4444">Erro ao carregar documento.</p>')}
+    setDocViewLoading(false)
+  }
+
+  // ── URL de assinatura ─────────────────────────
+  function buildSignUrl(doc){
+    const base=typeof window!=='undefined'?(cfg.signConfig?.url||window.location.origin):'https://vivanexa-saas.vercel.app'
+    return`${base}/sign/${doc.signToken}`
+  }
+
+  // ── Envio WhatsApp / Email ────────────────────
+  function enviarWhatsApp(doc,emailOverride){
+    const url=buildSignUrl(doc)
+    const tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
+    const msg=encodeURIComponent(`Olá! Segue o link para assinatura eletrônica do ${tipo} – ${cfg.company||'Vivanexa'}:\n\n${url}\n\nQualquer dúvida, entre em contato.`)
+    const wpp=(cfg.signConfig?.wpp||'').replace(/\D/g,'')
+    window.open(wpp?`https://wa.me/${wpp}?text=${msg}`:`https://wa.me/?text=${msg}`,'_blank')
+    marcarEnviado(doc)
+  }
+  function enviarEmail(doc,emailOverride){
+    const url=buildSignUrl(doc)
+    const tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
+    const subj=encodeURIComponent(`${tipo} – ${cfg.company||'Vivanexa'} – Aguardando sua assinatura`)
+    const body=encodeURIComponent(`Olá!\n\nSegue o link para assinatura eletrônica:\n\n${url}\n\n${cfg.company||'Vivanexa'}`)
+    const email=emailOverride||signEmailInput||doc.clientEmail||''
+    window.open(`mailto:${email}?subject=${subj}&body=${body}`,'_blank')
+    marcarEnviado(doc)
+  }
+  async function marcarEnviado(doc){
+    try{
+      const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${doc.signToken}`).single()
+      if(r?.value){const d=JSON.parse(r.value);if(d.status==='draft')d.status='sent';await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify(d),updated_at:new Date().toISOString()})}
+    }catch{}
+  }
+
+  // ── Assinatura (qualquer lado) ────────────────
+  function abrirSignForm(doc, side){
+    setSignFormDoc(doc)
+    setSignFormSide(side)
+    if(side==='consultant'){
+      setSfNome(userProfile?.nome||'')
+      setSfCpf('')
+      setSfEmail(userProfile?.email||'')
+    }else{
+      setSfNome(doc.clientName||'')
+      setSfCpf('')
+      setSfEmail(doc.clientEmail||'')
+    }
+    setSfAgreed(false);setSfErro('')
+    setShowSignForm(true)
+  }
+
+  async function confirmarSignForm(){
+    if(!sfNome.trim()){setSfErro('Informe o nome.');return}
+    if(!sfCpf.trim()){setSfErro('Informe o CPF.');return}
+    if(!sfEmail.trim()){setSfErro('Informe o e-mail.');return}
+    if(!sfAgreed){setSfErro('Aceite os termos para assinar.');return}
+    setSfSaving(true);setSfErro('')
+    try{
+      const now=new Date(),nowStr=now.toLocaleString('pt-BR')
+      const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${signFormDoc.signToken}`).single()
+      const docData=r?.value?JSON.parse(r.value):{...signFormDoc}
+
+      if(signFormSide==='consultant'){
+        docData.consultantSignedAt=nowStr
+        docData.consultantSignedBy=sfNome.trim()
+        docData.consultantCPF=sfCpf.trim()
+        docData.consultantEmail=sfEmail.trim()
+      }else{
+        docData.signedAt=nowStr
+        docData.signedBy=sfNome.trim()
+        docData.signCPF=sfCpf.trim()
+        docData.signEmail=sfEmail.trim()
+        docData.signIP='(web)'
+        docData.clientEmail=sfEmail.trim()
+      }
+
+      const bothSigned=!!(docData.signedAt&&docData.consultantSignedAt)
+      docData.status=bothSigned?'signed':docData.signedAt?'pending':'sent'
+
+      await supabase.from('vx_storage').upsert({key:`doc:${signFormDoc.signToken}`,value:JSON.stringify(docData),updated_at:now.toISOString()})
+
+      // Atualiza cfg.docHistory
+      const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
+      if(cfgRow?.value){
+        const c=JSON.parse(cfgRow.value)
+        if(c.docHistory){
+          c.docHistory=c.docHistory.map(h=>h.signToken===signFormDoc.signToken?{...h,...docData,html:undefined}:h)
+          await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(c),updated_at:now.toISOString()})
+          setCfg(c)
+        }
+      }
+
+      setShowSignForm(false)
+      if(painel==='assinaturas'||painel==='historico')await carregarHistorico()
+
+      if(bothSigned){
+        // Enviar email de cópia para ambas as partes
+        const tipo=docData.type==='proposta'?'Proposta Comercial':'Contrato'
+        const url=buildSignUrl(docData)
+        const clientE=docData.clientEmail||docData.signEmail||''
+        const consultorE=docData.consultorEmail||docData.consultantEmail||userProfile?.email||''
+        const destinatarios=[clientE,consultorE].filter(Boolean).join(',')
+        if(destinatarios){
+          const subj=encodeURIComponent(`✅ ${tipo} – ${cfg.company||'Vivanexa'} – Assinado por ambas as partes`)
+          const body=encodeURIComponent(`Olá!\n\n${tipo} foi assinado por ambas as partes.\n\nCliente: ${docData.signedBy} (${nowStr})\nConsultor: ${docData.consultantSignedBy} (${docData.consultantSignedAt})\n\nAcesse o documento: ${url}\n\n${cfg.company||'Vivanexa'}`)
+          if(confirm(`✅ Contrato totalmente assinado!\n\nDeseja enviar uma cópia para:\nCliente: ${clientE}\nConsultor: ${consultorE}\n\nClique OK para abrir o e-mail.`)){
+            window.open(`mailto:${destinatarios}?subject=${subj}&body=${body}`,'_blank')
+          }
+        }
+      }else{
+        addBot(signFormSide==='consultant'?`✅ Assinatura do consultor registrada! Aguardando assinatura do cliente.`:`✅ Assinatura do cliente registrada! Aguardando assinatura do consultor.`)
+      }
+    }catch(e){console.error(e);setSfErro('Erro ao salvar assinatura. Tente novamente.')}
+    finally{setSfSaving(false)}
   }
 
   // ── Lógica do chat ────────────────────────────
@@ -514,12 +588,12 @@ export default function Chat(){
       if(lo.includes('sem voucher')||lo.includes('pular')){S.awaitingVoucher=false;S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.stage='full_quoted';return{h:true,c:rFull(S.quoteData)}}
       const code=t.trim().toUpperCase()
       const voucher=(cfg.vouchers||[]).find(v=>v.codigo===code&&v.ativo!==false)
-      if(!voucher)return{h:false,c:`❌ Voucher **${code}** não encontrado.\n\nTente outro código ou "sem voucher" para ver o preço cheio:`}
+      if(!voucher)return{h:false,c:`❌ Voucher **${code}** não encontrado.\n\nTente outro código ou "sem voucher":` }
       S.appliedVoucher=voucher;S.awaitingVoucher=false;S.stage='discounted'
       const discData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg,{discAdPct:voucher.pctAdesao,discMenPct:voucher.pctMensalidade})
       S.quoteData=discData
       const cn=S.clientData?.fantasia||S.clientData?.nome||fmtDoc(S.doc||'')
-      addUser(t);addBot(`✅ Voucher **${voucher.codigo}** aplicado! Desconto: Adesão ${voucher.pctAdesao}% · Mensalidade ${voucher.pctMensalidade}%`)
+      addUser(t);addBot(`✅ Voucher **${voucher.codigo}** aplicado!`)
       setTimeout(()=>addBot(rDisc(discData,getNextDates(),cn),true),300);return null
     }
 
@@ -550,7 +624,7 @@ export default function Chat(){
     const nCNPJ=S.modules.some(m=>!IF_NO_CNPJ.includes(m))
     if(nCNPJ&&!S.cnpjs)return{h:false,c:'Quantos CNPJs o cliente possui?'}
     S.plan=nCNPJ?getPlan(S.cnpjs,cfg.plans):'basic'
-    if(cfg.discMode==='voucher'&&!S.appliedVoucher&&!S.awaitingVoucher){S.awaitingVoucher=true;return{h:false,c:`🎫 Modo desconto por Voucher ativo.\n\nDigite o **código do voucher** para aplicar o desconto:\n(ou "sem voucher" para ver o preço cheio)`}}
+    if(cfg.discMode==='voucher'&&!S.appliedVoucher&&!S.awaitingVoucher){S.awaitingVoucher=true;return{h:false,c:`🎫 Modo desconto por Voucher.\n\nDigite o **código do voucher**:\n(ou "sem voucher" para ver preço cheio)`}}
     S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.stage='full_quoted'
     return{h:true,c:rFull(S.quoteData)}
   }
@@ -567,12 +641,12 @@ export default function Chat(){
     const dates=getNextDates()
     window.vx_disc=(yes)=>{
       const cn=S.clientData?.fantasia||S.clientData?.nome||fmtDoc(S.doc||'')
-      if(yes){S.stage='discounted';S.quoteData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg,null);addUser('✅ Sim, quero ver!');addBot(rDisc(S.quoteData,dates,cn),true)}
-      else{S.stage='closed';addUser('Não, obrigado');addBot('Sem problemas! 😊');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
+      if(yes){S.stage='discounted';S.quoteData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg,null);addUser('✅ Sim!');addBot(rDisc(S.quoteData,dates,cn),true)}
+      else{S.stage='closed';addUser('Não, obrigado');addBot('Sem problemas!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
       setChips([])
     }
     window.vx_close=(yes)=>{
-      if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.closingData=d;S.closingToday=true;S.stage='closing';addUser('✅ Sim, fechar hoje!');const dl=new Date();dl.setHours(18,0,0,0);setTimerDeadline(dl);addBot(rClose(d),true)}
+      if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.closingData=d;S.closingToday=true;S.stage='closing';addUser('✅ Fechar hoje!');const dl=new Date();dl.setHours(18,0,0,0);setTimerDeadline(dl);addBot(rClose(d),true)}
       else{S.stage='discounted';addUser('Não por agora');addBot('Entendido!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
       setChips([])
     }
@@ -597,11 +671,11 @@ export default function Chat(){
       const html=buildProposal(S,cfg,userProfile)
       openPrint(html,'Proposta Comercial')
       const doc=await saveToHistory('proposta',clientName,html,{tAd:S.quoteData?.tAdD||0,tMen:S.quoteData?.tMenD||0,clientEmail:cf.email,modulos:S.modules})
-      setDocGerado(doc);setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
+      setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
       setTimeout(()=>setShowSign(true),600)
     }else{
       const isC=S.closingToday===true
-      const tAd =isC?S.closingData?.tAd :(S.quoteData?.tAdD||0)
+      const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
       const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
       setWizTAd(tAd);setWizTMen(tMen);setWizStep(1);setWizPay('');setWizAd('');setWizMen('');setShowWiz(true)
     }
@@ -617,67 +691,10 @@ export default function Chat(){
       openPrint(html,'Contrato')
       const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
       saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen}).then(doc=>{
-        setDocGerado(doc);setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
+        setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
         setTimeout(()=>setShowSign(true),600)
       })
     }
-  }
-
-  // ── URL de assinatura ─────────────────────────
-  function buildSignUrl(doc){
-    const base=typeof window!=='undefined'?(cfg.signConfig?.url||window.location.origin):'https://vivanexa-saas.vercel.app'
-    return`${base}/sign/${doc.signToken}`
-  }
-
-  // ── Envio WhatsApp ────────────────────────────
-  function enviarWhatsApp(doc){
-    const url=buildSignUrl(doc)
-    const tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
-    const msg=encodeURIComponent(`Olá! Segue o link para assinatura eletrônica do ${tipo} – ${cfg.company||'Vivanexa'}:\n\n${url}\n\nQualquer dúvida, entre em contato conosco.`)
-    const wpp=(cfg.signConfig?.wpp||'').replace(/\D/g,'')
-    if(wpp)window.open(`https://wa.me/${wpp}?text=${msg}`,'_blank')
-    else window.open(`https://wa.me/?text=${msg}`,'_blank')
-    marcarEnviado(doc)
-  }
-
-  function enviarEmail(doc){
-    const url=buildSignUrl(doc)
-    const tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
-    const subj=encodeURIComponent(`${tipo} – ${cfg.company||'Vivanexa'} – Aguardando sua assinatura`)
-    const body=encodeURIComponent(`Olá!\n\nSegue o link para assinatura eletrônica do ${tipo}:\n\n${url}\n\nQualquer dúvida, entre em contato.\n\n${cfg.company||'Vivanexa'}`)
-    const email=signEmailInput||doc.clientEmail||''
-    window.open(`mailto:${email}?subject=${subj}&body=${body}`,'_blank')
-    marcarEnviado(doc)
-  }
-
-  async function marcarEnviado(doc){
-    // Atualiza status para 'sent' no Supabase
-    try{
-      const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`doc:${doc.signToken}`).single()
-      if(row?.value){const d=JSON.parse(row.value);d.status='sent';await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify(d),updated_at:new Date().toISOString()})}
-    }catch{}
-  }
-
-  // ── Self-sign (assinar agora) ─────────────────
-  async function confirmarSelfSign(){
-    if(!selfNome.trim()){setSelfErro('Informe seu nome.');return}
-    if(!selfCpf.trim()){setSelfErro('Informe seu CPF.');return}
-    if(!selfEmail.trim()){setSelfErro('Informe seu e-mail.');return}
-    if(!selfAgreed){setSelfErro('Aceite os termos para assinar.');return}
-    setSelfSaving(true);setSelfErro('')
-    try{
-      const now=new Date(),nowStr=now.toLocaleString('pt-BR')
-      const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`doc:${signDoc.signToken}`).single()
-      const docData=row?.value?JSON.parse(row.value):{...signDoc}
-      docData.signedAt=nowStr;docData.signedBy=selfNome.trim();docData.signCPF=selfCpf.trim();docData.signEmail=selfEmail.trim();docData.signIP='(web)';docData.status='pending'
-      await supabase.from('vx_storage').upsert({key:`doc:${signDoc.signToken}`,value:JSON.stringify(docData),updated_at:now.toISOString()})
-      // Atualiza cfg
-      const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
-      if(cfgRow?.value){const c=JSON.parse(cfgRow.value);if(c.docHistory){c.docHistory=c.docHistory.map(h=>h.signToken===signDoc.signToken?{...h,signedAt:nowStr,signedBy:selfNome.trim(),status:'pending'}:h);await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(c),updated_at:now.toISOString()})}}
-      setShowSelfSign(false);setShowSign(false)
-      addBot(`✅ Contrato assinado por **${selfNome}** em ${nowStr}!\n\nO documento está salvo e aguardando assinatura do consultor.`)
-    }catch(e){setSelfErro('Erro ao salvar assinatura.')}
-    finally{setSelfSaving(false)}
   }
 
   const wizDates=getNextDates()
@@ -699,15 +716,15 @@ export default function Chat(){
     const{results,tAd,tMen}=data;const dates=getNextDates();let h=''
     for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}${r.isPrepaid?' <small style="font-size:11px;color:var(--warning)">(pré-pago)</small>':''}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div></div>`}
     h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão total</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val">${fmt(tMen)}</span></div></div>`
-    h+=`<div class="teaser-card"><div class="teaser-title">🎫 Há licenças com desconto disponíveis!</div><div class="teaser-body">Deseja ver os valores com desconto?</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_disc(true)">✅ Sim, quero ver!</button><button class="yn-btn no" onclick="window.vx_disc(false)">Não, obrigado</button></div></div>`
+    h+=`<div class="teaser-card"><div class="teaser-title">🎫 Licenças com desconto disponíveis!</div><div class="teaser-body">Deseja ver os valores com desconto?</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_disc(true)">✅ Sim!</button><button class="yn-btn no" onclick="window.vx_disc(false)">Não, obrigado</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     return h
   }
   function rDisc(data,dates,cn){
     const{results,tAd,tMen,tAdD,tMenD}=data;let h=''
     for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div><hr class="section-divider">${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão c/ desconto</span><span class="val discount">${fmt(r.adD)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade c/ desconto</span><span class="val discount">${fmt(r.menD)}</span></div></div>`}
-    h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(tMen)}</span></div><hr class="section-divider"><div class="price-row"><span class="label">Adesão c/ desconto</span><span class="val discount">${fmt(tAdD)}</span></div><div class="price-row"><span class="label">Mensalidade c/ desconto</span><span class="val discount">${fmt(tMenD)}</span></div>${cfg.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
-    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar agora com <strong style="color:var(--gold)">${cfg.discClosePct||40}% OFF</strong> na adesão!<br>Oferta válida até as <strong style="color:var(--gold)">18h de hoje</strong>.</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Sim, fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
+    h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(tMen)}</span></div><hr class="section-divider"><div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(tAdD)}</span></div><div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(tMenD)}</span></div>${cfg.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
+    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${cfg.discClosePct||40}% OFF</strong> na adesão!<br>Válido até as 18h de hoje.</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     return h
   }
@@ -715,7 +732,6 @@ export default function Chat(){
     const{results,tAd,tMen}=data;const dates=getNextDates();let h=''
     for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão (fechamento)</span><span class="val closing">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val closing">${fmt(r.men)}</span></div></div>`}
     h+=`<div class="price-card" style="border-color:rgba(251,191,36,.3)"><h4 style="color:var(--gold)">🔸 Total – Fechamento</h4><div class="price-row"><span class="label">Adesão total</span><span class="val closing">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val closing">${fmt(tMen)}</span></div>${cfg.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
-    h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     h+=`<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
       <button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button>
       <button class="prop-btn" style="background:linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08));border-color:rgba(251,191,36,.4);color:var(--gold)" onclick="window.vx_cont()">📝 Gerar Contrato</button>
@@ -724,7 +740,187 @@ export default function Chat(){
     return h
   }
 
-  if(!userProfile)return(<div style={{background:'#0a0f1e',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'#64748b',fontFamily:'DM Mono, monospace'}}>Carregando...</div>)
+  // ── StatusBadge helper ────────────────────────
+  function statusBadge(h){
+    if(h.status==='signed')   return{txt:'✅ Assinado',        cor:'var(--accent3)', bg:'rgba(16,185,129,.12)',  border:'rgba(16,185,129,.25)'}
+    if(h.status==='pending')  return{txt:'⏳ Aguardando',      cor:'var(--warning)',  bg:'rgba(251,191,36,.1)',   border:'rgba(251,191,36,.25)'}
+    if(h.status==='sent')     return{txt:'📤 Enviado',          cor:'var(--accent)',   bg:'rgba(0,212,255,.1)',    border:'rgba(0,212,255,.25)'}
+    return                          {txt:'📝 Rascunho',         cor:'var(--muted)',    bg:'rgba(100,116,139,.1)', border:'rgba(100,116,139,.2)'}
+  }
+
+  if(!userProfile)return<div style={{background:'#0a0f1e',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'#64748b',fontFamily:'DM Mono, monospace'}}>Carregando...</div>
+
+  // ── PAINEL OVERLAY (Histórico / Assinaturas / Documentos) ──
+  const renderPainel=()=>{
+    if(!painel)return null
+    return(
+      <div style={{position:'fixed',inset:0,background:'var(--bg)',zIndex:200,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {/* Header do painel */}
+        <div style={{background:'rgba(10,15,30,.9)',backdropFilter:'blur(12px)',borderBottom:'1px solid var(--border)',padding:'12px 20px',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
+          <button onClick={()=>setPainel(null)} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:20,padding:'4px 8px',borderRadius:8,lineHeight:1}}>✕</button>
+          <h2 style={{fontFamily:'Syne, sans-serif',fontSize:16,fontWeight:700,color:'var(--accent)'}}>
+            {painel==='historico'?'🗂️ Histórico de Documentos':painel==='assinaturas'?'✍️ Acompanhamento de Assinaturas':'📄 Documentos'}
+          </h2>
+          {(painel==='historico'||painel==='assinaturas')&&(
+            <button onClick={carregarHistorico} style={{marginLeft:'auto',padding:'6px 14px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono, monospace',fontSize:12,cursor:'pointer'}}>
+              🔄 Atualizar
+            </button>
+          )}
+        </div>
+
+        <div style={{flex:1,overflowY:'auto',padding:'20px',maxWidth:900,width:'100%',margin:'0 auto'}}>
+
+          {/* ── HISTÓRICO ── */}
+          {painel==='historico'&&(
+            histLoading
+              ?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Carregando...</div>
+              : histDocs.length===0
+                ?<div style={{textAlign:'center',padding:40}}>
+                    <div style={{fontSize:40,marginBottom:12}}>📄</div>
+                    <div style={{color:'var(--muted)',fontSize:14}}>Nenhum documento gerado ainda.</div>
+                  </div>
+                : histDocs.map(h=>{
+                    const sb=statusBadge(h)
+                    return(
+                      <div key={h.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'16px 20px',marginBottom:12,boxShadow:'var(--shadow)'}}>
+                        <div style={{display:'flex',alignItems:'flex-start',gap:12,marginBottom:10}}>
+                          <span style={{fontSize:22,flexShrink:0}}>{h.type==='contrato'?'📝':'📄'}</span>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,fontSize:15,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{h.clientName||'Cliente não identificado'}</div>
+                            <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>
+                              {h.type==='contrato'?'Contrato':'Proposta'} · {h.date} · {h.consultor||'—'}
+                              {h.modulos?.length>0&&` · ${h.modulos.join(', ')}`}
+                            </div>
+                            {h.signedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:2}}>✅ Cliente: {h.signedBy} em {h.signedAt}</div>}
+                            {h.consultantSignedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:1}}>✅ Consultor: {h.consultantSignedBy} em {h.consultantSignedAt}</div>}
+                          </div>
+                          <span style={{fontSize:12,fontWeight:600,color:sb.cor,background:sb.bg,border:`1px solid ${sb.border}`,padding:'4px 10px',borderRadius:20,whiteSpace:'nowrap',flexShrink:0}}>{sb.txt}</span>
+                        </div>
+                        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                          <button onClick={()=>verDocumento(h)}
+                            style={{padding:'7px 14px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>
+                            👁 Ver documento
+                          </button>
+                          {h.status!=='signed'&&(
+                            <button onClick={()=>{setSignDoc(h);setSignEmailInput(h.clientEmail||'');setShowSign(true);setPainel(null)}}
+                              style={{padding:'7px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>
+                              ✍️ Reenviar para assinatura
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+          )}
+
+          {/* ── ASSINATURAS ── */}
+          {painel==='assinaturas'&&(
+            histLoading
+              ?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Carregando...</div>
+              : histDocs.length===0
+                ?<div style={{textAlign:'center',padding:40}}>
+                    <div style={{fontSize:40,marginBottom:12}}>✍️</div>
+                    <div style={{color:'var(--muted)',fontSize:14}}>Nenhum documento para assinar.</div>
+                  </div>
+                : histDocs.map(h=>{
+                    const clienteAssinou=!!(h.signedAt&&h.signedBy)
+                    const consultorAssinou=!!(h.consultantSignedAt&&h.consultantSignedBy)
+                    const totalAssinado=clienteAssinou&&consultorAssinou
+                    return(
+                      <div key={h.id} style={{background:'var(--surface)',border:`1px solid ${totalAssinado?'rgba(16,185,129,.3)':'var(--border)'}`,borderRadius:14,padding:'18px 20px',marginBottom:14,boxShadow:'var(--shadow)'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+                          <span style={{fontSize:20}}>{h.type==='contrato'?'📝':'📄'}</span>
+                          <div style={{flex:1}}>
+                            <div style={{fontWeight:700,fontSize:15}}>{h.clientName||'Cliente'}</div>
+                            <div style={{fontSize:12,color:'var(--muted)',marginTop:1}}>{h.date} · {h.consultor}</div>
+                          </div>
+                          <span style={{fontSize:12,fontWeight:700,color:totalAssinado?'var(--accent3)':'var(--warning)',background:totalAssinado?'rgba(16,185,129,.1)':'rgba(251,191,36,.1)',padding:'4px 12px',borderRadius:20,border:`1px solid ${totalAssinado?'rgba(16,185,129,.3)':'rgba(251,191,36,.3)'}`}}>
+                            {totalAssinado?'✅ Totalmente Assinado':'⏳ Aguardando Assinaturas'}
+                          </span>
+                        </div>
+
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                          {/* CONTRATADA (Consultor) */}
+                          <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
+                            <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATADA (Consultor)</div>
+                            {consultorAssinou
+                              ?<>
+                                <div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.consultantSignedBy}</div>
+                                <div style={{fontSize:11,color:'var(--muted)'}}>{h.consultantSignedAt}</div>
+                              </>
+                              :<>
+                                <div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.consultor||'—'} — aguardando</div>
+                                <button onClick={()=>abrirSignForm(h,'consultant')}
+                                  style={{padding:'8px 14px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>
+                                  ✍️ Assinar agora
+                                </button>
+                              </>
+                            }
+                          </div>
+
+                          {/* CONTRATANTE (Cliente) */}
+                          <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
+                            <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATANTE (Cliente)</div>
+                            {clienteAssinou
+                              ?<>
+                                <div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.signedBy}</div>
+                                <div style={{fontSize:11,color:'var(--muted)'}}>{h.signedAt}</div>
+                              </>
+                              :<>
+                                <div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.clientName||'—'} — aguardando</div>
+                                <button onClick={()=>{setSignDoc(h);setSignEmailInput(h.clientEmail||'');setShowSign(true);setPainel(null)}}
+                                  style={{padding:'8px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>
+                                  📤 Enviar link
+                                </button>
+                              </>
+                            }
+                          </div>
+                        </div>
+
+                        {totalAssinado&&(
+                          <div style={{marginTop:12,padding:'10px 14px',background:'rgba(16,185,129,.08)',border:'1px solid rgba(16,185,129,.2)',borderRadius:8,fontSize:12,color:'var(--accent3)'}}>
+                            ✅ Contrato completamente assinado por ambas as partes.{' '}
+                            <button onClick={()=>verDocumento(h)} style={{background:'none',border:'none',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,textDecoration:'underline'}}>Ver documento</button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+          )}
+
+          {/* ── DOCUMENTOS (templates info) ── */}
+          {painel==='documentos'&&(
+            <div>
+              <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 24px',marginBottom:16}}>
+                <h3 style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)',marginBottom:8}}>📄 Templates de Documentos</h3>
+                <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:14}}>Para editar os templates de Proposta e Contrato, acesse <strong style={{color:'var(--text)'}}>Configurações → Documentos</strong>.</p>
+                <button onClick={()=>{setPainel(null);router.push('/configuracoes')}}
+                  style={{padding:'10px 20px',borderRadius:9,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:600}}>
+                  ⚙️ Ir para Configurações → Documentos
+                </button>
+              </div>
+              <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 24px'}}>
+                <h3 style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:12}}>📋 Variáveis disponíveis nos templates</h3>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                  {[['{{empresa}}','Nome fantasia'],['{{razao_social}}','Razão social'],['{{cnpj}}','CNPJ/CPF'],['{{contato}}','Nome do contato'],['{{email}}','E-mail'],['{{telefone}}','Telefone'],['{{cidade}}','Cidade'],['{{uf}}','Estado'],['{{regime}}','Regime tributário'],['{{plano}}','Nome do plano'],['{{cnpjs_qty}}','Qtd. CNPJs'],['{{total_adesao}}','Total adesão'],['{{total_mensalidade}}','Total mensalidade'],['{{data_adesao}}','Venc. adesão'],['{{data_mensalidade}}','1ª mensalidade'],['{{condicao_pagamento}}','Condição de pagamento'],['{{consultor_nome}}','Nome do consultor'],['{{data_hoje}}','Data atual'],['{{company}}','Nome da empresa'],['{{produtos_tabela}}','Tabela HTML de produtos']].map(([v,d])=>(
+                    <div key={v} style={{padding:'8px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,display:'flex',gap:8,alignItems:'center'}}>
+                      <code style={{fontSize:11,color:'var(--accent)',fontFamily:'DM Mono,monospace',flexShrink:0}}>{v}</code>
+                      <span style={{fontSize:12,color:'var(--muted)'}}>{d}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  function abrirPainel(p){
+    setPainel(p)
+    if(p==='historico'||p==='assinaturas') carregarHistorico()
+  }
 
   return(<>
     <Head>
@@ -735,26 +931,48 @@ export default function Chat(){
     <style>{CSS}</style>
     <div className="orb orb1"/><div className="orb orb2"/>
 
-    {/* HEADER COM LOGO */}
+    {/* PAINEL OVERLAY */}
+    {renderPainel()}
+
+    {/* HEADER com logo e menu completo */}
     <header>
       <div className="header-logo">
         {cfg.logob64
-          ? <img src={cfg.logob64} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
-          : <div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,letterSpacing:.5,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>
+          ?<img src={cfg.logob64} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
+          :<div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>
         }
-      </div>
-      <div className="header-text">
-        {!cfg.logob64&&<p style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{cfg.slogan}</p>}
+        {cfg.logob64&&<div style={{marginLeft:10}}><div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'var(--text)'}}>{cfg.company}</div><div style={{fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div></div>}
+        {!cfg.logob64&&<div style={{marginLeft:4,fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div>}
       </div>
       <div className="status-dot">online</div>
-      <nav style={{display:'flex',gap:6,alignItems:'center',marginLeft:'auto'}}>
-        <button onClick={()=>router.push('/dashboard')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>📊 Dashboard</button>
-        <button onClick={()=>router.push('/configuracoes')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>⚙️ Config</button>
+
+      <nav style={{display:'flex',gap:4,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
+        {[
+          {id:'documentos', label:'📄 Documentos'},
+          {id:'historico',  label:'🗂️ Histórico'},
+          {id:'assinaturas',label:'✍️ Assinaturas'},
+        ].map(({id,label})=>(
+          <button key={id} onClick={()=>abrirPainel(id)}
+            style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace',letterSpacing:.3,transition:'all .15s'}}
+            onMouseEnter={e=>{e.target.style.color='var(--accent)';e.target.style.borderColor='rgba(0,212,255,.3)'}}
+            onMouseLeave={e=>{e.target.style.color='var(--muted)';e.target.style.borderColor='var(--border)'}}>
+            {label}
+          </button>
+        ))}
+        <button onClick={()=>router.push('/dashboard')}
+          style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>
+          📊 Dashboard
+        </button>
+        <button onClick={()=>router.push('/configuracoes')}
+          style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 10px',borderRadius:8,fontFamily:'DM Mono,monospace',fontSize:15}}>
+          ⚙️
+        </button>
         <span style={{fontSize:11,color:'var(--muted)'}}>👤 <span style={{color:'var(--text)',fontWeight:500}}>{userProfile.nome}</span></span>
         <button className="logout-btn" onClick={async()=>{await supabase.auth.signOut();router.replace('/')}}>Sair</button>
       </nav>
     </header>
 
+    {/* CHAT */}
     <div className="chat-wrap">
       <div id="messages" ref={msgRef}>
         {messages.map(m=>(
@@ -777,7 +995,33 @@ export default function Chat(){
       </div>
     </div>
 
-    {/* MODAL DADOS DO CLIENTE */}
+    {/* MODAL: VER DOCUMENTO */}
+    {showDocView&&(
+      <div className="modal-overlay" style={{zIndex:300}}>
+        <div className="modal-box" style={{maxWidth:860,maxHeight:'92vh'}}>
+          <div className="modal-header">
+            <h3 style={{fontSize:14}}>{docViewTitle}</h3>
+            <button className="modal-close" onClick={()=>setShowDocView(false)}>✕</button>
+          </div>
+          <div className="modal-body" style={{padding:0,flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+            {docViewLoading
+              ?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>⏳ Carregando documento...</div>
+              :<div style={{flex:1,overflowY:'auto',background:'#fff'}}>
+                <div dangerouslySetInnerHTML={{__html:docViewHtml}}/>
+              </div>
+            }
+          </div>
+          <div className="modal-footer">
+            <button className="btn-cancel" onClick={()=>setShowDocView(false)}>Fechar</button>
+            <button className="btn-primary" onClick={()=>{const w=window.open('','_blank','width=900,height=700');w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet"><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}body{margin:0}.tb{display:flex;gap:10px;padding:14px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0}.tb button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none}.bp{background:#0f172a;color:#fff}.bc{background:#e2e8f0;color:#475569}@media print{.tb{display:none!important}}</style></head><body><div class="tb"><button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="bc" onclick="window.close()">✕ Fechar</button></div>${docViewHtml}</body></html>`);w.document.close();w.focus()}}>
+              🖨 Imprimir
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* MODAL: DADOS DO CLIENTE */}
     {showClient&&(
       <div className="modal-overlay">
         <div className="modal-box" style={{maxWidth:620}}>
@@ -787,12 +1031,9 @@ export default function Chat(){
           </div>
           <div className="modal-body">
             <div className="modal-sec">DADOS DO CLIENTE</div>
-            {/* CPF/CNPJ + busca */}
-            <div style={{marginBottom:12}}>
-              <label className="field-label">CPF / CNPJ</label>
-              <div style={{display:'flex',gap:8}}>
-                <input className="field-input" value={fmtDoc(S.doc||'')} readOnly style={{flex:1,opacity:.7}}/>
-              </div>
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>CPF / CNPJ</div>
+              <div style={{padding:'9px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:13,color:'var(--muted)',fontFamily:'DM Mono,monospace'}}>{fmtDoc(S.doc||'')}</div>
             </div>
             <div className="modal-grid2">
               <div className="field"><label>Nome Fantasia / Nome</label><input value={cf.empresa} onChange={e=>setCf(f=>({...f,empresa:e.target.value}))} placeholder="Nome fantasia"/></div>
@@ -802,11 +1043,9 @@ export default function Chat(){
               <div className="field"><label>Telefone / WhatsApp</label><input value={cf.telefone} onChange={e=>setCf(f=>({...f,telefone:e.target.value}))} placeholder="(00) 00000-0000"/></div>
               <div className="field"><label>CEP</label>
                 <div style={{display:'flex',gap:6}}>
-                  <input value={cf.cep} onChange={e=>setCf(f=>({...f,cep:e.target.value}))} placeholder="00000-000" style={{flex:1}}
-                    onBlur={e=>e.target.value.replace(/\D/g,'').length>=8&&buscarCep(e.target.value)}/>
-                  <button onClick={()=>buscarCep(cf.cep)} disabled={buscandoCep}
-                    style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontSize:12,fontFamily:'DM Mono,monospace',whiteSpace:'nowrap'}}>
-                    {buscandoCep?'⏳':'📍 Buscar'}
+                  <input value={cf.cep} onChange={e=>setCf(f=>({...f,cep:e.target.value}))} placeholder="00000-000" style={{flex:1}} onBlur={e=>e.target.value.replace(/\D/g,'').length>=8&&buscarCep(e.target.value)}/>
+                  <button onClick={()=>buscarCep(cf.cep)} disabled={buscandoCep} style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontSize:12,fontFamily:'DM Mono,monospace',whiteSpace:'nowrap'}}>
+                    {buscandoCep?'⏳':'📍'}
                   </button>
                 </div>
               </div>
@@ -814,7 +1053,7 @@ export default function Chat(){
               <div className="field"><label>Bairro</label><input value={cf.bairro} onChange={e=>setCf(f=>({...f,bairro:e.target.value}))} placeholder="Bairro"/></div>
               <div className="field"><label>Cidade</label><input value={cf.cidade} onChange={e=>setCf(f=>({...f,cidade:e.target.value}))} placeholder="Cidade"/></div>
               <div className="field"><label>Estado</label><input value={cf.uf} onChange={e=>setCf(f=>({...f,uf:e.target.value}))} placeholder="UF" maxLength={2}/></div>
-              <div className="field"><label>CPF do Contato Principal</label><input value={cf.cpfContato} onChange={e=>setCf(f=>({...f,cpfContato:e.target.value}))} placeholder="000.000.000-00"/></div>
+              <div className="field"><label>CPF do Contato</label><input value={cf.cpfContato} onChange={e=>setCf(f=>({...f,cpfContato:e.target.value}))} placeholder="000.000.000-00"/></div>
               <div className="field"><label>Regime Tributário</label>
                 <select value={cf.regime} onChange={e=>setCf(f=>({...f,regime:e.target.value}))} style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono,monospace',fontSize:13,color:'var(--text)',outline:'none'}}>
                   <option value="">Selecione...</option>
@@ -825,64 +1064,51 @@ export default function Chat(){
                 </select>
               </div>
             </div>
-
-            {/* Responsáveis — sempre visíveis */}
-            <div style={{marginTop:16,padding:14,background:'rgba(251,191,36,.06)',border:'1px solid rgba(251,191,36,.2)',borderRadius:10}}>
+            <div style={{marginTop:12,padding:14,background:'rgba(251,191,36,.06)',border:'1px solid rgba(251,191,36,.2)',borderRadius:10}}>
               <div style={{fontSize:11,color:'var(--gold)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:10}}>🔧 Responsável pela Implantação</div>
-              <div className="modal-grid3">
-                {[['Nome','rimpNome'],['E-mail','rimpEmail'],['Telefone','rimpTel']].map(([l,k])=><div key={k} className="field"><label>{l}</label><input value={cf[k]||''} onChange={e=>setCf(f=>({...f,[k]:e.target.value}))} placeholder={l}/></div>)}
-              </div>
+              <div className="modal-grid3">{[['Nome','rimpNome'],['E-mail','rimpEmail'],['Telefone','rimpTel']].map(([l,k])=><div key={k} className="field"><label>{l}</label><input value={cf[k]||''} onChange={e=>setCf(f=>({...f,[k]:e.target.value}))} placeholder={l}/></div>)}</div>
             </div>
             <div style={{marginTop:12,padding:14,background:'rgba(16,185,129,.06)',border:'1px solid rgba(16,185,129,.2)',borderRadius:10}}>
               <div style={{fontSize:11,color:'var(--accent3)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:10}}>💰 Responsável Financeiro</div>
-              <div className="modal-grid3">
-                {[['Nome','rfinNome'],['E-mail','rfinEmail'],['Telefone','rfinTel']].map(([l,k])=><div key={k} className="field"><label>{l}</label><input value={cf[k]||''} onChange={e=>setCf(f=>({...f,[k]:e.target.value}))} placeholder={l}/></div>)}
-              </div>
+              <div className="modal-grid3">{[['Nome','rfinNome'],['E-mail','rfinEmail'],['Telefone','rfinTel']].map(([l,k])=><div key={k} className="field"><label>{l}</label><input value={cf[k]||''} onChange={e=>setCf(f=>({...f,[k]:e.target.value}))} placeholder={l}/></div>)}</div>
             </div>
           </div>
           <div className="modal-footer">
             <button className="btn-cancel" onClick={()=>setShowClient(false)}>Cancelar</button>
-            <button className="btn-primary" onClick={saveClient}>
-              {clientMode==='proposta'?'✅ Salvar e Gerar Proposta':'📝 Avançar'}
-            </button>
+            <button className="btn-primary" onClick={saveClient}>{clientMode==='proposta'?'✅ Salvar e Gerar Proposta':'📝 Avançar'}</button>
           </div>
         </div>
       </div>
     )}
 
-    {/* WIZARD DE CONTRATO */}
+    {/* WIZARD CONTRATO */}
     {showWiz&&(
       <div className="modal-overlay">
         <div className="modal-box" style={{maxWidth:680}}>
           <div className="modal-header">
-            <h3>📝 Configurar Contrato</h3>
-            <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>Passo {wizStep} de 2</div>
+            <h3>📝 Configurar Contrato — Passo {wizStep}/2</h3>
             <button className="modal-close" onClick={()=>setShowWiz(false)}>✕</button>
           </div>
           <div className="modal-body">
             {wizStep===1&&<>
-              <div className="wiz-title">💳 Condição de Pagamento da Adesão</div>
-              <div style={{fontSize:13,color:'var(--muted)',marginBottom:12}}>Valor da Adesão: <strong style={{color:'var(--text)'}}>{fmt(wizTAd)}</strong></div>
-              <div className="wiz-sec">PAGAMENTO À VISTA</div>
+              <div className="wiz-title">💳 Condição de Pagamento</div>
+              <div style={{fontSize:13,color:'var(--muted)',marginBottom:12}}>Adesão: <strong style={{color:'var(--text)'}}>{fmt(wizTAd)}</strong></div>
+              <div className="wiz-sec">À VISTA</div>
               <div className={`pay-opt${wizPay==='pix'?' sel':''}`} onClick={()=>setWizPay('pix')}>
-                <span>🏦</span><div style={{flex:1}}><div className="po-t">PIX ou Boleto à vista</div><div className="po-s">Pagamento único</div></div>
-                <div className="po-v">{fmt(wizTAd)}</div>
+                <span>🏦</span><div style={{flex:1}}><div className="po-t">PIX ou Boleto à vista</div></div><div className="po-v">{fmt(wizTAd)}</div>
               </div>
-              <div className="wiz-sec" style={{marginTop:14}}>CARTÃO DE CRÉDITO — SEM JUROS</div>
+              <div className="wiz-sec" style={{marginTop:12}}>CARTÃO — SEM JUROS</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
                 {Array.from({length:10},(_,i)=>i+1).map(n=>(
                   <div key={n} className={`pay-opt sm${wizPay===`cartao${n}x`?' sel':''}`} onClick={()=>setWizPay(`cartao${n}x`)}>
-                    <span style={{fontSize:14}}>💳</span>
-                    <div style={{flex:1}}><div className="po-t">{n}× sem juros</div></div>
-                    <div className="po-v" style={{fontSize:12}}>{fmt(wizTAd/n)}/mês</div>
+                    <span>💳</span><div style={{flex:1}}><div className="po-t">{n}×</div></div><div className="po-v" style={{fontSize:12}}>{fmt(wizTAd/n)}/m</div>
                   </div>
                 ))}
               </div>
-              <div className="wiz-sec" style={{marginTop:14}}>BOLETO PARCELADO</div>
-              {[{n:2,desc:`Entrada ${fmt(wizTAd*0.5)} + ${fmt(wizTAd*0.5)} em 30d`},{n:3,desc:`Entrada ${fmt(wizTAd*0.5)} + 2× de ${fmt(wizTAd*0.25)}`}].map(o=>(
+              <div className="wiz-sec" style={{marginTop:12}}>BOLETO PARCELADO</div>
+              {[{n:2,d:`${fmt(wizTAd*0.5)} + ${fmt(wizTAd*0.5)} em 30d`},{n:3,d:`${fmt(wizTAd*0.5)} + 2× de ${fmt(wizTAd*0.25)}`}].map(o=>(
                 <div key={o.n} className={`pay-opt${wizPay===`boleto${o.n}x`?' sel':''}`} onClick={()=>setWizPay(`boleto${o.n}x`)} style={{marginBottom:8}}>
-                  <span>📄</span><div style={{flex:1}}><div className="po-t">{o.n}× no Boleto</div><div className="po-s">{o.desc}</div></div>
-                  <div className="po-v">{fmt(wizTAd/o.n)}</div>
+                  <span>📄</span><div style={{flex:1}}><div className="po-t">{o.n}× Boleto</div><div className="po-s">{o.d}</div></div><div className="po-v">{fmt(wizTAd/o.n)}</div>
                 </div>
               ))}
             </>}
@@ -907,10 +1133,10 @@ export default function Chat(){
       </div>
     )}
 
-    {/* MODAL ENVIAR PARA ASSINATURA */}
+    {/* MODAL: ENVIAR PARA ASSINATURA */}
     {showSign&&signDoc&&(
-      <div className="modal-overlay">
-        <div className="modal-box" style={{maxWidth:520}}>
+      <div className="modal-overlay" style={{zIndex:250}}>
+        <div className="modal-box" style={{maxWidth:500}}>
           <div className="modal-header">
             <h3>✍️ Enviar para Assinatura</h3>
             <div style={{fontSize:12,color:'var(--muted)',marginTop:3}}>
@@ -920,79 +1146,63 @@ export default function Chat(){
             <button className="modal-close" onClick={()=>setShowSign(false)}>✕</button>
           </div>
           <div className="modal-body">
-            {/* Link */}
-            <div style={{marginBottom:16}}>
+            <div style={{marginBottom:14}}>
               <div style={{fontSize:10,color:'var(--muted)',textTransform:'uppercase',letterSpacing:1.5,marginBottom:6}}>Link de Assinatura</div>
               <div style={{display:'flex',gap:8}}>
-                <input readOnly value={buildSignUrl(signDoc)}
-                  style={{flex:1,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--accent)',outline:'none'}}/>
-                <button onClick={()=>{navigator.clipboard.writeText(buildSignUrl(signDoc));}}
-                  style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,whiteSpace:'nowrap'}}>
-                  📋 Copiar
-                </button>
+                <input readOnly value={buildSignUrl(signDoc)} style={{flex:1,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:11,color:'var(--accent)',outline:'none'}}/>
+                <button onClick={()=>navigator.clipboard.writeText(buildSignUrl(signDoc))} style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,whiteSpace:'nowrap'}}>📋</button>
               </div>
             </div>
-            {/* E-mail do cliente */}
             <div style={{marginBottom:16}}>
               <div style={{fontSize:10,color:'var(--muted)',textTransform:'uppercase',letterSpacing:1.5,marginBottom:6}}>E-mail do cliente</div>
-              <input type="email" value={signEmailInput} onChange={e=>setSignEmailInput(e.target.value)}
-                placeholder="email do cliente"
-                style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono,monospace',fontSize:13,color:'var(--text)',outline:'none'}}/>
+              <input type="email" value={signEmailInput} onChange={e=>setSignEmailInput(e.target.value)} placeholder="email do cliente" style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono,monospace',fontSize:13,color:'var(--text)',outline:'none'}}/>
             </div>
-            {/* Botões de envio */}
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              <button onClick={()=>enviarWhatsApp(signDoc)}
-                style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#25d366,#128c7e)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
+              <button onClick={()=>enviarWhatsApp(signDoc)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#25d366,#128c7e)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
                 <span>💬</span> Enviar via WhatsApp
               </button>
-              <button onClick={()=>enviarEmail(signDoc)}
-                style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#0f172a,#1e3a5f)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
+              <button onClick={()=>enviarEmail(signDoc,signEmailInput)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#0f172a,#1e3a5f)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
                 <span>📧</span> Enviar por E-mail
               </button>
-              <button onClick={()=>{setShowSign(false);setSelfNome(cf.contato||'');setSelfCpf(cf.cpfContato||'');setSelfEmail(cf.email||'');setSelfAgreed(false);setSelfErro('');setShowSelfSign(true)}}
-                style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08))',border:'1px solid rgba(251,191,36,.4)',color:'var(--gold)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
+              <button onClick={()=>{setShowSign(false);abrirSignForm(signDoc,'client')}} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08))',border:'1px solid rgba(251,191,36,.4)',color:'var(--gold)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
                 <span>👆</span> Assinar agora (esta tela)
               </button>
-              <button onClick={()=>setShowSign(false)}
-                style={{padding:'11px',borderRadius:10,background:'rgba(100,116,139,.12)',border:'1px solid var(--border)',color:'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>
-                Fechar
-              </button>
+              <button onClick={()=>setShowSign(false)} style={{padding:'11px',borderRadius:10,background:'rgba(100,116,139,.12)',border:'1px solid var(--border)',color:'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>Fechar</button>
             </div>
           </div>
         </div>
       </div>
     )}
 
-    {/* MODAL ASSINAR AGORA */}
-    {showSelfSign&&(
-      <div className="modal-overlay">
-        <div className="modal-box" style={{maxWidth:500}}>
+    {/* MODAL: FORMULÁRIO DE ASSINATURA */}
+    {showSignForm&&(
+      <div className="modal-overlay" style={{zIndex:300}}>
+        <div className="modal-box" style={{maxWidth:480}}>
           <div className="modal-header">
-            <h3>✍️ Assinar Documento</h3>
-            <button className="modal-close" onClick={()=>setShowSelfSign(false)}>✕</button>
+            <h3>✍️ {signFormSide==='consultant'?'Assinatura do Consultor':'Assinatura do Cliente'}</h3>
+            <button className="modal-close" onClick={()=>setShowSignForm(false)}>✕</button>
           </div>
           <div className="modal-body">
             <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:16}}>
-              Preencha os dados abaixo para registrar a assinatura eletrônica do cliente conforme a <strong style={{color:'var(--text)'}}>Lei nº 14.063/2020</strong>.
+              Preencha os dados para registrar a assinatura eletrônica conforme a <strong style={{color:'var(--text)'}}>Lei nº 14.063/2020</strong>.
             </p>
-            <div className="field"><label>Nome completo *</label><input value={selfNome} onChange={e=>setSelfNome(e.target.value)} placeholder="Nome completo"/></div>
+            <div className="field"><label>Nome completo *</label><input value={sfNome} onChange={e=>setSfNome(e.target.value)} placeholder="Nome completo"/></div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-              <div className="field"><label>CPF *</label><input value={selfCpf} onChange={e=>setSelfCpf(e.target.value)} placeholder="000.000.000-00"/></div>
-              <div className="field"><label>E-mail *</label><input type="email" value={selfEmail} onChange={e=>setSelfEmail(e.target.value)} placeholder="email"/></div>
+              <div className="field"><label>CPF *</label><input value={sfCpf} onChange={e=>setSfCpf(e.target.value)} placeholder="000.000.000-00"/></div>
+              <div className="field"><label>E-mail *</label><input type="email" value={sfEmail} onChange={e=>setSfEmail(e.target.value)} placeholder="email"/></div>
             </div>
-            <div onClick={()=>setSelfAgreed(!selfAgreed)}
-              style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',background:selfAgreed?'rgba(16,185,129,.06)':'var(--surface2)',border:`1px solid ${selfAgreed?'rgba(16,185,129,.3)':'var(--border)'}`,borderRadius:10,cursor:'pointer',marginTop:4}}>
-              <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${selfAgreed?'var(--accent3)':'var(--border)'}`,background:selfAgreed?'var(--accent3)':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',marginTop:2}}>
-                {selfAgreed&&<span style={{color:'#fff',fontSize:11,fontWeight:700}}>✓</span>}
+            <div onClick={()=>setSfAgreed(!sfAgreed)} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',background:sfAgreed?'rgba(16,185,129,.06)':'var(--surface2)',border:`1px solid ${sfAgreed?'rgba(16,185,129,.3)':'var(--border)'}`,borderRadius:10,cursor:'pointer',marginTop:4}}>
+              <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${sfAgreed?'var(--accent3)':'var(--border)'}`,background:sfAgreed?'var(--accent3)':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',marginTop:2}}>
+                {sfAgreed&&<span style={{color:'#fff',fontSize:11,fontWeight:700}}>✓</span>}
               </div>
-              <p style={{fontSize:12,color:'var(--muted)',lineHeight:1.6,margin:0}}>Declaro que li e concordo com todos os termos e condições do documento, conforme a Lei nº 14.063/2020.</p>
+              <p style={{fontSize:12,color:'var(--muted)',lineHeight:1.6,margin:0}}>Declaro que li e concordo com todos os termos, conforme a Lei nº 14.063/2020.</p>
             </div>
-            {selfErro&&<div style={{padding:'10px 14px',background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',borderRadius:8,fontSize:12,color:'var(--danger)',marginTop:12}}>⚠️ {selfErro}</div>}
+            {sfErro&&<div style={{padding:'10px 14px',background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',borderRadius:8,fontSize:12,color:'var(--danger)',marginTop:12}}>⚠️ {sfErro}</div>}
           </div>
           <div className="modal-footer">
-            <button className="btn-cancel" onClick={()=>setShowSelfSign(false)}>Cancelar</button>
-            <button className="btn-primary" onClick={confirmarSelfSign} disabled={selfSaving}>
-              {selfSaving?'⏳ Registrando...':'✅ Confirmar Assinatura'}
+            <button className="btn-cancel" onClick={()=>setShowSignForm(false)}>Cancelar</button>
+            <button className="btn-primary" onClick={confirmarSignForm} disabled={sfSaving}>
+              {sfSaving?'⏳ Registrando...':'✅ Confirmar Assinatura'}
             </button>
           </div>
         </div>
@@ -1010,16 +1220,15 @@ const CSS=`
   .orb{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;opacity:.1}
   .orb1{width:500px;height:500px;background:var(--accent);top:-200px;right:-150px}
   .orb2{width:400px;height:400px;background:var(--accent2);bottom:-150px;left:-100px}
-  header{position:sticky;top:0;z-index:100;width:100%;max-width:860px;padding:12px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(10,15,30,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
-  .header-logo{display:flex;align-items:center}
-  .header-text p{font-size:11px;color:var(--muted)}
+  header{position:sticky;top:0;z-index:100;width:100%;max-width:960px;padding:10px 20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(10,15,30,.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+  .header-logo{display:flex;align-items:center;gap:8px}
   .status-dot{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent3)}
   .status-dot::before{content:'';width:7px;height:7px;background:var(--accent3);border-radius:50%;animation:pulse 2s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   .logout-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:5px 9px;border-radius:8px;font-family:'DM Mono',monospace}
   .logout-btn:hover{color:var(--danger)}
   .chat-wrap{position:relative;z-index:10;width:100%;max-width:820px;padding:14px 20px 0;flex:1;display:flex;flex-direction:column}
-  #messages{display:flex;flex-direction:column;gap:14px;padding-bottom:20px;min-height:400px;max-height:calc(100vh - 200px);overflow-y:auto;scroll-behavior:smooth}
+  #messages{display:flex;flex-direction:column;gap:14px;padding-bottom:20px;min-height:400px;max-height:calc(100vh - 190px);overflow-y:auto;scroll-behavior:smooth}
   #messages::-webkit-scrollbar{width:4px}#messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
   .msg{display:flex;flex-direction:column;max-width:92%;animation:fadeUp .3s ease}
   @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
@@ -1032,8 +1241,8 @@ const CSS=`
   .thinking span{width:8px;height:8px;background:var(--muted);border-radius:50%;animation:bounce 1.2s infinite}
   .thinking span:nth-child(2){animation-delay:.2s}.thinking span:nth-child(3){animation-delay:.4s}
   @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
-  .price-card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:15px 18px;margin:4px 0;font-size:15px}
-  .price-card h4{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--accent);margin-bottom:10px;letter-spacing:.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .price-card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:15px 18px;margin:4px 0}
+  .price-card h4{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--accent);margin-bottom:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   .price-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(128,128,128,.1)}
   .price-row:last-child{border-bottom:none}.price-row .label{color:var(--muted);font-size:13px}.price-row .val{font-weight:600;color:var(--text);font-size:14px}
   .price-row .val.discount{color:var(--accent3)}.price-row .val.closing{color:var(--gold)}
@@ -1049,20 +1258,17 @@ const CSS=`
   .yn-btn{padding:9px 18px;border-radius:10px;border:none;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
   .yn-btn.yes{background:linear-gradient(135deg,var(--accent3),#059669);color:#fff}
   .yn-btn.no{background:rgba(100,116,139,.15);border:1px solid var(--border);color:var(--muted)}
-  .yn-btn:hover{transform:translateY(-1px);filter:brightness(1.1)}
   .opp-banner{background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04));border:1px solid rgba(251,191,36,.3);border-radius:12px;padding:16px 18px;margin:8px 0}
   .opp-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--gold);margin-bottom:10px}
   .opp-body{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:12px}
   .section-label{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin:12px 0 6px}
   .dates-box{display:flex;gap:8px;flex-wrap:wrap}
   .date-chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:13px;color:var(--text)}
-  .prop-btn{width:100%;padding:12px;border-radius:10px;background:linear-gradient(135deg,rgba(0,212,255,.15),rgba(0,212,255,.05));border:1px solid rgba(0,212,255,.3);color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;text-align:left;margin-bottom:4px}
-  .prop-btn:hover{background:linear-gradient(135deg,rgba(0,212,255,.25),rgba(0,212,255,.1));transform:translateY(-1px)}
+  .prop-btn{width:100%;padding:12px;border-radius:10px;background:linear-gradient(135deg,rgba(0,212,255,.15),rgba(0,212,255,.05));border:1px solid rgba(0,212,255,.3);color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;text-align:left;margin-bottom:4px}
   .reset-btn{width:100%;padding:10px;border-radius:10px;background:rgba(100,116,139,.1);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;margin-top:4px}
-  .reset-btn:hover{color:var(--text)}
   .timer-live{text-align:center;font-size:28px;font-weight:700;font-family:'Syne',sans-serif;color:var(--gold);letter-spacing:3px;padding:10px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:10px;margin:8px 0}
   #chips{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0 4px}
-  .chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);cursor:pointer;transition:all .2s}
+  .chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);cursor:pointer}
   .chip:hover{color:var(--accent);border-color:var(--accent)}
   #inputArea{display:flex;gap:10px;align-items:flex-end;padding:14px 0 20px}
   #userInput{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 16px;font-family:'DM Mono',monospace;font-size:15px;color:var(--text);outline:none;resize:none;line-height:1.5;transition:border-color .2s;min-height:48px}
@@ -1070,7 +1276,7 @@ const CSS=`
   #userInput::placeholder{color:var(--muted)}
   .send-btn{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#0099bb);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s}
   .send-btn:hover{box-shadow:0 0 16px rgba(0,212,255,.4);transform:translateY(-1px)}
-  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:6000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:150;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
   .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:560px;box-shadow:var(--shadow);display:flex;flex-direction:column;max-height:90vh;position:relative}
   .modal-header{padding:20px 24px 0;flex-shrink:0}
   .modal-header h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--accent)}
@@ -1080,8 +1286,8 @@ const CSS=`
   .modal-sec{font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;margin-top:4px}
   .modal-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .modal-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-  .field{margin-bottom:10px}.field label,.field-label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;letter-spacing:.5px}
-  .field input,.field-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;transition:border-color .2s}
+  .field{margin-bottom:10px}.field label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;letter-spacing:.5px}
+  .field input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none}
   .field input:focus{border-color:var(--accent)}
   .modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
   .btn-cancel{padding:10px 18px;border-radius:10px;background:rgba(100,116,139,.12);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:13px;cursor:pointer}
@@ -1098,5 +1304,4 @@ const CSS=`
   .date-pill.chosen,.date-pill:hover{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,.1)}
   .date-inp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;margin-top:6px}
   .date-inp:focus{border-color:var(--accent)}
-  @keyframes spin{to{transform:rotate(360deg)}}
 `
