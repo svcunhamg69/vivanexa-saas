@@ -373,7 +373,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
         onClick={() => {
           updateKpi(k.id, 'icone', ic)
           setIconPickerId(null)
-        }}
+       
         style={{
           width: 36,
           height: 36,
