@@ -7,9 +7,11 @@
 // 3. Usuários: permissões granulares + perfis personalizados
 // 4. Vouchers: botão imprimir PDF estilizado
 // 5. KPIs: seletor de ícone com galeria de opções
+// 6. Documentos: Nova aba para upload e gestão de documentos importados
+// 7. Histórico: Melhoria na aba para visualizar documentos gerados e assinados
 // ============================================================
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
@@ -24,8 +26,8 @@ const TABS = [
   { id: 'produtos',   label: '📦 Produtos' },
   { id: 'descontos',  label: '🏷️ Descontos' },
   { id: 'vouchers',   label: '🎫 Vouchers' },
-  { id: 'documentos', label: '📄 Documentos' },
-  { id: 'historico',  label: '🗂️ Histórico' },
+  { id: 'documentos', label: '📄 Documentos' }, // Nova aba para documentos importados
+  { id: 'historico',  label: '🗂️ Histórico' },  // Aba para histórico de gerados/assinados
   { id: 'clientes',   label: '🗃️ Clientes' },
   { id: 'tema',       label: '🎨 Tema' },
 ]
@@ -69,6 +71,7 @@ const PERMISSOES_DISPONIVEIS = [
   { id: 'ver_kpis',         label: '📈 Ver KPIs'                 },
   { id: 'lancar_kpis',      label: '✏️ Lançar KPIs diários'      },
   { id: 'ver_vouchers',     label: '🎫 Ver/Gerar Vouchers'       },
+  { id: 'gerenciar_documentos', label: '📄 Gerenciar Documentos' }, // Nova permissão
 ]
 
 // Permissões padrão por perfil
@@ -655,7 +658,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
                         {ativo && <span style={{ color: '#fff', fontSize: 10 }}>✓</span>}
                       </div>
                       {p.label}
-                    </div>
+                    </div >
                   )
                 })}
               </div>
@@ -832,41 +835,37 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
                   ))}
                 </tr>
                 <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '6px 12px', fontSize: 10, color: 'var(--muted)' }}></td>
+                  <th style={{ padding: '8px 12px', textAlign: 'left' }}></th>
                   {planos.map(p => (
                     <>
-                      <td key={p.id + '_ad'} style={{ padding: '6px 8px', textAlign: 'center', fontSize: 10, color: 'var(--muted)', borderLeft: '1px solid var(--border)', letterSpacing: 1, textTransform: 'uppercase' }}>Adesão</td>
-                      <td key={p.id + '_men'} style={{ padding: '6px 8px', textAlign: 'center', fontSize: 10, color: 'var(--muted)', letterSpacing: 1, textTransform: 'uppercase' }}>Mensal</td>
+                      <th key={`${p.id}-adesao`} style={{ padding: '8px 6px', textAlign: 'center', fontSize: 10, color: 'var(--muted)', borderLeft: '1px solid var(--border)' }}>Adesão</th>
+                      <th key={`${p.id}-mensalidade`} style={{ padding: '8px 6px', textAlign: 'center', fontSize: 10, color: 'var(--muted)' }}>Mensal.</th>
                     </>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {modulos.map((mod, mi) => (
-                  <tr key={mod} style={{ borderBottom: '1px solid var(--border)', background: mi % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.01)' }}>
-                    <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text)', fontSize: 13 }}>{mod}</td>
-                    {planos.map(p => {
-                      const vals = (precos[mod] || {})[p.id] || [0, 0]
-                      return (
-                        <>
-                          <td key={p.id + '_ad'} style={{ padding: '6px 8px', borderLeft: '1px solid var(--border)' }}>
-                            <input type="number" style={{ ...s.input, width: 90, textAlign: 'right', padding: '6px 8px' }}
-                              value={vals[0]} onChange={e => updatePreco(mod, p.id, 0, e.target.value)} />
-                          </td>
-                          <td key={p.id + '_men'} style={{ padding: '6px 8px' }}>
-                            <input type="number" style={{ ...s.input, width: 90, textAlign: 'right', padding: '6px 8px' }}
-                              value={vals[1]} onChange={e => updatePreco(mod, p.id, 1, e.target.value)} />
-                          </td>
-                        </>
-                      )
-                    })}
+                {modulos.map(mod => (
+                  <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text)' }}>{mod}</td>
+                    {planos.map(p => (
+                      <>
+                        <td key={`${mod}-${p.id}-adesao`} style={{ padding: '4px 6px', borderLeft: '1px solid var(--border)' }}>
+                          <input type="number" style={{ ...s.input, width: '100%', padding: '6px 8px', textAlign: 'center' }}
+                            value={precos[mod]?.[p.id]?.[0] || 0}
+                            onChange={e => updatePreco(mod, p.id, 0, e.target.value)} />
+                        </td>
+                        <td key={`${mod}-${p.id}-mensalidade`} style={{ padding: '4px 6px' }}>
+                          <input type="number" style={{ ...s.input, width: '100%', padding: '6px 8px', textAlign: 'center' }}
+                            value={precos[mod]?.[p.id]?.[1] || 0}
+                            onChange={e => updatePreco(mod, p.id, 1, e.target.value)} />
+                        </td>
+                      </>
+                    ))}
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
-            💡 Os valores são em R$. Adesão 0 significa sem cobrança de adesão.
           </div>
         </div>
       )}
@@ -874,28 +873,32 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
       {/* ── MÓDULOS ── */}
       {abaP === 'modulos' && (
         <div style={s.sec}>
-          <div style={s.secTitle}>Módulos do Sistema</div>
+          <div style={s.secTitle}>Módulos de Software</div>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-            Gerencie quais módulos aparecem no chat e nas propostas.
+            Gerencie os módulos que compõem sua oferta de produtos.
           </p>
-          {modulos.map(m => (
-            <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
-              <div style={{ flex: 1, fontWeight: 600, fontSize: 14 }}>📦 {m}</div>
-              <button onClick={() => removeModulo(m)}
-                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-                🗑
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={s.label}>Adicionar novo módulo</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input style={{ ...s.input, flex: 1 }} value={novoMod} onChange={e => setNovoMod(e.target.value)} placeholder="Nome do módulo (ex: CRM)" />
+              <button onClick={addModulo}
+                style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+                Adicionar
               </button>
             </div>
-          ))}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <input style={{ ...s.input, flex: 1 }} value={novoMod}
-              onChange={e => setNovoMod(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addModulo()}
-              placeholder="Nome do novo módulo..." />
-            <button onClick={addModulo}
-              style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              + Adicionar
-            </button>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {modulos.map(m => (
+              <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{m}</span>
+                <button onClick={() => removeModulo(m)}
+                  style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14 }}>
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -911,15 +914,20 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
 // ABA DESCONTOS
 // ══════════════════════════════════════════════
 function TabDescontos({ cfg, setCfg, empresaId }) {
-  const [discMode, setDiscMode] = useState(cfg.discMode    || 'screen')
-  const [da,       setDa]       = useState(cfg.discAdPct    || 0)
-  const [dm,       setDm]       = useState(cfg.discMenPct   || 0)
-  const [dc,       setDc]       = useState(cfg.discClosePct || 0)
-  const [saving,   setSaving]   = useState(false)
+  const [discAdPct,  setDiscAdPct]  = useState(cfg.discAdPct  || 50)
+  const [discMenPct, setDiscMenPct] = useState(cfg.discMenPct || 0)
+  const [discClosePct, setDiscClosePct] = useState(cfg.discClosePct || 40)
+  const [saving,     setSaving]     = useState(false)
+
+  useEffect(() => {
+    setDiscAdPct(cfg.discAdPct || 50)
+    setDiscMenPct(cfg.discMenPct || 0)
+    setDiscClosePct(cfg.discClosePct || 40)
+  }, [cfg])
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, discMode, discAdPct: da, discMenPct: dm, discClosePct: dc }
+    const novoCfg = { ...cfg, discAdPct, discMenPct, discClosePct }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -927,467 +935,518 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
     toast('✅ Descontos salvos!')
   }
 
-  const radioStyle = (val) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '12px 16px',
-    background: discMode === val ? 'rgba(0,212,255,.06)' : 'var(--surface2)',
-    border: `1px solid ${discMode === val ? 'rgba(0,212,255,.3)' : 'var(--border)'}`,
-    borderRadius: 10, marginBottom: 8, cursor: 'pointer'
-  })
-
   return (
     <div style={s.body}>
       <div style={s.sec}>
-        <div style={s.secTitle}>Modo de Desconto</div>
-        {[
-          ['screen',  '🖥 Desconto em Tela',       'Mostra desconto após o preço cheio automaticamente'],
-          ['voucher', '🎫 Somente via Voucher',     'Desconto só é aplicado com código de voucher válido'],
-        ].map(([val, title, sub]) => (
-          <div key={val} style={radioStyle(val)} onClick={() => setDiscMode(val)}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>
-            </div>
-            <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${discMode === val ? 'var(--accent)' : 'var(--border)'}`, background: discMode === val ? 'var(--accent)' : 'transparent' }} />
-          </div>
-        ))}
-      </div>
-      <div style={s.sec}>
-        <div style={s.secTitle}>Percentuais de Desconto</div>
-        <div style={s.row3}>
-          <div style={s.field}><label style={s.label}>% Adesão (tela)</label>
-            <input type="number" style={s.input} min={0} max={100} value={da} onChange={e => setDa(e.target.value)} />
-          </div>
-          <div style={s.field}><label style={s.label}>% Mensalidade (tela)</label>
-            <input type="number" style={s.input} min={0} max={100} value={dm} onChange={e => setDm(e.target.value)} />
-          </div>
-          <div style={s.field}><label style={s.label}>% Adesão (fechamento)</label>
-            <input type="number" style={s.input} min={0} max={100} value={dc} onChange={e => setDc(e.target.value)} />
-          </div>
+        <div style={s.secTitle}>Configurações de Desconto Padrão</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+          Defina os percentuais de desconto padrão aplicados nas propostas e contratos.
+        </p>
+
+        <div style={s.field}>
+          <label style={s.label}>Desconto Padrão na Adesão (%)</label>
+          <input type="number" style={s.input} value={discAdPct} onChange={e => setDiscAdPct(Number(e.target.value))} placeholder="50" min="0" max="100" />
+        </div>
+        <div style={s.field}>
+          <label style={s.label}>Desconto Padrão na Mensalidade (%)</label>
+          <input type="number" style={s.input} value={discMenPct} onChange={e => setDiscMenPct(Number(e.target.value))} placeholder="0" min="0" max="100" />
+        </div>
+        <div style={s.field}>
+          <label style={s.label}>Desconto de Fechamento na Adesão (%)</label>
+          <input type="number" style={s.input} value={discClosePct} onChange={e => setDiscClosePct(Number(e.target.value))} placeholder="40" min="0" max="100" />
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+            Este desconto é aplicado na adesão para a "Oferta de Fechamento".
+          </p>
         </div>
       </div>
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>
-        {saving ? '⏳ Salvando...' : '✅ Salvar'}
+        {saving ? '⏳ Salvando...' : '✅ Salvar Descontos'}
       </button>
     </div>
   )
 }
 
 // ══════════════════════════════════════════════
-// ABA VOUCHERS — COM IMPRESSÃO PDF
+// ABA VOUCHERS — COM BOTÃO IMPRIMIR PDF
 // ══════════════════════════════════════════════
 function TabVouchers({ cfg, setCfg, empresaId }) {
-  const [prefixo,  setPrefixo]  = useState('PROMO')
-  const [vda,      setVda]      = useState(40)
-  const [vdm,      setVdm]      = useState(0)
-  const [vdate,    setVdate]    = useState('')
   const [vouchers, setVouchers] = useState(cfg.vouchers || [])
-  const [ultimo,   setUltimo]   = useState(null)
-
-  function gerarCodigo() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    let code = (prefixo || 'VX').toUpperCase().slice(0, 6) + '-'
-    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)]
-    return code
-  }
-
-  async function gerarVoucher() {
-    const novo = {
-      id: Date.now(), codigo: gerarCodigo(), prefixo, pctAdesao: Number(vda),
-      pctMensalidade: Number(vdm), comemoracao: vdate, criado: new Date().toISOString(), ativo: true
-    }
-    const novos    = [...vouchers, novo]
-    const novoCfg  = { ...cfg, vouchers: novos }
-    const { error} = await salvarStorage(empresaId, novoCfg)
-    if (error) { toast('Erro ao salvar voucher', 'err'); return }
-    setVouchers(novos)
-    setCfg(novoCfg)
-    setUltimo(novo)
-    toast('🎫 Voucher gerado!')
-  }
-
-  async function removerVoucher(id) {
-    const novos   = vouchers.filter(v => v.id !== id)
-    const novoCfg = { ...cfg, vouchers: novos }
-    await salvarStorage(empresaId, novoCfg)
-    setVouchers(novos)
-    setCfg(novoCfg)
-    toast('🗑 Voucher removido!')
-  }
-
-  // IMPRESSÃO PDF DO VOUCHER
-  function imprimirVoucher(v) {
-    const win = window.open('', '_blank', 'width=700,height=520')
-    if (!win) { alert('Permita popups para imprimir.'); return }
-    const criado = v.criado ? new Date(v.criado).toLocaleDateString('pt-BR') : ''
-    const empresa = cfg.company || 'Vivanexa'
-    const logoTag = cfg.logob64
-      ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:8px;display:block">`
-      : `<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:8px">${empresa}</div>`
-
-    win.document.write(`<!DOCTYPE html><html lang="pt-BR">
-<head><meta charset="UTF-8"><title>Voucher ${v.codigo}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=DM+Mono:wght@500;700&display=swap" rel="stylesheet">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-  body{font-family:Inter,sans-serif;background:#f0f4f8;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px}
-  .toolbar{display:flex;gap:10px;margin-bottom:20px}
-  .toolbar button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none;font-family:DM Mono,monospace}
-  .btn-print{background:#0f172a;color:#fff}.btn-close{background:#e2e8f0;color:#475569}
-  .card{background:#0f172a;border-radius:20px;width:560px;padding:36px 40px;position:relative;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)}
-  .card::before{content:'';position:absolute;top:-80px;right:-80px;width:260px;height:260px;background:#00d4ff;border-radius:50%;opacity:.06}
-  .card::after{content:'';position:absolute;bottom:-60px;left:-60px;width:200px;height:200px;background:#7c3aed;border-radius:50%;opacity:.08}
-  .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;position:relative;z-index:1}
-  .badge{background:rgba(0,212,255,.15);border:1px solid rgba(0,212,255,.3);color:#00d4ff;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase}
-  .title{font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;position:relative;z-index:1}
-  .code{font-family:DM Mono,monospace;font-size:34px;font-weight:700;color:#fff;letter-spacing:6px;margin-bottom:24px;position:relative;z-index:1;text-shadow:0 0 30px rgba(0,212,255,.4)}
-  .divider{border:none;border-top:1px dashed rgba(255,255,255,.12);margin:0 0 22px;position:relative;z-index:1}
-  .benefits{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;position:relative;z-index:1}
-  .benefit{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 16px;text-align:center}
-  .benefit-val{font-size:28px;font-weight:900;color:#00d4ff;line-height:1}
-  .benefit-label{font-size:11px;color:#64748b;margin-top:5px;text-transform:uppercase;letter-spacing:1px}
-  .footer{display:flex;justify-content:space-between;align-items:center;position:relative;z-index:1}
-  .footer-info{font-size:11px;color:#475569;line-height:1.6}
-  .event{display:inline-block;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);color:#fbbf24;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;margin-bottom:16px;position:relative;z-index:1}
-  @media print{.toolbar{display:none!important}}
-</style></head>
-<body>
-  <div class="toolbar">
-    <button class="btn-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
-    <button class="btn-close" onclick="window.close()">✕ Fechar</button>
-  </div>
-  <div class="card">
-    <div class="top">
-      ${logoTag}
-      <div class="badge">🎫 Voucher</div>
-    </div>
-    ${v.comemoracao ? `<div class="event">🎉 ${v.comemoracao}</div>` : ''}
-    <div class="title">Código de Desconto Exclusivo</div>
-    <div class="code">${v.codigo}</div>
-    <hr class="divider">
-    <div class="benefits">
-      ${v.pctAdesao > 0 ? `<div class="benefit"><div class="benefit-val">${v.pctAdesao}%</div><div class="benefit-label">Desconto na<br>Adesão</div></div>` : ''}
-      ${v.pctMensalidade > 0 ? `<div class="benefit"><div class="benefit-val">${v.pctMensalidade}%</div><div class="benefit-label">Desconto na<br>Mensalidade</div></div>` : ''}
-      ${v.pctAdesao === 0 && v.pctMensalidade === 0 ? `<div class="benefit" style="grid-column:span 2"><div class="benefit-val">🎁</div><div class="benefit-label">Voucher especial</div></div>` : ''}
-    </div>
-    <div class="footer">
-      <div class="footer-info">Emitido em: ${criado}<br>${empresa}</div>
-      <div style="font-size:11px;color:#334155;font-family:DM Mono,monospace">Código único · Uso exclusivo</div>
-    </div>
-  </div>
-</body></html>`)
-    win.document.close()
-    win.focus()
-  }
-
-  return (
-    <div style={s.body}>
-      <div style={s.sec}>
-        <div style={s.secTitle}>Gerar Novo Voucher</div>
-        <div style={s.row4}>
-          <div style={s.field}><label style={s.label}>Prefixo</label>
-            <input style={{ ...s.input, textTransform: 'uppercase' }} maxLength={8} value={prefixo} onChange={e => setPrefixo(e.target.value.toUpperCase())} placeholder="PROMO" />
-          </div>
-          <div style={s.field}><label style={s.label}>% Adesão</label>
-            <input type="number" style={s.input} min={0} max={100} value={vda} onChange={e => setVda(e.target.value)} />
-          </div>
-          <div style={s.field}><label style={s.label}>% Mensalidade</label>
-            <input type="number" style={s.input} min={0} max={100} value={vdm} onChange={e => setVdm(e.target.value)} />
-          </div>
-          <div style={s.field}><label style={s.label}>Data comemorativa</label>
-            <input style={s.input} value={vdate} onChange={e => setVdate(e.target.value)} placeholder="Ex: Natal 2025" />
-          </div>
-        </div>
-        <button onClick={gerarVoucher}
-          style={{ padding: '10px 18px', borderRadius: 9, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 8 }}>
-          🎫 Gerar Voucher
-        </button>
-
-        {/* Preview do último voucher gerado */}
-        {ultimo && (
-          <div style={{ marginTop: 14, padding: 16, background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.25)', borderRadius: 12 }}>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, letterSpacing: 1, textTransform: 'uppercase' }}>Voucher gerado com sucesso!</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent3)', letterSpacing: 4, fontFamily: 'DM Mono, monospace', marginBottom: 8 }}>{ultimo.codigo}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-              Adesão: {ultimo.pctAdesao}% · Mensalidade: {ultimo.pctMensalidade}%
-              {ultimo.comemoracao && ` · ${ultimo.comemoracao}`}
-            </div>
-            {/* BOTÃO IMPRIMIR PDF */}
-            <button onClick={() => imprimirVoucher(ultimo)}
-              style={{ padding: '9px 18px', borderRadius: 9, background: 'linear-gradient(135deg,#0f172a,#1e3a5f)', border: '1px solid rgba(0,212,255,.3)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer', letterSpacing: .5 }}>
-              🖨 Imprimir Voucher em PDF
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div style={s.sec}>
-        <div style={s.secTitle}>Vouchers Ativos</div>
-        {vouchers.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum voucher cadastrado.</p>}
-        {vouchers.map(v => (
-          <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, color: 'var(--accent)', fontFamily: 'DM Mono, monospace', letterSpacing: 2, fontSize: 15 }}>{v.codigo}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                Adesão {v.pctAdesao}% · Mensal {v.pctMensalidade}%{v.comemoracao && ` · ${v.comemoracao}`}
-                {v.criado && <span style={{ marginLeft: 8, opacity: .6 }}>· {new Date(v.criado).toLocaleDateString('pt-BR')}</span>}
-              </div>
-            </div>
-            {/* BOTÃO IMPRIMIR NA LISTA */}
-            <button onClick={() => imprimirVoucher(v)}
-              style={{ padding: '6px 12px', borderRadius: 7, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, whiteSpace: 'nowrap' }}>
-              🖨 PDF
-            </button>
-            <button onClick={() => removerVoucher(v.id)}
-              style={{ padding: '6px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-              🗑
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════
-// ABA DOCUMENTOS
-// ══════════════════════════════════════════════
-function TabDocumentos({ cfg, setCfg, empresaId }) {
-  const [emailRem, setEmailRem] = useState(cfg.signConfig?.email || '')
-  const [wpp,      setWpp]      = useState(cfg.signConfig?.wpp   || '')
-  const [urlBase,  setUrlBase]  = useState(cfg.signConfig?.url   || '')
-  const [saving,   setSaving]   = useState(false)
-  const [testando, setTestando] = useState(false)
-
-  async function salvar() {
-    setSaving(true)
-    const novoCfg = { ...cfg, signConfig: { email: emailRem, wpp, url: urlBase } }
-    const { error } = await salvarStorage(empresaId, novoCfg)
-    setSaving(false)
-    if (error) { toast('Erro ao salvar', 'err'); return }
-    setCfg(novoCfg)
-    toast('✅ Configurações salvas!')
-  }
-
-  async function testarConexao() {
-    setTestando(true)
-    const { error } = await supabase.from('vx_storage').select('key').limit(1)
-    setTestando(false)
-    if (error) { toast('❌ Falha: ' + error.message, 'err') }
-    else { toast('✅ Conexão com Supabase OK!') }
-  }
-
-  return (
-    <div style={s.body}>
-      <div style={s.sec}>
-        <div style={s.secTitle}>Modelos de Documentos</div>
-        {[
-          ['proposta', '📄 Modelo de Proposta Comercial', 'Texto de abertura personalizado para propostas'],
-          ['contrato', '📝 Modelo de Contrato',           'Texto de abertura personalizado para contratos'],
-        ].map(([tipo, titulo, sub]) => (
-          <div key={tipo} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{titulo}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>
-            </div>
-            <button style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-              ✏️ Editar
-            </button>
-          </div>
-        ))}
-      </div>
-      <div style={s.sec}>
-        <div style={s.secTitle}>Configurações de Assinatura Eletrônica</div>
-        <div style={s.row2}>
-          <div style={s.field}><label style={s.label}>E-mail remetente</label>
-            <input type="email" style={s.input} value={emailRem} onChange={e => setEmailRem(e.target.value)} placeholder="noreply@vivanexa.com.br" />
-          </div>
-          <div style={s.field}><label style={s.label}>WhatsApp da empresa</label>
-            <input style={s.input} value={wpp} onChange={e => setWpp(e.target.value)} placeholder="5569984059125" />
-          </div>
-        </div>
-        <div style={s.field}>
-          <label style={s.label}>URL base do sistema (para links de assinatura)</label>
-          <input style={s.input} value={urlBase} onChange={e => setUrlBase(e.target.value)} placeholder="https://seusite.com/sign" />
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-          <button style={s.saveBtn} onClick={salvar} disabled={saving}>
-            {saving ? '⏳...' : '✅ Salvar'}
-          </button>
-          <button onClick={testarConexao} disabled={testando}
-            style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
-            {testando ? '⏳...' : '🔌 Testar Conexão'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════
-// ABA HISTÓRICO
-// ══════════════════════════════════════════════
-function TabHistorico({ cfg }) {
-  const [filtroTipo,   setFiltroTipo]   = useState('')
-  const [filtroStatus, setFiltroStatus] = useState('')
-  const [busca,        setBusca]        = useState('')
-
-  const docs = (cfg.docHistory || []).filter(d => {
-    if (filtroTipo   && d.tipo   !== filtroTipo)   return false
-    if (filtroStatus && d.status !== filtroStatus) return false
-    if (busca && !d.cliente?.toLowerCase().includes(busca.toLowerCase())) return false
-    return true
-  })
-
-  function statusLabel(st) {
-    if (st === 'signed')  return { txt: '✅ Assinado',              cor: 'var(--accent3)' }
-    if (st === 'pending') return { txt: '⏳ Aguardando assinatura',  cor: 'var(--warning)' }
-    return                       { txt: '📝 Rascunho',              cor: 'var(--muted)'   }
-  }
-
-  return (
-    <div style={s.body}>
-      <div style={s.sec}>
-        <div style={s.secTitle}>Propostas e Contratos Gerados</div>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-          <select style={s.input} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
-            <option value="">Todos</option>
-            <option value="proposta">Propostas</option>
-            <option value="contrato">Contratos</option>
-          </select>
-          <select style={s.input} value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
-            <option value="">Todos os status</option>
-            <option value="pending">Aguardando assinatura</option>
-            <option value="signed">Assinado</option>
-            <option value="draft">Rascunho</option>
-          </select>
-          <input style={{ ...s.input, flex: 1, minWidth: 160 }}
-            placeholder="Buscar por cliente..." value={busca} onChange={e => setBusca(e.target.value)} />
-        </div>
-        {docs.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum documento encontrado.</p>}
-        {docs.map((d, i) => {
-          const sl = statusLabel(d.status)
-          return (
-            <div key={i} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{d.cliente || 'Cliente não identificado'}</div>
-                <div style={{ fontSize: 12, color: sl.cor, fontWeight: 600 }}>{sl.txt}</div>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                {d.tipo === 'contrato' ? '📝 Contrato' : '📄 Proposta'} ·{' '}
-                {d.criado ? new Date(d.criado).toLocaleDateString('pt-BR') : 'Data desconhecida'}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════
-// ABA CLIENTES
-// ══════════════════════════════════════════════
-function TabClientes({ cfg, setCfg, empresaId }) {
-  const [busca,  setBusca]  = useState('')
-  const [form,   setForm]   = useState(null)
+  const [form, setForm] = useState(null)
   const [saving, setSaving] = useState(false)
-  const clientes = cfg.clients || []
 
-  const filtrados = busca.trim()
-    ? clientes.filter(c => c.nome?.toLowerCase().includes(busca.toLowerCase()) || c.cnpj?.includes(busca) || c.cpf?.includes(busca))
-    : clientes
+  const emptyForm = { id: '', codigo: '', tipo: 'percent', valor: 0, validade: '', usado: false, cliente: '', dataUso: '' }
 
-  const emptyClient = { id: '', nome: '', cnpj: '', cpf: '', email: '', telefone: '', cidade: '' }
+  function addVoucher() {
+    setForm({ ...emptyForm, id: Date.now().toString(), codigo: 'VIVANEXA' + Math.random().toString(36).substring(2, 8).toUpperCase() })
+  }
 
-  async function salvarCliente() {
-    if (!form.nome) { toast('Nome obrigatório', 'err'); return }
+  function editVoucher(v) { setForm({ ...v }) }
+
+  function removeVoucher(id) {
+    if (!confirm('Remover voucher?')) return
+    setVouchers(prev => prev.filter(v => v.id !== id))
+  }
+
+  async function salvarVoucher() {
+    if (!form.codigo || !form.valor || !form.validade) { toast('Preencha todos os campos obrigatórios', 'err'); return }
     setSaving(true)
     let novos
-    if (form.id) {
-      novos = clientes.map(c => c.id === form.id ? form : c)
+    if (vouchers.find(v => v.id === form.id)) {
+      novos = vouchers.map(v => v.id === form.id ? form : v)
     } else {
-      novos = [...clientes, { ...form, id: Date.now().toString() }]
+      novos = [...vouchers, form]
     }
-    const novoCfg = { ...cfg, clients: novos }
+    const novoCfg = { ...cfg, vouchers: novos }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
+    setVouchers(novos)
     setCfg(novoCfg)
     setForm(null)
-    toast('✅ Cliente salvo!')
+    toast('✅ Voucher salvo!')
   }
 
-  async function removerCliente(id) {
-    if (!confirm('Remover cliente?')) return
-    const novos   = clientes.filter(c => c.id !== id)
-    const novoCfg = { ...cfg, clients: novos }
-    await salvarStorage(empresaId, novoCfg)
-    setCfg(novoCfg)
-    toast('🗑 Cliente removido!')
+  function imprimirVoucher(voucher) {
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+      <html>
+      <head>
+        <title>Voucher ${voucher.codigo}</title>
+        <style>
+          body { font-family: 'Inter', sans-serif; margin: 0; padding: 40px; background: #f0f2f5; color: #333; }
+          .voucher-card {
+            width: 100%; max-width: 500px; margin: 0 auto; padding: 30px;
+            background: linear-gradient(135deg, #00d4ff, #0099bb);
+            border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            color: #fff; text-align: center; position: relative; overflow: hidden;
+          }
+          .voucher-card::before {
+            content: ''; position: absolute; top: -50px; left: -50px;
+            width: 150px; height: 150px; background: rgba(255,255,255,0.1);
+            border-radius: 50%; transform: rotate(45deg);
+          }
+          .voucher-card::after {
+            content: ''; position: absolute; bottom: -50px; right: -50px;
+            width: 150px; height: 150px; background: rgba(255,255,255,0.1);
+            border-radius: 50%; transform: rotate(45deg);
+          }
+          h1 { font-size: 36px; margin-bottom: 10px; font-weight: 800; }
+          h2 { font-size: 24px; margin-bottom: 20px; font-weight: 600; }
+          .code {
+            font-family: 'DM Mono', monospace; font-size: 48px; font-weight: 700;
+            background: rgba(255,255,255,0.2); padding: 15px 25px; border-radius: 10px;
+            margin-bottom: 25px; display: inline-block; letter-spacing: 2px;
+          }
+          .details p { font-size: 16px; margin-bottom: 8px; }
+          .validity { font-size: 14px; opacity: 0.8; margin-top: 20px; }
+          @media print {
+            body { background: #fff; padding: 0; }
+            .voucher-card { box-shadow: none; border: 1px solid #eee; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="voucher-card">
+          <h1>VOUCHER DE DESCONTO</h1>
+          <h2>${voucher.tipo === 'percent' ? `${voucher.valor}% de Desconto` : `R$ ${voucher.valor.toLocaleString('pt-BR')} de Desconto`}</h2>
+          <div class="code">${voucher.codigo}</div>
+          <div class="details">
+            <p>Válido para: ${voucher.cliente || 'Qualquer cliente'}</p>
+            <p>Status: ${voucher.usado ? `Usado em ${voucher.dataUso}` : 'Disponível'}</p>
+          </div>
+          <p class="validity">Válido até: ${voucher.validade}</p>
+        </div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
   }
 
   return (
     <div style={s.body}>
       <div style={s.sec}>
-        <div style={s.secTitle}>Buscar / Cadastrar Cliente</div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <input style={{ ...s.input, flex: 1 }} placeholder="CNPJ, CPF ou nome..." value={busca} onChange={e => setBusca(e.target.value)} />
-          <button onClick={() => setForm(emptyClient)}
-            style={{ padding: '10px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            + Novo Cliente
-          </button>
-        </div>
-        {filtrados.length === 0 && !form && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum cliente encontrado.</p>}
-        {filtrados.map(c => (
-          <div key={c.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={s.secTitle}>Vouchers de Desconto</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+          Crie e gerencie vouchers de desconto para seus clientes.
+        </p>
+
+        {vouchers.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum voucher cadastrado.</p>}
+        {vouchers.map(v => (
+          <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14 }}>{c.nome}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                {c.cnpj && `CNPJ: ${c.cnpj} · `}{c.cidade && c.cidade}
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{v.codigo}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {v.tipo === 'percent' ? `${v.valor}% de Desconto` : `R$ ${v.valor.toLocaleString('pt-BR')}`} · Válido até: {v.validade}
               </div>
+              {v.usado && (
+                <div style={{ fontSize: 11, color: 'var(--accent3)', marginTop: 3 }}>
+                  Usado por {v.cliente} em {v.dataUso}
+                </div>
+              )}
             </div>
-            <button onClick={() => setForm({ ...c })}
-              style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-              ✏️
+            <button onClick={() => imprimirVoucher(v)}
+              style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.2)', color: 'var(--accent3)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+              🖨 Imprimir
             </button>
-            <button onClick={() => removerCliente(c.id)}
+            <button onClick={() => editVoucher(v)}
+              style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+              ✏️ Editar
+            </button>
+            <button onClick={() => removeVoucher(v.id)}
               style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
               🗑
             </button>
           </div>
         ))}
+        <button onClick={addVoucher}
+          style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
+          + Novo Voucher
+        </button>
+
+        {form && (
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
+            <div style={{ ...s.secTitle, marginBottom: 14 }}>
+              {form.id ? '✏️ Editar Voucher' : '➕ Novo Voucher'}
+            </div>
+            <div style={s.field}>
+              <label style={s.label}>Código do Voucher</label>
+              <input style={s.input} value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} placeholder="VIVANEXA123" />
+            </div>
+            <div style={s.row2}>
+              <div style={s.field}>
+                <label style={s.label}>Tipo de Desconto</label>
+                <select style={s.input} value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
+                  <option value="percent">Percentual (%)</option>
+                  <option value="fixed">Valor Fixo (R$)</option>
+                </select>
+              </div>
+              <div style={s.field}>
+                <label style={s.label}>Valor</label>
+                <input type="number" style={s.input} value={form.valor} onChange={e => setForm(f => ({ ...f, valor: Number(e.target.value) }))} placeholder="50" />
+              </div>
+            </div>
+            <div style={s.field}>
+              <label style={s.label}>Validade (até)</label>
+              <input type="date" style={s.input} value={form.validade} onChange={e => setForm(f => ({ ...f, validade: e.target.value }))} />
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button style={s.saveBtn} onClick={salvarVoucher} disabled={saving}>
+                {saving ? '⏳...' : '✅ Salvar Voucher'}
+              </button>
+              <button onClick={() => setForm(null)}
+                style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-      {form && (
-        <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 8 }}>
-          <div style={{ ...s.secTitle, marginBottom: 14 }}>Dados do Cliente</div>
-          <div style={s.row2}>
-            <div style={s.field}><label style={s.label}>Nome / Razão Social</label>
-              <input style={s.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════
+// NOVA ABA: DOCUMENTOS (Importados)
+// ══════════════════════════════════════════════
+function TabDocumentos({ cfg, setCfg, empresaId }) {
+  const [docsImportados, setDocsImportados] = useState(cfg.importedDocs || [])
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    setDocsImportados(cfg.importedDocs || [])
+  }, [cfg.importedDocs])
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0]
+    if (!file) return
+
+    if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      toast('Arquivo muito grande (máx 5MB)', 'err');
+      return;
+    }
+
+    const fileType = file.type.startsWith('application/pdf') ? 'pdf' : (file.type.startsWith('text/html') ? 'html' : null);
+    if (!fileType) {
+      toast('Formato de arquivo não suportado. Use PDF ou HTML.', 'err');
+      return;
+    }
+
+    setUploading(true)
+    const fileName = `${Date.now()}-${file.name}`
+    const filePath = `${empresaId}/imported_docs/${fileName}`
+
+    try {
+      const { data, error } = await supabase.storage
+        .from('vx_storage') // Usar o mesmo bucket 'vx_storage'
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type,
+        })
+
+      if (error) throw error
+
+      const { data: publicUrlData } = supabase.storage
+        .from('vx_storage')
+        .getPublicUrl(filePath)
+
+      if (!publicUrlData.publicUrl) throw new Error('Não foi possível obter a URL pública.')
+
+      const newDoc = {
+        id: Date.now().toString(),
+        name: file.name,
+        type: fileType,
+        url: publicUrlData.publicUrl,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: 'admin', // Ou o ID do usuário logado
+      }
+
+      const updatedDocs = [...docsImportados, newDoc]
+      const novoCfg = { ...cfg, importedDocs: updatedDocs }
+      const { error: saveError } = await salvarStorage(empresaId, novoCfg)
+
+      if (saveError) throw saveError
+
+      setCfg(novoCfg)
+      setDocsImportados(updatedDocs)
+      toast('✅ Documento importado com sucesso!')
+    } catch (error) {
+      console.error('Erro ao fazer upload ou salvar documento:', error)
+      toast('Erro ao importar documento: ' + error.message, 'err')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '' // Limpa o input file
+      }
+    }
+  }
+
+  async function removeDocument(id) {
+    if (!confirm('Tem certeza que deseja remover este documento? Esta ação é irreversível.')) return
+
+    setSaving(true)
+    try {
+      const docToRemove = docsImportados.find(d => d.id === id)
+      if (!docToRemove) throw new Error('Documento não encontrado.')
+
+      // Remove do Supabase Storage
+      const pathSegments = docToRemove.url.split('/')
+      const fileNameInStorage = pathSegments[pathSegments.length - 1]
+      const folderPath = `${empresaId}/imported_docs/`
+      const { error: storageError } = await supabase.storage
+        .from('vx_storage')
+        .remove([folderPath + fileNameInStorage])
+
+      if (storageError && storageError.statusCode !== '404') { // Ignorar 404 se o arquivo já não existir
+        console.warn('Erro ao remover do storage (pode já ter sido removido):', storageError.message)
+      }
+
+      // Remove da configuração da empresa
+      const updatedDocs = docsImportados.filter(d => d.id !== id)
+      const novoCfg = { ...cfg, importedDocs: updatedDocs }
+      const { error: saveError } = await salvarStorage(empresaId, novoCfg)
+
+      if (saveError) throw saveError
+
+      setCfg(novoCfg)
+      setDocsImportados(updatedDocs)
+      toast('🗑 Documento removido com sucesso!')
+    } catch (error) {
+      console.error('Erro ao remover documento:', error)
+      toast('Erro ao remover documento: ' + error.message, 'err')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={s.body}>
+      <div style={s.sec}>
+        <div style={s.secTitle}>📄 Documentos Importados</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+          Faça upload de documentos (PDF ou HTML) para usar na plataforma.
+        </p>
+
+        <div style={s.field}>
+          <label style={s.label}>Upload de Documento (PDF ou HTML, máx 5MB)</label>
+          <input
+            type="file"
+            accept=".pdf,.html"
+            onChange={handleFileUpload}
+            ref={fileInputRef}
+            style={{ ...s.input, padding: '6px' }}
+            disabled={uploading}
+          />
+          {uploading && <p style={{ fontSize: 12, color: 'var(--accent)', marginTop: 8 }}>⏳ Enviando documento...</p>}
+        </div>
+
+        {docsImportados.length === 0 && !uploading && (
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 20 }}>Nenhum documento importado ainda.</p>
+        )}
+
+        <div style={{ marginTop: 20 }}>
+          {docsImportados.map(doc => (
+            <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{doc.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {doc.type.toUpperCase()} · Importado em {new Date(doc.uploadedAt).toLocaleDateString('pt-BR')}
+                </div>
+              </div>
+              <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'none' }}>
+                👁 Ver
+              </a>
+              <button onClick={() => removeDocument(doc.id)} disabled={saving}
+                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                🗑
+              </button>
             </div>
-            <div style={s.field}><label style={s.label}>CNPJ</label>
-              <input style={s.input} value={form.cnpj} onChange={e => setForm(f => ({ ...f, cnpj: e.target.value }))} placeholder="00.000.000/0000-00" />
-            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════
+// ABA HISTÓRICO (Documentos Gerados e Assinados)
+// ══════════════════════════════════════════════
+function TabHistorico({ cfg, setCfg, empresaId }) {
+  const [docHistory, setDocHistory] = useState(cfg.docHistory || [])
+  const [loading, setLoading] = useState(true)
+  const [selectedDoc, setSelectedDoc] = useState(null) // Para modal de visualização
+
+  useEffect(() => {
+    // Ordena os documentos do mais recente para o mais antigo
+    const sortedHistory = [...(cfg.docHistory || [])].sort((a, b) => new Date(b.generatedAt) - new Date(a.generatedAt))
+    setDocHistory(sortedHistory)
+    setLoading(false)
+  }, [cfg.docHistory])
+
+  // Função para buscar o HTML completo do documento (se não estiver no docHistory)
+  async function fetchFullDocument(token) {
+    setLoading(true)
+    try {
+      const { data: docRow, error } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `doc:${token}`)
+        .single()
+
+      if (error) throw error
+      if (!docRow?.value) throw new Error('Documento não encontrado no storage.')
+
+      const docData = JSON.parse(docRow.value)
+      setSelectedDoc(docData)
+    } catch (e) {
+      console.error('Erro ao carregar documento completo:', e)
+      toast('Erro ao carregar documento. Tente novamente.', 'err')
+      setSelectedDoc(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function getStatusLabel(doc) {
+    if (doc.status === 'signed') return '✅ Assinado'
+    if (doc.status === 'pending') return '✍️ Aguardando Assinatura'
+    return '⏳ Gerado'
+  }
+
+  function getStatusColor(doc) {
+    if (doc.status === 'signed') return 'var(--accent3)'
+    if (doc.status === 'pending') return 'var(--warning)'
+    return 'var(--muted)'
+  }
+
+  return (
+    <div style={s.body}>
+      <div style={s.sec}>
+        <div style={s.secTitle}>🗂️ Histórico de Documentos</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+          Visualize todas as propostas e contratos gerados e seus status de assinatura.
+        </p>
+
+        {loading && (
+          <div style={s.centro}>
+            <div style={s.spinner} />
+            <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 20 }}>Carregando histórico...</p>
           </div>
-          <div style={s.row2}>
-            <div style={s.field}><label style={s.label}>E-mail</label>
-              <input type="email" style={s.input} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-            </div>
-            <div style={s.field}><label style={s.label}>Telefone</label>
-              <input style={s.input} value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} />
-            </div>
+        )}
+
+        {!loading && docHistory.length === 0 && (
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 20 }}>Nenhum documento gerado ainda.</p>
+        )}
+
+        {!loading && docHistory.length > 0 && (
+          <div style={{ marginTop: 20 }}>
+            {docHistory.map(doc => (
+              <div key={doc.signToken} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>
+                      {doc.type === 'proposta' ? 'Proposta Comercial' : 'Contrato'} para {doc.clientName}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                      Gerado em {new Date(doc.generatedAt).toLocaleDateString('pt-BR')}
+                      {doc.signedBy && ` por ${doc.signedBy}`}
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: getStatusColor(doc), marginTop: 4 }}>
+                      {getStatusLabel(doc)}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    <button onClick={() => fetchFullDocument(doc.signToken)}
+                      style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                      👁 Ver Documento
+                    </button>
+                    {doc.signToken && (
+                      <a href={`/sign/${doc.signToken}`} target="_blank" rel="noopener noreferrer"
+                        style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(124,58,237,.1)', border: '1px solid rgba(124,58,237,.2)', color: 'var(--accent2)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'none' }}>
+                        🔗 Link Assinatura
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-          <div style={s.field}><label style={s.label}>Cidade / Estado</label>
-            <input style={s.input} value={form.cidade} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} placeholder="Ex: São Paulo / SP" />
-          </div>
-          <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-            <button style={s.saveBtn} onClick={salvarCliente} disabled={saving}>
-              {saving ? '⏳...' : '✅ Salvar Cliente'}
-            </button>
-            <button onClick={() => setForm(null)}
-              style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
-              Cancelar
-            </button>
+        )}
+      </div>
+
+      {/* Modal de Visualização de Documento */}
+      {selectedDoc && (
+        <div className="modal-overlay">
+          <div className="modal-box" style={{ maxWidth: 800 }}>
+            <div className="modal-header">
+              <h3>{selectedDoc.type === 'proposta' ? 'Proposta Comercial' : 'Contrato'} para {selectedDoc.clientName}</h3>
+              <button className="modal-close" onClick={() => setSelectedDoc(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ padding: 0 }}>
+              {selectedDoc.html ? (
+                <div
+                  style={{ padding: '20px 24px', maxHeight: 'calc(90vh - 180px)', overflowY: 'auto', background: '#fff', color: '#333' }}
+                  dangerouslySetInnerHTML={{ __html: selectedDoc.html }}
+                />
+              ) : (
+                <div style={{ padding: '20px 24px', textAlign: 'center', color: 'var(--muted)' }}>
+                  Conteúdo do documento não disponível.
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn-cancel" onClick={() => setSelectedDoc(null)}>Fechar</button>
+              {selectedDoc.signToken && (
+                <a href={`/sign/${selectedDoc.signToken}`} target="_blank" rel="noopener noreferrer"
+                  className="btn-primary" style={{ textDecoration: 'none' }}>
+                  Ir para Assinatura
+                </a>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1396,219 +1455,513 @@ function TabClientes({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA TEMA
+// ABA CLIENTES
 // ══════════════════════════════════════════════
-function TabTema({ cfg, setCfg, empresaId }) {
-  const [tema, setTema] = useState(cfg.theme || 'dark')
+function TabClientes({ cfg, setCfg, empresaId }) {
+  const [clients, setClients] = useState(cfg.clients || [])
+  const [form, setForm] = useState(null)
+  const [saving, setSaving] = useState(false)
 
-  async function aplicarTema(t) {
-    setTema(t)
-    document.documentElement.setAttribute('data-theme', t)
-    const novoCfg = { ...cfg, theme: t }
-    await salvarStorage(empresaId, novoCfg)
-    setCfg(novoCfg)
-    toast('🎨 Tema aplicado!')
+  const emptyForm = { id: '', name: '', cnpj: '', email: '', phone: '', address: '', city: '', state: '', zip: '' }
+
+  function addClient() { setForm({ ...emptyForm, id: Date.now().toString() }) }
+  function editClient(c) { setForm({ ...c }) }
+  function removeClient(id) {
+    if (!confirm('Remover cliente?')) return
+    setClients(prev => prev.filter(c => c.id !== id))
   }
 
-  const temaStyle = (t) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '12px 16px',
-    background: tema === t ? 'rgba(0,212,255,.06)' : 'var(--surface2)',
-    border: `1px solid ${tema === t ? 'rgba(0,212,255,.3)' : 'var(--border)'}`,
-    borderRadius: 10, marginBottom: 8, cursor: 'pointer'
-  })
+  async function salvarClient() {
+    if (!form.name || !form.cnpj) { toast('Nome e CNPJ obrigatórios', 'err'); return }
+    setSaving(true)
+    let novos
+    if (clients.find(c => c.id === form.id)) {
+      novos = clients.map(c => c.id === form.id ? form : c)
+    } else {
+      novos = [...clients, form]
+    }
+    const novoCfg = { ...cfg, clients: novos }
+    const { error } = await salvarStorage(empresaId, novoCfg)
+    setSaving(false)
+    if (error) { toast('Erro ao salvar', 'err'); return }
+    setClients(novos)
+    setCfg(novoCfg)
+    setForm(null)
+    toast('✅ Cliente salvo!')
+  }
 
   return (
     <div style={s.body}>
       <div style={s.sec}>
-        <div style={s.secTitle}>Aparência</div>
-        {[
-          ['dark',  '🌙 Tema Escuro', 'Fundo escuro com cores vibrantes (padrão)'],
-          ['light', '☀️ Tema Claro',  'Fundo branco, ideal para ambientes iluminados'],
-        ].map(([t, title, sub]) => (
-          <div key={t} style={temaStyle(t)} onClick={() => aplicarTema(t)}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>
+        <div style={s.secTitle}>🗃️ Clientes Cadastrados</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+          Gerencie a base de clientes da sua empresa.
+        </p>
+
+        {clients.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum cliente cadastrado.</p>}
+        {clients.map(c => (
+          <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {c.cnpj} · {c.city}/{c.state}
+              </div>
             </div>
-            <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${tema === t ? 'var(--accent)' : 'var(--border)'}`, background: tema === t ? 'var(--accent)' : 'transparent' }} />
+            <button onClick={() => editClient(c)}
+              style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+              ✏️ Editar
+            </button>
+            <button onClick={() => removeClient(c.id)}
+              style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+              🗑
+            </button>
           </div>
         ))}
+        <button onClick={addClient}
+          style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
+          + Novo Cliente
+        </button>
+
+        {form && (
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
+            <div style={{ ...s.secTitle, marginBottom: 14 }}>
+              {form.id ? '✏️ Editar Cliente' : '➕ Novo Cliente'}
+            </div>
+            <div style={s.field}>
+              <label style={s.label}>Nome/Razão Social</label>
+              <input style={s.input} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do Cliente" />
+            </div>
+            <div style={s.row2}>
+              <div style={s.field}><label style={s.label}>CNPJ</label>
+                <input style={s.input} value={form.cnpj} onChange={e => setForm(f => ({ ...f, cnpj: e.target.value }))} placeholder="00.000.000/0000-00" />
+              </div>
+              <div style={s.field}><label style={s.label}>E-mail</label>
+                <input style={s.input} type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@cliente.com" />
+              </div>
+            </div>
+            <div style={s.row2}>
+              <div style={s.field}><label style={s.label}>Telefone</label>
+                <input style={s.input} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="(00) 00000-0000" />
+              </div>
+              <div style={s.field}><label style={s.label}>Endereço</label>
+                <input style={s.input} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Rua, Número, Bairro" />
+              </div>
+            </div>
+            <div style={s.modalGrid3}>
+              <div style={s.field}><label style={s.label}>Cidade</label>
+                <input style={s.input} value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="Cidade" />
+              </div>
+              <div style={s.field}><label style={s.label}>Estado</label>
+                <input style={s.input} value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))} placeholder="UF" />
+              </div>
+              <div style={s.field}><label style={s.label}>CEP</label>
+                <input style={s.input} value={form.zip} onChange={e => setForm(f => ({ ...f, zip: e.target.value }))} placeholder="00000-000" />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button style={s.saveBtn} onClick={salvarClient} disabled={saving}>
+                {saving ? '⏳...' : '✅ Salvar Cliente'}
+              </button>
+              <button onClick={() => setForm(null)}
+                style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 // ══════════════════════════════════════════════
-// ESTILOS COMPARTILHADOS
+// ABA TEMA
 // ══════════════════════════════════════════════
-const s = {
-  body:    { padding: '20px 24px' },
-  sec:     { marginBottom: 24 },
-  secTitle:{ fontSize: 11, letterSpacing: '1.5px', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' },
-  label:   { fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4, letterSpacing: '.5px' },
-  input:   { width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none' },
-  field:   { marginBottom: 12 },
-  row2:    { display: 'grid', gridTemplateColumns: '1fr 1fr',             gap: 12, marginBottom: 4  },
-  row3:    { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',         gap: 12, marginBottom: 12 },
-  row4:    { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr',     gap: 12, marginBottom: 12 },
-  saveBtn: { padding: '11px 22px', borderRadius: 10, background: 'linear-gradient(135deg,var(--accent),#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 600, cursor: 'pointer', letterSpacing: '.5px' },
+function TabTema({ cfg, setCfg, empresaId }) {
+  const [primaryColor, setPrimaryColor] = useState(cfg.theme?.primaryColor || '#00d4ff')
+  const [secondaryColor, setSecondaryColor] = useState(cfg.theme?.secondaryColor || '#7c3aed')
+  const [successColor, setSuccessColor] = useState(cfg.theme?.successColor || '#10b981')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setPrimaryColor(cfg.theme?.primaryColor || '#00d4ff')
+    setSecondaryColor(cfg.theme?.secondaryColor || '#7c3aed')
+    setSuccessColor(cfg.theme?.successColor || '#10b981')
+  }, [cfg])
+
+  async function salvar() {
+    setSaving(true)
+    const novoCfg = { ...cfg, theme: { primaryColor, secondaryColor, successColor } }
+    const { error } = await salvarStorage(empresaId, novoCfg)
+    setSaving(false)
+    if (error) { toast('Erro ao salvar', 'err'); return }
+    setCfg(novoCfg)
+    toast('✅ Tema salvo!')
+    // Aplica o tema imediatamente
+    document.documentElement.style.setProperty('--accent', primaryColor)
+    document.documentElement.style.setProperty('--accent2', secondaryColor)
+    document.documentElement.style.setProperty('--accent3', successColor)
+  }
+
+  return (
+    <div style={s.body}>
+      <div style={s.sec}>
+        <div style={s.secTitle}>🎨 Personalização do Tema</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+          Personalize as cores principais da sua plataforma.
+        </p>
+
+        <div style={s.field}>
+          <label style={s.label}>Cor Primária (Accent)</label>
+          <input type="color" style={{ ...s.input, height: 40, padding: 5 }} value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} />
+        </div>
+        <div style={s.field}>
+          <label style={s.label}>Cor Secundária (Accent 2)</label>
+          <input type="color" style={{ ...s.input, height: 40, padding: 5 }} value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} />
+        </div>
+        <div style={s.field}>
+          <label style={s.label}>Cor de Sucesso (Accent 3)</label>
+          <input type="color" style={{ ...s.input, height: 40, padding: 5 }} value={successColor} onChange={e => setSuccessColor(e.target.value)} />
+        </div>
+      </div>
+      <button style={s.saveBtn} onClick={salvar} disabled={saving}>
+        {saving ? '⏳ Salvando...' : '✅ Salvar Tema'}
+      </button>
+    </div>
+  )
+}
+
+
+// ══════════════════════════════════════════════
+// COMPONENTE PRINCIPAL DE CONFIGURAÇÕES
+// ══════════════════════════════════════════════
+export default function Configuracoes() {
+  const router = useRouter()
+  const [activeTab, setActiveTab] = useState('empresa')
+  const [cfg, setCfg] = useState(null)
+  const [empresaId, setEmpresaId] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState(null)
+
+  useEffect(() => {
+    async function getSession() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        router.push('/')
+        return
+      }
+      setUser(session.user)
+      // Assume que o empresaId está no metadata do usuário ou em uma tabela de perfis
+      const userEmpresaId = session.user.user_metadata?.empresa_id || 'default_empresa_id' // TODO: Ajustar conforme sua lógica
+      setEmpresaId(userEmpresaId)
+      carregarConfig(userEmpresaId)
+    }
+    getSession()
+  }, [router])
+
+  useEffect(() => {
+    if (cfg?.theme) {
+      document.documentElement.style.setProperty('--accent', cfg.theme.primaryColor)
+      document.documentElement.style.setProperty('--accent2', cfg.theme.secondaryColor)
+      document.documentElement.style.setProperty('--accent3', cfg.theme.successColor)
+    }
+  }, [cfg?.theme])
+
+  async function carregarConfig(id) {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('vx_storage')
+      .select('value')
+      .eq('key', `cfg:${id}`)
+      .single()
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found (primeiro acesso)
+      console.error('Erro ao carregar config:', error)
+      toast('Erro ao carregar configurações.', 'err')
+      setLoading(false)
+      return
+    }
+
+    const initialCfg = data?.value ? JSON.parse(data.value) : {
+      company: 'Minha Empresa',
+      slogan: 'Assistente Comercial Inteligente',
+      logob64: null,
+      users: [],
+      kpiTemplates: [],
+      goals: [],
+      plans: PLANOS_PADRAO,
+      prices: PRECOS_PADRAO,
+      modulos: MODULOS_PADRAO,
+      discAdPct: 50,
+      discMenPct: 0,
+      discClosePct: 40,
+      vouchers: [],
+      docHistory: [], // Inicializa o histórico de documentos
+      importedDocs: [], // Inicializa documentos importados
+      clients: [],
+      perfisTipos: [
+        { id: 'admin', nome: 'Administrador', permissoes: PERMISSOES_ADMIN, fixo: true },
+        { id: 'user',  nome: 'Vendedor',      permissoes: PERMISSOES_USER,  fixo: true },
+      ],
+      theme: { primaryColor: '#00d4ff', secondaryColor: '#7c3aed', successColor: '#10b981' },
+    }
+    setCfg(initialCfg)
+    setLoading(false)
+  }
+
+  if (loading) {
+    return (
+      <div style={s.fullPageCenter}>
+        <div style={s.spinner} />
+        <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 20 }}>Carregando configurações...</p>
+      </div>
+    )
+  }
+
+  if (!cfg || !empresaId) {
+    return (
+      <div style={s.fullPageCenter}>
+        <p style={{ color: 'var(--danger)', fontSize: 14 }}>Erro ao carregar configurações ou ID da empresa não encontrado.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div style={s.container}>
+      <div style={s.sidebar}>
+        <h2 style={s.sidebarTitle}>⚙️ Configurações</h2>
+        <nav>
+          {TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{ ...s.tabButton, ...(activeTab === tab.id ? s.tabButtonActive : {}) }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      </div>
+      <div style={s.content}>
+        {activeTab === 'empresa'    && <TabEmpresa    cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+        {activeTab === 'metas'      && <TabMetas      cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+        {activeTab === 'kpis'       && <TabKpis       cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+        {activeTab === 'usuarios'   && <TabUsuarios   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+        {activeTab === 'produtos'   && <TabProdutos   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+        {activeTab === 'descontos'  && <TabDescontos  cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+        {activeTab === 'vouchers'   && <TabVouchers   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+        {activeTab === 'documentos' && <TabDocumentos cfg={cfg} setCfg={setCfg} empresaId={empresaId} />} {/* Nova aba */}
+        {activeTab === 'historico'  && <TabHistorico  cfg={cfg} setCfg={setCfg} empresaId={empresaId} />} {/* Aba atualizada */}
+        {activeTab === 'clientes'   && <TabClientes   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+        {activeTab === 'tema'       && <TabTema       cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+      </div>
+      <div id="vx-toast" style={s.toast}></div>
+    </div>
+  )
 }
 
 // ══════════════════════════════════════════════
-// PÁGINA PRINCIPAL
+// ESTILOS LOCAIS
 // ══════════════════════════════════════════════
-export default function Configuracoes() {
-  const router                    = useRouter()
-  const [loading,   setLoading]   = useState(true)
-  const [perfil,    setPerfil]    = useState(null)
-  const [empresaId, setEmpresaId] = useState(null)
-  const [cfg,       setCfg]       = useState({})
-  const [abaAtiva,  setAbaAtiva]  = useState('empresa')
+const s = {
+  container: {
+    display: 'flex',
+    minHeight: '100vh',
+    width: '100%',
+    maxWidth: 1200,
+    margin: '0 auto',
+    padding: '20px',
+    gap: '20px',
+  },
+  sidebar: {
+    width: 220,
+    flexShrink: 0,
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 16,
+    padding: '20px 0',
+    alignSelf: 'flex-start',
+    position: 'sticky',
+    top: 20,
+  },
+  sidebarTitle: {
+    fontFamily: 'Syne, sans-serif',
+    fontSize: 18,
+    fontWeight: 700,
+    color: 'var(--accent)',
+    padding: '0 20px 15px',
+    borderBottom: '1px solid var(--border)',
+    marginBottom: 15,
+  },
+  tabButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    width: '100%',
+    padding: '12px 20px',
+    background: 'none',
+    border: 'none',
+    color: 'var(--muted)',
+    fontSize: 14,
+    textAlign: 'left',
+    cursor: 'pointer',
+    transition: 'all .2s',
+    fontFamily: 'DM Mono, monospace',
+    fontWeight: 500,
+  },
+  tabButtonActive: {
+    background: 'rgba(0,212,255,.1)',
+    color: 'var(--accent)',
+    borderLeft: '4px solid var(--accent)',
+    paddingLeft: 16,
+  },
+  content: {
+    flex: 1,
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 16,
+    padding: '28px 32px',
+    boxShadow: 'var(--shadow)',
+  },
+  body: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 25,
+  },
+  sec: {
+    marginBottom: 20,
+    paddingBottom: 20,
+    borderBottom: '1px solid var(--border)',
+  },
+  secTitle: {
+    fontFamily: 'Syne, sans-serif',
+    fontSize: 16,
+    fontWeight: 700,
+    color: 'var(--text)',
+    marginBottom: 12,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  },
+  field: {
+    marginBottom: 15,
+  },
+  label: {
+    fontSize: 12,
+    color: 'var(--muted)',
+    display: 'block',
+    marginBottom: 6,
+    letterSpacing: '.5px',
+  },
+  input: {
+    width: '100%',
+    background: 'var(--surface2)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    padding: '10px 14px',
+    fontSize: 14,
+    color: 'var(--text)',
+    outline: 'none',
+    transition: 'border-color .2s',
+    fontFamily: 'DM Mono, monospace',
+  },
+  'input:focus': {
+    borderColor: 'var(--accent)',
+  },
+  row2: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 15,
+    marginBottom: 15,
+  },
+  modalGrid3: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr 1fr',
+    gap: 10,
+    marginBottom: 15,
+  },
+  saveBtn: {
+    width: '100%',
+    padding: '12px 20px',
+    borderRadius: 10,
+    background: 'linear-gradient(135deg,var(--accent3),#059669)',
+    border: 'none',
+    color: '#fff',
+    fontFamily: 'DM Mono, monospace',
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: 'pointer',
+    transition: 'all .2s',
+    letterSpacing: '.5px',
+    marginTop: 10,
+  },
+  'saveBtn:disabled': {
+    opacity: .6,
+    cursor: 'not-allowed',
+  },
+  toast: {
+    position: 'fixed',
+    bottom: 20,
+    right: 20,
+    background: 'rgba(16,185,129,.9)',
+    color: '#fff',
+    padding: '12px 20px',
+    borderRadius: 10,
+    boxShadow: '0 4px 15px rgba(0,0,0,.2)',
+    opacity: 0,
+    transform: 'translateY(20px)',
+    transition: 'all .3s ease-out',
+    zIndex: 7000,
+    fontFamily: 'DM Mono, monospace',
+    fontSize: 14,
+  },
+  fullPageCenter: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '100vh',
+    width: '100%',
+  },
+  spinner: {
+    width: 40,
+    height: 40,
+    border: '3px solid var(--border)',
+    borderTop: '3px solid var(--accent)',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+  },
+  centro: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 200,
+  },
+}
 
-  useEffect(() => {
-    async function init() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { router.push('/'); return }
-
-      const { data: perf } = await supabase
-        .from('perfis').select('*').eq('id', session.user.id).single()
-
-      setPerfil(perf)
-      const eid = perf?.empresa_id || session.user.id
-      setEmpresaId(eid)
-
-      const { data: row } = await supabase
-        .from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
-
-      if (row?.value) {
-        try { setCfg(JSON.parse(row.value)) } catch {}
-      }
-
-      // Aplica tema salvo
-      const saved = row?.value ? JSON.parse(row.value) : {}
-      if (saved.theme) document.documentElement.setAttribute('data-theme', saved.theme)
-      else document.documentElement.setAttribute('data-theme', 'dark')
-
-      setLoading(false)
-    }
-    init()
-  }, [])
-
-  function renderAba() {
-    const props = { cfg, setCfg, empresaId }
-    switch (abaAtiva) {
-      case 'empresa':    return <TabEmpresa    {...props} />
-      case 'metas':      return <TabMetas      {...props} />
-      case 'kpis':       return <TabKpis       {...props} />
-      case 'usuarios':   return <TabUsuarios   {...props} />
-      case 'produtos':   return <TabProdutos   {...props} />
-      case 'descontos':  return <TabDescontos  {...props} />
-      case 'vouchers':   return <TabVouchers   {...props} />
-      case 'documentos': return <TabDocumentos {...props} />
-      case 'historico':  return <TabHistorico  {...props} />
-      case 'clientes':   return <TabClientes   {...props} />
-      case 'tema':       return <TabTema       {...props} />
-      default:           return null
-    }
+// Keyframes para o spinner (se não estiver no CSS global)
+const globalStyles = `
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:6000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+  .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:560px;box-shadow:var(--shadow);display:flex;flex-direction:column;max-height:90vh;position:relative}
+  .modal-header{padding:20px 24px 0;flex-shrink:0}
+  .modal-header h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--accent)}
+  .modal-close{position:absolute;top:16px;right:20px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
+  .modal-close:hover{color:var(--text)}
+  .modal-body{padding:20px 24px;overflow-y:auto;flex:1}
+  .modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
+  .btn-cancel{padding:10px 18px;border-radius:10px;background:rgba(100,116,139,.12);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:13px;cursor:pointer}
+  .btn-primary{padding:10px 22px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#0099bb);border:none;color:#fff;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+  .btn-primary:hover{box-shadow:0 0 16px rgba(0,212,255,.4);transform:translateY(-1px)}
+`;
 
-  if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
-      Carregando configurações...
-    </div>
-  )
-
-  return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600;700&display=swap');
-        [data-theme="dark"]{
-          --bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;
-          --accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;
-          --text:#e2e8f0;--muted:#64748b;
-          --danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;
-          --card-bg:#1a2540;--shadow:0 4px 24px rgba(0,0,0,.4);
-        }
-        [data-theme="light"]{
-          --bg:#f0f4f8;--surface:#ffffff;--surface2:#f8fafc;--border:#e2e8f0;
-          --accent:#0099bb;--accent2:#7c3aed;--accent3:#059669;
-          --text:#1e293b;--muted:#64748b;
-          --danger:#ef4444;--warning:#d97706;--gold:#b45309;
-          --card-bg:#f8fafc;--shadow:0 4px 24px rgba(0,0,0,.1);
-        }
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
-        [data-theme="dark"] body::before{content:'';position:fixed;inset:0;
-          background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),
-          linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);
-          background-size:40px 40px;pointer-events:none;z-index:0}
-        input[type=number]::-webkit-inner-spin-button{opacity:1}
-        select option{background:var(--surface2);color:var(--text)}
-        input:focus,select:focus{border-color:var(--accent)!important;outline:none}
-      `}</style>
-
-      {/* ORBS */}
-      <div style={{ position:'fixed',width:500,height:500,background:'var(--accent)',top:-200,right:-150,borderRadius:'50%',filter:'blur(120px)',opacity:.06,pointerEvents:'none',zIndex:0 }} />
-      <div style={{ position:'fixed',width:400,height:400,background:'var(--accent2)',bottom:-150,left:-100,borderRadius:'50%',filter:'blur(120px)',opacity:.06,pointerEvents:'none',zIndex:0 }} />
-
-      {/* TOAST */}
-      <div id="vx-toast" style={{ position:'fixed',bottom:30,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'rgba(16,185,129,.9)',color:'#fff',padding:'12px 24px',borderRadius:10,fontFamily:'DM Mono, monospace',fontSize:14,zIndex:9999,opacity:0,transition:'opacity .3s, transform .3s',boxShadow:'0 4px 20px rgba(0,0,0,.3)' }} />
-
-      {/* HEADER */}
-      <header style={{ position:'relative',zIndex:10,width:'100%',maxWidth:960,margin:'0 auto',padding:'18px 20px 0',display:'flex',alignItems:'center',gap:12 }}>
-        {/* Logo ou nome */}
-        {cfg.logob64
-          ? <img src={cfg.logob64} alt="Logo" style={{ height:36,objectFit:'contain' }} onError={e => e.target.style.display='none'} />
-          : <div style={{ fontFamily:'Syne, sans-serif',fontSize:17,fontWeight:700,letterSpacing:.5 }}>{cfg.company || 'Vivanexa'}</div>
-        }
-        <div style={{ marginLeft:'auto',display:'flex',gap:8,alignItems:'center' }}>
-          <button onClick={() => router.push('/chat')}
-            style={{ background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono, monospace',letterSpacing:.3 }}>
-            💬 Chat
-          </button>
-          <button onClick={() => router.push('/dashboard')}
-            style={{ background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono, monospace',letterSpacing:.3 }}>
-            📊 Dashboard
-          </button>
-          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))}
-            style={{ background:'none',border:'none',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 9px',borderRadius:8,fontFamily:'DM Mono, monospace' }}>
-            Sair
-          </button>
-        </div>
-      </header>
-
-      {/* CONTEÚDO */}
-      <main style={{ position:'relative',zIndex:10,width:'100%',maxWidth:960,margin:'20px auto 60px',padding:'0 20px' }}>
-        <div style={{ background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,overflow:'hidden',boxShadow:'var(--shadow)' }}>
-
-          {/* CABEÇALHO */}
-          <div style={{ background:'var(--surface2)',borderBottom:'1px solid var(--border)',padding:'16px 24px',display:'flex',alignItems:'center',justifyContent:'space-between' }}>
-            <h3 style={{ fontFamily:'Syne, sans-serif',fontSize:16,fontWeight:700,color:'var(--accent)' }}>⚙️ Configurações</h3>
-            <div style={{ fontSize:12,color:'var(--muted)' }}>{perfil?.nome && `Olá, ${perfil.nome}`}</div>
-          </div>
-
-          {/* ABAS */}
-          <div style={{ display:'flex',borderBottom:'1px solid var(--border)',background:'var(--surface)',overflowX:'auto' }}>
-            {TABS.map(t => (
-              <button key={t.id} onClick={() => setAbaAtiva(t.id)}
-                style={{
-                  flexShrink:0, padding:'11px 14px', border:'none', background:'none',
-                  color: abaAtiva === t.id ? 'var(--accent)' : 'var(--muted)',
-                  fontFamily:'DM Mono, monospace', fontSize:12, cursor:'pointer',
-                  borderBottom:`2px solid ${abaAtiva === t.id ? 'var(--accent)' : 'transparent'}`,
-                  letterSpacing:.3, whiteSpace:'nowrap', transition:'color .2s',
-                  position:'relative', top:1
-                }}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* CONTEÚDO DA ABA */}
-          {renderAba()}
-        </div>
-      </main>
-    </>
-  )
+// Adiciona os estilos globais se não estiverem já no seu CSS
+if (typeof window !== 'undefined' && !document.getElementById('global-config-styles')) {
+  const styleTag = document.createElement('style');
+  styleTag.id = 'global-config-styles';
+  styleTag.textContent = globalStyles;
+  document.head.appendChild(styleTag);
 }
