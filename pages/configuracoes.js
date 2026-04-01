@@ -374,7 +374,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           updateKpi(k.id, 'icone', ic)
           setIconPickerId(null)
        
-        style={{
+      
           width: 36,
           height: 36,
           borderRadius: 8,
