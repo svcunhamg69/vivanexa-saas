@@ -1,9 +1,8 @@
-// pages/sign/[token].js
+// pages/sign/[token].js — v2
 // ============================================================
-// Página pública de assinatura eletrônica
-// Fluxo: cliente recebe link → abre → vê contrato → assina
-// Após assinar: mostra "já assinado" se acessar novamente
-// Salva assinatura no Supabase: vx_storage key = "doc:{token}"
+// CORREÇÃO CRÍTICA: após assinar, atualiza o manifesto
+// de assinatura dentro do HTML armazenado no Supabase,
+// para que o documento reflita quem assinou e quando.
 // ============================================================
 
 import { useState, useEffect } from 'react'
@@ -11,30 +10,61 @@ import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../../lib/supabase'
 
-function fmt(v) {
-  return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
-
 function fmtCPF(v) {
   const s = v.replace(/\D/g, '')
   if (s.length === 11) return s.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4')
   return v
 }
 
+// ── Atualiza o manifesto dentro do HTML ──────────────────────
+function atualizarManifestoNoHtml(html, docData) {
+  if (!html) return html
+
+  const {
+    signedBy, signedAt, signCPF, signEmail,
+    consultantSignedBy, consultantSignedAt, consultantEmail,
+    signToken,
+  } = docData
+
+  let novoHtml = html
+
+  // Atualizar dados do CLIENTE no manifesto
+  if (signedBy) {
+    novoHtml = novoHtml
+      .replace(/<span id="manifest-client-name">[^<]*<\/span>/g,
+        `<span id="manifest-client-name">${signedBy}</span>`)
+      .replace(/<span id="manifest-client-cpf">[^<]*<\/span>/g,
+        `<span id="manifest-client-cpf">${signCPF || '—'}</span>`)
+      .replace(/<span id="manifest-client-email">[^<]*<\/span>/g,
+        `<span id="manifest-client-email">${signEmail || '—'}</span>`)
+      .replace(/<span id="manifest-client-date">[^<]*<\/span>/g,
+        `<span id="manifest-client-date">${signedAt}</span>`)
+  }
+
+  // Atualizar dados do CONSULTOR no manifesto
+  if (consultantSignedBy) {
+    novoHtml = novoHtml
+      .replace(/<span id="manifest-consult-name">[^<]*<\/span>/g,
+        `<span id="manifest-consult-name">${consultantSignedBy}</span>`)
+      .replace(/<span id="manifest-consult-date">[^<]*<\/span>/g,
+        `<span id="manifest-consult-date">${consultantSignedAt}</span>`)
+  }
+
+  return novoHtml
+}
+
 export default function SignPage() {
-  const router = useRouter()
+  const router  = useRouter()
   const { token } = router.query
 
-  const [fase, setFase] = useState('carregando') // carregando | assinando | ja_assinado | sucesso | erro
-  const [doc, setDoc] = useState(null)
-  const [cfg, setCfg] = useState(null)
-
-  // Formulário
-  const [nome,   setNome]   = useState('')
-  const [cpf,    setCpf]    = useState('')
-  const [email,  setEmail]  = useState('')
-  const [agreed, setAgreed] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [fase,    setFase]    = useState('carregando')
+  const [doc,     setDoc]     = useState(null)
+  const [cfg,     setCfg]     = useState(null)
+  const [nome,    setNome]    = useState('')
+  const [cpf,     setCpf]     = useState('')
+  const [email,   setEmail]   = useState('')
+  const [agreed,  setAgreed]  = useState(false)
+  const [saving,  setSaving]  = useState(false)
   const [erroMsg, setErroMsg] = useState('')
 
   useEffect(() => {
@@ -44,7 +74,6 @@ export default function SignPage() {
 
   async function carregarDoc(tk) {
     try {
-      // Busca o documento pelo token
       const { data: docRow } = await supabase
         .from('vx_storage')
         .select('value')
@@ -55,7 +84,6 @@ export default function SignPage() {
       const docData = JSON.parse(docRow.value)
       setDoc(docData)
 
-      // Busca config da empresa (para logo, nome etc.)
       if (docData.empresaId) {
         const { data: cfgRow } = await supabase
           .from('vx_storage')
@@ -67,7 +95,6 @@ export default function SignPage() {
         }
       }
 
-      // Se já foi assinado pelo cliente
       if (docData.signedAt && docData.signedBy) {
         setFase('ja_assinado')
       } else {
@@ -83,13 +110,13 @@ export default function SignPage() {
     if (!nome.trim()) { setErroMsg('Informe seu nome completo.'); return }
     if (!cpf.trim())  { setErroMsg('Informe seu CPF.'); return }
     if (!email.trim()) { setErroMsg('Informe seu e-mail.'); return }
-    if (!agreed)      { setErroMsg('Você precisa aceitar os termos para assinar.'); return }
+    if (!agreed) { setErroMsg('Você precisa aceitar os termos para assinar.'); return }
 
     setSaving(true)
     setErroMsg('')
 
     try {
-      const now = new Date()
+      const now   = new Date()
       const nowStr = now.toLocaleString('pt-BR')
 
       const docAtualizado = {
@@ -99,10 +126,16 @@ export default function SignPage() {
         signCPF:   cpf.trim(),
         signEmail: email.trim(),
         signIP:    '(web)',
-        status:    'pending', // fica pending até consultor também assinar
+        status:    'pending',
+        clientEmail: email.trim(),
       }
 
-      // Salva documento atualizado no Supabase
+      // ── CORREÇÃO CRÍTICA: atualizar manifesto no HTML ──
+      let htmlAtualizado = doc.html || ''
+      htmlAtualizado = atualizarManifestoNoHtml(htmlAtualizado, docAtualizado)
+      docAtualizado.html = htmlAtualizado
+
+      // Salvar documento atualizado (com HTML corrigido)
       const { error } = await supabase.from('vx_storage').upsert({
         key:        `doc:${token}`,
         value:      JSON.stringify(docAtualizado),
@@ -111,7 +144,7 @@ export default function SignPage() {
 
       if (error) throw error
 
-      // Atualiza também o docHistory na cfg da empresa (sem html para economizar)
+      // Atualizar cfg.docHistory
       if (doc.empresaId) {
         const { data: cfgRow } = await supabase
           .from('vx_storage').select('value').eq('key', `cfg:${doc.empresaId}`).single()
@@ -121,7 +154,7 @@ export default function SignPage() {
             if (cfgData.docHistory) {
               cfgData.docHistory = cfgData.docHistory.map(h =>
                 h.signToken === token
-                  ? { ...h, signedAt: nowStr, signedBy: nome.trim(), signCPF: cpf.trim(), signEmail: email.trim(), status: 'pending' }
+                  ? { ...h, signedAt: nowStr, signedBy: nome.trim(), signCPF: cpf.trim(), signEmail: email.trim(), clientEmail: email.trim(), status: 'pending' }
                   : h
               )
               await supabase.from('vx_storage').upsert({
@@ -145,19 +178,19 @@ export default function SignPage() {
   }
 
   const empresa = cfg?.company || doc?.empresa || 'Vivanexa'
-  const logoB64  = cfg?.logob64 || null
+  const logoB64 = cfg?.logob64 || null
 
-  // ── RENDER ────────────────────────────────────────────────
-
+  // ── Tela carregando
   if (fase === 'carregando') return (
     <Tela empresa={empresa} logo={logoB64}>
       <div style={st.centro}>
-        <div style={st.spinner} />
+        <div style={st.spinner}/>
         <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 20 }}>Carregando documento...</p>
       </div>
     </Tela>
   )
 
+  // ── Tela erro
   if (fase === 'erro') return (
     <Tela empresa={empresa} logo={logoB64}>
       <div style={st.card}>
@@ -168,6 +201,7 @@ export default function SignPage() {
     </Tela>
   )
 
+  // ── Tela já assinado
   if (fase === 'ja_assinado') return (
     <Tela empresa={empresa} logo={logoB64}>
       <div style={st.card}>
@@ -177,7 +211,7 @@ export default function SignPage() {
           Este contrato foi assinado por <strong style={{ color: 'var(--text)' }}>{doc?.signedBy}</strong> em {doc?.signedAt}.
         </p>
         <p style={{ ...st.sub, textAlign: 'center', marginTop: 8 }}>
-          Não é necessária nenhuma ação adicional. Você pode fechar esta página.
+          Não é necessária nenhuma ação adicional.
         </p>
         <div style={{ textAlign: 'center', marginTop: 20 }}>
           <span style={st.badge}>Lei nº 14.063/2020 — Assinatura Eletrônica</span>
@@ -186,6 +220,7 @@ export default function SignPage() {
     </Tela>
   )
 
+  // ── Tela sucesso
   if (fase === 'sucesso') return (
     <Tela empresa={empresa} logo={logoB64}>
       <div style={st.card}>
@@ -204,7 +239,7 @@ export default function SignPage() {
     </Tela>
   )
 
-  // ── FASE: ASSINANDO ───────────────────────────────────────
+  // ── Tela assinando
   const tipoLabel = doc?.type === 'proposta' ? 'Proposta Comercial' : 'Termo de Pedido e Registro de Software'
 
   return (
@@ -233,8 +268,8 @@ export default function SignPage() {
       <div style={st.card}>
         <h2 style={st.titulo}>✍️ Confirmar e Assinar</h2>
         <p style={st.sub}>
-          Leia o documento acima com atenção. Ao assinar, você concorda com todos os termos apresentados,
-          conforme a <strong>Lei nº 14.063/2020</strong> (assinatura eletrônica).
+          Leia o documento acima com atenção. Ao assinar, você concorda com todos os termos,
+          conforme a <strong>Lei nº 14.063/2020</strong>.
         </p>
 
         <div style={{ marginTop: 20 }}>
@@ -262,7 +297,7 @@ export default function SignPage() {
               {agreed && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>✓</span>}
             </div>
             <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
-              Li e concordo com todos os termos e condições do documento acima. Entendo que esta assinatura eletrônica tem validade jurídica conforme a Lei nº 14.063/2020.
+              Li e concordo com todos os termos e condições do documento. Entendo que esta assinatura eletrônica tem validade jurídica conforme a Lei nº 14.063/2020.
             </p>
           </div>
 
@@ -280,7 +315,7 @@ export default function SignPage() {
           </button>
 
           <p style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 12, lineHeight: 1.6 }}>
-            Ao clicar em "Assinar", seu nome, CPF, e-mail, data e hora serão registrados como parte da assinatura eletrônica deste documento.
+            Ao assinar, seu nome, CPF, e-mail, data e hora serão registrados no manifesto de assinaturas deste documento.
           </p>
         </div>
       </div>
@@ -304,11 +339,11 @@ function Tela({ empresa, logo, children }) {
         body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
         input{font-family:'DM Mono',monospace}
         ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+        @keyframes spin{to{transform:rotate(360deg)}}
       `}</style>
       <div style={{ position: 'fixed', width: 500, height: 500, background: 'var(--accent)', top: -200, right: -150, borderRadius: '50%', filter: 'blur(120px)', opacity: .06, pointerEvents: 'none', zIndex: 0 }} />
       <div style={{ position: 'fixed', width: 400, height: 400, background: 'var(--accent2)', bottom: -150, left: -100, borderRadius: '50%', filter: 'blur(120px)', opacity: .06, pointerEvents: 'none', zIndex: 0 }} />
 
-      {/* Header */}
       <header style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(10,15,30,.9)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
         {logo
           ? <img src={logo} alt={empresa} style={{ height: 36, objectFit: 'contain' }} />
@@ -324,63 +359,14 @@ function Tela({ empresa, logo, children }) {
   )
 }
 
-// ── Estilos locais ────────────────────────────────────────────
 const st = {
-  card: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 16,
-    padding: '28px 32px',
-    boxShadow: 'var(--shadow)',
-  },
-  titulo: {
-    fontFamily: 'Syne, sans-serif',
-    fontSize: 20,
-    fontWeight: 700,
-    color: 'var(--accent)',
-    marginBottom: 10,
-  },
-  sub: {
-    fontSize: 13,
-    color: 'var(--muted)',
-    lineHeight: 1.7,
-  },
+  card: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '28px 32px', boxShadow: 'var(--shadow)' },
+  titulo: { fontFamily: 'Syne, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 },
+  sub: { fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 },
   campo: { marginBottom: 14 },
   label: { fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4, letterSpacing: '.5px' },
-  input: {
-    width: '100%',
-    background: 'var(--surface2)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    padding: '10px 14px',
-    fontSize: 14,
-    color: 'var(--text)',
-    outline: 'none',
-  },
-  badge: {
-    display: 'inline-block',
-    background: 'rgba(16,185,129,.1)',
-    border: '1px solid rgba(16,185,129,.25)',
-    color: 'var(--accent3)',
-    padding: '4px 12px',
-    borderRadius: 20,
-    fontSize: 11,
-    fontWeight: 600,
-    letterSpacing: 1,
-  },
-  centro: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 300,
-  },
-  spinner: {
-    width: 40,
-    height: 40,
-    border: '3px solid var(--border)',
-    borderTop: '3px solid var(--accent)',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-  },
+  input: { width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontSize: 14, color: 'var(--text)', outline: 'none' },
+  badge: { display: 'inline-block', background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.25)', color: 'var(--accent3)', padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: 1 },
+  centro: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300 },
+  spinner: { width: 40, height: 40, border: '3px solid var(--border)', borderTop: '3px solid var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' },
 }
