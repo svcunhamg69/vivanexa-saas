@@ -5,6 +5,7 @@
 // 2. Menus de navegação visíveis no header (Chat, Config, Sair)
 // 3. Logo exibida no header quando configurada
 // 4. Card "Contratos do mês" com detalhes dos produtos vendidos
+// 5. Header clicável para voltar ao chat
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -353,7 +354,6 @@ export default function Dashboard() {
   })()
 
   // ── NOVO: Produtos vendidos no mês ─────────────
-  // Soma adesão e mensalidade por módulo nos contratos assinados do mês
   const produtosVendidos = (() => {
     const mapa = {}
     contratosMes.forEach(d => {
@@ -441,16 +441,18 @@ export default function Dashboard() {
 
       {kpiModal && <ModalKpi kpi={kpiModal} userId={usuarioAtual?.id} onClose={() => setKpiModal(null)} onSave={salvarKpi} />}
 
-      {/* HEADER COM MENUS */}
+      {/* HEADER COM MENUS E LOGO CLICÁVEL */}
       <header style={{ position: 'sticky', top: 0, zIndex: 100, width: '100%', background: 'rgba(10,15,30,.85)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '12px 20px' }}>
         <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-          {cfg.logob64
-            ? <img src={cfg.logob64} alt={cfg.company} style={{ height: 36, objectFit: 'contain', borderRadius: 6 }} onError={e => e.target.style.display = 'none'} />
-            : <div>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, letterSpacing: .5 }}>{cfg.company || 'Vivanexa'}</div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>📊 Dashboard de Vendas</div>
-              </div>
-          }
+          <div style={{ cursor: 'pointer' }} onClick={() => router.push('/chat')}>
+            {cfg.logob64
+              ? <img src={cfg.logob64} alt={cfg.company} style={{ height: 36, objectFit: 'contain', borderRadius: 6 }} onError={e => e.target.style.display = 'none'} />
+              : <div>
+                  <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, letterSpacing: .5 }}>{cfg.company || 'Vivanexa'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>📊 Dashboard de Vendas</div>
+                </div>
+            }
+          </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
             <button onClick={() => router.push('/chat')}
               style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
@@ -521,7 +523,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── ABA PRODUTOS VENDIDOS (NOVA) ── */}
+        {/* ── ABA PRODUTOS VENDIDOS ── */}
         {abaAtiva === 'produtos' && (
           <div>
             {produtosVendidos.length === 0 ? (
@@ -558,12 +560,10 @@ export default function Dashboard() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-                  {/* Gráfico barras — Adesão por módulo */}
                   <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
                     <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>💰 Adesão por Módulo</div>
                     <GraficoBarras dados={dadosAdesaoPorMod} altura={130} formatarValor={v => fmtK(v)} />
                   </div>
-                  {/* Gráfico barras — Mensalidade por módulo */}
                   <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
                     <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent3)', marginBottom: 14 }}>📅 Mensalidade por Módulo</div>
                     <GraficoBarras dados={dadosMensalidadePorMod} altura={130} formatarValor={v => fmtK(v)} />
@@ -602,7 +602,7 @@ export default function Dashboard() {
                           <td style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
                             <div style={{ width: 8, height: 8, borderRadius: 2, background: CORES_MOD[i % CORES_MOD.length], flexShrink: 0 }} />
                             <span style={{ fontWeight: 600 }}>{p.nome}</span>
-                          </td>
+                           </td>
                           <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--muted)' }}>{p.qtd}×</td>
                           <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>{fmt(p.adesao)}</td>
                           <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent3)', fontWeight: 600 }}>{fmt(p.mensalidade)}</td>
