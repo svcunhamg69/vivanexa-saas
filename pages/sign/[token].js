@@ -221,13 +221,6 @@ export default function SignPage() {
             <span style={{ fontWeight: 600, color: '#1e293b' }}>{tipoLabel}</span>
             <span>·</span>
             <span>{doc.clientName || 'Cliente'}</span>
-            {/* Adicionar botão de download se for PDF ou opção de expandir */}
-            {doc.pdfUrl && (
-              <a href={doc.pdfUrl} target="_blank" rel="noopener noreferrer"
-                style={{ marginLeft: 'auto', padding: '4px 8px', borderRadius: 6, background: '#e0f2f7', border: '1px solid #b2e0ed', color: '#007bff', fontSize: 11, textDecoration: 'none', fontWeight: 600 }}>
-                ⬇️ Baixar PDF
-              </a>
-            )}
           </div>
           <div
             style={{ padding: 0, maxHeight: 480, overflowY: 'auto', fontSize: 13 }}
@@ -307,22 +300,16 @@ function Tela({ empresa, logo, children }) {
       <style>{`
         :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--danger:#ef4444;--shadow:0 4px 24px rgba(0,0,0,.4)}
         *{box-sizing:border-box;margin:0;padding:0}
-        html{font-size:15px} /* Adicionado para consistência */
-        body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow-x:hidden} /* Ajustado para centralizar */
+        body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
         body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
-        input, select, textarea {font-family:'DM Mono',monospace} /* Adicionado para consistência */
+        input{font-family:'DM Mono',monospace}
         ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
-        @keyframes spin{to{transform:rotate(360deg)}} /* Adicionado keyframe do spinner */
-
-        /* Estilos para o header e main para melhor layout */
-        header{position:sticky;top:0;z-index:100;width:100%;background:rgba(10,15,30,.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:12px}
-        main{position:relative;z-index:10;width:100%;max-width:720px;margin:28px auto 60px;padding:0 16px;flex:1} /* Flex 1 para ocupar espaço */
       `}</style>
       <div style={{ position: 'fixed', width: 500, height: 500, background: 'var(--accent)', top: -200, right: -150, borderRadius: '50%', filter: 'blur(120px)', opacity: .06, pointerEvents: 'none', zIndex: 0 }} />
       <div style={{ position: 'fixed', width: 400, height: 400, background: 'var(--accent2)', bottom: -150, left: -100, borderRadius: '50%', filter: 'blur(120px)', opacity: .06, pointerEvents: 'none', zIndex: 0 }} />
 
       {/* Header */}
-      <header>
+      <header style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(10,15,30,.9)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
         {logo
           ? <img src={logo} alt={empresa} style={{ height: 36, objectFit: 'contain' }} />
           : <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 18, color: 'var(--accent)' }}>{empresa}</div>
@@ -330,7 +317,7 @@ function Tela({ empresa, logo, children }) {
         <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>✍️ Assinatura Eletrônica</div>
       </header>
 
-      <main>
+      <main style={{ position: 'relative', zIndex: 10, maxWidth: 720, margin: '28px auto 60px', padding: '0 16px' }}>
         {children}
       </main>
     </>
