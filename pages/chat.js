@@ -9,7 +9,6 @@
 // 6. Timer reseta ao iniciar nova consulta
 // 7. Texto proposta: "em até 10× sem juros"
 // 8. Modo voucher pede código antes de calcular
-// 9. Adicionado painel de assinaturas pendentes e histórico de documentos
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -357,265 +356,6 @@ function openPrint(html,title){
 }
 
 // ══════════════════════════════════════════════════════════════
-// COMPONENTES PARA HISTÓRICO E ASSINATURAS PENDENTES
-// ══════════════════════════════════════════════════════════════
-
-function ModalVer({ html, onClose }) {
-  if (!html) return null
-  return (
-    <div className="modal-overlay" style={{ zIndex: 10000 }}>
-      <div className="modal-box" style={{ maxWidth: '90vw', maxHeight: '90vh', overflow: 'auto' }}>
-        <div className="modal-header">
-          <h3>📄 Visualizar Documento</h3>
-          <button className="modal-close" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body" style={{ overflow: 'auto', maxHeight: '70vh' }}>
-          <div dangerouslySetInnerHTML={{ __html: html }} />
-        </div>
-        <div className="modal-footer">
-          <button className="btn-cancel" onClick={onClose}>Fechar</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DocumentosPendentes({ cfg, empresaId, user, onCfgUpdate }) {
-  const [modalEnvio, setModalEnvio] = useState(null)
-  const [loading, setLoading] = useState(false)
-
-  const docs = (cfg.docHistory || []).filter(d => d.status !== 'signed')
-
-  async function assinarComoConsultor(doc) {
-    setLoading(true)
-    try {
-      const now = new Date().toISOString()
-      // Buscar documento completo
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `doc:${doc.signToken}`).single()
-      if (!row?.value) throw new Error('Documento não encontrado')
-      const docData = JSON.parse(row.value)
-      docData.signedByConsultor = user?.nome || user?.email
-      docData.signedAtConsultor = now
-      if (docData.signedAt) {
-        docData.status = 'signed'
-        // Enviar email de confirmação para ambos
-        try {
-          const emailCliente = docData.signEmail || docData.clientEmail || ''
-          const emailConsultor = user?.email || ''
-          const assunto = `Documento assinado - ${cfg.company}`
-          const corpo = `O documento foi totalmente assinado por ambas as partes. Acesse o link para visualizar: ${window.location.origin}/sign/${doc.signToken}`
-          if (emailCliente) window.open(`mailto:${emailCliente}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`)
-          if (emailConsultor) window.open(`mailto:${emailConsultor}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`)
-        } catch(e) { console.warn('email error', e) }
-      } else {
-        docData.status = 'pending'
-      }
-      await supabase.from('vx_storage').upsert({ key: `doc:${doc.signToken}`, value: JSON.stringify(docData), updated_at: now })
-
-      // Atualizar docHistory na cfg
-      const newHistory = cfg.docHistory.map(d => {
-        if (d.signToken === doc.signToken) {
-          return { ...d, signedByConsultor: user?.nome, signedAtConsultor: now, status: docData.status }
-        }
-        return d
-      })
-      const newCfg = { ...cfg, docHistory: newHistory }
-      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(newCfg), updated_at: now })
-      onCfgUpdate(newCfg)
-    } catch (err) {
-      console.error(err)
-      alert('Erro ao assinar como consultor')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div style={{ marginBottom: 24 }}>
-      <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>✍️ Assinaturas Pendentes</h3>
-      {docs.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum documento pendente.</p>}
-      {docs.map(doc => {
-        const clienteAssinou = !!doc.signedAt
-        const consultorAssinou = !!doc.signedByConsultor
-        return (
-          <div key={doc.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 10 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{doc.clientName || 'Cliente'}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-              {doc.date} · {doc.type === 'contrato' ? 'Contrato' : 'Proposta'}
-            </div>
-            <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 12 }}>
-                <span style={{ color: clienteAssinou ? 'var(--accent3)' : 'var(--warning)' }}>{clienteAssinou ? '✅ Cliente assinou' : '⏳ Cliente pendente'}</span>
-                <span style={{ margin: '0 8px' }}>•</span>
-                <span style={{ color: consultorAssinou ? 'var(--accent3)' : 'var(--warning)' }}>{consultorAssinou ? '✅ Consultor assinou' : '⏳ Consultor pendente'}</span>
-              </div>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-                <button onClick={() => setModalEnvio(doc)} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontSize: 11, cursor: 'pointer' }}>📧 Enviar link</button>
-                {!consultorAssinou && (
-                  <button onClick={() => assinarComoConsultor(doc)} disabled={loading} style={{ padding: '4px 10px', borderRadius: 6, background: 'linear-gradient(135deg,var(--accent3),#059669)', border: 'none', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-                    ✍️ Assinar agora
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )
-      })}
-      {modalEnvio && (
-        <ModalEnvioDoc
-          doc={modalEnvio}
-          cfg={cfg}
-          empresaId={empresaId}
-          onClose={() => setModalEnvio(null)}
-        />
-      )}
-    </div>
-  )
-}
-
-function Historico({ cfg, empresaId, onCfgUpdate }) {
-  const [modalVer, setModalVer] = useState(null)
-  const [modalEnvio, setModalEnvio] = useState(null)
-  const [htmlDoc, setHtmlDoc] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  async function verDocumento(doc) {
-    setLoading(true)
-    try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `doc:${doc.signToken}`).single()
-      if (row?.value) {
-        const docData = JSON.parse(row.value)
-        setHtmlDoc(docData.html)
-        setModalVer(doc)
-      } else {
-        alert('Documento não encontrado')
-      }
-    } catch (err) {
-      console.error(err)
-      alert('Erro ao carregar documento')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const docs = (cfg.docHistory || []).slice().reverse()
-
-  return (
-    <div>
-      <h3 style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>🗂️ Histórico de Documentos</h3>
-      {docs.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum documento gerado ainda.</p>}
-      {docs.map(doc => (
-        <div key={doc.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.clientName || 'Cliente'}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-              {doc.date} · {doc.type === 'contrato' ? 'Contrato' : 'Proposta'}
-              {doc.signedAt && ` · Cliente: ${doc.signedBy}`}
-              {doc.signedByConsultor && ` · Consultor: ${doc.signedByConsultor}`}
-              <span style={{ marginLeft: 8, color: doc.status === 'signed' ? 'var(--accent3)' : 'var(--warning)' }}>
-                {doc.status === 'signed' ? '✅ Assinado' : doc.status === 'pending' ? '⏳ Pendente' : '📝 Rascunho'}
-              </span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => verDocumento(doc)} disabled={loading} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontSize: 11, cursor: 'pointer' }}>👁️ Ver</button>
-            <button onClick={() => setModalEnvio(doc)} style={{ padding: '4px 10px', borderRadius: 6, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontSize: 11, cursor: 'pointer' }}>📧 Enviar</button>
-          </div>
-        </div>
-      ))}
-      {modalVer && <ModalVer html={htmlDoc} onClose={() => setModalVer(null)} />}
-      {modalEnvio && (
-        <ModalEnvioDoc
-          doc={modalEnvio}
-          cfg={cfg}
-          empresaId={empresaId}
-          onClose={() => setModalEnvio(null)}
-        />
-      )}
-    </div>
-  )
-}
-
-function ModalEnvioDoc({ doc, cfg, empresaId, onClose }) {
-  const [email, setEmail] = useState(doc.clientEmail || '')
-  const [saving, setSaving] = useState(false)
-
-  function buildSignUrl() {
-    const base = typeof window !== 'undefined' ? (cfg.signConfig?.url || window.location.origin) : ''
-    return `${base}/sign/${doc.signToken}`
-  }
-
-  function enviarWhatsApp() {
-    const url = buildSignUrl()
-    const tipo = doc.type === 'proposta' ? 'Proposta Comercial' : 'Contrato'
-    const msg = encodeURIComponent(`Olá! Segue o link para assinatura eletrônica do ${tipo} – ${cfg.company || 'Vivanexa'}:\n\n${url}\n\nQualquer dúvida, entre em contato conosco.`)
-    const wpp = (cfg.signConfig?.wpp || '').replace(/\D/g, '')
-    if (wpp) window.open(`https://wa.me/${wpp}?text=${msg}`, '_blank')
-    else window.open(`https://wa.me/?text=${msg}`, '_blank')
-  }
-
-  function enviarEmail() {
-    const url = buildSignUrl()
-    const tipo = doc.type === 'proposta' ? 'Proposta Comercial' : 'Contrato'
-    const subj = encodeURIComponent(`${tipo} – ${cfg.company || 'Vivanexa'} – Aguardando sua assinatura`)
-    const body = encodeURIComponent(`Olá!\n\nSegue o link para assinatura eletrônica do ${tipo}:\n\n${url}\n\nQualquer dúvida, entre em contato.\n\n${cfg.company || 'Vivanexa'}`)
-    const to = email || doc.clientEmail || ''
-    window.open(`mailto:${to}?subject=${subj}&body=${body}`, '_blank')
-  }
-
-  async function marcarEnviado() {
-    setSaving(true)
-    try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `doc:${doc.signToken}`).single()
-      if (row?.value) {
-        const d = JSON.parse(row.value)
-        if (d.status === 'draft') d.status = 'sent'
-        await supabase.from('vx_storage').upsert({ key: `doc:${doc.signToken}`, value: JSON.stringify(d), updated_at: new Date().toISOString() })
-      }
-      // Atualizar cfg
-      const newHistory = (cfg.docHistory || []).map(d => d.signToken === doc.signToken ? { ...d, status: 'sent' } : d)
-      const newCfg = { ...cfg, docHistory: newHistory }
-      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(newCfg), updated_at: new Date().toISOString() })
-    } catch(e) { console.warn(e) }
-    setSaving(false)
-    onClose()
-  }
-
-  return (
-    <div className="modal-overlay" style={{ zIndex: 10001 }}>
-      <div className="modal-box" style={{ maxWidth: 520 }}>
-        <div className="modal-header">
-          <h3>📧 Enviar para Assinatura</h3>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-            {doc.type === 'proposta' ? 'Proposta' : 'Contrato'} · {doc.clientName}
-          </div>
-          <button className="modal-close" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 6 }}>Link de Assinatura</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input readOnly value={buildSignUrl()} style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--accent)', outline: 'none' }} />
-              <button onClick={() => navigator.clipboard.writeText(buildSignUrl())} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', cursor: 'pointer', fontSize: 12 }}>📋 Copiar</button>
-            </div>
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 6 }}>E-mail do cliente</div>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email do cliente" style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none' }} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button onClick={enviarWhatsApp} style={{ padding: '13px 16px', borderRadius: 12, background: 'linear-gradient(135deg,#25d366,#128c7e)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>💬 Enviar via WhatsApp</button>
-            <button onClick={enviarEmail} style={{ padding: '13px 16px', borderRadius: 12, background: 'linear-gradient(135deg,#0f172a,#1e3a5f)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>📧 Enviar por E-mail</button>
-            <button onClick={marcarEnviado} disabled={saving} style={{ padding: '13px 16px', borderRadius: 12, background: 'linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08))', border: '1px solid rgba(251,191,36,.4)', color: 'var(--gold)', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>{saving ? '⏳...' : '✅ Marcar como enviado'}</button>
-            <button onClick={onClose} style={{ padding: '11px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid var(--border)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>Fechar</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ══════════════════════════════════════════════════════════════
 export default function Chat(){
@@ -725,7 +465,6 @@ export default function Chat(){
       status:'draft',
       signToken:token,
       signedAt:null,signedBy:null,signCPF:null,signIP:null,
-      signedByConsultor:null,signedAtConsultor:null,
       consultor:userProfile?.nome||'',
       empresaId:empresaId||'',
       ...extra
@@ -1005,7 +744,7 @@ export default function Chat(){
         }
       </div>
       <div className="header-text">
-        {cfg.slogan && <p style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{cfg.slogan}</p>}
+        {!cfg.logob64&&<p style={{fontSize:11,color:'var(--muted)',marginTop:2}}>{cfg.slogan}</p>}
       </div>
       <div className="status-dot">online</div>
       <nav style={{display:'flex',gap:6,alignItems:'center',marginLeft:'auto'}}>
@@ -1038,22 +777,7 @@ export default function Chat(){
       </div>
     </div>
 
-    {/* NOVOS PAINÉIS: Assinaturas Pendentes e Histórico */}
-    <div style={{ marginTop: '24px', borderTop: '1px solid var(--border)', paddingTop: '24px', maxWidth: 820, margin: '24px auto 0' }}>
-      <DocumentosPendentes
-        cfg={cfg}
-        empresaId={empresaId}
-        user={userProfile}
-        onCfgUpdate={(novoCfg) => setCfg(novoCfg)}
-      />
-      <Historico
-        cfg={cfg}
-        empresaId={empresaId}
-        onCfgUpdate={(novoCfg) => setCfg(novoCfg)}
-      />
-    </div>
-
-    {/* MODAL DADOS DO CLIENTE (igual ao original) */}
+    {/* MODAL DADOS DO CLIENTE */}
     {showClient&&(
       <div className="modal-overlay">
         <div className="modal-box" style={{maxWidth:620}}>
@@ -1183,7 +907,7 @@ export default function Chat(){
       </div>
     )}
 
-    {/* MODAL ENVIAR PARA ASSINATURA (original) */}
+    {/* MODAL ENVIAR PARA ASSINATURA */}
     {showSign&&signDoc&&(
       <div className="modal-overlay">
         <div className="modal-box" style={{maxWidth:520}}>
@@ -1375,4 +1099,3 @@ const CSS=`
   .date-inp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;margin-top:6px}
   .date-inp:focus{border-color:var(--accent)}
   @keyframes spin{to{transform:rotate(360deg)}}
-`
