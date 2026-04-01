@@ -20,6 +20,27 @@
   --shadow: 0 4px 24px rgba(0,0,0,0.4);
 }
 
+/* Tema claro (opcional, se você quiser alternar) */
+html[data-theme='light'] {
+  --bg: #f0f2f5;
+  --surface: #ffffff;
+  --surface2: #f8f9fa;
+  --border: #e0e0e0;
+  --accent: #007bff;
+  --accent2: #6f42c1;
+  --accent3: #28a745;
+  --text: #333333;
+  --muted: #6c757d;
+  --user-bubble: #e9ecef;
+  --bot-bubble: #f8f9fa;
+  --danger: #dc3545;
+  --warning: #ffc107;
+  --gold: #ffc107;
+  --card-bg: #ffffff;
+  --shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+
 /* Estilos globais básicos */
 * {
   box-sizing: border-box;
@@ -151,4 +172,58 @@ input, select, textarea {
 .btn-primary:hover {
   box-shadow: 0 0 16px rgba(0,212,255,.4);
   transform: translateY(-1px);
+}
+
+/* Estilos para o switch toggle */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border);
+  -webkit-transition: .4s;
+  transition: .4s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: var(--accent3);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px var(--accent3);
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(20px);
+  -ms-transform: translateX(20px);
+  transform: translateX(20px);
 }
