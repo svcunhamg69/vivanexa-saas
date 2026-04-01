@@ -1,11 +1,12 @@
 // pages/chat.js — Assistente Comercial Vivanexa SaaS v5
 // ============================================================
 // v5 ADICIONA:
-// • Contagem regressiva configurável (closeHour, closeMessage)
-// • Botões de módulos (toggle enableProductButtons)
+// • Seleção múltipla de módulos (botões ou texto)
+// • Horário limite configurável e texto personalizado
 // • Salvamento automático de clientes
-// • Limpeza de mensagens ao encerrar consulta
 // • Token de assinatura no contrato
+// • Limpeza da tela ao resetar
+// • Suporte a templates de documentos via configuração
 // ============================================================
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -17,8 +18,6 @@ import { supabase } from '../lib/supabase'
 const DEFAULT_CFG = {
   company:'VIVANEXA', slogan:'Assistente Comercial de Preços',
   discMode:'screen', discAdPct:50, discMenPct:0, discClosePct:40, unlimitedStrategy:true,
-  closeHour:18, closeMessage:'Oferta válida até as 18h de hoje',
-  enableProductButtons:false,
   plans:[
     {id:'basic',   name:'Basic',    maxCnpjs:25,  users:1},
     {id:'pro',     name:'Pro',      maxCnpjs:80,  users:1},
@@ -144,7 +143,7 @@ async function fetchCEP(cep){
   }catch{return null}
 }
 
-// ── Build Proposta HTML ───────────────────────────────────────
+// ── Build Proposta HTML (com suporte a template personalizado) ──
 function buildProposal(S,cfg,user){
   const isC=S.closingToday===true,cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
@@ -158,13 +157,42 @@ function buildProposal(S,cfg,user){
   }).join('')
   const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
+
+  // Se tiver template personalizado, substituir variáveis
+  let template = cfg.propostaTemplate || ''
+  if (template) {
+    const vars = {
+      '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
+      '{{razao}}': co.razao||cd.nome||'',
+      '{{cnpj}}': fmtDoc(S.doc||''),
+      '{{contato}}': co.contato||'',
+      '{{email}}': co.email||cd.email||'',
+      '{{telefone}}': co.telefone||cd.telefone||'',
+      '{{cidade}}': co.cidade||cd.municipio||'',
+      '{{uf}}': co.uf||cd.uf||'',
+      '{{plano}}': S.plan?getPlanLabel(S.plan,cfg.plans):'—',
+      '{{cnpjs_qty}}': S.cnpjs||'0',
+      '{{total_adesao}}': fmt(tAd),
+      '{{total_mensalidade}}': fmt(tMen),
+      '{{data_hoje}}': today,
+      '{{consultor_nome}}': user?.nome||'',
+      '{{company}}': cfg.company||'Vivanexa',
+      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th></tr></thead><tbody>${rows}</tbody></table>`
+    }
+    for (const [k, v] of Object.entries(vars)) {
+      template = template.replace(new RegExp(k, 'g'), v)
+    }
+    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">${template}</div>`
+  }
+
+  // Template padrão
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px">
     ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">`:`<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">${cfg.company||'Vivanexa'}</div>`}
     <div style="font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:18px">Proposta Comercial</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Data</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${today}</div></div>
-      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Validade</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${isC?`Válida até as ${cfg.closeHour||18}h de hoje`:'Válida por 7 dias'}</div></div>
+      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Validade</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${isC?'Válida até as 18h de hoje':'Válida por 7 dias'}</div></div>
       <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Plano</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${S.plan?getPlanLabel(S.plan,cfg.plans):'—'}</div></div>
       <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">CNPJs</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${S.cnpjs||'—'}</div></div>
     </div>
@@ -204,7 +232,7 @@ function buildProposal(S,cfg,user){
 </div>`
 }
 
-// ── Build Contrato HTML (modelo Fiscontech) ───────────────────
+// ── Build Contrato HTML (com token e template) ───────────────────
 function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   const cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
@@ -220,6 +248,39 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   const sec=(n,t)=>`<h3 style="font-family:Inter,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
   const row=(l,v)=>`<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v||'—'}</span></div>`
   const endStr=[co.logradouro||cd.logradouro,co.bairro||cd.bairro,co.cidade||cd.municipio,co.uf||cd.uf].filter(Boolean).join(', ')
+
+  // Se tiver template personalizado
+  let template = cfg.contratoTemplate || ''
+  if (template) {
+    const vars = {
+      '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
+      '{{razao}}': co.razao||cd.nome||'',
+      '{{cnpj}}': fmtDoc(S.doc||''),
+      '{{contato}}': co.contato||'',
+      '{{email}}': co.email||cd.email||'',
+      '{{telefone}}': co.telefone||cd.telefone||'',
+      '{{endereco}}': endStr,
+      '{{regime}}': co.regime||'',
+      '{{plano}}': S.plan?getPlanLabel(S.plan,cfg.plans):'—',
+      '{{cnpjs_qty}}': S.cnpjs||'0',
+      '{{total_adesao}}': fmt(tAd),
+      '{{total_mensalidade}}': fmt(tMen),
+      '{{condicao_pagamento}}': payLabel,
+      '{{vencimento_adesao}}': dateAd||'—',
+      '{{vencimento_mensal}}': dateMen||'—',
+      '{{data_hoje}}': today,
+      '{{consultor_nome}}': user?.nome||'',
+      '{{company}}': cfg.company||'Vivanexa',
+      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0"><thead><tr style="background:#0f172a;color:#fff"><th>Produto</th><th>Adesão</th><th>Qtd. CNPJs</th><th>Mensalidade</th></tr></thead><tbody>${tableRows}</tbody></table>`
+    }
+    for (const [k, v] of Object.entries(vars)) {
+      template = template.replace(new RegExp(k, 'g'), v)
+    }
+    if (token) template += `<div style="font-size:10px;color:#64748b;margin-top:8px;word-break:break-all">Identificador: ${token}</div>`
+    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">${template}</div>`
+  }
+
+  // Template padrão
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
   <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:28px 44px;display:flex;align-items:center;gap:20px">
     ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain">`:''}
@@ -270,7 +331,7 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
         <div style="text-align:center"><div style="border-top:1px solid #0f172a;padding-top:8px;margin-top:60px"><div style="font-weight:600;font-size:13px">${co.razao||cd.nome||'Cliente'}</div><div style="font-size:11px;color:#64748b">CONTRATANTE</div></div></div>
       </div>
       <div style="text-align:center;margin-top:24px;font-size:11px;color:#94a3b8">${today} · Assinatura Eletrônica conforme Lei nº 14.063/2020</div>
-      <div style="text-align:center;margin-top:8px;font-size:10px;color:#64748b;word-break:break-all">Identificador: ${token}</div>
+      ${token ? `<div style="text-align:center;font-size:10px;color:#64748b;margin-top:8px;word-break:break-all">Identificador do documento: ${token}</div>` : ''}
     </div>
   </div>
 </div>`
@@ -310,10 +371,11 @@ export default function Chat(){
   const [chips,         setChips]         = useState([])
   const [timerVal,      setTimerVal]      = useState('')
   const [timerDeadline, setTimerDeadline] = useState(null)
+  const [tempModules,   setTempModules]   = useState([]) // para seleção múltipla de módulos
 
   // Painel ativo: null | 'documentos' | 'historico' | 'assinaturas'
   const [painel,      setPainel]      = useState(null)
-  const [histDocs,    setHistDocs]    = useState([])  // lista do histórico enriquecida
+  const [histDocs,    setHistDocs]    = useState([])
   const [histLoading, setHistLoading] = useState(false)
 
   // Modal cliente
@@ -338,7 +400,7 @@ export default function Chat(){
   const [signEmailInput, setSignEmailInput] = useState('')
   const [signSalvo,      setSignSalvo]      = useState(false)
 
-  // Modal assinar agora (side: 'client' | 'consultant')
+  // Modal assinar agora
   const [showSignForm,   setShowSignForm]   = useState(false)
   const [signFormSide,   setSignFormSide]   = useState('client')
   const [signFormDoc,    setSignFormDoc]    = useState(null)
@@ -405,18 +467,7 @@ export default function Chat(){
     }catch{}
   }
 
-  // ── Salvar doc no histórico e cliente ───────────────────
-  async function saveClientToHistory(clientData){
-    // Evita duplicatas
-    const existing = (cfg.clients || []).find(c => c.cnpj === clientData.cnpj || c.cpf === clientData.cpf)
-    if(!existing){
-      const newClients = [...(cfg.clients || []), { id: Date.now().toString(), ...clientData }]
-      const novoCfg = { ...cfg, clients: newClients }
-      await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(novoCfg),updated_at:new Date().toISOString()})
-      setCfg(novoCfg)
-    }
-  }
-
+  // ── Salvar doc no histórico ───────────────────
   async function saveToHistory(type,clientName,html,extra={}){
     const id='doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)
     const token=generateToken()
@@ -434,12 +485,37 @@ export default function Chat(){
     return{id,token,html,type,clientName,...entry}
   }
 
+  // Função para salvar cliente automaticamente
+  async function salvarClienteAutomatico(clientName, doc, email, telefone, cidade) {
+    const clientes = cfg.clients || [];
+    const existe = clientes.some(c => c.cnpj === doc || c.cpf === doc || c.email === email);
+    if (!existe) {
+      const novoCliente = {
+        id: Date.now().toString(),
+        nome: clientName,
+        cnpj: isCNPJ(doc) ? doc : '',
+        cpf: isCPF(doc) ? doc : '',
+        email: email,
+        telefone: telefone,
+        cidade: cidade,
+        dataCadastro: new Date().toISOString()
+      };
+      const novosClientes = [...clientes, novoCliente];
+      const novoCfg = { ...cfg, clients: novosClientes };
+      await salvarStorage(empresaId, novoCfg);
+      setCfg(novoCfg);
+    }
+  }
+
   const addBot  =(c,h=false)=>setMessages(p=>[...p,{role:'bot', content:c,isHTML:h, id:Date.now()+Math.random()}])
   const addUser =c           =>setMessages(p=>[...p,{role:'user',content:c,isHTML:false,id:Date.now()+Math.random()}])
 
   const resetS=()=>{
     Object.assign(S,{stage:'await_doc',doc:null,clientData:null,contactData:{},users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,quoteData:null,closingData:null,closingToday:false,appliedVoucher:null,awaitingVoucher:false})
     setTimerDeadline(null);setTimerVal('')
+    setTempModules([])
+    setMessages([]) // Limpa mensagens ao resetar
+    addBot('🔄 Consulta encerrada!\n\nPronto, ' + (userProfile?.nome || '') + '! Informe o CPF ou CNPJ do próximo cliente:')
   }
 
   async function buscarCep(cep){
@@ -590,12 +666,13 @@ export default function Chat(){
     finally{setSfSaving(false)}
   }
 
-  // ── Lógica do chat com botões de módulos ─────────────────
+  // ── Lógica do chat ────────────────────────────
   async function processInput(t){
     const lo=t.toLowerCase()
     if(S.stage==='closed')return null
     if(['valeu','obrigado','obrigada','tchau'].some(w=>lo.includes(w))&&S.stage!=='await_doc'){S.stage='closed';return{h:false,c:'Perfeito! Boas vendas! 🚀'}}
 
+    // Modo voucher
     if(S.awaitingVoucher){
       if(lo.includes('sem voucher')||lo.includes('pular')){S.awaitingVoucher=false;S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.stage='full_quoted';return{h:true,c:rFull(S.quoteData)}}
       const code=t.trim().toUpperCase()
@@ -609,6 +686,7 @@ export default function Chat(){
       setTimeout(()=>addBot(rDisc(discData,getNextDates(),cn),true),300);return null
     }
 
+    // CPF/CNPJ
     if(S.stage==='await_doc'){
       const doc=clean(t);if(!isCNPJ(doc)&&!isCPF(doc))return{h:false,c:'Por favor, informe o CPF ou CNPJ (somente números).'}
       S.doc=doc
@@ -618,18 +696,88 @@ export default function Chat(){
       S.clientData={nome:isCPF(doc)?'Cliente PF':'Empresa',fantasia:'',cnpj:doc,tipo:isCPF(doc)?'PF':'PJ'}
       S.stage='await_users';return{h:false,c:(isCNPJ(doc)?`⚠️ CNPJ ${fmtDoc(doc)} não localizado.\n`:'')+`Quantos usuários o cliente possui?`}
     }
-    if(S.stage==='await_users'){const u=parseInt(t.match(/\d+/)?.[0]);if(!u||u<1)return{h:false,c:'Quantos usuários? (número)'};S.users=u;S.stage='await_modules';return{h:false,c:`👥 ${u} usuário${u>1?'s':''}!\n\nQuais módulos?\n${cfg.enableProductButtons?'Clique nos botões abaixo:':'(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)'}`}}
+
+    // Usuários
+    if(S.stage==='await_users'){
+      const u=parseInt(t.match(/\d+/)?.[0]);if(!u||u<1)return{h:false,c:'Quantos usuários? (número)'}
+      S.users=u
+      S.stage='await_modules'
+      setTempModules([])
+      if (cfg.enableProductButtons) {
+        const mods = cfg.modulos || MODULOS_PADRAO;
+        setChips([...mods.map(m => m), '✅ Concluir seleção']);
+        return { h: false, c: `👥 ${u} usuário${u>1?'s':''}!\n\nSelecione os módulos desejados clicando nos botões abaixo. Quando terminar, clique em "Concluir seleção".` }
+      } else {
+        return { h: false, c: `👥 ${u} usuário${u>1?'s':''}!\n\nQuais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)` }
+      }
+    }
+
+    // Seleção múltipla de módulos (modo botões)
+    if (S.stage === 'await_modules' && cfg.enableProductButtons) {
+      if (lo.includes('concluir') || lo === '✅ concluir seleção') {
+        if (tempModules.length === 0) {
+          return { h: false, c: 'Nenhum módulo selecionado. Selecione pelo menos um módulo antes de concluir.' }
+        }
+        S.modules = [...tempModules];
+        setTempModules([]);
+        setChips([]);
+        // Avança para próximo passo
+        return checkCalc();
+      } else {
+        const mods = parseMods(t, cfg);
+        if (mods.length) {
+          const novos = [];
+          for (const m of mods) {
+            if (!tempModules.includes(m)) {
+              novos.push(m);
+            }
+          }
+          if (novos.length) {
+            setTempModules(prev => [...prev, ...novos]);
+            addBot(`📦 Módulos adicionados: ${novos.join(', ')}. Selecionados até agora: ${[...tempModules, ...novos].join(', ') || 'nenhum'}. Continue ou clique em "Concluir seleção".`);
+          } else {
+            addBot(`⚠️ Módulo "${t}" já está selecionado. Selecione outros ou clique em "Concluir seleção".`);
+          }
+        } else {
+          return { h: false, c: 'Módulo não reconhecido. Use: Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos.' }
+        }
+        return null;
+      }
+    }
+
+    // Modo texto (múltiplos módulos de uma vez)
+    if (S.stage === 'await_modules' && !cfg.enableProductButtons) {
+      const mods = parseMods(t, cfg);
+      if (mods.length) {
+        S.modules = mods;
+        return checkCalc();
+      } else {
+        return { h: false, c: 'Módulo não reconhecido. Use: Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos (separados por vírgula).' }
+      }
+    }
+
+    // Plano IF
     if(S.stage==='await_if_plan'){const p=parseIFPlan(t,cfg.plans);if(!p)return{h:false,c:`Informe o plano IF:\n(${cfg.plans.map(x=>x.name).join(', ')})`};S.ifPlan=p;S.stage='await_modules';return checkCalc()}
+
+    // Notas
     if(S.stage==='await_notas'){const n=parseInt(t);if(!n||n<1)return{h:false,c:'Quantas notas fiscais por mês?'};S.notas=n;S.stage='await_modules';return checkCalc()}
 
-    const mods=parseMods(t,cfg);for(const m of mods)if(!S.modules.includes(m))S.modules.push(m)
-    const nCNPJ=S.modules.length===0||S.modules.some(m=>!IF_NO_CNPJ.includes(m))
-    if(nCNPJ){const n=parseInt(t.match(/\b(\d+)\s*(cnpj[s]?)?\b/i)?.[1]);if(n&&!S.cnpjs)S.cnpjs=n}
     return checkCalc()
   }
 
   function checkCalc(){
-    if(S.modules.length===0)return{h:false,c:`Quais módulos?\n${cfg.enableProductButtons?'Clique nos botões abaixo:':'(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)'}`}
+    // Verifica se há módulos
+    if(S.modules.length===0) {
+      if (cfg.enableProductButtons) {
+        S.stage='await_modules';
+        const mods = cfg.modulos || MODULOS_PADRAO;
+        setChips([...mods.map(m => m), '✅ Concluir seleção']);
+        return { h: false, c: `Selecione os módulos desejados nos botões abaixo e depois clique em "Concluir seleção".` }
+      } else {
+        return { h: false, c: `Quais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)` }
+      }
+    }
+
     if(S.modules.includes('EP')&&!S.modules.includes('Gestão Fiscal')){S.modules=S.modules.filter(m=>m!=='EP');return{h:false,c:`⚠️ EP exige Gestão Fiscal.`}}
     if(S.modules.includes('IF')&&!S.ifPlan){S.stage='await_if_plan';return{h:false,c:`Qual o plano de IF?\n(${cfg.plans.map(p=>p.name).join(', ')})`}}
     if(S.modules.includes('Tributos')&&!S.notas){S.stage='await_notas';return{h:false,c:'Quantas notas fiscais por mês?'}}
@@ -646,50 +794,6 @@ export default function Chat(){
     setInput('');addUser(txt);setChips([])
     setThinking(true);const resp=await processInput(txt);setThinking(false)
     if(resp)addBot(resp.c,resp.h)
-    if(S.stage==='await_modules'){
-      if(cfg.enableProductButtons && cfg.modulos){
-        // mostra botões dos módulos
-        const modButtons = cfg.modulos.map(m => ({
-          label: m,
-          action: () => {
-            if(!S.modules.includes(m)) S.modules.push(m)
-            addBot(`✅ Módulo ${m} adicionado.`)
-            checkCalc()
-          }
-        }))
-        // exibe botões dinamicamente
-        setTimeout(()=>{
-          const div = document.createElement('div')
-          div.className = 'bubble'
-          div.style.display = 'flex'
-          div.style.flexWrap = 'wrap'
-          div.style.gap = '8px'
-          div.style.padding = '8px'
-          cfg.modulos.forEach(mod => {
-            const btn = document.createElement('button')
-            btn.textContent = `📦 ${mod}`
-            btn.style.padding = '6px 12px'
-            btn.style.borderRadius = '8px'
-            btn.style.background = 'rgba(0,212,255,.1)'
-            btn.style.border = '1px solid rgba(0,212,255,.3)'
-            btn.style.color = 'var(--accent)'
-            btn.style.cursor = 'pointer'
-            btn.onclick = () => {
-              if(!S.modules.includes(mod)) S.modules.push(mod)
-              addBot(`✅ Módulo ${mod} adicionado.`)
-              checkCalc()
-            }
-            div.appendChild(btn)
-          })
-          // adiciona a mensagem com os botões
-          addBot('Clique nos módulos que deseja adicionar:', true)
-          // o ideal é mostrar os botões como parte da mensagem, mas como é complicado injetar depois, usamos chips
-          setChips(cfg.modulos.map(m => `➕ ${m}`))
-        },100)
-      } else {
-        setChips(['Gestão Fiscal + BIA','BIA + CND + XML','Gestão Fiscal + EP','Inteligência Fiscal'])
-      }
-    }
   }
 
   useEffect(()=>{
@@ -701,16 +805,11 @@ export default function Chat(){
       setChips([])
     }
     window.vx_close=(yes)=>{
-      if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.closingData=d;S.closingToday=true;S.stage='closing';addUser('✅ Fechar hoje!');const dl=new Date();dl.setHours(cfg.closeHour||18,0,0,0);setTimerDeadline(dl);addBot(rClose(d),true)}
+      if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.closingData=d;S.closingToday=true;S.stage='closing';addUser('✅ Fechar hoje!');const dl=new Date();const hora=cfg.closeHour||18;dl.setHours(hora,0,0,0);setTimerDeadline(dl);addBot(rClose(d),true)}
       else{S.stage='discounted';addUser('Não por agora');addBot('Entendido!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
       setChips([])
     }
-    window.vx_reset=()=>{
-      resetS()
-      setChips([])
-      setMessages([]) // LIMPA TODAS AS MENSAGENS
-      addBot('🔄 Nova consulta!\n\nInforme o CPF ou CNPJ do próximo cliente:')
-    }
+    window.vx_reset=()=>{resetS();}
     window.vx_prop=()=>{
       const cd=S.clientData||{},co=S.contactData||{}
       setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
@@ -727,22 +826,12 @@ export default function Chat(){
     S.contactData={...cf}
     setShowClient(false)
     const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
-    // Salva cliente no histórico
-    const clientInfo = {
-      nome: clientName,
-      cnpj: S.doc,
-      email: cf.email,
-      telefone: cf.telefone,
-      cidade: cf.cidade,
-      uf: cf.uf,
-      ...cf
-    }
-    await saveClientToHistory(clientInfo)
-
     if(clientMode==='proposta'){
       const html=buildProposal(S,cfg,userProfile)
       openPrint(html,'Proposta Comercial')
       const doc=await saveToHistory('proposta',clientName,html,{tAd:S.quoteData?.tAdD||0,tMen:S.quoteData?.tMenD||0,clientEmail:cf.email,modulos:S.modules})
+      // Salvar cliente automaticamente
+      await salvarClienteAutomatico(clientName, S.doc, cf.email, cf.telefone, cf.cidade)
       setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
       setTimeout(()=>setShowSign(true),600)
     }else{
@@ -759,11 +848,13 @@ export default function Chat(){
       if(wizTAd>0&&!wizAd){alert('Selecione a data de vencimento da adesão.');return}
       if(!wizMen){alert('Selecione a data da 1ª mensalidade.');return}
       setShowWiz(false)
-      const tokenTemp = generateToken() // token temporário
+      const tokenTemp = generateToken()
       const html=buildContract(S,cfg,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,tokenTemp)
       openPrint(html,'Contrato')
       const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
-      saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,signToken:tokenTemp}).then(doc=>{
+      saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen, signToken:tokenTemp}).then(doc=>{
+        // Salvar cliente automaticamente
+        salvarClienteAutomatico(clientName, S.doc, cf.email, cf.telefone, cf.cidade)
         setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
         setTimeout(()=>setShowSign(true),600)
       })
@@ -797,7 +888,8 @@ export default function Chat(){
     const{results,tAd,tMen,tAdD,tMenD}=data;let h=''
     for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div><hr class="section-divider">${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão c/ desconto</span><span class="val discount">${fmt(r.adD)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade c/ desconto</span><span class="val discount">${fmt(r.menD)}</span></div></div>`}
     h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(tMen)}</span></div><hr class="section-divider"><div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(tAdD)}</span></div><div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(tMenD)}</span></div>${cfg.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
-    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${cfg.discClosePct||40}% OFF</strong> na adesão!<br>${cfg.closeMessage || `Válido até as ${cfg.closeHour||18}h de hoje`}.</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
+    const closeMsg = cfg.closeMessage || `Oferta válida até as ${cfg.closeHour || 18}h de hoje`;
+    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${cfg.discClosePct||40}% OFF</strong> na adesão!<br>${closeMsg}</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     return h
   }
