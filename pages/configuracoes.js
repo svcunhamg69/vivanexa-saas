@@ -7,6 +7,8 @@
 // 3. Usuários: permissões granulares + perfis personalizados
 // 4. Vouchers: botão imprimir PDF estilizado
 // 5. KPIs: seletor de ícone com galeria de opções
+// 6. Documentos: edição de modelos de proposta e contrato
+// 7. KPIs: opção de exigir preenchimento diário (kpiRequired)
 // ============================================================
 
 import { useState, useEffect } from 'react'
@@ -131,7 +133,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setSaving(false)
     if (error) { toast('Erro ao salvar: ' + error.message, 'err'); return }
     setCfg(novoCfg)
-    // Força recarregar a logo do storage para confirmar que persistiu
     toast('✅ Empresa salva com sucesso!')
   }
 
@@ -292,12 +293,13 @@ function TabMetas({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA KPIs — COM GALERIA DE ÍCONES
+// ABA KPIs — COM GALERIA DE ÍCONES + OBRIGATORIEDADE
 // ══════════════════════════════════════════════
 function TabKpis({ cfg, setCfg, empresaId }) {
   const [kpis,        setKpis]        = useState(cfg.kpiTemplates || [])
   const [saving,      setSaving]      = useState(false)
   const [iconPickerId, setIconPickerId] = useState(null) // qual KPI está com seletor aberto
+  const [kpiRequired, setKpiRequired]  = useState(cfg.kpiRequired || false)
 
   function addKpi() {
     setKpis(prev => [...prev, { id: Date.now(), nome: '', icone: '📊', meta: 0, unidade: 'un', cor: '#00d4ff' }])
@@ -312,7 +314,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, kpiTemplates: kpis }
+    const novoCfg = { ...cfg, kpiTemplates: kpis, kpiRequired }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -363,7 +365,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
             </div>
 
             {/* Galeria de ícones */}
-            {iconPickerId === k.id && (
+            if (iconPickerId === k.id) (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 0 2px' }}>
                 {KPI_ICONS.map(ic => (
                   <button key={ic} onClick={() => { updateKpi(k.id, 'icone', ic); setIconPickerId(null) }}
@@ -381,6 +383,33 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           ➕ Adicionar KPI
         </button>
       </div>
+
+      <div style={s.sec}>
+        <div style={s.secTitle}>🔐 Obrigatoriedade de KPIs</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <div
+            onClick={() => setKpiRequired(!kpiRequired)}
+            style={{
+              width: 40, height: 20, borderRadius: 10,
+              background: kpiRequired ? 'var(--accent3)' : 'rgba(100,116,139,.3)',
+              cursor: 'pointer', position: 'relative', transition: 'background .2s'
+            }}
+          >
+            <div style={{
+              width: 16, height: 16, borderRadius: '50%', background: '#fff',
+              position: 'absolute', top: 2, left: kpiRequired ? 22 : 2,
+              transition: 'left .2s'
+            }} />
+          </div>
+          <span style={{ fontSize: 13, color: 'var(--text)' }}>
+            {kpiRequired ? '✅ Exigir preenchimento diário de KPIs' : '⭕ Não exigir preenchimento diário'}
+          </span>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Se ativado, os usuários serão redirecionados para uma tela de lançamento de KPIs sempre que não tiverem preenchido o dia anterior.
+        </p>
+      </div>
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>
         {saving ? '⏳ Salvando...' : '✅ Salvar KPIs'}
       </button>
@@ -1150,18 +1179,25 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA DOCUMENTOS
+// ABA DOCUMENTOS — COM EDIÇÃO DE MODELOS
 // ══════════════════════════════════════════════
 function TabDocumentos({ cfg, setCfg, empresaId }) {
   const [emailRem, setEmailRem] = useState(cfg.signConfig?.email || '')
   const [wpp,      setWpp]      = useState(cfg.signConfig?.wpp   || '')
   const [urlBase,  setUrlBase]  = useState(cfg.signConfig?.url   || '')
+  const [propostaTemplate, setPropostaTemplate] = useState(cfg.propostaTemplate || '')
+  const [contratoTemplate, setContratoTemplate] = useState(cfg.contratoTemplate || '')
   const [saving,   setSaving]   = useState(false)
   const [testando, setTestando] = useState(false)
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, signConfig: { email: emailRem, wpp, url: urlBase } }
+    const novoCfg = {
+      ...cfg,
+      signConfig: { email: emailRem, wpp, url: urlBase },
+      propostaTemplate,
+      contratoTemplate
+    }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -1180,22 +1216,56 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
   return (
     <div style={s.body}>
       <div style={s.sec}>
-        <div style={s.secTitle}>Modelos de Documentos</div>
-        {[
-          ['proposta', '📄 Modelo de Proposta Comercial', 'Texto de abertura personalizado para propostas'],
-          ['contrato', '📝 Modelo de Contrato',           'Texto de abertura personalizado para contratos'],
-        ].map(([tipo, titulo, sub]) => (
-          <div key={tipo} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{titulo}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>
-            </div>
-            <button style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-              ✏️ Editar
-            </button>
+        <div style={s.secTitle}>✍️ Modelos de Documentos</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+          Você pode personalizar os modelos de proposta e contrato. Deixe vazio para usar os modelos padrão do sistema.
+          Utilize as variáveis disponíveis para inserir dados dinâmicos.
+        </p>
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ ...s.secTitle, marginBottom: 8 }}>Modelo de Proposta</div>
+          <textarea
+            rows={8}
+            style={{ ...s.input, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap' }}
+            value={propostaTemplate}
+            onChange={e => setPropostaTemplate(e.target.value)}
+            placeholder="Use HTML e variáveis como {{empresa}}, {{total_adesao}}, etc."
+          />
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ ...s.secTitle, marginBottom: 8 }}>Modelo de Contrato</div>
+          <textarea
+            rows={8}
+            style={{ ...s.input, fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap' }}
+            value={contratoTemplate}
+            onChange={e => setContratoTemplate(e.target.value)}
+            placeholder="Use HTML e variáveis como {{empresa}}, {{total_adesao}}, etc."
+          />
+        </div>
+
+        <div style={{ background: 'var(--surface2)', padding: '12px 16px', borderRadius: 8, marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Variáveis disponíveis:</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
+            <div><code>{'{{empresa}}'}</code> - Nome fantasia</div>
+            <div><code>{'{{razao}}'}</code> - Razão social</div>
+            <div><code>{'{{cnpj}}'}</code> - CNPJ</div>
+            <div><code>{'{{contato}}'}</code> - Nome do contato</div>
+            <div><code>{'{{email}}'}</code> - E-mail do cliente</div>
+            <div><code>{'{{telefone}}'}</code> - Telefone</div>
+            <div><code>{'{{endereco}}'}</code> - Endereço completo</div>
+            <div><code>{'{{regime}}'}</code> - Regime tributário</div>
+            <div><code>{'{{plano}}'}</code> - Nome do plano</div>
+            <div><code>{'{{total_adesao}}'}</code> - Total adesão (R$)</div>
+            <div><code>{'{{total_mensal}}'}</code> - Total mensalidade (R$)</div>
+            <div><code>{'{{data_hora}}'}</code> - Data atual</div>
+            <div><code>{'{{condicao_pagamento}}'}</code> - Condição de pagamento</div>
+            <div><code>{'{{vencimento_adesao}}'}</code> - Vencimento adesão</div>
+            <div><code>{'{{vencimento_mensal}}'}</code> - Vencimento 1ª mensalidade</div>
           </div>
-        ))}
+        </div>
       </div>
+
       <div style={s.sec}>
         <div style={s.secTitle}>Configurações de Assinatura Eletrônica</div>
         <div style={s.row2}>
