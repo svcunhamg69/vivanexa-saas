@@ -1,12 +1,11 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v4
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v5
 // ============================================================
-// v4 ADICIONA:
-// • Menu: Documentos · Histórico · Assinaturas (painéis inline)
-// • Painel Histórico: ver doc HTML + reenviar link de assinatura
-// • Painel Assinaturas: consultor + cliente, status individual,
-//   assinar agora (cada parte), enviar link, email cópia ao fim
-// • Logo/nome da empresa do cadastro no header
-// • Mantém TUDO que já funcionava na v3
+// v5 ADICIONA:
+// • Contagem regressiva configurável (closeHour, closeMessage)
+// • Botões de módulos (toggle enableProductButtons)
+// • Salvamento automático de clientes
+// • Limpeza de mensagens ao encerrar consulta
+// • Token de assinatura no contrato
 // ============================================================
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -18,6 +17,8 @@ import { supabase } from '../lib/supabase'
 const DEFAULT_CFG = {
   company:'VIVANEXA', slogan:'Assistente Comercial de Preços',
   discMode:'screen', discAdPct:50, discMenPct:0, discClosePct:40, unlimitedStrategy:true,
+  closeHour:18, closeMessage:'Oferta válida até as 18h de hoje',
+  enableProductButtons:false,
   plans:[
     {id:'basic',   name:'Basic',    maxCnpjs:25,  users:1},
     {id:'pro',     name:'Pro',      maxCnpjs:80,  users:1},
@@ -163,7 +164,7 @@ function buildProposal(S,cfg,user){
     <div style="font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:18px">Proposta Comercial</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Data</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${today}</div></div>
-      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Validade</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${isC?'Válida até as 18h de hoje':'Válida por 7 dias'}</div></div>
+      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Validade</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${isC?`Válida até as ${cfg.closeHour||18}h de hoje`:'Válida por 7 dias'}</div></div>
       <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Plano</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${S.plan?getPlanLabel(S.plan,cfg.plans):'—'}</div></div>
       <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">CNPJs</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${S.cnpjs||'—'}</div></div>
     </div>
@@ -204,7 +205,7 @@ function buildProposal(S,cfg,user){
 }
 
 // ── Build Contrato HTML (modelo Fiscontech) ───────────────────
-function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod){
+function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   const cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
   const isC=S.closingToday===true
@@ -216,7 +217,7 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod){
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:(r.adD||0))
     return`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td></tr>`
   }).join('')
-  const sec=(n,t)=>`<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
+  const sec=(n,t)=>`<h3 style="font-family:Inter,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
   const row=(l,v)=>`<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v||'—'}</span></div>`
   const endStr=[co.logradouro||cd.logradouro,co.bairro||cd.bairro,co.cidade||cd.municipio,co.uf||cd.uf].filter(Boolean).join(', ')
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
@@ -269,6 +270,7 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod){
         <div style="text-align:center"><div style="border-top:1px solid #0f172a;padding-top:8px;margin-top:60px"><div style="font-weight:600;font-size:13px">${co.razao||cd.nome||'Cliente'}</div><div style="font-size:11px;color:#64748b">CONTRATANTE</div></div></div>
       </div>
       <div style="text-align:center;margin-top:24px;font-size:11px;color:#94a3b8">${today} · Assinatura Eletrônica conforme Lei nº 14.063/2020</div>
+      <div style="text-align:center;margin-top:8px;font-size:10px;color:#64748b;word-break:break-all">Identificador: ${token}</div>
     </div>
   </div>
 </div>`
@@ -403,7 +405,18 @@ export default function Chat(){
     }catch{}
   }
 
-  // ── Salvar doc no histórico ───────────────────
+  // ── Salvar doc no histórico e cliente ───────────────────
+  async function saveClientToHistory(clientData){
+    // Evita duplicatas
+    const existing = (cfg.clients || []).find(c => c.cnpj === clientData.cnpj || c.cpf === clientData.cpf)
+    if(!existing){
+      const newClients = [...(cfg.clients || []), { id: Date.now().toString(), ...clientData }]
+      const novoCfg = { ...cfg, clients: newClients }
+      await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(novoCfg),updated_at:new Date().toISOString()})
+      setCfg(novoCfg)
+    }
+  }
+
   async function saveToHistory(type,clientName,html,extra={}){
     const id='doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)
     const token=generateToken()
@@ -439,7 +452,6 @@ export default function Chat(){
     setHistLoading(true)
     try{
       const hist=cfg.docHistory||[]
-      // Para cada doc, busca status atualizado do Supabase
       const enriched=await Promise.all(hist.slice(0,50).map(async h=>{
         try{
           const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${h.signToken}`).single()
@@ -578,7 +590,7 @@ export default function Chat(){
     finally{setSfSaving(false)}
   }
 
-  // ── Lógica do chat ────────────────────────────
+  // ── Lógica do chat com botões de módulos ─────────────────
   async function processInput(t){
     const lo=t.toLowerCase()
     if(S.stage==='closed')return null
@@ -606,7 +618,7 @@ export default function Chat(){
       S.clientData={nome:isCPF(doc)?'Cliente PF':'Empresa',fantasia:'',cnpj:doc,tipo:isCPF(doc)?'PF':'PJ'}
       S.stage='await_users';return{h:false,c:(isCNPJ(doc)?`⚠️ CNPJ ${fmtDoc(doc)} não localizado.\n`:'')+`Quantos usuários o cliente possui?`}
     }
-    if(S.stage==='await_users'){const u=parseInt(t.match(/\d+/)?.[0]);if(!u||u<1)return{h:false,c:'Quantos usuários? (número)'};S.users=u;S.stage='await_modules';return{h:false,c:`👥 ${u} usuário${u>1?'s':''}!\n\nQuais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)`}}
+    if(S.stage==='await_users'){const u=parseInt(t.match(/\d+/)?.[0]);if(!u||u<1)return{h:false,c:'Quantos usuários? (número)'};S.users=u;S.stage='await_modules';return{h:false,c:`👥 ${u} usuário${u>1?'s':''}!\n\nQuais módulos?\n${cfg.enableProductButtons?'Clique nos botões abaixo:':'(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)'}`}}
     if(S.stage==='await_if_plan'){const p=parseIFPlan(t,cfg.plans);if(!p)return{h:false,c:`Informe o plano IF:\n(${cfg.plans.map(x=>x.name).join(', ')})`};S.ifPlan=p;S.stage='await_modules';return checkCalc()}
     if(S.stage==='await_notas'){const n=parseInt(t);if(!n||n<1)return{h:false,c:'Quantas notas fiscais por mês?'};S.notas=n;S.stage='await_modules';return checkCalc()}
 
@@ -617,7 +629,7 @@ export default function Chat(){
   }
 
   function checkCalc(){
-    if(S.modules.length===0)return{h:false,c:`Quais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)`}
+    if(S.modules.length===0)return{h:false,c:`Quais módulos?\n${cfg.enableProductButtons?'Clique nos botões abaixo:':'(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)'}`}
     if(S.modules.includes('EP')&&!S.modules.includes('Gestão Fiscal')){S.modules=S.modules.filter(m=>m!=='EP');return{h:false,c:`⚠️ EP exige Gestão Fiscal.`}}
     if(S.modules.includes('IF')&&!S.ifPlan){S.stage='await_if_plan';return{h:false,c:`Qual o plano de IF?\n(${cfg.plans.map(p=>p.name).join(', ')})`}}
     if(S.modules.includes('Tributos')&&!S.notas){S.stage='await_notas';return{h:false,c:'Quantas notas fiscais por mês?'}}
@@ -634,7 +646,50 @@ export default function Chat(){
     setInput('');addUser(txt);setChips([])
     setThinking(true);const resp=await processInput(txt);setThinking(false)
     if(resp)addBot(resp.c,resp.h)
-    if(S.stage==='await_modules')setChips(['Gestão Fiscal + BIA','BIA + CND + XML','Gestão Fiscal + EP','Inteligência Fiscal'])
+    if(S.stage==='await_modules'){
+      if(cfg.enableProductButtons && cfg.modulos){
+        // mostra botões dos módulos
+        const modButtons = cfg.modulos.map(m => ({
+          label: m,
+          action: () => {
+            if(!S.modules.includes(m)) S.modules.push(m)
+            addBot(`✅ Módulo ${m} adicionado.`)
+            checkCalc()
+          }
+        }))
+        // exibe botões dinamicamente
+        setTimeout(()=>{
+          const div = document.createElement('div')
+          div.className = 'bubble'
+          div.style.display = 'flex'
+          div.style.flexWrap = 'wrap'
+          div.style.gap = '8px'
+          div.style.padding = '8px'
+          cfg.modulos.forEach(mod => {
+            const btn = document.createElement('button')
+            btn.textContent = `📦 ${mod}`
+            btn.style.padding = '6px 12px'
+            btn.style.borderRadius = '8px'
+            btn.style.background = 'rgba(0,212,255,.1)'
+            btn.style.border = '1px solid rgba(0,212,255,.3)'
+            btn.style.color = 'var(--accent)'
+            btn.style.cursor = 'pointer'
+            btn.onclick = () => {
+              if(!S.modules.includes(mod)) S.modules.push(mod)
+              addBot(`✅ Módulo ${mod} adicionado.`)
+              checkCalc()
+            }
+            div.appendChild(btn)
+          })
+          // adiciona a mensagem com os botões
+          addBot('Clique nos módulos que deseja adicionar:', true)
+          // o ideal é mostrar os botões como parte da mensagem, mas como é complicado injetar depois, usamos chips
+          setChips(cfg.modulos.map(m => `➕ ${m}`))
+        },100)
+      } else {
+        setChips(['Gestão Fiscal + BIA','BIA + CND + XML','Gestão Fiscal + EP','Inteligência Fiscal'])
+      }
+    }
   }
 
   useEffect(()=>{
@@ -646,11 +701,16 @@ export default function Chat(){
       setChips([])
     }
     window.vx_close=(yes)=>{
-      if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.closingData=d;S.closingToday=true;S.stage='closing';addUser('✅ Fechar hoje!');const dl=new Date();dl.setHours(18,0,0,0);setTimerDeadline(dl);addBot(rClose(d),true)}
+      if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.closingData=d;S.closingToday=true;S.stage='closing';addUser('✅ Fechar hoje!');const dl=new Date();dl.setHours(cfg.closeHour||18,0,0,0);setTimerDeadline(dl);addBot(rClose(d),true)}
       else{S.stage='discounted';addUser('Não por agora');addBot('Entendido!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
       setChips([])
     }
-    window.vx_reset=()=>{resetS();setChips([]);addBot('🔄 Nova consulta!\n\nInforme o CPF ou CNPJ do próximo cliente:')}
+    window.vx_reset=()=>{
+      resetS()
+      setChips([])
+      setMessages([]) // LIMPA TODAS AS MENSAGENS
+      addBot('🔄 Nova consulta!\n\nInforme o CPF ou CNPJ do próximo cliente:')
+    }
     window.vx_prop=()=>{
       const cd=S.clientData||{},co=S.contactData||{}
       setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
@@ -667,6 +727,18 @@ export default function Chat(){
     S.contactData={...cf}
     setShowClient(false)
     const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
+    // Salva cliente no histórico
+    const clientInfo = {
+      nome: clientName,
+      cnpj: S.doc,
+      email: cf.email,
+      telefone: cf.telefone,
+      cidade: cf.cidade,
+      uf: cf.uf,
+      ...cf
+    }
+    await saveClientToHistory(clientInfo)
+
     if(clientMode==='proposta'){
       const html=buildProposal(S,cfg,userProfile)
       openPrint(html,'Proposta Comercial')
@@ -687,10 +759,11 @@ export default function Chat(){
       if(wizTAd>0&&!wizAd){alert('Selecione a data de vencimento da adesão.');return}
       if(!wizMen){alert('Selecione a data da 1ª mensalidade.');return}
       setShowWiz(false)
-      const html=buildContract(S,cfg,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay)
+      const tokenTemp = generateToken() // token temporário
+      const html=buildContract(S,cfg,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,tokenTemp)
       openPrint(html,'Contrato')
       const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
-      saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen}).then(doc=>{
+      saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,signToken:tokenTemp}).then(doc=>{
         setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
         setTimeout(()=>setShowSign(true),600)
       })
@@ -724,7 +797,7 @@ export default function Chat(){
     const{results,tAd,tMen,tAdD,tMenD}=data;let h=''
     for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div><hr class="section-divider">${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão c/ desconto</span><span class="val discount">${fmt(r.adD)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade c/ desconto</span><span class="val discount">${fmt(r.menD)}</span></div></div>`}
     h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(tMen)}</span></div><hr class="section-divider"><div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(tAdD)}</span></div><div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(tMenD)}</span></div>${cfg.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
-    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${cfg.discClosePct||40}% OFF</strong> na adesão!<br>Válido até as 18h de hoje.</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
+    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${cfg.discClosePct||40}% OFF</strong> na adesão!<br>${cfg.closeMessage || `Válido até as ${cfg.closeHour||18}h de hoje`}.</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     return h
   }
