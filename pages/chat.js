@@ -1,14 +1,8 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v5 (corrigido)
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v6
 // ============================================================
-// v5 ADICIONA:
-// • Seleção múltipla de módulos (botões ou texto)
-// • Horário limite configurável e texto personalizado
-// • Salvamento automático de clientes
-// • Token de assinatura no contrato
-// • Limpeza da tela ao resetar
-// • Suporte a templates de documentos via configuração
-// • Botão "Concluir seleção" funciona corretamente
-// • Logo no header clicável para voltar ao chat
+// v6 ADICIONA:
+// • Seleção múltipla de módulos com botões (sem mensagens intermediárias)
+// • Header clicável (logo/nome da empresa) em todas as páginas
 // ============================================================
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -155,7 +149,7 @@ function buildProposal(S,cfg,user){
   const dates=getNextDates()
   const rows=(results||[]).map(r=>{
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:r.adD)
-    return`<tr><td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}</td><td style="padding:10px 14px;text-align:center">${adS}</td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}</td></tr>`
+    return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}</td><td style="padding:10px 14px;text-align:center">${adS}</td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}</td>`
   }).join('')
   const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
@@ -245,7 +239,7 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
     payMethod?.startsWith('boleto')?`Boleto ${payMethod.replace('boleto','').replace('x','×')}×`:payMethod
   const tableRows=(results||[]).map(r=>{
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:(r.adD||0))
-    return`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td></tr>`
+    return`<td style="padding:8px 12px;border:1px solid #e2e8f0">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td>`
   }).join('')
   const sec=(n,t)=>`<h3 style="font-family:Inter,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
   const row=(l,v)=>`<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v||'—'}</span></div>`
@@ -373,7 +367,7 @@ export default function Chat(){
   const [chips,         setChips]         = useState([])
   const [timerVal,      setTimerVal]      = useState('')
   const [timerDeadline, setTimerDeadline] = useState(null)
-  const [tempModules,   setTempModules]   = useState([]) // para seleção múltipla de módulos
+  const [tempModulesSelecionados, setTempModulesSelecionados] = useState([]) // para seleção múltipla com botões
 
   // Painel ativo: null | 'documentos' | 'historico' | 'assinaturas'
   const [painel,      setPainel]      = useState(null)
@@ -515,7 +509,7 @@ export default function Chat(){
   const resetS=()=>{
     Object.assign(S,{stage:'await_doc',doc:null,clientData:null,contactData:{},users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,quoteData:null,closingData:null,closingToday:false,appliedVoucher:null,awaitingVoucher:false})
     setTimerDeadline(null);setTimerVal('')
-    setTempModules([])
+    setTempModulesSelecionados([])
     setMessages([]) // Limpa mensagens ao resetar
     addBot('🔄 Consulta encerrada!\n\nPronto, ' + (userProfile?.nome || '') + '! Informe o CPF ou CNPJ do próximo cliente:')
   }
@@ -704,52 +698,15 @@ export default function Chat(){
       const u=parseInt(t.match(/\d+/)?.[0]);if(!u||u<1)return{h:false,c:'Quantos usuários? (número)'}
       S.users=u
       S.stage='await_modules'
-      setTempModules([])
+      setTempModulesSelecionados([])
       if (cfg.enableProductButtons) {
-        const mods = cfg.modulos || MODULOS_PADRAO;
-        // Define os chips, não limpa os existentes (só se quiser)
-        setChips([...mods.map(m => m), '✅ Concluir seleção']);
-        return { h: false, c: `👥 ${u} usuário${u>1?'s':''}!\n\nSelecione os módulos desejados clicando nos botões abaixo. Quando terminar, clique em "Concluir seleção".` }
+        return { h: false, c: `👥 ${u} usuário${u>1?'s':''}!\n\nSelecione os módulos desejados clicando nos botões abaixo. Quando terminar, clique em "Confirmar seleção".` }
       } else {
         return { h: false, c: `👥 ${u} usuário${u>1?'s':''}!\n\nQuais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)` }
       }
     }
 
-    // Seleção múltipla de módulos (modo botões)
-    if (S.stage === 'await_modules' && cfg.enableProductButtons) {
-      // Verifica se é o botão "Concluir seleção"
-      if (lo.includes('concluir') || lo === '✅ concluir seleção') {
-        if (tempModules.length === 0) {
-          return { h: false, c: 'Nenhum módulo selecionado. Selecione pelo menos um módulo antes de concluir.' }
-        }
-        S.modules = [...tempModules];
-        setTempModules([]);
-        setChips([]); // remove os botões
-        // Avança para próximo passo
-        return checkCalc();
-      } else {
-        const mods = parseMods(t, cfg);
-        if (mods.length) {
-          const novos = [];
-          for (const m of mods) {
-            if (!tempModules.includes(m)) {
-              novos.push(m);
-            }
-          }
-          if (novos.length) {
-            setTempModules(prev => [...prev, ...novos]);
-            addBot(`📦 Módulos adicionados: ${novos.join(', ')}. Selecionados até agora: ${[...tempModules, ...novos].join(', ') || 'nenhum'}. Continue ou clique em "Concluir seleção".`);
-          } else {
-            addBot(`⚠️ Módulo "${t}" já está selecionado. Selecione outros ou clique em "Concluir seleção".`);
-          }
-        } else {
-          return { h: false, c: 'Módulo não reconhecido. Use: Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos.' }
-        }
-        return null;
-      }
-    }
-
-    // Modo texto (múltiplos módulos de uma vez)
+    // Modo texto (sem botões)
     if (S.stage === 'await_modules' && !cfg.enableProductButtons) {
       const mods = parseMods(t, cfg);
       if (mods.length) {
@@ -774,9 +731,7 @@ export default function Chat(){
     if(S.modules.length===0) {
       if (cfg.enableProductButtons) {
         S.stage='await_modules';
-        const mods = cfg.modulos || MODULOS_PADRAO;
-        setChips([...mods.map(m => m), '✅ Concluir seleção']);
-        return { h: false, c: `Selecione os módulos desejados nos botões abaixo e depois clique em "Concluir seleção".` }
+        return { h: false, c: `Nenhum módulo selecionado. Selecione pelo menos um módulo nos botões e clique em "Confirmar seleção".` }
       } else {
         return { h: false, c: `Quais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)` }
       }
@@ -790,8 +745,6 @@ export default function Chat(){
     S.plan=nCNPJ?getPlan(S.cnpjs,cfg.plans):'basic'
     if(cfg.discMode==='voucher'&&!S.appliedVoucher&&!S.awaitingVoucher){S.awaitingVoucher=true;return{h:false,c:`🎫 Modo desconto por Voucher.\n\nDigite o **código do voucher**:\n(ou "sem voucher" para ver preço cheio)`}}
     S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.stage='full_quoted'
-    // Ao finalizar, remove os chips
-    setChips([]);
     return{h:true,c:rFull(S.quoteData)}
   }
 
@@ -800,6 +753,25 @@ export default function Chat(){
     setInput('');addUser(txt);
     setThinking(true);const resp=await processInput(txt);setThinking(false)
     if(resp)addBot(resp.c,resp.h)
+  }
+
+  // Função para finalizar seleção de módulos (modo botões)
+  function finalizarSelecaoModulos() {
+    if (tempModulesSelecionados.length === 0) {
+      addBot('⚠️ Nenhum módulo selecionado. Selecione pelo menos um módulo antes de confirmar.');
+      return;
+    }
+    S.modules = [...tempModulesSelecionados];
+    setTempModulesSelecionados([]);
+    // Avança
+    const next = checkCalc();
+    if (next && next.c) addBot(next.c, next.h);
+  }
+
+  function toggleModuloTemp(modulo) {
+    setTempModulesSelecionados(prev =>
+      prev.includes(modulo) ? prev.filter(m => m !== modulo) : [...prev, modulo]
+    );
   }
 
   useEffect(()=>{
@@ -836,7 +808,6 @@ export default function Chat(){
       const html=buildProposal(S,cfg,userProfile)
       openPrint(html,'Proposta Comercial')
       const doc=await saveToHistory('proposta',clientName,html,{tAd:S.quoteData?.tAdD||0,tMen:S.quoteData?.tMenD||0,clientEmail:cf.email,modulos:S.modules})
-      // Salvar cliente automaticamente
       await salvarClienteAutomatico(clientName, S.doc, cf.email, cf.telefone, cf.cidade)
       setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
       setTimeout(()=>setShowSign(true),600)
@@ -859,7 +830,6 @@ export default function Chat(){
       openPrint(html,'Contrato')
       const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
       saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen, signToken:tokenTemp}).then(doc=>{
-        // Salvar cliente automaticamente
         salvarClienteAutomatico(clientName, S.doc, cf.email, cf.telefone, cf.cidade)
         setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
         setTimeout(()=>setShowSign(true),600)
@@ -1093,6 +1063,52 @@ export default function Chat(){
     if(p==='historico'||p==='assinaturas') carregarHistorico()
   }
 
+  // Renderizar botões de módulos quando estiver na etapa de seleção e os botões estiverem habilitados
+  const renderModulosButtons = () => {
+    if (!cfg.enableProductButtons) return null
+    if (S.stage !== 'await_modules') return null
+    const modulos = cfg.modulos || MODULOS_PADRAO
+    return (
+      <div style={{ marginTop: 8, marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {modulos.map(mod => (
+          <button
+            key={mod}
+            onClick={() => toggleModuloTemp(mod)}
+            style={{
+              padding: '8px 14px',
+              borderRadius: 8,
+              background: tempModulesSelecionados.includes(mod) ? 'rgba(0,212,255,.2)' : 'var(--surface2)',
+              border: `1px solid ${tempModulesSelecionados.includes(mod) ? 'var(--accent)' : 'var(--border)'}`,
+              color: tempModulesSelecionados.includes(mod) ? 'var(--accent)' : 'var(--muted)',
+              cursor: 'pointer',
+              fontFamily: 'DM Mono, monospace',
+              fontSize: 12,
+              transition: 'all .15s'
+            }}
+          >
+            {mod}
+          </button>
+        ))}
+        <button
+          onClick={finalizarSelecaoModulos}
+          style={{
+            padding: '8px 14px',
+            borderRadius: 8,
+            background: 'linear-gradient(135deg,var(--accent3),#059669)',
+            border: 'none',
+            color: '#fff',
+            cursor: 'pointer',
+            fontFamily: 'DM Mono, monospace',
+            fontSize: 12,
+            fontWeight: 600
+          }}
+        >
+          ✅ Confirmar seleção
+        </button>
+      </div>
+    )
+  }
+
   return(<>
     <Head>
       <title>{cfg.company} – Assistente Comercial</title>
@@ -1105,7 +1121,7 @@ export default function Chat(){
     {/* PAINEL OVERLAY */}
     {renderPainel()}
 
-    {/* HEADER com logo e menu completo, agora com logo clicável */}
+    {/* HEADER com logo clicável */}
     <header>
       <div className="header-logo" style={{cursor:'pointer'}} onClick={() => router.push('/chat')}>
         {cfg.logob64
@@ -1155,6 +1171,9 @@ export default function Chat(){
         {thinking&&<div className="msg bot"><div className="thinking"><span/><span/><span/></div></div>}
         {timerVal&&timerDeadline&&<div className="timer-live">{timerVal}</div>}
       </div>
+      {/* Botões de módulos (se aplicável) */}
+      {renderModulosButtons()}
+      {/* Chips (outros) */}
       {chips.length>0&&<div id="chips">{chips.map((c,i)=><button key={i} className="chip" onClick={()=>send(c)}>{c}</button>)}</div>}
       <div id="inputArea">
         <textarea ref={inputRef} id="userInput" placeholder="Digite CPF, CNPJ, módulos..." value={input}
