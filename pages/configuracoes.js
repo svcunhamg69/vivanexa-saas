@@ -12,6 +12,7 @@
 // 8. Produtos: toggle para habilitar seleção por botões
 // 9. Email: configuração SMTP/API para envio automático
 // 10. Header clicável para voltar ao chat
+// 11. Upload: tratamento para .docx/.doc (não suportado)
 // ============================================================
 
 import { useState, useEffect } from 'react'
@@ -382,7 +383,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
               <th style={{ textAlign: 'left', padding: '8px 6px' }}>Usuário</th>
               {kpis.map(k => <th key={k.id} style={{ textAlign: 'center', padding: '8px 6px' }}>{k.nome || 'KPI'}<br/><span style={{ fontSize: 10, color: 'var(--muted)' }}>meta/dia</span></th>)}
-             </tr>
+              </tr>
           </thead>
           <tbody>
             {usuarios.map(u => (
@@ -617,7 +618,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={s.secTitle}>Planos Disponíveis</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th> </tr></thead>
+              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th></tr></thead>
               <tbody>
                 {planos.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -846,6 +847,14 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     const file = e.target.files[0]
     if (!file) return
     if (file.size > 2 * 1024 * 1024) { toast('Arquivo muito grande (máx 2MB)', 'err'); return }
+
+    const ext = file.name.split('.').pop().toLowerCase()
+    if (ext === 'docx' || ext === 'doc') {
+      toast('Arquivo .doc/.docx não são suportados diretamente. Por favor, salve o conteúdo como .txt ou .html e tente novamente.', 'err')
+      e.target.value = ''
+      return
+    }
+
     const reader = new FileReader()
     reader.onload = ev => {
       const content = ev.target.result
@@ -882,18 +891,24 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
         <div style={{ marginBottom: 20 }}>
           <div style={{ ...s.secTitle, marginBottom: 8 }}>Modelo de Proposta</div>
           <textarea rows={8} style={{ ...s.input, fontFamily: 'monospace', fontSize: 12 }} value={propostaTemplate} onChange={e => setPropostaTemplate(e.target.value)} placeholder="Use HTML e variáveis como {{empresa}}, {{total_adesao}}, etc." />
-          <div style={{ marginTop: 8 }}>
-            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Ou importar arquivo (.txt, .html, .docx – apenas texto):</label>
-            <input type="file" accept=".txt,.html,.htm,.docx" onChange={e => handleFileUpload('proposta', e)} style={{ marginLeft: 8, fontSize: 12 }} />
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer', background: 'rgba(0,212,255,.1)', padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(0,212,255,.25)' }}>
+              📂 Importar arquivo (.txt, .html)
+              <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload('proposta', e)} style={{ display: 'none' }} />
+            </label>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>ou cole o HTML diretamente acima</span>
           </div>
         </div>
 
         <div style={{ marginBottom: 20 }}>
           <div style={{ ...s.secTitle, marginBottom: 8 }}>Modelo de Contrato</div>
           <textarea rows={8} style={{ ...s.input, fontFamily: 'monospace', fontSize: 12 }} value={contratoTemplate} onChange={e => setContratoTemplate(e.target.value)} placeholder="Use HTML e variáveis como {{empresa}}, {{total_adesao}}, etc." />
-          <div style={{ marginTop: 8 }}>
-            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Ou importar arquivo (.txt, .html, .docx – apenas texto):</label>
-            <input type="file" accept=".txt,.html,.htm,.docx" onChange={e => handleFileUpload('contrato', e)} style={{ marginLeft: 8, fontSize: 12 }} />
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer', background: 'rgba(0,212,255,.1)', padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(0,212,255,.25)' }}>
+              📂 Importar arquivo (.txt, .html)
+              <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload('contrato', e)} style={{ display: 'none' }} />
+            </label>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>ou cole o HTML diretamente acima</span>
           </div>
         </div>
 
