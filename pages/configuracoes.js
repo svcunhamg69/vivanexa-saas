@@ -365,16 +365,34 @@ function TabKpis({ cfg, setCfg, empresaId }) {
             </div>
 
             {/* Galeria de ícones */}
-            if (iconPickerId === k.id) (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 0 2px' }}>
-                {KPI_ICONS.map(ic => (
-                  <button key={ic} onClick={() => { updateKpi(k.id, 'icone', ic); setIconPickerId(null) }}
-                    style={{ width: 36, height: 36, borderRadius: 8, background: k.icone === ic ? 'rgba(0,212,255,.15)' : 'var(--surface)', border: `1px solid ${k.icone === ic ? 'var(--accent)' : 'var(--border)'}`, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s' }}>
-                    {ic}
-                  </button>
-                ))}
-              </div>
-            )}
+            {iconPickerId === k.id && (
+  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 0 2px' }}>
+    {KPI_ICONS.map(ic => (
+      <button
+        key={ic}
+        onClick={() => {
+          updateKpi(k.id, 'icone', ic)
+          setIconPickerId(null)
+        }}
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 8,
+          background: k.icone === ic ? 'rgba(0,212,255,.15)' : 'var(--surface)',
+          border: `1px solid ${k.icone === ic ? 'var(--accent)' : 'var(--border)'}`,
+          fontSize: 18,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'all .15s'
+        }}
+      >
+        {ic}
+      </button>
+    ))}
+  </div>
+)}
           </div>
         ))}
 
