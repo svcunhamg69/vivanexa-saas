@@ -1,16 +1,11 @@
 // pages/kpi.js
-// ============================================================
-// Página para lançamento diário de KPIs
-// Redireciona para a página original após salvar
-// ============================================================
-
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
 export default function KpiPage() {
   const router = useRouter()
-  const { redirect } = router.query // para onde voltar após salvar
+  const { redirect, date: dateParam } = router.query
   const [cfg, setCfg] = useState(null)
   const [user, setUser] = useState(null)
   const [empresaId, setEmpresaId] = useState(null)
@@ -18,7 +13,8 @@ export default function KpiPage() {
   const [saving, setSaving] = useState(false)
   const [kpis, setKpis] = useState([])
   const [valores, setValores] = useState({})
-  const [data, setData] = useState(new Date().toISOString().slice(0,10))
+  // Se dateParam existir, usa ele, senão usa hoje
+  const [data, setData] = useState(dateParam || new Date().toISOString().slice(0,10))
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -46,10 +42,10 @@ export default function KpiPage() {
         const loaded = JSON.parse(cfgRow.value)
         setCfg(loaded)
         setKpis(loaded.kpiTemplates || [])
-        // Pré-carregar valores já lançados no dia (se houver)
+        // Pré-carregar valores já lançados no dia
         const log = loaded.kpiLog || []
-        const hoje = data
-        const existing = log.filter(l => l.userId === session.user.id && l.date === hoje)
+        const dia = data
+        const existing = log.filter(l => l.userId === session.user.id && l.date === dia)
         const map = {}
         existing.forEach(l => { map[l.kpiId] = l.realizado })
         setValores(map)
@@ -100,9 +96,9 @@ export default function KpiPage() {
         updated_at: new Date().toISOString()
       })
 
-      // Redirecionar
+      // Redirecionar com reload total para garantir que o config seja recarregado
       const redirectTo = typeof redirect === 'string' ? redirect : '/chat'
-      router.push(redirectTo)
+      window.location.href = redirectTo
     } catch (err) {
       console.error(err)
       setError('Erro ao salvar. Tente novamente.')
@@ -112,20 +108,14 @@ export default function KpiPage() {
   }
 
   if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>
-        Carregando...
-      </div>
-    )
+    return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>Carregando...</div>
   }
 
   if (!kpis.length) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)', flexDirection: 'column', gap: 16 }}>
         <div>📊 Nenhum KPI configurado.</div>
-        <button onClick={() => router.push('/configuracoes')} style={{ padding: '10px 20px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>
-          Configurar KPIs
-        </button>
+        <button onClick={() => router.push('/configuracoes')} style={{ padding: '10px 20px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Configurar KPIs</button>
       </div>
     )
   }
