@@ -1,4 +1,4 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v5
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v5 (corrigido)
 // ============================================================
 // v5 ADICIONA:
 // • Seleção múltipla de módulos (botões ou texto)
@@ -7,6 +7,8 @@
 // • Token de assinatura no contrato
 // • Limpeza da tela ao resetar
 // • Suporte a templates de documentos via configuração
+// • Botão "Concluir seleção" funciona corretamente
+// • Logo no header clicável para voltar ao chat
 // ============================================================
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -705,6 +707,7 @@ export default function Chat(){
       setTempModules([])
       if (cfg.enableProductButtons) {
         const mods = cfg.modulos || MODULOS_PADRAO;
+        // Define os chips, não limpa os existentes (só se quiser)
         setChips([...mods.map(m => m), '✅ Concluir seleção']);
         return { h: false, c: `👥 ${u} usuário${u>1?'s':''}!\n\nSelecione os módulos desejados clicando nos botões abaixo. Quando terminar, clique em "Concluir seleção".` }
       } else {
@@ -714,13 +717,14 @@ export default function Chat(){
 
     // Seleção múltipla de módulos (modo botões)
     if (S.stage === 'await_modules' && cfg.enableProductButtons) {
+      // Verifica se é o botão "Concluir seleção"
       if (lo.includes('concluir') || lo === '✅ concluir seleção') {
         if (tempModules.length === 0) {
           return { h: false, c: 'Nenhum módulo selecionado. Selecione pelo menos um módulo antes de concluir.' }
         }
         S.modules = [...tempModules];
         setTempModules([]);
-        setChips([]);
+        setChips([]); // remove os botões
         // Avança para próximo passo
         return checkCalc();
       } else {
@@ -786,12 +790,14 @@ export default function Chat(){
     S.plan=nCNPJ?getPlan(S.cnpjs,cfg.plans):'basic'
     if(cfg.discMode==='voucher'&&!S.appliedVoucher&&!S.awaitingVoucher){S.awaitingVoucher=true;return{h:false,c:`🎫 Modo desconto por Voucher.\n\nDigite o **código do voucher**:\n(ou "sem voucher" para ver preço cheio)`}}
     S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.stage='full_quoted'
+    // Ao finalizar, remove os chips
+    setChips([]);
     return{h:true,c:rFull(S.quoteData)}
   }
 
   async function send(text){
     const txt=(text||input).trim();if(!txt)return
-    setInput('');addUser(txt);setChips([])
+    setInput('');addUser(txt);
     setThinking(true);const resp=await processInput(txt);setThinking(false)
     if(resp)addBot(resp.c,resp.h)
   }
@@ -1099,9 +1105,9 @@ export default function Chat(){
     {/* PAINEL OVERLAY */}
     {renderPainel()}
 
-    {/* HEADER com logo e menu completo */}
+    {/* HEADER com logo e menu completo, agora com logo clicável */}
     <header>
-      <div className="header-logo">
+      <div className="header-logo" style={{cursor:'pointer'}} onClick={() => router.push('/chat')}>
         {cfg.logob64
           ?<img src={cfg.logob64} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
           :<div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>
