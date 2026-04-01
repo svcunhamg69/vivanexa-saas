@@ -8,7 +8,7 @@
 // 4. Descontos: % Adesão (tela), % Mensalidade (tela), % Adesão (fechamento)
 //    e Modo de Desconto (em tela ou via voucher)
 // 5. Documentos: upload de PDF/HTML, visualização e histórico
-// 6. KPIs: Obrigar preenchimento diário de KPIs
+// 6. KPIs: Obrigar preenchimento diário de KPIs + galeria de ícones
 // 7. Histórico: Visualização de documentos gerados e assinaturas
 // ============================================================
 
@@ -46,997 +46,1668 @@ export default function Configuracoes() {
   const [newUserPermissions, setNewUserPermissions] = useState([]);
   const [kpiTemplates, setKpiTemplates] = useState([]);
   const [newKpiName, setNewKpiName] = useState('');
-  const [newKpiTarget, setNewKpiTarget] = useState('');
-  const [newKpiUnit, setNewKpiUnit] = useState('');
-  const [documentUploadFile, setDocumentUploadFile] = useState(null);
-  const [documentUploadName, setDocumentUploadName] = useState('');
-  const [documentUploadType, setDocumentUploadType] = useState('html'); // 'html' ou 'pdf'
+  const [newKpiIcon, setNewKpiIcon] = useState('📊');
+  const [newKpiMeta, setNewKpiMeta] = useState(0);
+  const [newKpiUnidade, setNewKpiUnidade] = useState('un');
+  const [newKpiColor, setNewKpiColor] = useState('#00d4ff');
+  const [showIconPicker, setShowIconPicker] = useState(null); // Para a galeria de ícones do KPI
 
-  const PERMISSIONS_OPTIONS = [
-    { id: 'view_dashboard', name: 'Ver Dashboard' },
-    { id: 'manage_users', name: 'Gerenciar Usuários' },
-    { id: 'manage_products', name: 'Gerenciar Produtos' },
-    { id: 'manage_discounts', name: 'Gerenciar Descontos' },
-    { id: 'manage_documents', name: 'Gerenciar Documentos' },
-    { id: 'manage_kpis', name: 'Gerenciar KPIs' },
-    { id: 'create_proposals', name: 'Criar Propostas' },
-    { id: 'sign_documents', name: 'Assinar Documentos' },
+  // Estados para documentos
+  const [documentosImportados, setDocumentosImportados] = useState([]);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [docHistory, setDocHistory] = useState([]);
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [modalDocContent, setModalDocContent] = useState('');
+  const [modalDocTitle, setModalDocTitle] = useState('');
+
+  // ══════════════════════════════════════════════
+  // CONSTANTES
+  // ══════════════════════════════════════════════
+  const TABS = [
+    { id: 'geral',      label: '🏢 Empresa' },
+    { id: 'metas',      label: '🎯 Metas' },
+    { id: 'kpis',       label: '📊 KPIs' },
+    { id: 'usuarios',   label: '👥 Usuários' },
+    { id: 'produtos',   label: '📦 Produtos' },
+    { id: 'descontos',  label: '🏷️ Descontos' },
+    { id: 'vouchers',   label: '🎫 Vouchers' },
+    { id: 'documentos', label: '📄 Documentos' }, // Nova aba para documentos importados
+    { id: 'historico',  label: '🗂️ Histórico' },  // Aba para histórico de gerados/assinados
+    { id: 'clientes',   label: '🗃️ Clientes' },
+    { id: 'tema',       label: '🎨 Tema' },
   ];
 
-  const fetchUserData = useCallback(async () => {
-    setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      router.push('/'); // Redireciona para login se não houver usuário
-      return;
+  // Galeria de ícones para KPI
+  const KPI_ICONS = [
+    '📞','📲','📧','🤝','💼','🏆','🎯','💰','📈','📊',
+    '🔥','⭐','🚀','✅','📅','🗓','👥','🏃','💡','🎤',
+    '📝','🔔','💬','🌐','🛒','📦','🔑','⚡','🎁','🏅',
+  ];
+
+  // Módulos e planos padrão
+  const MODULOS_PADRAO = ['Gestão Fiscal','CND','XML','BIA','IF','EP','Tributos'];
+  const PLANOS_PADRAO = [
+    { id: 'basic',   nome: 'Basic',    maxCnpjs: 25,  usuarios: 1  },
+    { id: 'pro',     nome: 'Pro',      maxCnpjs: 80,  usuarios: 1  },
+    { id: 'top',     nome: 'Top',      maxCnpjs: 150, usuarios: 5  },
+    { id: 'topplus', nome: 'Top Plus', maxCnpjs: 999, usuarios: 999 },
+  ];
+  const PRECOS_PADRAO = {
+    'Gestão Fiscal': { basic:[478,318], pro:[590,409], top:[1032,547], topplus:[1398,679] },
+    'CND':           { basic:[0,48],   pro:[0,90],   top:[0,150],    topplus:[0,200]     },
+    'XML':           { basic:[478,199], pro:[590,299], top:[1032,349], topplus:[1398,399] },
+    'BIA':           { basic:[478,129], pro:[590,169], top:[1032,280], topplus:[1398,299] },
+    'IF':            { basic:[1600,379],pro:[1600,619],top:[1600,920], topplus:[1600,1100]},
+    'EP':            { basic:[0,39],   pro:[0,82],   top:[0,167],    topplus:[0,200]     },
+    'Tributos':      { basic:[0,0],    pro:[0,0],    top:[0,0],      topplus:[0,0]       },
+  };
+
+  // Permissões disponíveis
+  const PERMISSOES_DISPONIVEIS = [
+    { id: 'ver_dashboard',    label: '📊 Ver Dashboard'           },
+    { id: 'ver_chat',         label: '💬 Usar Chat'               },
+    { id: 'ver_configuracoes',label: '⚙️ Ver Configurações'        },
+    { id: 'editar_precos',    label: '💲 Editar Preços'            },
+    { id: 'ver_historico',    label: '🗂️ Ver Histórico'            },
+    { id: 'gerar_proposta',   label: '📄 Gerar Proposta'           },
+    { id: 'gerar_contrato',   label: '📝 Gerar Contrato'           },
+    { id: 'ver_clientes',     label: '🗃️ Ver Clientes'             },
+    { id: 'gerenciar_usuarios',label:'👥 Gerenciar Usuários'       },
+    { id: 'ver_kpis',         label: '📈 Ver KPIs'                 },
+    { id: 'lancar_kpis',      label: '✏️ Lançar KPIs diários'      },
+    { id: 'ver_vouchers',     label: '🎫 Ver/Gerar Vouchers'       },
+    { id: 'gerenciar_documentos', label: '📄 Gerenciar Documentos' }, // Nova permissão
+  ];
+
+  // Permissões padrão por perfil
+  const PERMISSOES_ADMIN = PERMISSOES_DISPONIVEIS.map(p => p.id);
+  const PERMISSOES_USER  = ['ver_dashboard','ver_chat','gerar_proposta','gerar_contrato','ver_clientes','ver_historico','ver_kpis','lancar_kpis'];
+
+  // ══════════════════════════════════════════════
+  // HELPERS
+  // ══════════════════════════════════════════════
+  function toast(msg, type = 'ok') {
+    const el = document.getElementById('vx-toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.background = type === 'ok' ? 'rgba(16,185,129,.9)' : 'rgba(239,68,68,.9)';
+    el.style.opacity = '1';
+    el.style.transform = 'translateY(0)';
+    setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(20px)' }, 3000);
+  }
+
+  async function salvarStorage(empresaId, novoCfg) {
+    return supabase.from('vx_storage').upsert({
+      key: `cfg:${empresaId}`,
+      value: JSON.stringify(novoCfg),
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  // ══════════════════════════════════════════════
+  // EFEITOS E CARREGAMENTO INICIAL
+  // ══════════════════════════════════════════════
+  useEffect(() => {
+    async function checkUser() {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session) {
+        router.push('/'); // Redireciona para a página de login se não houver sessão
+        return;
+      }
+      setUser(session.user);
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('uuid', session.user.id)
+        .single();
+
+      if (profileError || !profile?.company_id) {
+        console.error('Erro ao buscar company_id ou company_id não encontrado:', profileError);
+        // Pode redirecionar para uma página de erro ou setup inicial da empresa
+        router.push('/setup-empresa'); // Exemplo de redirecionamento
+        return;
+      }
+      setEmpresaId(profile.company_id);
     }
-    setUser(user);
-
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('company_id, role')
-      .eq('uuid', user.id)
-      .single();
-
-    if (profileError || !profile?.company_id) {
-      console.error('Erro ao buscar perfil ou company_id:', profileError);
-      setErrorMsg('Não foi possível carregar as configurações da empresa. Verifique seu perfil.');
-      setLoading(false);
-      return;
-    }
-    setEmpresaId(profile.company_id);
-
-    const { data: cfgRow, error: cfgError } = await supabase
-      .from('vx_storage')
-      .select('value')
-      .eq('key', `cfg:${profile.company_id}`)
-      .single();
-
-    if (cfgError && cfgError.code !== 'PGRST116') { // PGRST116 = no rows found
-      console.error('Erro ao buscar configurações:', cfgError);
-      setErrorMsg('Erro ao carregar configurações da empresa.');
-      setLoading(false);
-      return;
-    }
-
-    const initialCfg = cfgRow?.value ? JSON.parse(cfgRow.value) : {
-      company: 'Minha Empresa',
-      logob64: '',
-      plans: [
-        { id: 'basic', name: 'Basic', maxCnpjs: 5, maxUsers: 2 },
-        { id: 'pro', name: 'Pro', maxCnpjs: 20, maxUsers: 5 },
-        { id: 'top', name: 'Top', maxCnpjs: 50, maxUsers: 10 },
-        { id: 'topplus', name: 'Top Plus', maxCnpjs: 9999, maxUsers: 9999 },
-      ],
-      productNames: {
-        'IF': 'Inteligência Fiscal',
-        'Gestão Fiscal': 'Gestão Fiscal',
-        'BIA': 'BIA',
-        'CND': 'CND',
-        'XML': 'XML',
-        'Tributos': 'Tributos',
-        'EP': 'E-Processos',
-      },
-      prices: {
-        'IF': { 'basic': [0, 150], 'pro': [0, 250], 'top': [0, 400], 'topplus': [0, 600] },
-        'Gestão Fiscal': { 'basic': [500, 100], 'pro': [750, 150], 'top': [1000, 200], 'topplus': [1200, 250] },
-        'BIA': { 'basic': [0, 50], 'pro': [0, 80], 'top': [0, 120], 'topplus': [0, 180] },
-        'CND': { 'basic': [0, 30], 'pro': [0, 50], 'top': [0, 80], 'topplus': [0, 120] },
-        'XML': { 'basic': [0, 70], 'pro': [0, 120], 'top': [0, 180], 'topplus': [0, 250] },
-        'Tributos': { 'basic': [0, 0], 'pro': [0, 0], 'top': [0, 0], 'topplus': [0, 0] }, // Preço calculado à parte
-        'EP': { 'basic': [0, 80], 'pro': [0, 150], 'top': [0, 250], 'topplus': [0, 350] },
-      },
-      users: [], // Lista de usuários da empresa com permissões
-      discAdPct: 50, // Desconto de adesão em tela
-      discMenPct: 0,  // Desconto de mensalidade em tela
-      discClosePct: 40, // Desconto de adesão no fechamento
-      discountMode: 'screen', // 'screen' ou 'voucher'
-      documents: [], // Lista de documentos importados
-      docHistory: [], // Histórico de documentos gerados/assinados
-      kpiTemplates: [], // Modelos de KPI
-      kpiDailyMandatory: false, // Obrigar preenchimento diário de KPIs
-    };
-
-    setCfg(initialCfg);
-    setKpiTemplates(initialCfg.kpiTemplates || []);
-    setLoading(false);
+    checkUser();
   }, [router]);
 
   useEffect(() => {
-    fetchUserData();
-  }, [fetchUserData]);
+    async function loadConfig() {
+      if (!empresaId) return; // Só carrega se empresaId estiver disponível
 
-  const handleSaveConfig = async (updatedCfg) => {
-    if (!empresaId) {
-      setErrorMsg('ID da empresa não encontrado. Não foi possível salvar.');
-      return;
-    }
-    setSaving(true);
-    setErrorMsg('');
-    setSuccessMsg('');
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `cfg:${empresaId}`)
+        .single();
 
-    try {
-      const { error } = await supabase.from('vx_storage').upsert({
-        key: `cfg:${empresaId}`,
-        value: JSON.stringify(updatedCfg),
-        updated_at: new Date().toISOString(),
-      });
-
-      if (error) throw error;
-
-      setCfg(updatedCfg);
-      setSuccessMsg('Configurações salvas com sucesso!');
-    } catch (e) {
-      console.error('Erro ao salvar configurações:', e);
-      setErrorMsg('Erro ao salvar configurações. Tente novamente.');
-    } finally {
-      setSaving(false);
-      setTimeout(() => setSuccessMsg(''), 3000);
-      setTimeout(() => setErrorMsg(''), 5000);
-    }
-  };
-
-  const handleLogoUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        handleSaveConfig({ ...cfg, logob64: reader.result });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleAddUser = async () => {
-    if (!newUserName || !newUserEmail || !newUserRole) {
-      setErrorMsg('Preencha todos os campos para adicionar um usuário.');
-      return;
-    }
-
-    // Verifica se o usuário já existe no Supabase Auth
-    const { data: existingUsers, error: searchError } = await supabase.auth.admin.listUsers({
-      email: newUserEmail,
-    });
-
-    let userId = null;
-    if (searchError) {
-      console.error('Erro ao buscar usuário existente:', searchError);
-      setErrorMsg('Erro ao verificar usuário existente.');
-      return;
-    }
-
-    if (existingUsers.users.length > 0) {
-      userId = existingUsers.users[0].id;
-    } else {
-      // Se não existe, cria um novo usuário no Supabase Auth
-      const { data: newUserAuth, error: createError } = await supabase.auth.admin.createUser({
-        email: newUserEmail,
-        password: uuidv4(), // Senha temporária, o usuário definirá a própria
-        email_confirm: true,
-      });
-
-      if (createError) {
-        console.error('Erro ao criar usuário no Auth:', createError);
-        setErrorMsg(`Erro ao criar usuário: ${createError.message}.`);
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found (primeira vez)
+        console.error('Erro ao carregar configurações:', error);
+        setErrorMsg('Erro ao carregar configurações. Tente novamente.');
+        setLoading(false);
         return;
       }
-      userId = newUserAuth.user.id;
-    }
 
-    const updatedUsers = [...(cfg.users || []), {
-      id: userId,
-      name: newUserName,
-      email: newUserEmail,
-      role: newUserRole,
-      permissions: newUserPermissions,
-      company_id: empresaId,
-    }];
+      let loadedCfg = data ? JSON.parse(data.value) : {};
 
-    await handleSaveConfig({ ...cfg, users: updatedUsers });
-    setNewUserName('');
-    setNewUserEmail('');
-    setNewUserRole('user');
-    setNewUserPermissions([]);
-  };
-
-  const handleUpdateUser = async (index, field, value) => {
-    const updatedUsers = [...cfg.users];
-    updatedUsers[index][field] = value;
-    await handleSaveConfig({ ...cfg, users: updatedUsers });
-  };
-
-  const handleDeleteUser = async (index) => {
-    const updatedUsers = cfg.users.filter((_, i) => i !== index);
-    await handleSaveConfig({ ...cfg, users: updatedUsers });
-  };
-
-  const handlePermissionChange = (userId, permissionId, isChecked) => {
-    const updatedUsers = cfg.users.map(u => {
-      if (u.id === userId) {
-        const newPermissions = isChecked
-          ? [...(u.permissions || []), permissionId]
-          : (u.permissions || []).filter(p => p !== permissionId);
-        return { ...u, permissions: newPermissions };
-      }
-      return u;
-    });
-    handleSaveConfig({ ...cfg, users: updatedUsers });
-  };
-
-  const handleAddKpiTemplate = async () => {
-    if (!newKpiName || !newKpiTarget || !newKpiUnit) {
-      setErrorMsg('Preencha todos os campos para adicionar um modelo de KPI.');
-      return;
-    }
-    const newTemplate = {
-      id: uuidv4(),
-      name: newKpiName,
-      target: Number(newKpiTarget),
-      unit: newKpiUnit,
-    };
-    const updatedKpiTemplates = [...kpiTemplates, newTemplate];
-    setKpiTemplates(updatedKpiTemplates);
-    await handleSaveConfig({ ...cfg, kpiTemplates: updatedKpiTemplates });
-    setNewKpiName('');
-    setNewKpiTarget('');
-    setNewKpiUnit('');
-  };
-
-  const handleDeleteKpiTemplate = async (id) => {
-    const updatedKpiTemplates = kpiTemplates.filter(kpi => kpi.id !== id);
-    setKpiTemplates(updatedKpiTemplates);
-    await handleSaveConfig({ ...cfg, kpiTemplates: updatedKpiTemplates });
-  };
-
-  const handleDocumentUpload = async (e) => {
-    e.preventDefault();
-    if (!documentUploadFile || !documentUploadName) {
-      setErrorMsg('Selecione um arquivo e insira um nome para o documento.');
-      return;
-    }
-
-    setSaving(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    try {
-      const fileExtension = documentUploadFile.name.split('.').pop();
-      const filePath = `${empresaId}/documents/${uuidv4()}.${fileExtension}`;
-
-      const { data, error: uploadError } = await supabase.storage
-        .from('documents') // Certifique-se de ter um bucket 'documents' no Supabase Storage
-        .upload(filePath, documentUploadFile, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const publicUrl = supabase.storage.from('documents').getPublicUrl(filePath).data.publicUrl;
-
-      const newDocument = {
-        id: uuidv4(),
-        name: documentUploadName,
-        type: documentUploadType,
-        url: publicUrl,
-        uploaded_at: new Date().toISOString(),
-        file_path: filePath,
+      // Garante que as configurações essenciais existam
+      loadedCfg = {
+        company: loadedCfg.company || 'Minha Empresa',
+        slogan: loadedCfg.slogan || 'Assistente Comercial',
+        logob64: loadedCfg.logob64 || '',
+        users: loadedCfg.users || [],
+        kpiTemplates: loadedCfg.kpiTemplates || [],
+        goals: loadedCfg.goals || [],
+        products: loadedCfg.products || MODULOS_PADRAO,
+        plans: loadedCfg.plans || PLANOS_PADRAO,
+        prices: loadedCfg.prices || PRECOS_PADRAO,
+        productNames: loadedCfg.productNames || {},
+        vouchers: loadedCfg.vouchers || [],
+        docTemplates: loadedCfg.docTemplates || [],
+        docHistory: loadedCfg.docHistory || [],
+        importedDocs: loadedCfg.importedDocs || [], // Novos documentos importados
+        perfisTipos: loadedCfg.perfisTipos || [
+          { id: 'admin', nome: 'Administrador', permissoes: PERMISSOES_ADMIN, fixo: true },
+          { id: 'user',  nome: 'Vendedor',      permissoes: PERMISSOES_USER,  fixo: true },
+        ],
+        // Novas configurações de desconto
+        discAdPct: loadedCfg.discAdPct !== undefined ? loadedCfg.discAdPct : 50, // Desconto adesão em tela
+        discMenPct: loadedCfg.discMenPct !== undefined ? loadedCfg.discMenPct : 0, // Desconto mensalidade em tela
+        discClosePct: loadedCfg.discClosePct !== undefined ? loadedCfg.discClosePct : 40, // Desconto adesão fechamento
+        discountMode: loadedCfg.discountMode || 'tela', // 'tela' ou 'voucher'
+        // Nova configuração de KPI
+        kpiDailyRequired: loadedCfg.kpiDailyRequired !== undefined ? loadedCfg.kpiDailyRequired : false,
+        ...loadedCfg // Sobrescreve com o que veio do banco
       };
 
-      const updatedDocuments = [...(cfg.documents || []), newDocument];
-      await handleSaveConfig({ ...cfg, documents: updatedDocuments });
-
-      setDocumentUploadFile(null);
-      setDocumentUploadName('');
-      setDocumentUploadType('html');
-      setSuccessMsg('Documento enviado com sucesso!');
-    } catch (e) {
-      console.error('Erro ao fazer upload do documento:', e);
-      setErrorMsg(`Erro ao enviar documento: ${e.message}`);
-    } finally {
-      setSaving(false);
-      setTimeout(() => setSuccessMsg(''), 3000);
-      setTimeout(() => setErrorMsg(''), 5000);
+      setCfg(loadedCfg);
+      setKpiTemplates(loadedCfg.kpiTemplates);
+      setDocumentosImportados(loadedCfg.importedDocs);
+      setDocHistory(loadedCfg.docHistory);
+      setLoading(false);
     }
-  };
 
-  const handleDeleteDocument = async (docId, filePath) => {
-    if (!confirm('Tem certeza que deseja excluir este documento?')) return;
+    if (empresaId) {
+      loadConfig();
+    }
+  }, [empresaId]);
 
+  // Função genérica para salvar qualquer parte do cfg
+  const handleSave = useCallback(async (key, value, successMessage) => {
+    if (!empresaId) {
+      setErrorMsg('ID da empresa não disponível. Tente recarregar a página.');
+      return;
+    }
     setSaving(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    try {
-      // Excluir do Supabase Storage
-      const { error: storageError } = await supabase.storage
-        .from('documents')
-        .remove([filePath]);
-
-      if (storageError) throw storageError;
-
-      // Excluir da configuração
-      const updatedDocuments = cfg.documents.filter(doc => doc.id !== docId);
-      await handleSaveConfig({ ...cfg, documents: updatedDocuments });
-      setSuccessMsg('Documento excluído com sucesso!');
-    } catch (e) {
-      console.error('Erro ao excluir documento:', e);
-      setErrorMsg(`Erro ao excluir documento: ${e.message}`);
-    } finally {
-      setSaving(false);
-      setTimeout(() => setSuccessMsg(''), 3000);
-      setTimeout(() => setErrorMsg(''), 5000);
+    const novoCfg = { ...cfg, [key]: value };
+    const { error } = await salvarStorage(empresaId, novoCfg);
+    setSaving(false);
+    if (error) {
+      setErrorMsg('Erro ao salvar: ' + error.message);
+      toast('Erro ao salvar: ' + error.message, 'err');
+      return;
     }
-  };
+    setCfg(novoCfg);
+    setSuccessMsg(successMessage);
+    toast(successMessage);
+    setTimeout(() => setSuccessMsg(''), 3000);
+  }, [cfg, empresaId]);
 
-  if (loading) {
+  if (loading || !user || !empresaId) {
     return (
-      <div style={st.container}>
-        <Head><title>Carregando Configurações...</title></Head>
-        <div style={st.loadingBox}>
-          <div style={st.spinner} />
-          <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 20 }}>Carregando configurações...</p>
-        </div>
+      <div style={s.centro}>
+        <div style={s.spinner}></div>
+        <p style={{ marginTop: 20, color: 'var(--muted)' }}>Carregando configurações...</p>
       </div>
     );
   }
 
-  if (errorMsg && !cfg) { // Exibe erro fatal se não conseguiu carregar cfg
+  // ══════════════════════════════════════════════
+  // ABA EMPRESA — CORREÇÃO DA LOGO
+  // ══════════════════════════════════════════════
+  function TabEmpresa({ cfg, setCfg, empresaId, handleSave }) {
+    const [company,  setCompany]  = useState(cfg.company  || '');
+    const [slogan,   setSlogan]   = useState(cfg.slogan   || '');
+    const [logoB64,  setLogoB64]  = useState(cfg.logob64  || '');
+    const [savingLocal, setSavingLocal] = useState(false);
+
+    useEffect(() => {
+      setCompany(cfg.company  || '');
+      setSlogan(cfg.slogan    || '');
+      setLogoB64(cfg.logob64  || '');
+    }, [cfg]);
+
+    function handleLogo(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 512000) { toast('Imagem muito grande (máx 500kb)', 'err'); return; }
+      const reader = new FileReader();
+      reader.onload = ev => setLogoB64(ev.target.result);
+      reader.readAsDataURL(file);
+    }
+
+    function removerLogo() { setLogoB64(''); }
+
+    async function salvar() {
+      setSavingLocal(true);
+      const novoCfg = { ...cfg, company, slogan, logob64: logoB64 };
+      await handleSave('company', company, '✅ Empresa salva com sucesso!');
+      await handleSave('slogan', slogan, ''); // Não exibe toast duplicado
+      await handleSave('logob64', logoB64, ''); // Não exibe toast duplicado
+      setSavingLocal(false);
+    }
+
     return (
-      <div style={st.container}>
-        <Head><title>Erro</title></Head>
-        <div style={st.errorBox}>
-          <div style={{ fontSize: 48, textAlign: 'center', marginBottom: 16 }}>❌</div>
-          <h2 style={{ ...st.titulo, color: 'var(--danger)', textAlign: 'center' }}>Erro ao Carregar</h2>
-          <p style={st.sub}>{errorMsg}</p>
-          <button onClick={() => router.reload()} style={{ ...st.btnPrimary, marginTop: 20 }}>Tentar Novamente</button>
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>Identidade Visual</div>
+          <div style={s.row2}>
+            <div style={s.field}>
+              <label style={s.label}>Nome da Empresa</label>
+              <input style={s.input} value={company} onChange={e => setCompany(e.target.value)} placeholder="Ex: Vivanexa" />
+            </div>
+            <div style={s.field}>
+              <label style={s.label}>Slogan / Subtítulo</label>
+              <input style={s.input} value={slogan} onChange={e => setSlogan(e.target.value)} placeholder="Assistente Comercial" />
+            </div>
+          </div>
+
+          <div style={s.field}>
+            <label style={s.label}>Logomarca (PNG/JPG — máx 500kb)</label>
+            <input type="file" accept="image/*" onChange={handleLogo} style={{ ...s.input, padding: '6px' }} />
+          </div>
+
+          {logoB64 ? (
+            <div style={{ marginTop: 12, padding: 14, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: 1, textTransform: 'uppercase' }}>Pré-visualização</div>
+              <img
+                src={logoB64}
+                alt="Logo"
+                style={{ height: 70, maxWidth: 280, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--border)' }}
+                onError={e => { e.target.style.display = 'none' }}
+              />
+              <button onClick={removerLogo}
+                style={{ fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', padding: '4px 10px', borderRadius: 7, cursor: 'pointer', fontFamily: 'DM Mono, monospace' }}>
+                🗑 Remover logo
+              </button>
+            </div>
+          ) : (
+            <div style={{ marginTop: 10, padding: '14px 18px', background: 'var(--surface2)', border: '1px dashed var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
+              Nenhuma logomarca carregada
+            </div>
+          )}
         </div>
+        <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+          {savingLocal ? '⏳ Salvando...' : '✅ Salvar Empresa'}
+        </button>
       </div>
     );
   }
 
-  return (
-    <div style={st.container}>
-      <Head><title>Configurações — {cfg?.company || 'Vivanexa'}</title></Head>
+  // ══════════════════════════════════════════════
+  // ABA METAS
+  // ══════════════════════════════════════════════
+  function TabMetas({ cfg, setCfg, empresaId, handleSave }) {
+    const mes = new Date().toISOString().slice(0, 7);
+    const [mesRef,  setMesRef]  = useState(mes);
+    const [metas,   setMetas]   = useState({});
+    const [savingLocal, setSavingLocal] = useState(false);
+    const usuarios = cfg.users || [];
 
-      <h1 style={st.pageTitle}>⚙️ Configurações</h1>
+    useEffect(() => {
+      const g = cfg.goals || [];
+      const map = {};
+      g.filter(x => x.mes === mesRef).forEach(x => { map[x.userId] = x; });
+      setMetas(map);
+    }, [mesRef, cfg.goals]);
 
-      <div style={st.tabs}>
-        <button onClick={() => setActiveTab('geral')} className={activeTab === 'geral' ? 'active' : ''}>Geral</button>
-        <button onClick={() => setActiveTab('produtos')} className={activeTab === 'produtos' ? 'active' : ''}>Produtos</button>
-        <button onClick={() => setActiveTab('usuarios')} className={activeTab === 'usuarios' ? 'active' : ''}>Usuários</button>
-        <button onClick={() => setActiveTab('descontos')} className={activeTab === 'descontos' ? 'active' : ''}>🏷️ Descontos</button>
-        <button onClick={() => setActiveTab('documentos')} className={activeTab === 'documentos' ? 'active' : ''}>📄 Documentos</button>
-        <button onClick={() => setActiveTab('kpis')} className={activeTab === 'kpis' ? 'active' : ''}>📊 KPIs</button>
-        <button onClick={() => setActiveTab('historico')} className={activeTab === 'historico' ? 'active' : ''}>🗂️ Histórico</button>
-      </div>
+    function updateMeta(userId, campo, val) {
+      setMetas(prev => ({ ...prev, [userId]: { ...(prev[userId] || { userId, mes: mesRef }), [campo]: val } }));
+    }
 
-      <div style={st.tabContent}>
-        {successMsg && <div style={st.successAlert}>✅ {successMsg}</div>}
-        {errorMsg && <div style={st.errorAlert}>⚠️ {errorMsg}</div>}
+    async function salvar() {
+      setSavingLocal(true);
+      const outrasGoals = (cfg.goals || []).filter(x => x.mes !== mesRef);
+      const novasGoals  = Object.values(metas).map(m => ({ ...m, mes: mesRef }));
+      await handleSave('goals', [...outrasGoals, ...novasGoals], '✅ Metas salvas!');
+      setSavingLocal(false);
+    }
 
-        {/* Tab Geral */}
-        {activeTab === 'geral' && (
-          <TabGeral cfg={cfg} handleSaveConfig={handleSaveConfig} handleLogoUpload={handleLogoUpload} />
-        )}
+    async function adminClear(tipo) {
+      if (!confirm(`Confirma zerar ${tipo}? Esta ação é irreversível.`)) return;
+      let novoCfg = { ...cfg };
+      if (tipo === 'historico') novoCfg.docHistory = [];
+      if (tipo === 'metas')     novoCfg.goals = [];
+      if (tipo === 'clientes')  novoCfg.clients = [];
+      if (tipo === 'tudo') novoCfg = { company: cfg.company, slogan: cfg.slogan, logob64: cfg.logob64, users: cfg.users, kpiTemplates: cfg.kpiTemplates, perfisTipos: cfg.perfisTipos, products: cfg.products, plans: cfg.plans, prices: cfg.prices, productNames: cfg.productNames, discAdPct: cfg.discAdPct, discMenPct: cfg.discMenPct, discClosePct: cfg.discClosePct, discountMode: cfg.discountMode, kpiDailyRequired: cfg.kpiDailyRequired }; // Mantém o essencial
+      const { error } = await salvarStorage(empresaId, novoCfg); // Usa salvarStorage direto para reset completo
+      if (error) { toast('Erro', 'err'); return; }
+      setCfg(novoCfg); // Atualiza o estado local
+      toast('🗑 Dados removidos!');
+    }
 
-        {/* Tab Produtos */}
-        {activeTab === 'produtos' && (
-          <TabProdutos cfg={cfg} handleSaveConfig={handleSaveConfig} />
-        )}
-
-        {/* Tab Usuários */}
-        {activeTab === 'usuarios' && (
-          <TabUsuarios
-            cfg={cfg}
-            newUserName={newUserName} setNewUserName={setNewUserName}
-            newUserEmail={newUserEmail} setNewUserEmail={setNewUserEmail}
-            newUserRole={newUserRole} setNewUserRole={setNewUserRole}
-            newUserPermissions={newUserPermissions} setNewUserPermissions={setNewUserPermissions}
-            handleAddUser={handleAddUser}
-            handleUpdateUser={handleUpdateUser}
-            handleDeleteUser={handleDeleteUser}
-            handlePermissionChange={handlePermissionChange}
-            permissionsOptions={PERMISSIONS_OPTIONS}
-          />
-        )}
-
-        {/* Tab Descontos */}
-        {activeTab === 'descontos' && (
-          <TabDescontos cfg={cfg} handleSaveConfig={handleSaveConfig} />
-        )}
-
-        {/* Tab Documentos */}
-        {activeTab === 'documentos' && (
-          <TabDocumentos
-            cfg={cfg}
-            documentUploadFile={documentUploadFile} setDocumentUploadFile={setDocumentUploadFile}
-            documentUploadName={documentUploadName} setDocumentUploadName={setDocumentUploadName}
-            documentUploadType={documentUploadType} setDocumentUploadType={setDocumentUploadType}
-            handleDocumentUpload={handleDocumentUpload}
-            handleDeleteDocument={handleDeleteDocument}
-            saving={saving}
-          />
-        )}
-
-        {/* Tab KPIs */}
-        {activeTab === 'kpis' && (
-          <TabKPIs
-            cfg={cfg}
-            handleSaveConfig={handleSaveConfig}
-            kpiTemplates={kpiTemplates}
-            newKpiName={newKpiName} setNewKpiName={setNewKpiName}
-            newKpiTarget={newKpiTarget} setNewKpiTarget={setNewKpiTarget}
-            newKpiUnit={newKpiUnit} setNewKpiUnit={setNewKpiUnit}
-            handleAddKpiTemplate={handleAddKpiTemplate}
-            handleDeleteKpiTemplate={handleDeleteKpiTemplate}
-          />
-        )}
-
-        {/* Tab Histórico */}
-        {activeTab === 'historico' && (
-          <TabHistorico cfg={cfg} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── SUB-COMPONENTES DAS ABAS ──────────────────────────────────
-
-function TabGeral({ cfg, handleSaveConfig, handleLogoUpload }) {
-  const [companyName, setCompanyName] = useState(cfg.company);
-
-  useEffect(() => {
-    setCompanyName(cfg.company);
-  }, [cfg.company]);
-
-  const onSave = () => {
-    handleSaveConfig({ ...cfg, company: companyName });
-  };
-
-  return (
-    <div style={st.card}>
-      <h2 style={st.cardTitle}>Informações Gerais da Empresa</h2>
-      <div style={st.campo}>
-        <label style={st.label}>Nome da Empresa</label>
-        <input style={st.input} value={companyName} onChange={e => setCompanyName(e.target.value)} />
-      </div>
-      <div style={st.campo}>
-        <label style={st.label}>Logo da Empresa</label>
-        {cfg.logob64 && <img src={cfg.logob64} alt="Logo da Empresa" style={{ maxWidth: 150, maxHeight: 80, marginBottom: 10, border: '1px solid var(--border)', borderRadius: 8, padding: 5 }} />}
-        <input type="file" accept="image/*" onChange={handleLogoUpload} style={st.fileInput} />
-        <p style={st.sub}>Faça upload de um arquivo de imagem (PNG, JPG) para o logo da sua empresa.</p>
-      </div>
-      <div style={st.btnGroup}>
-        <button onClick={onSave} style={st.btnPrimary}>Salvar Alterações</button>
-      </div>
-    </div>
-  );
-}
-
-function TabProdutos({ cfg, handleSaveConfig }) {
-  const [localCfg, setLocalCfg] = useState(cfg);
-
-  useEffect(() => {
-    setLocalCfg(cfg);
-  }, [cfg]);
-
-  const handlePlanChange = (index, field, value) => {
-    const updatedPlans = [...localCfg.plans];
-    updatedPlans[index][field] = value;
-    setLocalCfg({ ...localCfg, plans: updatedPlans });
-  };
-
-  const handleProductNameChange = (key, value) => {
-    setLocalCfg({
-      ...localCfg,
-      productNames: { ...localCfg.productNames, [key]: value }
-    });
-  };
-
-  const handlePriceChange = (module, planId, type, value) => {
-    const updatedPrices = { ...localCfg.prices };
-    if (!updatedPrices[module]) updatedPrices[module] = {};
-    if (!updatedPrices[module][planId]) updatedPrices[module][planId] = [0, 0];
-
-    const priceArray = [...updatedPrices[module][planId]];
-    if (type === 'adesao') priceArray[0] = Number(value);
-    if (type === 'mensalidade') priceArray[1] = Number(value);
-
-    updatedPrices[module][planId] = priceArray;
-    setLocalCfg({ ...localCfg, prices: updatedPrices });
-  };
-
-  const onSave = () => {
-    handleSaveConfig(localCfg);
-  };
-
-  return (
-    <div style={st.card}>
-      <h2 style={st.cardTitle}>Planos e Produtos</h2>
-
-      <h3 style={st.sectionHeader}>Planos</h3>
-      {localCfg.plans.map((plan, index) => (
-        <div key={plan.id} style={st.itemCard}>
-          <label style={st.label}>ID do Plano</label>
-          <input style={st.input} value={plan.id} disabled />
-          <label style={st.label}>Nome do Plano</label>
-          <input style={st.input} value={plan.name} onChange={e => handlePlanChange(index, 'name', e.target.value)} />
-          <label style={st.label}>Máx CNPJs</label>
-          <input style={st.input} type="number" value={plan.maxCnpjs} onChange={e => handlePlanChange(index, 'maxCnpjs', Number(e.target.value))} />
-          <label style={st.label}>Máx Usuários</label>
-          <input style={st.input} type="number" value={plan.maxUsers} onChange={e => handlePlanChange(index, 'maxUsers', Number(e.target.value))} />
-        </div>
-      ))}
-
-      <h3 style={st.sectionHeader}>Nomes dos Produtos</h3>
-      {Object.entries(localCfg.productNames).map(([key, name]) => (
-        <div key={key} style={st.itemCard}>
-          <label style={st.label}>Chave Interna</label>
-          <input style={st.input} value={key} disabled />
-          <label style={st.label}>Nome Exibido</label>
-          <input style={st.input} value={name} onChange={e => handleProductNameChange(key, e.target.value)} />
-        </div>
-      ))}
-
-      <h3 style={st.sectionHeader}>Tabela de Preços por Módulo e Plano</h3>
-      {Object.keys(localCfg.prices).map(module => (
-        <div key={module} style={st.itemCard}>
-          <h4 style={st.itemTitle}>{localCfg.productNames[module] || module}</h4>
-          {localCfg.plans.map(plan => (
-            <div key={`${module}-${plan.id}`} style={{ marginBottom: 10, borderBottom: '1px dashed var(--border)', paddingBottom: 10 }}>
-              <p style={{ ...st.label, fontWeight: 600, color: 'var(--text)' }}>{plan.name}</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div>
-                  <label style={st.label}>Adesão</label>
-                  <input
-                    style={st.input}
-                    type="number"
-                    value={localCfg.prices[module]?.[plan.id]?.[0] || 0}
-                    onChange={e => handlePriceChange(module, plan.id, 'adesao', e.target.value)}
-                  />
+    return (
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>Metas de Vendas por Usuário</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+            Defina metas mensais de adesão e mensalidade para cada vendedor.
+          </p>
+          <div style={{ marginBottom: 16 }}>
+            <label style={s.label}>Mês de Referência</label>
+            <input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} style={s.input} />
+          </div>
+          {usuarios.length === 0 && (
+            <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum usuário cadastrado. Cadastre na aba Usuários.</p>
+          )}
+          {usuarios.map(u => (
+            <div key={u.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
+              <div style={{ fontWeight: 600, marginBottom: 10, color: 'var(--accent)', fontSize: 14 }}>{u.nome}</div>
+              <div style={s.row2}>
+                <div style={s.field}>
+                  <label style={s.label}>Meta Adesão (R$)</label>
+                  <input type="number" style={s.input}
+                    value={metas[u.id]?.metaAdesao || ''}
+                    onChange={e => updateMeta(u.id, 'metaAdesao', e.target.value)}
+                    placeholder="0" />
                 </div>
-                <div>
-                  <label style={st.label}>Mensalidade</label>
-                  <input
-                    style={st.input}
-                    type="number"
-                    value={localCfg.prices[module]?.[plan.id]?.[1] || 0}
-                    onChange={e => handlePriceChange(module, plan.id, 'mensalidade', e.target.value)}
-                  />
+                <div style={s.field}>
+                  <label style={s.label}>Meta Mensalidade (R$)</label>
+                  <input type="number" style={s.input}
+                    value={metas[u.id]?.metaMensalidade || ''}
+                    onChange={e => updateMeta(u.id, 'metaMensalidade', e.target.value)}
+                    placeholder="0" />
+                </div>
+              </div>
+            </div>
+          ))}
+          <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+            {savingLocal ? '⏳ Salvando...' : '✅ Salvar Metas'}
+          </button>
+        </div>
+
+        <div style={s.sec}>
+          <div style={{ ...s.secTitle, color: 'var(--danger)' }}>⚠️ Área Administrativa — Limpeza de Dados</div>
+          {[
+            ['historico', '🗑 Zerar histórico de contratos e propostas'],
+            ['metas',     '🎯 Zerar metas de todos os usuários'],
+            ['clientes',  '👥 Zerar banco de clientes'],
+            ['tudo',      '⚠️ RESET COMPLETO — Apagar tudo (IRREVERSÍVEL)'],
+          ].map(([tipo, label]) => (
+            <button key={tipo} onClick={() => adminClear(tipo)}
+              style={{ display: 'block', width: '100%', marginBottom: 8, padding: '11px 14px', borderRadius: 9,
+                background: tipo === 'tudo' ? 'rgba(239,68,68,.2)' : 'rgba(239,68,68,.1)',
+                border: tipo === 'tudo' ? '2px solid rgba(239,68,68,.5)' : '1px solid rgba(239,68,68,.3)',
+                color: 'var(--danger)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer',
+                textAlign: 'left', fontWeight: tipo === 'tudo' ? 700 : 400 }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════
+  // ABA KPIs — COM GALERIA DE ÍCONES E OBRIGATORIEDADE
+  // ══════════════════════════════════════════════
+  function TabKpis({ cfg, setCfg, empresaId, handleSave }) {
+    const [kpis,        setKpis]        = useState(cfg.kpiTemplates || []);
+    const [savingLocal, setSavingLocal] = useState(false);
+    const [iconPickerId, setIconPickerId] = useState(null); // qual KPI está com seletor aberto
+    const [kpiDailyRequired, setKpiDailyRequired] = useState(cfg.kpiDailyRequired);
+
+    useEffect(() => {
+      setKpis(cfg.kpiTemplates || []);
+      setKpiDailyRequired(cfg.kpiDailyRequired);
+    }, [cfg]);
+
+    function addKpi() {
+      setKpis(prev => [...prev, { id: Date.now(), nome: '', icone: '📊', meta: 0, unidade: 'un', cor: '#00d4ff' }]);
+    }
+    function updateKpi(id, campo, val) {
+      setKpis(prev => prev.map(k => k.id === id ? { ...k, [campo]: val } : k));
+    }
+    function removeKpi(id) {
+      setKpis(prev => prev.filter(k => k.id !== id));
+      if (iconPickerId === id) setIconPickerId(null);
+    }
+
+    async function salvar() {
+      setSavingLocal(true);
+      await handleSave('kpiTemplates', kpis, '✅ KPIs salvos!');
+      await handleSave('kpiDailyRequired', kpiDailyRequired, ''); // Salva a obrigatoriedade
+      setSavingLocal(false);
+    }
+
+    return (
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>📊 Indicadores de Atividade (KPIs)</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+            Configure os KPIs que os vendedores irão acompanhar diariamente. Cada KPI aparece no Dashboard com sua meta.
+          </p>
+
+          {kpis.map(k => (
+            <div key={k.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: iconPickerId === k.id ? 12 : 0 }}>
+                <div style={{ position: 'relative' }}>
+                  <button onClick={() => setIconPickerId(iconPickerId === k.id ? null : k.id)}
+                    style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'border-color .2s', borderColor: iconPickerId === k.id ? 'var(--accent)' : undefined }}
+                    title="Escolher ícone">
+                    {k.icone}
+                  </button>
+                </div>
+
+                <input style={{ ...s.input, flex: 1 }} value={k.nome}
+                  onChange={e => updateKpi(k.id, 'nome', e.target.value)}
+                  placeholder="Nome do KPI (ex: Ligações realizadas)" />
+
+                <input type="number" style={{ ...s.input, width: 90 }} value={k.meta}
+                  onChange={e => updateKpi(k.id, 'meta', e.target.value)}
+                  placeholder="Meta" />
+
+                <select style={{ ...s.input, width: 72 }} value={k.unidade || 'un'}
+                  onChange={e => updateKpi(k.id, 'unidade', e.target.value)}>
+                  <option value="un">un</option>
+                  <option value="R$">R$</option>
+                  <option value="%">%</option>
+                  <option value="h">h</option>
+                </select>
+
+                <button onClick={() => removeKpi(k.id)}
+                  style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--danger)', cursor: 'pointer' }}>
+                  🗑
+                </button>
+              </div>
+
+              {iconPickerId === k.id && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 0 2px' }}>
+                  {KPI_ICONS.map(ic => (
+                    <button key={ic} onClick={() => { updateKpi(k.id, 'icone', ic); setIconPickerId(null); }}
+                      style={{ width: 36, height: 36, borderRadius: 8, background: k.icone === ic ? 'rgba(0,212,255,.15)' : 'var(--surface)', border: `1px solid ${k.icone === ic ? 'var(--accent)' : 'var(--border)'}`, fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s' }}>
+                      {ic}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <button onClick={addKpi}
+            style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', fontWeight: 600, marginTop: 8 }}>
+            ➕ Adicionar KPI
+          </button>
+        </div>
+
+        <div style={s.sec}>
+          <div style={s.secTitle}>Configurações de Preenchimento</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0' }}>
+            <label htmlFor="kpi-required-toggle" style={{ fontSize: 14, color: 'var(--text)', flex: 1 }}>
+              Obrigar preenchimento diário de KPIs
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Se ativado, o usuário será bloqueado no dashboard até preencher os KPIs do dia anterior (após as 10h).
+              </p>
+            </label>
+            <label className="switch">
+              <input
+                type="checkbox"
+                id="kpi-required-toggle"
+                checked={kpiDailyRequired}
+                onChange={e => setKpiDailyRequired(e.target.checked)}
+              />
+              <span className="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+          {savingLocal ? '⏳ Salvando...' : '✅ Salvar KPIs'}
+        </button>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════
+  // ABA USUÁRIOS — COM PERMISSÕES + PERFIS
+  // ══════════════════════════════════════════════
+  function TabUsuarios({ cfg, setCfg, empresaId, handleSave }) {
+    const [users,   setUsers]   = useState(cfg.users || []);
+    const [form,    setForm]    = useState(null);
+    const [savingLocal, setSavingLocal] = useState(false);
+    const [abaU,    setAbaU]    = useState('lista'); // 'lista' | 'perfis'
+    const [perfis,  setPerfis]  = useState(cfg.perfisTipos || [
+      { id: 'admin', nome: 'Administrador', permissoes: PERMISSOES_ADMIN, fixo: true },
+      { id: 'user',  nome: 'Vendedor',      permissoes: PERMISSOES_USER,  fixo: true },
+    ]);
+    const [perfilForm, setPerfilForm] = useState(null);
+
+    const emptyForm = { nome: '', usuario: '', email: '', telefone: '', senha: '', perfilId: 'user', permissoes: PERMISSOES_USER };
+
+    useEffect(() => {
+      setUsers(cfg.users || []);
+      setPerfis(cfg.perfisTipos || [
+        { id: 'admin', nome: 'Administrador', permissoes: PERMISSOES_ADMIN, fixo: true },
+        { id: 'user',  nome: 'Vendedor',      permissoes: PERMISSOES_USER,  fixo: true },
+      ]);
+    }, [cfg]);
+
+    function editUser(u) { setForm({ ...u, permissoes: u.permissoes || PERMISSOES_USER }); }
+
+    function removeUser(id) {
+      if (!confirm('Remover usuário?')) return;
+      setUsers(prev => prev.filter(u => u.id !== id));
+      handleSave('users', users.filter(u => u.id !== id), '🗑 Usuário removido!');
+    }
+
+    function mudarPerfil(perfilId) {
+      const p = perfis.find(x => x.id === perfilId);
+      setForm(f => ({ ...f, perfilId, permissoes: p?.permissoes || PERMISSOES_USER }));
+    }
+
+    function togglePermissao(perm) {
+      setForm(f => {
+        const perms = f.permissoes || [];
+        return { ...f, permissoes: perms.includes(perm) ? perms.filter(x => x !== perm) : [...perms, perm] };
+      });
+    }
+
+    async function salvarUser() {
+      if (!form.nome || !form.email) { toast('Nome e e-mail obrigatórios', 'err'); return; }
+      setSavingLocal(true);
+      let novos;
+      if (form.id) {
+        novos = users.map(u => u.id === form.id ? form : u);
+      } else {
+        novos = [...users, { ...form, id: Date.now().toString() }];
+      }
+      await handleSave('users', novos, '✅ Usuário salvo!');
+      setUsers(novos);
+      setForm(null);
+      setSavingLocal(false);
+    }
+
+    // ── Perfis personalizados ──
+    function addPerfil() {
+      setPerfilForm({ id: 'perfil_' + Date.now(), nome: '', permissoes: PERMISSOES_USER, fixo: false });
+    }
+    function togglePerfilPerm(perm) {
+      setPerfilForm(f => {
+        const perms = f.permissoes || [];
+        return { ...f, permissoes: perms.includes(perm) ? perms.filter(x => x !== perm) : [...perms, perm] };
+      });
+    }
+    async function salvarPerfil() {
+      if (!perfilForm.nome) { toast('Nome do perfil obrigatório', 'err'); return; }
+      setSavingLocal(true);
+      let novos;
+      if (perfis.find(p => p.id === perfilForm.id)) {
+        novos = perfis.map(p => p.id === perfilForm.id ? perfilForm : p);
+      } else {
+        novos = [...perfis, perfilForm];
+      }
+      await handleSave('perfisTipos', novos, '✅ Perfil salvo!');
+      setPerfis(novos);
+      setPerfilForm(null);
+      setSavingLocal(false);
+    }
+    async function removerPerfil(id) {
+      if (!confirm('Remover perfil?')) return;
+      const novos = perfis.filter(p => p.id !== id);
+      await handleSave('perfisTipos', novos, '🗑 Perfil removido!');
+      setPerfis(novos);
+    }
+
+    const nomePerfilLabel = (perfilId) => perfis.find(p => p.id === perfilId)?.nome || perfilId;
+
+    return (
+      <div style={s.body}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+          {[['lista','👥 Usuários'],['perfis','🔐 Tipos de Perfil']].map(([id, label]) => (
+            <button key={id} onClick={() => setAbaU(id)}
+              style={{ padding: '8px 16px', borderRadius: 9, fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer',
+                background: abaU === id ? 'rgba(0,212,255,.12)' : 'var(--surface2)',
+                border: `1px solid ${abaU === id ? 'rgba(0,212,255,.35)' : 'var(--border)'}`,
+                color: abaU === id ? 'var(--accent)' : 'var(--muted)', fontWeight: abaU === id ? 600 : 400 }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {abaU === 'lista' && (
+          <div style={s.sec}>
+            <div style={s.secTitle}>Usuários do Sistema</div>
+            {users.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum usuário cadastrado.</p>}
+            {users.map(u => (
+              <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{u.nome}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {u.email} · <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{nomePerfilLabel(u.perfilId || u.perfil)}</span>
+                  </div>
+                  {u.permissoes && (
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
+                      {u.permissoes.length} permissões configuradas
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => editUser(u)}
+                  style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                  ✏️ Editar
+                </button>
+                <button onClick={() => removeUser(u.id)}
+                  style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                  🗑
+                </button>
+              </div>
+            ))}
+            <button onClick={() => setForm(emptyForm)}
+              style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
+              + Novo Usuário
+            </button>
+
+            {form && (
+              <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
+                <div style={{ ...s.secTitle, marginBottom: 14 }}>
+                  {form.id ? '✏️ Editar Usuário' : '➕ Novo Usuário'}
+                </div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>Nome Completo</label>
+                    <input style={s.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Nome" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>Usuário (login)</label>
+                    <input style={s.input} value={form.usuario} onChange={e => setForm(f => ({ ...f, usuario: e.target.value }))} placeholder="usuario" />
+                  </div>
+                </div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>E-mail</label>
+                    <input style={s.input} type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@empresa.com" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>Telefone</label>
+                    <input style={s.input} value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" />
+                  </div>
+                </div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>Senha</label>
+                    <input style={s.input} type="password" value={form.senha} onChange={e => setForm(f => ({ ...f, senha: e.target.value }))} placeholder="••••••••" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>Perfil base</label>
+                    <select style={s.input} value={form.perfilId || form.perfil || 'user'} onChange={e => mudarPerfil(e.target.value)}>
+                      {perfis.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ ...s.secTitle, marginBottom: 10 }}>🔐 Permissões individuais</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    {PERMISSOES_DISPONIVEIS.map(p => {
+                      const ativo = (form.permissoes || []).includes(p.id);
+                      return (
+                        <div key={p.id} onClick={() => togglePermissao(p.id)}
+                          style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                            background: ativo ? 'rgba(0,212,255,.1)' : 'var(--surface)',
+                            border: `1px solid ${ativo ? 'rgba(0,212,255,.3)' : 'var(--border)'}`,
+                            color: ativo ? 'var(--accent)' : 'var(--muted)',
+                            display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {ativo ? '✅' : '⬜'} {p.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setForm(null)} style={s.btnCancel}>Cancelar</button>
+                  <button onClick={salvarUser} style={s.btnPrimary} disabled={savingLocal}>
+                    {savingLocal ? '⏳ Salvando...' : '✅ Salvar Usuário'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TIPOS DE PERFIL ── */}
+        {abaU === 'perfis' && (
+          <div style={s.sec}>
+            <div style={s.secTitle}>Tipos de Perfil Personalizados</div>
+            <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+              Crie perfis com conjuntos de permissões pré-definidos para facilitar a gestão de usuários.
+            </p>
+            {perfis.map(p => (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nome} {p.fixo && <span style={{ fontSize: 11, color: 'var(--accent)', marginLeft: 5 }}>(Padrão)</span>}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {p.permissoes.length} permissões
+                  </div>
+                </div>
+                {!p.fixo && (
+                  <>
+                    <button onClick={() => setPerfilForm(p)}
+                      style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                      ✏️ Editar
+                    </button>
+                    <button onClick={() => removerPerfil(p.id)}
+                      style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                      🗑
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+            <button onClick={addPerfil}
+              style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
+              + Novo Perfil
+            </button>
+
+            {perfilForm && (
+              <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
+                <div style={{ ...s.secTitle, marginBottom: 14 }}>
+                  {perfilForm.id.startsWith('perfil_') ? '➕ Novo Perfil' : '✏️ Editar Perfil'}
+                </div>
+                <div style={s.field}>
+                  <label style={s.label}>Nome do Perfil</label>
+                  <input style={s.input} value={perfilForm.nome} onChange={e => setPerfilForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Gerente de Vendas" />
+                </div>
+
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ ...s.secTitle, marginBottom: 10 }}>🔐 Permissões do Perfil</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    {PERMISSOES_DISPONIVEIS.map(p => {
+                      const ativo = (perfilForm.permissoes || []).includes(p.id);
+                      return (
+                        <div key={p.id} onClick={() => togglePerfilPerm(p.id)}
+                          style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                            background: ativo ? 'rgba(0,212,255,.1)' : 'var(--surface)',
+                            border: `1px solid ${ativo ? 'rgba(0,212,255,.3)' : 'var(--border)'}`,
+                            color: ativo ? 'var(--accent)' : 'var(--muted)',
+                            display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {ativo ? '✅' : '⬜'} {p.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setPerfilForm(null)} style={s.btnCancel}>Cancelar</button>
+                  <button onClick={salvarPerfil} style={s.btnPrimary} disabled={savingLocal}>
+                    {savingLocal ? '⏳ Salvando...' : '✅ Salvar Perfil'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════
+  // ABA PRODUTOS
+  // ══════════════════════════════════════════════
+  function TabProdutos({ cfg, setCfg, empresaId, handleSave }) {
+    const [modulos, setModulos] = useState(cfg.products || MODULOS_PADRAO);
+    const [planos, setPlanos] = useState(cfg.plans || PLANOS_PADRAO);
+    const [precos, setPrecos] = useState(cfg.prices || PRECOS_PADRAO);
+    const [productNames, setProductNames] = useState(cfg.productNames || {});
+    const [savingLocal, setSavingLocal] = useState(false);
+
+    useEffect(() => {
+      setModulos(cfg.products || MODULOS_PADRAO);
+      setPlanos(cfg.plans || PLANOS_PADRAO);
+      setPrecos(cfg.prices || PRECOS_PADRAO);
+      setProductNames(cfg.productNames || {});
+    }, [cfg]);
+
+    function updateModuloName(oldName, newName) {
+      setModulos(prev => prev.map(m => m === oldName ? newName : m));
+      setProductNames(prev => ({ ...prev, [oldName]: newName }));
+      // Atualiza chaves em precos
+      setPrecos(prev => {
+        const newPrecos = {};
+        for (const key in prev) {
+          newPrecos[key === oldName ? newName : key] = prev[key];
+        }
+        return newPrecos;
+      });
+    }
+
+    function addModulo() {
+      setModulos(prev => [...prev, 'Novo Módulo']);
+      setPrecos(prev => ({ ...prev, 'Novo Módulo': {} }));
+    }
+
+    function removeModulo(name) {
+      if (!confirm(`Remover módulo "${name}"?`)) return;
+      setModulos(prev => prev.filter(m => m !== name));
+      setPrecos(prev => {
+        const newPrecos = { ...prev };
+        delete newPrecos[name];
+        return newPrecos;
+      });
+      setProductNames(prev => {
+        const newNames = { ...prev };
+        delete newNames[name];
+        return newNames;
+      });
+    }
+
+    function updatePlano(id, field, value) {
+      setPlanos(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
+    }
+
+    function updatePreco(modulo, planoId, tipo, value) {
+      setPrecos(prev => ({
+        ...prev,
+        [modulo]: {
+          ...prev[modulo],
+          [planoId]: tipo === 'adesao'
+            ? [parseFloat(value), prev[modulo]?.[planoId]?.[1] || 0]
+            : [prev[modulo]?.[planoId]?.[0] || 0, parseFloat(value)]
+        }
+      }));
+    }
+
+    async function salvar() {
+      setSavingLocal(true);
+      await handleSave('products', modulos, '✅ Produtos salvos!');
+      await handleSave('plans', planos, '');
+      await handleSave('prices', precos, '');
+      await handleSave('productNames', productNames, '');
+      setSavingLocal(false);
+    }
+
+    return (
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>📦 Módulos / Produtos</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+            Defina os módulos que compõem seu serviço e seus nomes de exibição.
+          </p>
+          {modulos.map((mod, idx) => (
+            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+              <input style={{ ...s.input, flex: 1 }} value={productNames[mod] || mod}
+                onChange={e => updateModuloName(mod, e.target.value)}
+                placeholder="Nome do Módulo" />
+              <button onClick={() => removeModulo(mod)}
+                style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--danger)', cursor: 'pointer' }}>
+                🗑
+              </button>
+            </div>
+          ))}
+          <button onClick={addModulo}
+            style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', fontWeight: 600, marginTop: 8 }}>
+            ➕ Adicionar Módulo
+          </button>
+        </div>
+
+        <div style={s.sec}>
+          <div style={s.secTitle}>📊 Planos de Serviço</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+            Configure os planos disponíveis e seus limites de CNPJs e usuários.
+          </p>
+          {planos.map(p => (
+            <div key={p.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
+              <div style={{ fontWeight: 600, marginBottom: 10, color: 'var(--accent)', fontSize: 14 }}>{p.nome}</div>
+              <div style={s.row2}>
+                <div style={s.field}>
+                  <label style={s.label}>Max CNPJs</label>
+                  <input type="number" style={s.input} value={p.maxCnpjs} onChange={e => updatePlano(p.id, 'maxCnpjs', parseInt(e.target.value))} />
+                </div>
+                <div style={s.field}>
+                  <label style={s.label}>Max Usuários</label>
+                  <input type="number" style={s.input} value={p.usuarios} onChange={e => updatePlano(p.id, 'usuarios', parseInt(e.target.value))} />
                 </div>
               </div>
             </div>
           ))}
         </div>
-      ))}
 
-      <div style={st.btnGroup}>
-        <button onClick={onSave} style={st.btnPrimary}>Salvar Tabela de Preços</button>
-      </div>
-    </div>
-  );
-}
-
-function TabUsuarios({
-  cfg, newUserName, setNewUserName, newUserEmail, setNewUserEmail,
-  newUserRole, setNewUserRole, newUserPermissions, setNewUserPermissions,
-  handleAddUser, handleUpdateUser, handleDeleteUser, handlePermissionChange,
-  permissionsOptions
-}) {
-  const onPermissionToggle = (permissionId) => {
-    setNewUserPermissions(prev =>
-      prev.includes(permissionId)
-        ? prev.filter(p => p !== permissionId)
-        : [...prev, permissionId]
-    );
-  };
-
-  return (
-    <div style={st.card}>
-      <h2 style={st.cardTitle}>Gerenciamento de Usuários</h2>
-
-      <h3 style={st.sectionHeader}>Adicionar Novo Usuário</h3>
-      <div style={st.itemCard}>
-        <div style={st.campo}>
-          <label style={st.label}>Nome</label>
-          <input style={st.input} value={newUserName} onChange={e => setNewUserName(e.target.value)} placeholder="Nome completo" />
-        </div>
-        <div style={st.campo}>
-          <label style={st.label}>E-mail</label>
-          <input style={st.input} type="email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} placeholder="email@empresa.com" />
-        </div>
-        <div style={st.campo}>
-          <label style={st.label}>Função</label>
-          <select style={st.input} value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
-            <option value="user">Usuário Padrão</option>
-            <option value="admin">Administrador</option>
-            <option value="manager">Gerente</option>
-          </select>
-        </div>
-        <div style={st.campo}>
-          <label style={st.label}>Permissões (para Usuário Padrão)</label>
-          <div style={st.permissionsGrid}>
-            {permissionsOptions.map(perm => (
-              <div key={perm.id} style={st.permissionItem}>
-                <input
-                  type="checkbox"
-                  id={`new-user-perm-${perm.id}`}
-                  checked={newUserPermissions.includes(perm.id)}
-                  onChange={() => onPermissionToggle(perm.id)}
-                  disabled={newUserRole !== 'user'}
-                />
-                <label htmlFor={`new-user-perm-${perm.id}`}>{perm.name}</label>
-              </div>
-            ))}
-          </div>
-          {newUserRole !== 'user' && <p style={st.sub}>Administradores e Gerentes geralmente têm todas as permissões.</p>}
-        </div>
-        <button onClick={handleAddUser} style={st.btnPrimary}>Adicionar Usuário</button>
-      </div>
-
-      <h3 style={st.sectionHeader}>Usuários Existentes</h3>
-      {(cfg.users || []).length === 0 && <p style={st.sub}>Nenhum usuário cadastrado ainda.</p>}
-      {(cfg.users || []).map((user, index) => (
-        <div key={user.id} style={st.itemCard}>
-          <div style={st.campo}>
-            <label style={st.label}>Nome</label>
-            <input style={st.input} value={user.name} onChange={e => handleUpdateUser(index, 'name', e.target.value)} />
-          </div>
-          <div style={st.campo}>
-            <label style={st.label}>E-mail</label>
-            <input style={st.input} type="email" value={user.email} disabled />
-          </div>
-          <div style={st.campo}>
-            <label style={st.label}>Função</label>
-            <select style={st.input} value={user.role} onChange={e => handleUpdateUser(index, 'role', e.target.value)}>
-              <option value="user">Usuário Padrão</option>
-              <option value="admin">Administrador</option>
-              <option value="manager">Gerente</option>
-            </select>
-          </div>
-          <div style={st.campo}>
-            <label style={st.label}>Permissões</label>
-            <div style={st.permissionsGrid}>
-              {permissionsOptions.map(perm => (
-                <div key={perm.id} style={st.permissionItem}>
-                  <input
-                    type="checkbox"
-                    id={`user-${user.id}-perm-${perm.id}`}
-                    checked={(user.permissions || []).includes(perm.id)}
-                    onChange={e => handlePermissionChange(user.id, perm.id, e.target.checked)}
-                    disabled={user.role !== 'user'}
-                  />
-                  <label htmlFor={`user-${user.id}-perm-${perm.id}`}>{perm.name}</label>
+        <div style={s.sec}>
+          <div style={s.secTitle}>💲 Tabela de Preços por Módulo e Plano</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+            Defina os preços base de adesão e mensalidade para cada módulo em cada plano.
+          </p>
+          {modulos.map(mod => (
+            <div key={mod} style={{ marginBottom: 20, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
+              <h4 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12, color: 'var(--text)' }}>{productNames[mod] || mod}</h4>
+              {planos.map(plano => (
+                <div key={plano.id} style={{ marginBottom: 10, padding: '10px 0', borderBottom: '1px dashed var(--border)' }}>
+                  <div style={{ fontWeight: 500, marginBottom: 8, color: 'var(--accent)' }}>{plano.nome}</div>
+                  <div style={s.row2}>
+                    <div style={s.field}>
+                      <label style={s.label}>Adesão (R$)</label>
+                      <input type="number" style={s.input}
+                        value={precos[mod]?.[plano.id]?.[0] || 0}
+                        onChange={e => updatePreco(mod, plano.id, 'adesao', e.target.value)} />
+                    </div>
+                    <div style={s.field}>
+                      <label style={s.label}>Mensalidade (R$)</label>
+                      <input type="number" style={s.input}
+                        value={precos[mod]?.[plano.id]?.[1] || 0}
+                        onChange={e => updatePreco(mod, plano.id, 'mensalidade', e.target.value)} />
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
-            {user.role !== 'user' && <p style={st.sub}>Administradores e Gerentes geralmente têm todas as permissões.</p>}
-          </div>
-          <button onClick={() => handleDeleteUser(index)} style={st.btnDanger}>Remover Usuário</button>
+          ))}
         </div>
-      ))}
-    </div>
-  );
-}
 
-function TabDescontos({ cfg, handleSaveConfig }) {
-  const [discAdPct, setDiscAdPct] = useState(cfg.discAdPct);
-  const [discMenPct, setDiscMenPct] = useState(cfg.discMenPct);
-  const [discClosePct, setDiscClosePct] = useState(cfg.discClosePct);
-  const [discountMode, setDiscountMode] = useState(cfg.discountMode);
-
-  useEffect(() => {
-    setDiscAdPct(cfg.discAdPct);
-    setDiscMenPct(cfg.discMenPct);
-    setDiscClosePct(cfg.discClosePct);
-    setDiscountMode(cfg.discountMode);
-  }, [cfg]);
-
-  const onSave = () => {
-    handleSaveConfig({
-      ...cfg,
-      discAdPct: Number(discAdPct),
-      discMenPct: Number(discMenPct),
-      discClosePct: Number(discClosePct),
-      discountMode: discountMode,
-    });
-  };
-
-  return (
-    <div style={st.card}>
-      <h2 style={st.cardTitle}>🏷️ Regras de Desconto</h2>
-
-      <h3 style={st.sectionHeader}>Descontos em Tela (para Propostas)</h3>
-      <div style={st.itemCard}>
-        <div style={st.campo}>
-          <label style={st.label}>% Adesão (Tela)</label>
-          <input
-            style={st.input}
-            type="number"
-            value={discAdPct}
-            onChange={e => setDiscAdPct(e.target.value)}
-            min="0" max="100"
-          />
-          <p style={st.sub}>Percentual de desconto aplicado na adesão ao gerar propostas.</p>
-        </div>
-        <div style={st.campo}>
-          <label style={st.label}>% Mensalidade (Tela)</label>
-          <input
-            style={st.input}
-            type="number"
-            value={discMenPct}
-            onChange={e => setDiscMenPct(e.target.value)}
-            min="0" max="100"
-          />
-          <p style={st.sub}>Percentual de desconto aplicado na mensalidade ao gerar propostas.</p>
-        </div>
-      </div>
-
-      <h3 style={st.sectionHeader}>Desconto de Fechamento (para Vouchers)</h3>
-      <div style={st.itemCard}>
-        <div style={st.campo}>
-          <label style={st.label}>% Adesão (Fechamento)</label>
-          <input
-            style={st.input}
-            type="number"
-            value={discClosePct}
-            onChange={e => setDiscClosePct(e.target.value)}
-            min="0" max="100"
-          />
-          <p style={st.sub}>Percentual de desconto extra aplicado na adesão para fechamento via voucher.</p>
-        </div>
-      </div>
-
-      <h3 style={st.sectionHeader}>Modo de Desconto Padrão</h3>
-      <div style={st.itemCard}>
-        <div style={st.campo}>
-          <label style={st.label}>Escolha como os descontos são aplicados por padrão:</label>
-          <select style={st.input} value={discountMode} onChange={e => setDiscountMode(e.target.value)}>
-            <option value="screen">Em Tela (Propostas)</option>
-            <option value="voucher">Via Voucher (Fechamento)</option>
-          </select>
-          <p style={st.sub}>Define o modo padrão de aplicação de descontos para novas propostas.</p>
-        </div>
-      </div>
-
-      <div style={st.btnGroup}>
-        <button onClick={onSave} style={st.btnPrimary}>Salvar Regras de Desconto</button>
-      </div>
-    </div>
-  );
-}
-
-function TabDocumentos({
-  cfg, documentUploadFile, setDocumentUploadFile, documentUploadName,
-  setDocumentUploadName, documentUploadType, setDocumentUploadType,
-  handleDocumentUpload, handleDeleteDocument, saving
-}) {
-  return (
-    <div style={st.card}>
-      <h2 style={st.cardTitle}>📄 Documentos Importados</h2>
-
-      <h3 style={st.sectionHeader}>Upload de Novo Documento</h3>
-      <form onSubmit={handleDocumentUpload} style={st.itemCard}>
-        <div style={st.campo}>
-          <label style={st.label}>Nome do Documento</label>
-          <input
-            style={st.input}
-            value={documentUploadName}
-            onChange={e => setDocumentUploadName(e.target.value)}
-            placeholder="Nome para identificar o documento"
-            required
-          />
-        </div>
-        <div style={st.campo}>
-          <label style={st.label}>Tipo de Documento</label>
-          <select
-            style={st.input}
-            value={documentUploadType}
-            onChange={e => setDocumentUploadType(e.target.value)}
-          >
-            <option value="html">HTML</option>
-            <option value="pdf">PDF</option>
-          </select>
-          <p style={st.sub}>Selecione o formato do arquivo que será enviado.</p>
-        </div>
-        <div style={st.campo}>
-          <label style={st.label}>Arquivo (.html ou .pdf)</label>
-          <input
-            type="file"
-            accept=".html,.pdf"
-            onChange={e => setDocumentUploadFile(e.target.files[0])}
-            style={st.fileInput}
-            required
-          />
-          <p style={st.sub}>Envie um arquivo HTML ou PDF. Para edição online, HTML é recomendado.</p>
-        </div>
-        <button type="submit" style={st.btnPrimary} disabled={saving}>
-          {saving ? '⏳ Enviando...' : '⬆️ Enviar Documento'}
+        <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+          {savingLocal ? '⏳ Salvando...' : '✅ Salvar Produtos e Preços'}
         </button>
-      </form>
-
-      <h3 style={st.sectionHeader}>Documentos Existentes</h3>
-      {(cfg.documents || []).length === 0 && <p style={st.sub}>Nenhum documento importado ainda.</p>}
-      {(cfg.documents || []).map(doc => (
-        <div key={doc.id} style={st.itemCard}>
-          <p style={{ ...st.label, fontWeight: 600, color: 'var(--text)' }}>{doc.name}</p>
-          <p style={st.sub}>Tipo: {doc.type.toUpperCase()} | Upload: {new Date(doc.uploaded_at).toLocaleDateString()}</p>
-          <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-            <a href={doc.url} target="_blank" rel="noopener noreferrer" style={st.btnSecondary}>
-              👁 Ver
-            </a>
-            <button onClick={() => handleDeleteDocument(doc.id, doc.file_path)} style={st.btnDanger}>
-              🗑 Excluir
-            </button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TabKPIs({
-  cfg, handleSaveConfig, kpiTemplates, newKpiName, setNewKpiName,
-  newKpiTarget, setNewKpiTarget, newKpiUnit, setNewKpiUnit,
-  handleAddKpiTemplate, handleDeleteKpiTemplate
-}) {
-  const [kpiDailyMandatory, setKpiDailyMandatory] = useState(cfg.kpiDailyMandatory);
-
-  useEffect(() => {
-    setKpiDailyMandatory(cfg.kpiDailyMandatory);
-  }, [cfg.kpiDailyMandatory]);
-
-  const onSaveMandatory = () => {
-    handleSaveConfig({ ...cfg, kpiDailyMandatory: kpiDailyMandatory });
-  };
-
-  return (
-    <div style={st.card}>
-      <h2 style={st.cardTitle}>📊 Configurações de KPIs</h2>
-
-      <h3 style={st.sectionHeader}>Obrigatoriedade de Preenchimento Diário</h3>
-      <div style={st.itemCard}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 15 }}>
-          <label style={{ ...st.label, marginBottom: 0, fontSize: 14, color: 'var(--text)' }}>
-            Obrigar preenchimento diário de KPIs
-          </label>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={kpiDailyMandatory}
-              onChange={(e) => setKpiDailyMandatory(e.target.checked)}
-            />
-            <span className="slider round"></span>
-          </label>
-        </div>
-        <p style={st.sub}>
-          Se ativado, os usuários serão bloqueados de outras funcionalidades até preencherem seus KPIs diários.
-        </p>
-        <div style={st.btnGroup}>
-          <button onClick={onSaveMandatory} style={st.btnPrimary}>Salvar Obrigatoriedade</button>
-        </div>
       </div>
+    );
+  }
 
-      <h3 style={st.sectionHeader}>Modelos de KPI</h3>
-      <div style={st.itemCard}>
-        <div style={st.campo}>
-          <label style={st.label}>Nome do KPI</label>
-          <input style={st.input} value={newKpiName} onChange={e => setNewKpiName(e.target.value)} placeholder="Ex: Ligações Realizadas" />
-        </div>
-        <div style={st.campo}>
-          <label style={st.label}>Meta Diária</label>
-          <input style={st.input} type="number" value={newKpiTarget} onChange={e => setNewKpiTarget(e.target.value)} placeholder="Ex: 20" />
-        </div>
-        <div style={st.campo}>
-          <label style={st.label}>Unidade</label>
-          <input style={st.input} value={newKpiUnit} onChange={e => setNewKpiUnit(e.target.value)} placeholder="Ex: Ligações, Vendas, R$" />
-        </div>
-        <button onClick={handleAddKpiTemplate} style={st.btnPrimary}>Adicionar Modelo de KPI</button>
-      </div>
+  // ══════════════════════════════════════════════
+  // ABA DESCONTOS — NOVAS CONFIGURAÇÕES
+  // ══════════════════════════════════════════════
+  function TabDescontos({ cfg, setCfg, empresaId, handleSave }) {
+    const [discAdPct, setDiscAdPct] = useState(cfg.discAdPct);
+    const [discMenPct, setDiscMenPct] = useState(cfg.discMenPct);
+    const [discClosePct, setDiscClosePct] = useState(cfg.discClosePct);
+    const [discountMode, setDiscountMode] = useState(cfg.discountMode);
+    const [savingLocal, setSavingLocal] = useState(false);
 
-      <h3 style={st.sectionHeader}>Modelos Existentes</h3>
-      {kpiTemplates.length === 0 && <p style={st.sub}>Nenhum modelo de KPI cadastrado ainda.</p>}
-      {kpiTemplates.map(kpi => (
-        <div key={kpi.id} style={st.itemCard}>
-          <p style={{ ...st.label, fontWeight: 600, color: 'var(--text)' }}>{kpi.name}</p>
-          <p style={st.sub}>Meta: {kpi.target} {kpi.unit}</p>
-          <button onClick={() => handleDeleteKpiTemplate(kpi.id)} style={st.btnDanger}>Remover</button>
-        </div>
-      ))}
-    </div>
-  );
-}
+    useEffect(() => {
+      setDiscAdPct(cfg.discAdPct);
+      setDiscMenPct(cfg.discMenPct);
+      setDiscClosePct(cfg.discClosePct);
+      setDiscountMode(cfg.discountMode);
+    }, [cfg]);
 
-function TabHistorico({ cfg }) {
-  const [selectedDocHtml, setSelectedDocHtml] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  const openDocModal = async (doc) => {
-    if (doc.html) {
-      setSelectedDocHtml(doc.html);
-      setIsModalOpen(true);
-    } else if (doc.signToken) {
-      // Se não tem HTML direto, tenta buscar do vx_storage pelo token
-      const { data: docRow } = await supabase
-        .from('vx_storage')
-        .select('value')
-        .eq('key', `doc:${doc.signToken}`)
-        .single();
-
-      if (docRow?.value) {
-        const docData = JSON.parse(docRow.value);
-        setSelectedDocHtml(docData.html);
-        setIsModalOpen(true);
-      } else {
-        alert('Conteúdo do documento não encontrado.');
-      }
+    async function salvar() {
+      setSavingLocal(true);
+      await handleSave('discAdPct', discAdPct, '✅ Descontos salvos!');
+      await handleSave('discMenPct', discMenPct, '');
+      await handleSave('discClosePct', discClosePct, '');
+      await handleSave('discountMode', discountMode, '');
+      setSavingLocal(false);
     }
-  };
 
-  const closeDocModal = () => {
-    setIsModalOpen(false);
-    setSelectedDocHtml(null);
-  };
-
-  return (
-    <div style={st.card}>
-      <h2 style={st.cardTitle}>🗂️ Histórico de Documentos</h2>
-
-      {(cfg.docHistory || []).length === 0 && <p style={st.sub}>Nenhum documento gerado ou assinado ainda.</p>}
-      {(cfg.docHistory || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(doc => (
-        <div key={doc.signToken} style={st.itemCard}>
-          <p style={{ ...st.label, fontWeight: 600, color: 'var(--text)' }}>
-            {doc.clientName} - {doc.type === 'proposta' ? 'Proposta' : 'Contrato'}
+    return (
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>🏷️ Regras de Desconto Padrão</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+            Defina os percentuais de desconto padrão aplicados em propostas e o modo de aplicação.
           </p>
-          <p style={st.sub}>Gerado em: {new Date(doc.createdAt).toLocaleDateString()} por {doc.consultorName}</p>
-          {doc.signedAt && (
-            <p style={st.sub}>Assinado por: {doc.signedBy} em {doc.signedAt} ({doc.status})</p>
-          )}
-          {!doc.signedAt && (
-            <p style={st.sub}>Status: Pendente de Assinatura</p>
-          )}
-          <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-            <button onClick={() => openDocModal(doc)} style={st.btnSecondary}>
-              👁 Ver Documento
-            </button>
-            <a href={`/sign/${doc.signToken}`} target="_blank" rel="noopener noreferrer" style={st.btnSecondary}>
-              🔗 Link Assinatura
-            </a>
+
+          <div style={s.field}>
+            <label style={s.label}>% Desconto Adesão (em tela)</label>
+            <input type="number" style={s.input} value={discAdPct} onChange={e => setDiscAdPct(parseFloat(e.target.value))} placeholder="50" min="0" max="100" />
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              Percentual de desconto na adesão exibido na tela de proposta.
+            </p>
+          </div>
+
+          <div style={s.field}>
+            <label style={s.label}>% Desconto Mensalidade (em tela)</label>
+            <input type="number" style={s.input} value={discMenPct} onChange={e => setDiscMenPct(parseFloat(e.target.value))} placeholder="0" min="0" max="100" />
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              Percentual de desconto na mensalidade exibido na tela de proposta.
+            </p>
+          </div>
+
+          <div style={s.field}>
+            <label style={s.label}>% Desconto Adesão (fechamento)</label>
+            <input type="number" style={s.input} value={discClosePct} onChange={e => setDiscClosePct(parseFloat(e.target.value))} placeholder="40" min="0" max="100" />
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              Percentual de desconto adicional na adesão para o fechamento (aplicado no cálculo final).
+            </p>
+          </div>
+
+          <div style={s.field}>
+            <label style={s.label}>Modo de Desconto</label>
+            <select style={s.input} value={discountMode} onChange={e => setDiscountMode(e.target.value)}>
+              <option value="tela">Aplicar desconto em tela</option>
+              <option value="voucher">Aplicar desconto via voucher</option>
+            </select>
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              Define se os descontos são aplicados automaticamente ou se exigem um voucher.
+            </p>
           </div>
         </div>
-      ))}
 
-      {isModalOpen && (
-        <div style={st.modalOverlay}>
-          <div style={st.modalBox}>
-            <div style={st.modalHeader}>
-              <h3>Visualizar Documento</h3>
-              <button onClick={closeDocModal} style={st.modalClose}>✕</button>
+        <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+          {savingLocal ? '⏳ Salvando...' : '✅ Salvar Descontos'}
+        </button>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════
+  // ABA VOUCHERS
+  // ══════════════════════════════════════════════
+  function TabVouchers({ cfg, setCfg, empresaId, handleSave }) {
+    const [vouchers, setVouchers] = useState(cfg.vouchers || []);
+    const [newVoucherCode, setNewVoucherCode] = useState('');
+    const [newVoucherDiscount, setNewVoucherDiscount] = useState(0);
+    const [newVoucherType, setNewVoucherType] = useState('adesao'); // 'adesao' | 'mensalidade' | 'total'
+    const [savingLocal, setSavingLocal] = useState(false);
+
+    useEffect(() => {
+      setVouchers(cfg.vouchers || []);
+    }, [cfg]);
+
+    function addVoucher() {
+      if (!newVoucherCode || newVoucherDiscount <= 0) {
+        toast('Preencha código e desconto válidos.', 'err');
+        return;
+      }
+      const newV = {
+        id: uuidv4(),
+        code: newVoucherCode.toUpperCase(),
+        discount: newVoucherDiscount,
+        type: newVoucherType,
+        createdAt: new Date().toISOString(),
+        used: false,
+      };
+      setVouchers(prev => [...prev, newV]);
+      setNewVoucherCode('');
+      setNewVoucherDiscount(0);
+      toast('Voucher adicionado localmente. Salve para persistir.');
+    }
+
+    function removeVoucher(id) {
+      if (!confirm('Remover voucher?')) return;
+      setVouchers(prev => prev.filter(v => v.id !== id));
+      toast('Voucher removido localmente. Salve para persistir.');
+    }
+
+    async function salvar() {
+      setSavingLocal(true);
+      await handleSave('vouchers', vouchers, '✅ Vouchers salvos!');
+      setSavingLocal(false);
+    }
+
+    function imprimirVoucher(voucher) {
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html>
+        <head>
+          <title>Voucher de Desconto</title>
+          <style>
+            body { font-family: 'Inter', sans-serif; margin: 0; padding: 40px; background: #f0f2f5; color: #333; }
+            .voucher-card {
+              width: 350px; margin: 0 auto; padding: 30px; border: 2px dashed #00d4ff; border-radius: 15px;
+              background: #fff; text-align: center; box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+              position: relative; overflow: hidden;
+            }
+            .voucher-card::before {
+              content: ''; position: absolute; top: -20px; left: -20px; right: -20px; bottom: -20px;
+              background: radial-gradient(circle at center, rgba(0,212,255,0.05) 0%, transparent 70%);
+              z-index: 0;
+            }
+            h1 { color: #00d4ff; font-size: 28px; margin-bottom: 10px; font-family: 'Syne', sans-serif; font-weight: 800; }
+            h2 { color: #333; font-size: 22px; margin-bottom: 5px; }
+            p { font-size: 14px; color: #666; margin-bottom: 8px; }
+            .code {
+              font-family: 'DM Mono', monospace; font-size: 36px; font-weight: bold; color: #7c3aed;
+              background: #f3e8ff; padding: 10px 20px; border-radius: 8px; margin: 20px 0;
+              letter-spacing: 2px; display: inline-block;
+            }
+            .discount-info { font-size: 16px; color: #555; margin-top: 15px; }
+            .footer { font-size: 12px; color: #999; margin-top: 30px; }
+            @media print {
+              body { background: #fff; padding: 0; }
+              .voucher-card { box-shadow: none; border: 1px dashed #ccc; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="voucher-card">
+            <h1>Voucher de Desconto</h1>
+            <p>${cfg.company || 'Sua Empresa'}</p>
+            <div class="code">${voucher.code}</div>
+            <h2>${voucher.discount}% OFF</h2>
+            <p class="discount-info">Aplicável em ${voucher.type === 'adesao' ? 'Adesão' : voucher.type === 'mensalidade' ? 'Mensalidade' : 'Valor Total'}</p>
+            <p class="footer">Válido por tempo limitado. Não cumulativo com outras promoções.</p>
+          </div>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+    }
+
+    return (
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>🎫 Gerar Novo Voucher</div>
+          <div style={s.row2}>
+            <div style={s.field}>
+              <label style={s.label}>Código do Voucher</label>
+              <input style={s.input} value={newVoucherCode} onChange={e => setNewVoucherCode(e.target.value)} placeholder="EX: DESCONTO10" />
             </div>
-            <div style={st.modalBody}>
-              <div dangerouslySetInnerHTML={{ __html: selectedDocHtml }} />
+            <div style={s.field}>
+              <label style={s.label}>% Desconto</label>
+              <input type="number" style={s.input} value={newVoucherDiscount} onChange={e => setNewVoucherDiscount(parseFloat(e.target.value))} placeholder="10" min="1" max="100" />
             </div>
-            <div style={st.modalFooter}>
-              <button onClick={closeDocModal} style={st.btnCancel}>Fechar</button>
+          </div>
+          <div style={s.field}>
+            <label style={s.label}>Tipo de Desconto</label>
+            <select style={s.input} value={newVoucherType} onChange={e => setNewVoucherType(e.target.value)}>
+              <option value="adesao">Adesão</option>
+              <option value="mensalidade">Mensalidade</option>
+              <option value="total">Total (Adesão + Mensalidade)</option>
+            </select>
+          </div>
+          <button onClick={addVoucher} style={s.btnPrimary}>
+            ➕ Adicionar Voucher
+          </button>
+        </div>
+
+        <div style={s.sec}>
+          <div style={s.secTitle}>Vouchers Ativos</div>
+          {vouchers.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum voucher cadastrado.</p>}
+          {vouchers.map(v => (
+            <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--accent)' }}>{v.code}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {v.discount}% OFF em {v.type === 'adesao' ? 'Adesão' : v.type === 'mensalidade' ? 'Mensalidade' : 'Total'}
+                </div>
+              </div>
+              <button onClick={() => imprimirVoucher(v)}
+                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                🖨 Imprimir
+              </button>
+              <button onClick={() => removeVoucher(v.id)}
+                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                🗑
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+          {savingLocal ? '⏳ Salvando...' : '✅ Salvar Vouchers'}
+        </button>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════
+  // ABA DOCUMENTOS — UPLOAD E GESTÃO
+  // ══════════════════════════════════════════════
+  function TabDocumentos({ cfg, setCfg, empresaId, handleSave }) {
+    const [docs, setDocs] = useState(cfg.importedDocs || []);
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [uploadingLocal, setUploadingLocal] = useState(false);
+    const [savingLocal, setSavingLocal] = useState(false);
+
+    useEffect(() => {
+      setDocs(cfg.importedDocs || []);
+    }, [cfg]);
+
+    const handleFileChange = (e) => {
+      setSelectedFile(e.target.files[0]);
+    };
+
+    const uploadDocument = async () => {
+      if (!selectedFile) {
+        toast('Selecione um arquivo para upload.', 'err');
+        return;
+      }
+      setUploadingLocal(true);
+      const fileExtension = selectedFile.name.split('.').pop();
+      const fileName = `${uuidv4()}.${fileExtension}`;
+      const filePath = `${empresaId}/${fileName}`;
+
+      const { data, error } = await supabase.storage
+        .from('documents') // Certifique-se que este bucket existe no Supabase
+        .upload(filePath, selectedFile, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (error) {
+        console.error('Erro ao fazer upload do documento:', error);
+        toast('Erro ao fazer upload: ' + error.message, 'err');
+        setUploadingLocal(false);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from('documents')
+        .getPublicUrl(filePath);
+
+      const newDoc = {
+        id: uuidv4(),
+        name: selectedFile.name,
+        type: selectedFile.type,
+        url: publicUrlData.publicUrl,
+        filePath: filePath,
+        uploadedAt: new Date().toISOString(),
+        userId: user.id,
+      };
+
+      const updatedDocs = [...docs, newDoc];
+      setDocs(updatedDocs);
+      setSelectedFile(null);
+      toast('✅ Documento enviado com sucesso! Salve para persistir.');
+      setUploadingLocal(false);
+    };
+
+    const removeDocument = async (docId, filePath) => {
+      if (!confirm('Remover documento? Esta ação é irreversível.')) return;
+
+      // Remove do Supabase Storage
+      const { error: storageError } = await supabase.storage
+        .from('documents')
+        .remove([filePath]);
+
+      if (storageError) {
+        console.error('Erro ao remover do storage:', storageError);
+        toast('Erro ao remover do storage: ' + storageError.message, 'err');
+        return;
+      }
+
+      const updatedDocs = docs.filter(d => d.id !== docId);
+      setDocs(updatedDocs);
+      toast('Documento removido localmente. Salve para persistir.');
+    };
+
+    async function salvar() {
+      setSavingLocal(true);
+      await handleSave('importedDocs', docs, '✅ Documentos importados salvos!');
+      setSavingLocal(false);
+    }
+
+    return (
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>📄 Importar Documentos</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+            Faça upload de documentos (PDF, HTML) para uso no sistema.
+          </p>
+          <div style={s.field}>
+            <label style={s.label}>Selecionar Arquivo (PDF, HTML)</label>
+            <input type="file" accept=".pdf,.html" onChange={handleFileChange} style={{ ...s.input, padding: '6px' }} />
+          </div>
+          <button onClick={uploadDocument} style={s.btnPrimary} disabled={!selectedFile || uploadingLocal}>
+            {uploadingLocal ? '⏳ Enviando...' : '⬆️ Fazer Upload'}
+          </button>
+        </div>
+
+        <div style={s.sec}>
+          <div style={s.secTitle}>Documentos Importados</div>
+          {docs.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum documento importado.</p>}
+          {docs.map(doc => (
+            <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{doc.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {new Date(doc.uploadedAt).toLocaleDateString()} - {doc.type}
+                </div>
+              </div>
+              <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'none' }}>
+                👁 Ver
+              </a>
+              <button onClick={() => removeDocument(doc.id, doc.filePath)}
+                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                🗑
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+          {savingLocal ? '⏳ Salvando...' : '✅ Salvar Documentos Importados'}
+        </button>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════
+  // ABA HISTÓRICO — DOCUMENTOS GERADOS E ASSINADOS
+  // ══════════════════════════════════════════════
+  function TabHistorico({ cfg, setCfg, empresaId, handleSave, setShowDocModal, setModalDocContent, setModalDocTitle }) {
+    const [history, setHistory] = useState(cfg.docHistory || []);
+    const [savingLocal, setSavingLocal] = useState(false);
+
+    useEffect(() => {
+      setHistory(cfg.docHistory || []);
+    }, [cfg]);
+
+    const viewDocumentContent = async (docId, docType) => {
+      // Para documentos gerados (HTML)
+      if (docType === 'proposta' || docType === 'contrato') {
+        const { data, error } = await supabase.storage
+          .from('documents')
+          .download(`${empresaId}/generated/${docId}.html`);
+
+        if (error) {
+          console.error('Erro ao baixar conteúdo do documento:', error);
+          toast('Erro ao carregar conteúdo do documento.', 'err');
+          return;
+        }
+        const text = await data.text();
+        setModalDocContent(text);
+        setModalDocTitle(`Visualizar ${docType === 'proposta' ? 'Proposta' : 'Contrato'}`);
+        setShowDocModal(true);
+      } else {
+        // Para outros tipos, pode abrir em nova aba ou tratar de forma diferente
+        toast('Funcionalidade de visualização para este tipo de documento não implementada.', 'err');
+      }
+    };
+
+    const removeHistoryItem = (id) => {
+      if (!confirm('Remover item do histórico?')) return;
+      const updatedHistory = history.filter(item => item.id !== id);
+      setHistory(updatedHistory);
+      toast('Item do histórico removido localmente. Salve para persistir.');
+    };
+
+    async function salvar() {
+      setSavingLocal(true);
+      await handleSave('docHistory', history, '✅ Histórico salvo!');
+      setSavingLocal(false);
+    }
+
+    return (
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>🗂️ Histórico de Documentos</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+            Acompanhe todas as propostas e contratos gerados e seus status de assinatura.
+          </p>
+
+          {history.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum documento no histórico.</p>}
+          {history.map(doc => (
+            <div key={doc.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
+                  {doc.type === 'proposta' ? 'Proposta' : 'Contrato'} - {doc.clientName}
+                </div>
+                <span style={{ fontSize: 11, color: doc.status === 'assinado' ? 'var(--accent3)' : 'var(--muted)', fontWeight: 600 }}>
+                  {doc.status === 'assinado' ? '✅ ASSINADO' : '⏳ PENDENTE'}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+                Gerado em: {new Date(doc.createdAt).toLocaleDateString()} por {doc.userName}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={() => viewDocumentContent(doc.id, doc.type)}
+                  style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                  👁 Ver Documento
+                </button>
+                <a href={`/sign/${doc.id}`} target="_blank" rel="noopener noreferrer"
+                  style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(124,58,237,.1)', border: '1px solid rgba(124,58,237,.2)', color: 'var(--accent2)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'none' }}>
+                  🔗 Link Assinatura
+                </a>
+                <button onClick={() => removeHistoryItem(doc.id)}
+                  style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                  🗑 Remover
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+          {savingLocal ? '⏳ Salvando...' : '✅ Salvar Histórico'}
+        </button>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════
+  // ABA CLIENTES
+  // ══════════════════════════════════════════════
+  function TabClientes({ cfg, setCfg, empresaId, handleSave }) {
+    const [clients, setClients] = useState(cfg.clients || []);
+    const [savingLocal, setSavingLocal] = useState(false);
+
+    useEffect(() => {
+      setClients(cfg.clients || []);
+    }, [cfg]);
+
+    async function salvar() {
+      setSavingLocal(true);
+      await handleSave('clients', clients, '✅ Clientes salvos!');
+      setSavingLocal(false);
+    }
+
+    return (
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>🗃️ Gestão de Clientes</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+            Aqui você pode visualizar e gerenciar seus clientes.
+          </p>
+          {clients.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum cliente cadastrado.</p>}
+          {clients.map(client => (
+            <div key={client.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{client.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {client.document} - {client.email}
+              </div>
+            </div>
+          ))}
+        </div>
+        <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+          {savingLocal ? '⏳ Salvando...' : '✅ Salvar Clientes'}
+        </button>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════
+  // ABA TEMA
+  // ══════════════════════════════════════════════
+  function TabTema({ cfg, setCfg, empresaId, handleSave }) {
+    const [theme, setTheme] = useState(cfg.theme || 'dark');
+    const [savingLocal, setSavingLocal] = useState(false);
+
+    useEffect(() => {
+      setTheme(cfg.theme || 'dark');
+    }, [cfg]);
+
+    async function salvar() {
+      setSavingLocal(true);
+      await handleSave('theme', theme, '✅ Tema salvo!');
+      setSavingLocal(false);
+    }
+
+    return (
+      <div style={s.body}>
+        <div style={s.sec}>
+          <div style={s.secTitle}>🎨 Tema da Aplicação</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+            Escolha o tema visual para a interface do sistema.
+          </p>
+          <div style={s.field}>
+            <label style={s.label}>Tema</label>
+            <select style={s.input} value={theme} onChange={e => setTheme(e.target.value)}>
+              <option value="dark">Escuro</option>
+              <option value="light">Claro</option>
+            </select>
+          </div>
+        </div>
+        <button style={s.saveBtn} onClick={salvar} disabled={savingLocal}>
+          {savingLocal ? '⏳ Salvando...' : '✅ Salvar Tema'}
+        </button>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════
+  // RENDERIZAÇÃO PRINCIPAL
+  // ══════════════════════════════════════════════
+  return (
+    <>
+      <Head>
+        <title>Configurações — {cfg.company}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      </Head>
+      <div id="vx-toast" style={s.toast}></div>
+
+      <div style={s.container}>
+        <aside style={s.sidebar}>
+          <div style={s.logoContainer}>
+            {cfg.logob64
+              ? <img src={cfg.logob64} alt={cfg.company} style={s.logo} />
+              : <div style={s.logoText}>{cfg.company}</div>
+            }
+            <div style={s.slogan}>{cfg.slogan}</div>
+          </div>
+
+          <nav style={s.nav}>
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{ ...s.navItem, ...(activeTab === tab.id ? s.navItemActive : {}) }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <button onClick={() => supabase.auth.signOut()} style={s.logoutBtn}>
+            Sair
+          </button>
+        </aside>
+
+        <main style={s.mainContent}>
+          <h1 style={s.pageTitle}>Configurações da Empresa</h1>
+          {errorMsg && <div style={s.errorBox}>{errorMsg}</div>}
+          {successMsg && <div style={s.successBox}>{successMsg}</div>}
+
+          {activeTab === 'geral'      && <TabEmpresa    cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+          {activeTab === 'metas'      && <TabMetas      cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+          {activeTab === 'kpis'       && <TabKpis       cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+          {activeTab === 'usuarios'   && <TabUsuarios   cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+          {activeTab === 'produtos'   && <TabProdutos   cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+          {activeTab === 'descontos'  && <TabDescontos  cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+          {activeTab === 'vouchers'   && <TabVouchers   cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+          {activeTab === 'documentos' && <TabDocumentos cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+          {activeTab === 'historico'  && <TabHistorico  cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} setShowDocModal={setShowDocModal} setModalDocContent={setModalDocContent} setModalDocTitle={setModalDocTitle} />}
+          {activeTab === 'clientes'   && <TabClientes   cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+          {activeTab === 'tema'       && <TabTema       cfg={cfg} setCfg={setCfg} empresaId={empresaId} handleSave={handleSave} />}
+        </main>
+      </div>
+
+      {/* Modal de visualização de documento */}
+      {showDocModal && (
+        <div style={s.modalOverlay}>
+          <div style={s.modalBox}>
+            <div style={s.modalHeader}>
+              <h3>{modalDocTitle}</h3>
+              <button onClick={() => setShowDocModal(false)} style={s.modalClose}>✕</button>
+            </div>
+            <div style={s.modalBody}>
+              <div dangerouslySetInnerHTML={{ __html: modalDocContent }} />
+            </div>
+            <div style={s.modalFooter}>
+              <button onClick={() => setShowDocModal(false)} style={s.btnCancel}>Fechar</button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
-// ── ESTILOS GLOBAIS (PARA SEREM ADICIONADOS EM globals.css) ──
-// Estes estilos são para o layout geral da página de configurações e para os componentes internos.
-// O switch toggle já está no globals.css que te passei antes.
-
-const st = {
+// ══════════════════════════════════════════════
+// ESTILOS (são os mesmos do globals.css, mas aqui para referência)
+// ══════════════════════════════════════════════
+const s = {
   container: {
-    maxWidth: 960,
-    margin: '40px auto',
+    display: 'flex',
+    minHeight: '100vh',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+  },
+  sidebar: {
+    width: 240,
+    background: 'var(--surface)',
+    borderRight: '1px solid var(--border)',
+    padding: '20px 0',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  logoContainer: {
+    marginBottom: 30,
+    textAlign: 'center',
     padding: '0 20px',
+  },
+  logo: {
+    height: 50,
+    maxWidth: '100%',
+    objectFit: 'contain',
+    marginBottom: 8,
+  },
+  logoText: {
+    fontFamily: 'Syne, sans-serif',
+    fontSize: 24,
+    fontWeight: 800,
+    color: 'var(--accent)',
+  },
+  slogan: {
+    fontSize: 12,
+    color: 'var(--muted)',
+    fontFamily: 'DM Mono, monospace',
+  },
+  nav: {
+    width: '100%',
+    flexGrow: 1,
+    padding: '0 10px',
+  },
+  navItem: {
+    display: 'flex',
+    alignItems: 'center',
+    width: '100%',
+    padding: '10px 15px',
+    borderRadius: 10,
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--muted)',
+    fontSize: 14,
+    fontFamily: 'DM Mono, monospace',
+    textAlign: 'left',
+    cursor: 'pointer',
+    marginBottom: 5,
+    transition: 'all .2s',
+  },
+  navItemActive: {
+    background: 'rgba(0,212,255,.1)',
+    color: 'var(--accent)',
+    fontWeight: 600,
+    border: '1px solid rgba(0,212,255,.2)',
+  },
+  logoutBtn: {
+    width: 'calc(100% - 20px)',
+    padding: '10px 15px',
+    borderRadius: 10,
+    background: 'rgba(239,68,68,.1)',
+    border: '1px solid rgba(239,68,68,.2)',
+    color: 'var(--danger)',
+    fontSize: 14,
+    fontFamily: 'DM Mono, monospace',
+    cursor: 'pointer',
+    marginTop: 20,
+  },
+  mainContent: {
+    flexGrow: 1,
+    padding: '30px',
+    maxWidth: 900,
+    margin: '0 auto',
   },
   pageTitle: {
     fontFamily: 'Syne, sans-serif',
@@ -1044,179 +1715,105 @@ const st = {
     fontWeight: 700,
     color: 'var(--text)',
     marginBottom: 30,
-    textAlign: 'center',
   },
-  tabs: {
-    display: 'flex',
-    gap: 10,
-    marginBottom: 20,
-    overflowX: 'auto',
-    paddingBottom: 5,
-    borderBottom: '1px solid var(--border)',
-  },
-  tabContent: {
+  sec: {
     background: 'var(--surface)',
     border: '1px solid var(--border)',
     borderRadius: 16,
     padding: 24,
+    marginBottom: 24,
     boxShadow: 'var(--shadow)',
   },
-  card: {
-    // Reutiliza o estilo do tabContent para consistência
-  },
-  cardTitle: {
+  secTitle: {
     fontFamily: 'Syne, sans-serif',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 700,
     color: 'var(--accent)',
-    marginBottom: 20,
-    borderBottom: '1px solid var(--border)',
-    paddingBottom: 10,
+    marginBottom: 16,
   },
-  sectionHeader: {
-    fontFamily: 'Syne, sans-serif',
-    fontSize: 16,
-    fontWeight: 700,
-    color: 'var(--text)',
-    marginTop: 30,
-    marginBottom: 15,
-    paddingBottom: 5,
-    borderBottom: '1px dashed var(--border)',
-  },
-  itemCard: {
-    background: 'var(--surface2)',
-    border: '1px solid var(--border)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 15,
-  },
-  campo: {
-    marginBottom: 15,
+  field: {
+    marginBottom: 16,
+    flex: 1,
   },
   label: {
+    display: 'block',
     fontSize: 12,
     color: 'var(--muted)',
-    display: 'block',
     marginBottom: 6,
     letterSpacing: '.5px',
     textTransform: 'uppercase',
   },
   input: {
     width: '100%',
-    background: 'var(--bg)',
+    padding: '10px 14px',
+    background: 'var(--surface2)',
     border: '1px solid var(--border)',
     borderRadius: 8,
-    padding: '10px 14px',
     fontSize: 14,
     color: 'var(--text)',
     outline: 'none',
-    transition: 'border-color .2s',
+    fontFamily: 'DM Mono, monospace',
   },
-  fileInput: {
-    width: '100%',
-    background: 'var(--bg)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    padding: '10px 14px',
-    fontSize: 14,
-    color: 'var(--text)',
-    outline: 'none',
-    transition: 'border-color .2s',
-    cursor: 'pointer',
-  },
-  sub: {
-    fontSize: 12,
-    color: 'var(--muted)',
-    lineHeight: 1.6,
-    marginTop: 5,
-  },
-  btnGroup: {
-    marginTop: 20,
+  row2: {
     display: 'flex',
-    justifyContent: 'flex-end',
-    gap: 10,
+    gap: 20,
+    marginBottom: 0,
   },
-  btnPrimary: {
-    padding: '10px 22px',
+  saveBtn: {
+    width: '100%',
+    padding: '12px 20px',
     borderRadius: 10,
     background: 'linear-gradient(135deg,var(--accent),#0099bb)',
     border: 'none',
     color: '#fff',
     fontFamily: 'DM Mono, monospace',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: 600,
     cursor: 'pointer',
     transition: 'all .2s',
   },
-  btnSecondary: {
-    padding: '8px 16px',
-    borderRadius: 8,
-    background: 'rgba(100,116,139,.12)',
-    border: '1px solid var(--border)',
-    color: 'var(--muted)',
+  toast: {
+    position: 'fixed',
+    bottom: 20,
+    right: 20,
+    background: 'rgba(16,185,129,.9)',
+    color: '#fff',
+    padding: '12px 20px',
+    borderRadius: 10,
+    zIndex: 9999,
+    opacity: 0,
+    transform: 'translateY(20px)',
+    transition: 'all .3s ease-out',
     fontFamily: 'DM Mono, monospace',
-    fontSize: 12,
-    cursor: 'pointer',
-    transition: 'all .2s',
-    textDecoration: 'none', // Para links
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnDanger: {
-    padding: '8px 16px',
-    borderRadius: 8,
-    background: 'rgba(239,68,68,.1)',
-    border: '1px solid rgba(239,68,68,.3)',
-    color: 'var(--danger)',
-    fontFamily: 'DM Mono, monospace',
-    fontSize: 12,
-    cursor: 'pointer',
-    transition: 'all .2s',
-  },
-  successAlert: {
-    padding: '12px 16px',
-    background: 'rgba(16,185,129,.1)',
-    border: '1px solid rgba(16,185,129,.3)',
-    borderRadius: 8,
     fontSize: 14,
-    color: 'var(--accent3)',
-    marginBottom: 20,
-  },
-  errorAlert: {
-    padding: '12px 16px',
-    background: 'rgba(239,68,68,.1)',
-    border: '1px solid rgba(239,68,68,.3)',
-    borderRadius: 8,
-    fontSize: 14,
-    color: 'var(--danger)',
-    marginBottom: 20,
-  },
-  loadingBox: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 300,
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 16,
-    padding: 24,
-    boxShadow: 'var(--shadow)',
-    marginTop: 40,
+    boxShadow: '0 4px 12px rgba(0,0,0,.2)',
   },
   errorBox: {
+    background: 'rgba(239,68,68,.1)',
+    border: '1px solid rgba(239,68,68,.3)',
+    color: 'var(--danger)',
+    padding: '12px 18px',
+    borderRadius: 10,
+    marginBottom: 20,
+    fontSize: 14,
+  },
+  successBox: {
+    background: 'rgba(16,185,129,.1)',
+    border: '1px solid rgba(16,185,129,.3)',
+    color: 'var(--accent3)',
+    padding: '12px 18px',
+    borderRadius: 10,
+    marginBottom: 20,
+    fontSize: 14,
+  },
+  centro: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 300,
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 16,
-    padding: 24,
-    boxShadow: 'var(--shadow)',
-    marginTop: 40,
+    minHeight: '100vh',
+    background: 'var(--bg)',
+    color: 'var(--text)',
   },
   spinner: {
     width: 40,
@@ -1225,19 +1822,6 @@ const st = {
     borderTop: '3px solid var(--accent)',
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
-  },
-  permissionsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-    gap: 10,
-    marginTop: 10,
-  },
-  permissionItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    fontSize: 13,
-    color: 'var(--text)',
   },
   modalOverlay: {
     position: 'fixed',
@@ -1255,7 +1839,7 @@ const st = {
     border: '1px solid var(--border)',
     borderRadius: 16,
     width: '100%',
-    maxWidth: 720, // Aumentado para melhor visualização de documentos
+    maxWidth: 800, // Aumentado para melhor visualização de documentos
     boxShadow: 'var(--shadow)',
     display: 'flex',
     flexDirection: 'column',
@@ -1265,6 +1849,9 @@ const st = {
   modalHeader: {
     padding: '20px 24px 0',
     flexShrink: 0,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   modalHeaderH3: {
     fontFamily: 'Syne, sans-serif',
@@ -1273,23 +1860,23 @@ const st = {
     color: 'var(--accent)',
   },
   modalClose: {
-    position: 'absolute',
-    top: 16,
-    right: 20,
     background: 'none',
     border: 'none',
     color: 'var(--muted)',
     fontSize: 20,
     cursor: 'pointer',
   },
+  modalCloseHover: {
+    color: 'var(--text)',
+  },
   modalBody: {
     padding: '20px 24px',
     overflowY: 'auto',
     flex: 1,
     background: '#fff', // Fundo branco para o conteúdo do documento
-    color: '#333', // Texto escuro para o conteúdo do documento
+    color: '#333',      // Texto escuro para o conteúdo do documento
     borderRadius: 8,
-    margin: '0 24px 20px',
+    margin: '0 24px',
     border: '1px solid #eee',
   },
   modalFooter: {
@@ -1300,45 +1887,26 @@ const st = {
     justifyContent: 'flex-end',
     flexShrink: 0,
   },
+  btnCancel: {
+    padding: '10px 18px',
+    borderRadius: 10,
+    background: 'rgba(100,116,139,.12)',
+    border: '1px solid var(--border)',
+    color: 'var(--muted)',
+    fontFamily: 'DM Mono, monospace',
+    fontSize: 13,
+    cursor: 'pointer',
+  },
+  btnPrimary: {
+    padding: '10px 22px',
+    borderRadius: 10,
+    background: 'linear-gradient(135deg,var(--accent),#0099bb)',
+    border: 'none',
+    color: '#fff',
+    fontFamily: 'DM Mono, monospace',
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all .2s',
+  },
 };
-
-// Estilos para as abas (diretamente no componente para evitar conflitos)
-const tabStyles = `
-  .tabs button {
-    padding: 10px 18px;
-    border-radius: 8px;
-    background: transparent;
-    border: none;
-    color: var(--muted);
-    font-family: 'DM Mono', monospace;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all .2s;
-    white-space: nowrap;
-  }
-  .tabs button:hover {
-    color: var(--text);
-    background: rgba(100,116,139,.08);
-  }
-  .tabs button.active {
-    color: var(--accent);
-    background: rgba(0,212,255,.15);
-    font-weight: 600;
-  }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-`;
-
-// Adiciona os estilos das abas ao head do documento
-// Isso é uma alternativa para evitar adicionar no globals.css se você preferir
-// Manter os estilos específicos do componente mais isolados.
-// Se você já tem um globals.css, pode mover estes estilos para lá.
-useEffect(() => {
-  const styleElement = document.createElement('style');
-  styleElement.innerHTML = tabStyles;
-  document.head.appendChild(styleElement);
-  return () => {
-    document.head.removeChild(styleElement);
-  };
-}, []);
