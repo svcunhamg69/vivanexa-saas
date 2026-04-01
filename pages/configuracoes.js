@@ -2,17 +2,16 @@
 // ============================================================
 // MELHORIAS APLICADAS:
 // 1. Logo: carrega e exibe corretamente após salvar
-// 2. Produtos: planos completos (Basic/Pro/Top/Top Plus) com
-//    CNPJs, usuários e tabela de preços por módulo
+// 2. Produtos: planos completos, tabela de preços, módulos editáveis
 // 3. Usuários: permissões granulares + perfis personalizados
 // 4. Vouchers: botão imprimir PDF estilizado
-// 5. KPIs: seletor de ícone com galeria de opções
-// 6. Documentos: upload de templates de proposta e contrato
+// 5. KPIs: seletor de ícone com galeria de opções + metas diárias alinhadas
+// 6. Documentos: upload de templates (suporte .txt, .html, aviso .doc/.docx)
 // 7. Empresa: horário limite para oferta de fechamento e texto
 // 8. Produtos: toggle para habilitar seleção por botões
 // 9. Email: configuração SMTP/API para envio automático
 // 10. Header clicável para voltar ao chat
-// 11. Upload: tratamento para .docx/.doc (não suportado)
+// 11. Módulos: edição in-line dos nomes
 // ============================================================
 
 import { useState, useEffect } from 'react'
@@ -281,7 +280,7 @@ function TabMetas({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA KPIs (com metas diárias por usuário)
+// ABA KPIs (com metas diárias por usuário) – ALINHADO
 // ══════════════════════════════════════════════
 function TabKpis({ cfg, setCfg, empresaId }) {
   const [kpis,        setKpis]        = useState(cfg.kpiTemplates || [])
@@ -370,7 +369,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
         <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
           Defina a meta diária de cada KPI para cada vendedor. O sistema calculará automaticamente a meta mensal (meta diária × dias úteis).
         </p>
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <label style={s.label}>Mês de Referência</label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} style={s.input} />
@@ -378,31 +377,60 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           </div>
         </div>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              <th style={{ textAlign: 'left', padding: '8px 6px' }}>Usuário</th>
-              {kpis.map(k => <th key={k.id} style={{ textAlign: 'center', padding: '8px 6px' }}>{k.nome || 'KPI'}<br/><span style={{ fontSize: 10, color: 'var(--muted)' }}>meta/dia</span></th>)}
-              </tr>
-          </thead>
-          <tbody>
-            {usuarios.map(u => (
-              <tr key={u.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                <td style={{ padding: '8px 6px', fontWeight: 600 }}>{u.nome}</td>
-                {kpis.map(k => {
-                  const val = dailyGoals[u.id]?.[k.id] || 0
-                  const metaMensal = val * diasUteis
-                  return (
-                    <td key={k.id} style={{ padding: '8px 6px' }}>
-                      <input type="number" min={0} value={val} onChange={e => updateDailyGoal(u.id, k.id, e.target.value)} style={{ ...s.input, width: 70, textAlign: 'center' }} />
-                      <div style={{ fontSize: 10, color: 'var(--accent)', marginTop: 2 }}>meta mensal: {metaMensal}</div>
+        {kpis.length === 0 ? (
+          <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum KPI cadastrado. Adicione KPIs primeiro.</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 300 }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                  <th style={{ textAlign: 'left', padding: '10px 6px', position: 'sticky', left: 0, background: 'var(--surface)' }}>Usuário</th>
+                  {kpis.map(k => (
+                    <th key={k.id} style={{ textAlign: 'center', padding: '10px 6px' }}>
+                      {k.nome || 'KPI'}<br/>
+                      <span style={{ fontSize: 10, color: 'var(--muted)' }}>meta/dia</span>
+                    </th>
+                  ))}
+                 </tr>
+              </thead>
+              <tbody>
+                {usuarios.length === 0 ? (
+                  <tr>
+                    <td colSpan={kpis.length + 1} style={{ padding: '20px', textAlign: 'center', color: 'var(--muted)' }}>
+                      Nenhum usuário cadastrado. Adicione usuários na aba "Usuários".
                     </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  </tr>
+                ) : (
+                  usuarios.map(u => (
+                    <tr key={u.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '10px 6px', fontWeight: 600, position: 'sticky', left: 0, background: 'var(--surface)' }}>
+                        {u.nome}
+                      </td>
+                      {kpis.map(k => {
+                        const val = dailyGoals[u.id]?.[k.id] || 0
+                        const metaMensal = val * diasUteis
+                        return (
+                          <td key={k.id} style={{ padding: '8px 6px', textAlign: 'center' }}>
+                            <input
+                              type="number"
+                              min={0}
+                              value={val}
+                              onChange={e => updateDailyGoal(u.id, k.id, e.target.value)}
+                              style={{ ...s.input, width: '80px', textAlign: 'center', marginBottom: '4px' }}
+                            />
+                            <div style={{ fontSize: 10, color: 'var(--accent)' }}>
+                              meta mensal: {metaMensal}
+                            </div>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
         <button style={s.saveBtn} onClick={salvar} disabled={saving} className="mt-4">✅ Salvar Metas de KPI</button>
       </div>
 
@@ -568,7 +596,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA PRODUTOS — COM TOGGLE DE BOTÕES
+// ABA PRODUTOS — COM TOGGLE DE BOTÕES E MÓDULOS EDITÁVEIS
 // ══════════════════════════════════════════════
 function TabProdutos({ cfg, setCfg, empresaId }) {
   const [planos,  setPlanos]  = useState(cfg.plans   || PLANOS_PADRAO)
@@ -578,6 +606,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
   const [saving,  setSaving]  = useState(false)
   const [abaP,    setAbaP]    = useState('planos')
   const [novoMod, setNovoMod] = useState('')
+  const [editandoMod, setEditandoMod] = useState(null) // { index, valor }
 
   function updatePlano(id, campo, val) { setPlanos(prev => prev.map(p => p.id === id ? { ...p, [campo]: val } : p)) }
   function addPlano() { setPlanos(prev => [...prev, { id: 'plano_' + Date.now(), nome: '', maxCnpjs: 0, usuarios: 1 }]) }
@@ -593,7 +622,24 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
     })
   }
   function addModulo() { const m = novoMod.trim(); if (!m || modulos.includes(m)) return; setModulos(prev => [...prev, m]); setNovoMod(''); setPrecos(prev => ({ ...prev, [m]: {} })) }
-  function removeModulo(m) { if (!confirm(`Remover módulo "${m}"?`)) return; setModulos(prev => prev.filter(x => x !== m)); setPrecos(prev => { const n = { ...prev }; delete n[m]; return n }) }
+  function removeModulo(index) { const m = modulos[index]; if (!confirm(`Remover módulo "${m}"?`)) return; const novosMod = [...modulos]; novosMod.splice(index,1); setModulos(novosMod); const novosPrecos = { ...precos }; delete novosPrecos[m]; setPrecos(novosPrecos) }
+  function iniciarEdicaoModulo(index) { setEditandoMod({ index, valor: modulos[index] }) }
+  function salvarEdicaoModulo() {
+    if (!editandoMod || !editandoMod.valor.trim()) return
+    const novos = [...modulos]
+    novos[editandoMod.index] = editandoMod.valor.trim()
+    const nomeAntigo = modulos[editandoMod.index]
+    const nomeNovo = editandoMod.valor.trim()
+    // Atualizar precos: renomear chave
+    const novosPrecos = { ...precos }
+    if (nomeAntigo !== nomeNovo) {
+      novosPrecos[nomeNovo] = novosPrecos[nomeAntigo]
+      delete novosPrecos[nomeAntigo]
+      setPrecos(novosPrecos)
+    }
+    setModulos(novos)
+    setEditandoMod(null)
+  }
 
   async function salvar() {
     setSaving(true)
@@ -618,7 +664,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={s.secTitle}>Planos Disponíveis</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th></tr></thead>
+              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th> </tr></thead>
               <tbody>
                 {planos.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -670,10 +716,21 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
         <div style={s.sec}>
           <div style={s.secTitle}>Módulos do Sistema</div>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>Gerencie os módulos que aparecem no chat e nas propostas.</p>
-          {modulos.map(m => (
-            <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
-              <div style={{ flex: 1, fontWeight: 600, fontSize: 14 }}>📦 {m}</div>
-              <button onClick={() => removeModulo(m)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer' }}>🗑</button>
+          {modulos.map((m, idx) => (
+            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+              {editandoMod && editandoMod.index === idx ? (
+                <input
+                  style={{ ...s.input, flex: 1 }}
+                  value={editandoMod.valor}
+                  onChange={e => setEditandoMod({ ...editandoMod, valor: e.target.value })}
+                  onBlur={salvarEdicaoModulo}
+                  onKeyDown={e => e.key === 'Enter' && salvarEdicaoModulo()}
+                  autoFocus
+                />
+              ) : (
+                <div style={{ flex: 1, fontWeight: 600, fontSize: 14, cursor: 'pointer' }} onClick={() => iniciarEdicaoModulo(idx)}>✏️ {m}</div>
+              )}
+              <button onClick={() => removeModulo(idx)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer' }}>🗑</button>
             </div>
           ))}
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
