@@ -1,11 +1,13 @@
 // pages/configuracoes.js
 // ============================================================
-// VERSÃO CORRIGIDA
-// • Mover SMTP para aba Empresa
-// • Validação de duplicatas em Clientes
-// • Toggle de botões em Produtos funcionando
+// VERSÃO COMPLETA CORRIGIDA
+// • Aba Usuários completa
+// • Aba Vouchers completa
+// • Aba Histórico com visualização de documentos
+// • Aba Clientes com validação de duplicatas
+// • Aba Produtos com edição de módulos e toggle de botões
+// • Aba Empresa com SMTP e oferta de fechamento
 // • Header clicável
-// • Edição de nomes de módulos
 // ============================================================
 
 import { useState, useEffect } from 'react'
@@ -84,7 +86,7 @@ async function salvarStorage(empresaId, novoCfg) {
 }
 
 // ══════════════════════════════════════════════
-// ABA EMPRESA (com SMTP)
+// ABA EMPRESA (com SMTP e oferta de fechamento)
 // ══════════════════════════════════════════════
 function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [company,      setCompany]      = useState(cfg.company  || '')
@@ -191,7 +193,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA METAS (igual ao original, omitido por brevidade – mantém)
+// ABA METAS (metas de vendas)
 // ══════════════════════════════════════════════
 function TabMetas({ cfg, setCfg, empresaId }) {
   const mes = new Date().toISOString().slice(0, 7)
@@ -240,7 +242,7 @@ function TabMetas({ cfg, setCfg, empresaId }) {
     <div style={s.body}>
       <div style={s.sec}>
         <div style={s.secTitle}>Metas de Vendas por Usuário</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>Defina metas mensais de adesão e mensalidade para cada vendedor.</p>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>Defina metas mensais de adesão e mensalidade para cada vendedor.</p>
         <div style={{ marginBottom: 16 }}><label style={s.label}>Mês de Referência</label><input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} style={s.input} /></div>
         {usuarios.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum usuário cadastrado. Cadastre na aba Usuários.</p>}
         {usuarios.map(u => (
@@ -265,7 +267,7 @@ function TabMetas({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA KPIs (com metas diárias por usuário) – já alinhado
+// ABA KPIs (com metas diárias por usuário)
 // ══════════════════════════════════════════════
 function TabKpis({ cfg, setCfg, empresaId }) {
   const [kpis,        setKpis]        = useState(cfg.kpiTemplates || [])
@@ -384,17 +386,152 @@ function TabKpis({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA USUÁRIOS (omitido por brevidade – mantenha o código existente)
+// ABA USUÁRIOS (completa)
 // ══════════════════════════════════════════════
 function TabUsuarios({ cfg, setCfg, empresaId }) {
-  // ... (mesmo código anterior) ...
-  // Para economizar espaço, não repetirei, mas mantenha o código que você já tem.
-  // Se necessário, posso incluir depois.
-  return <div style={s.body}>Usuários (manter código anterior)</div>
+  const [users,   setUsers]   = useState(cfg.users || [])
+  const [form,    setForm]    = useState(null)
+  const [saving,  setSaving]  = useState(false)
+  const [abaU,    setAbaU]    = useState('lista')
+  const [perfis,  setPerfis]  = useState(cfg.perfisTipos || [{ id: 'admin', nome: 'Administrador', permissoes: PERMISSOES_ADMIN, fixo: true }, { id: 'user', nome: 'Vendedor', permissoes: PERMISSOES_USER, fixo: true }])
+  const [perfilForm, setPerfilForm] = useState(null)
+  const emptyForm = { nome: '', usuario: '', email: '', telefone: '', senha: '', perfilId: 'user', permissoes: PERMISSOES_USER }
+
+  function editUser(u) { setForm({ ...u, permissoes: u.permissoes || PERMISSOES_USER }) }
+  function removeUser(id) { if (!confirm('Remover usuário?')) return; setUsers(prev => prev.filter(u => u.id !== id)) }
+  function mudarPerfil(perfilId) { const p = perfis.find(x => x.id === perfilId); setForm(f => ({ ...f, perfilId, permissoes: p?.permissoes || PERMISSOES_USER })) }
+  function togglePermissao(perm) { setForm(f => { const perms = f.permissoes || []; return { ...f, permissoes: perms.includes(perm) ? perms.filter(x => x !== perm) : [...perms, perm] } }) }
+  async function salvarUser() {
+    if (!form.nome || !form.email) { toast('Nome e e-mail obrigatórios', 'err'); return }
+    setSaving(true)
+    let novos = form.id ? users.map(u => u.id === form.id ? form : u) : [...users, { ...form, id: Date.now().toString() }]
+    const novoCfg = { ...cfg, users: novos, perfisTipos: perfis }
+    const { error } = await salvarStorage(empresaId, novoCfg)
+    setSaving(false)
+    if (error) { toast('Erro ao salvar', 'err'); return }
+    setUsers(novos); setCfg(novoCfg); setForm(null); toast('✅ Usuário salvo!')
+  }
+
+  function addPerfil() { setPerfilForm({ id: 'perfil_' + Date.now(), nome: '', permissoes: PERMISSOES_USER, fixo: false }) }
+  function togglePerfilPerm(perm) { setPerfilForm(f => { const perms = f.permissoes || []; return { ...f, permissoes: perms.includes(perm) ? perms.filter(x => x !== perm) : [...perms, perm] } }) }
+  async function salvarPerfil() {
+    if (!perfilForm.nome) { toast('Nome do perfil obrigatório', 'err'); return }
+    let novos = perfis.find(p => p.id === perfilForm.id) ? perfis.map(p => p.id === perfilForm.id ? perfilForm : p) : [...perfis, perfilForm]
+    const novoCfg = { ...cfg, perfisTipos: novos }
+    const { error } = await salvarStorage(empresaId, novoCfg)
+    if (error) { toast('Erro ao salvar', 'err'); return }
+    setPerfis(novos); setCfg(novoCfg); setPerfilForm(null); toast('✅ Perfil salvo!')
+  }
+  async function removerPerfil(id) { if (!confirm('Remover perfil?')) return; const novos = perfis.filter(p => p.id !== id); const novoCfg = { ...cfg, perfisTipos: novos }; await salvarStorage(empresaId, novoCfg); setPerfis(novos); setCfg(novoCfg); toast('🗑 Perfil removido!') }
+
+  const nomePerfilLabel = (perfilId) => perfis.find(p => p.id === perfilId)?.nome || perfilId
+
+  return (
+    <div style={s.body}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        {[['lista','👥 Usuários'],['perfis','🔐 Tipos de Perfil']].map(([id, label]) => (
+          <button key={id} onClick={() => setAbaU(id)} style={{ padding: '8px 16px', borderRadius: 9, fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', background: abaU === id ? 'rgba(0,212,255,.12)' : 'var(--surface2)', border: `1px solid ${abaU === id ? 'rgba(0,212,255,.35)' : 'var(--border)'}`, color: abaU === id ? 'var(--accent)' : 'var(--muted)' }}>{label}</button>
+        ))}
+      </div>
+
+      {abaU === 'lista' && (
+        <div style={s.sec}>
+          <div style={s.secTitle}>Usuários do Sistema</div>
+          {users.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum usuário cadastrado.</p>}
+          {users.map(u => (
+            <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{u.nome}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{nomePerfilLabel(u.perfilId || u.perfil)}</span></div>
+                {u.permissoes && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{u.permissoes.length} permissões</div>}
+              </div>
+              <button onClick={() => editUser(u)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)' }}>✏️</button>
+              <button onClick={() => removeUser(u.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)' }}>🗑</button>
+            </div>
+          ))}
+          <button onClick={() => setForm(emptyForm)} style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', marginTop: 8 }}>+ Novo Usuário</button>
+
+          {form && (
+            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
+              <div style={{ ...s.secTitle, marginBottom: 14 }}>{form.id ? '✏️ Editar Usuário' : '➕ Novo Usuário'}</div>
+              <div style={s.row2}>
+                <div style={s.field}><label style={s.label}>Nome</label><input style={s.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} /></div>
+                <div style={s.field}><label style={s.label}>Usuário (login)</label><input style={s.input} value={form.usuario} onChange={e => setForm(f => ({ ...f, usuario: e.target.value }))} /></div>
+              </div>
+              <div style={s.row2}>
+                <div style={s.field}><label style={s.label}>E-mail</label><input style={s.input} type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
+                <div style={s.field}><label style={s.label}>Telefone</label><input style={s.input} value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} /></div>
+              </div>
+              <div style={s.row2}>
+                <div style={s.field}><label style={s.label}>Senha</label><input style={s.input} type="password" value={form.senha} onChange={e => setForm(f => ({ ...f, senha: e.target.value }))} /></div>
+                <div style={s.field}><label style={s.label}>Perfil base</label><select style={s.input} value={form.perfilId || form.perfil || 'user'} onChange={e => mudarPerfil(e.target.value)}>{perfis.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></div>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <div style={{ ...s.secTitle, marginBottom: 10 }}>🔐 Permissões individuais</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  {PERMISSOES_DISPONIVEIS.map(p => {
+                    const ativo = (form.permissoes || []).includes(p.id)
+                    return (
+                      <div key={p.id} onClick={() => togglePermissao(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: ativo ? 'rgba(0,212,255,.08)' : 'var(--surface)', border: `1px solid ${ativo ? 'rgba(0,212,255,.3)' : 'var(--border)'}`, cursor: 'pointer', fontSize: 12, color: ativo ? 'var(--text)' : 'var(--muted)' }}>
+                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${ativo ? 'var(--accent)' : 'var(--border)'}`, background: ativo ? 'var(--accent)' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{ativo && <span style={{ color: '#fff', fontSize: 10 }}>✓</span>}</div>
+                        {p.label}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                <button style={s.saveBtn} onClick={salvarUser} disabled={saving}>{saving ? '⏳...' : '✅ Salvar Usuário'}</button>
+                <button onClick={() => setForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)' }}>Cancelar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {abaU === 'perfis' && (
+        <div style={s.sec}>
+          <div style={s.secTitle}>Tipos de Perfil de Acesso</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>Crie perfis personalizados. Os perfis fixos (Admin e Vendedor) não podem ser removidos.</p>
+          {perfis.map(p => (
+            <div key={p.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 14, color: p.fixo ? 'var(--accent)' : 'var(--text)' }}>{p.fixo ? '🔒 ' : ''}{p.nome}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{p.permissoes.length} permissões</div></div>
+              <button onClick={() => setPerfilForm({ ...p })} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)' }}>✏️</button>
+              {!p.fixo && <button onClick={() => removerPerfil(p.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)' }}>🗑</button>}
+            </div>
+          ))}
+          <button onClick={addPerfil} style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', marginTop: 8 }}>+ Novo Perfil</button>
+
+          {perfilForm && (
+            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
+              <div style={{ ...s.secTitle, marginBottom: 14 }}>{perfilForm.fixo ? '✏️ Editar Perfil' : '➕ Novo Perfil'}</div>
+              <div style={s.field}><label style={s.label}>Nome do perfil</label><input style={s.input} value={perfilForm.nome} onChange={e => setPerfilForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Supervisor" disabled={perfilForm.fixo} /></div>
+              <div style={{ ...s.secTitle, marginTop: 12, marginBottom: 10 }}>Permissões deste perfil</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {PERMISSOES_DISPONIVEIS.map(p => {
+                  const ativo = (perfilForm.permissoes || []).includes(p.id)
+                  return (
+                    <div key={p.id} onClick={() => togglePerfilPerm(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: ativo ? 'rgba(0,212,255,.08)' : 'var(--surface)', border: `1px solid ${ativo ? 'rgba(0,212,255,.3)' : 'var(--border)'}`, cursor: 'pointer', fontSize: 12, color: ativo ? 'var(--text)' : 'var(--muted)' }}>
+                      <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${ativo ? 'var(--accent)' : 'var(--border)'}`, background: ativo ? 'var(--accent)' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{ativo && <span style={{ color: '#fff', fontSize: 10 }}>✓</span>}</div>
+                      {p.label}
+                    </div>
+                  )
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                <button style={s.saveBtn} onClick={salvarPerfil}>✅ Salvar Perfil</button>
+                <button onClick={() => setPerfilForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)' }}>Cancelar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ══════════════════════════════════════════════
-// ABA PRODUTOS – com toggle de botões funcionando
+// ABA PRODUTOS (completa)
 // ══════════════════════════════════════════════
 function TabProdutos({ cfg, setCfg, empresaId }) {
   const [planos,  setPlanos]  = useState(cfg.plans   || PLANOS_PADRAO)
@@ -486,7 +623,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead><tr style={{ background: 'var(--surface2)' }}><th style={{ padding: '10px 12px' }}>Módulo</th>{planos.map(p => <th key={p.id} colSpan={2} style={{ padding: '10px 12px', textAlign: 'center' }}>{p.nome}</th>)}</tr>
-              <tr><td style={{ padding: '6px 12px' }}></td>{planos.map(p => <><td style={{ padding: '6px 8px', textAlign: 'center' }}>Adesão</td><td style={{ padding: '6px 8px', textAlign: 'center' }}>Mensal</td></>)}</tr></thead>
+               <tr><td style={{ padding: '6px 12px' }}></td>{planos.map(p => <><td style={{ padding: '6px 8px', textAlign: 'center' }}>Adesão</td><td style={{ padding: '6px 8px', textAlign: 'center' }}>Mensal</td></>)}</tr></thead>
               <tbody>
                 {modulos.map(mod => (
                   <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -546,7 +683,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA DESCONTOS (omitido por brevidade)
+// ABA DESCONTOS (completa)
 // ══════════════════════════════════════════════
 function TabDescontos({ cfg, setCfg, empresaId }) {
   const [discMode, setDiscMode] = useState(cfg.discMode    || 'screen')
@@ -598,11 +735,82 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA VOUCHERS (omitido por brevidade – manter original)
+// ABA VOUCHERS (completa)
 // ══════════════════════════════════════════════
 function TabVouchers({ cfg, setCfg, empresaId }) {
-  // Manter código original
-  return <div style={s.body}>Vouchers (manter código anterior)</div>
+  const [prefixo,  setPrefixo]  = useState('PROMO')
+  const [vda,      setVda]      = useState(40)
+  const [vdm,      setVdm]      = useState(0)
+  const [vdate,    setVdate]    = useState('')
+  const [vouchers, setVouchers] = useState(cfg.vouchers || [])
+  const [ultimo,   setUltimo]   = useState(null)
+
+  function gerarCodigo() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    let code = (prefixo || 'VX').toUpperCase().slice(0,6) + '-'
+    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)]
+    return code
+  }
+
+  async function gerarVoucher() {
+    const novo = { id: Date.now(), codigo: gerarCodigo(), prefixo, pctAdesao: Number(vda), pctMensalidade: Number(vdm), comemoracao: vdate, criado: new Date().toISOString(), ativo: true }
+    const novos    = [...vouchers, novo]
+    const novoCfg  = { ...cfg, vouchers: novos }
+    const { error} = await salvarStorage(empresaId, novoCfg)
+    if (error) { toast('Erro ao salvar voucher', 'err'); return }
+    setVouchers(novos); setCfg(novoCfg); setUltimo(novo); toast('🎫 Voucher gerado!')
+  }
+
+  async function removerVoucher(id) {
+    const novos   = vouchers.filter(v => v.id !== id)
+    const novoCfg = { ...cfg, vouchers: novos }
+    await salvarStorage(empresaId, novoCfg)
+    setVouchers(novos); setCfg(novoCfg); toast('🗑 Voucher removido!')
+  }
+
+  function imprimirVoucher(v) {
+    const win = window.open('', '_blank', 'width=700,height=520')
+    if (!win) { alert('Permita popups para imprimir.'); return }
+    const criado = v.criado ? new Date(v.criado).toLocaleDateString('pt-BR') : ''
+    const empresa = cfg.company || 'Vivanexa'
+    const logoTag = cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:8px;display:block">` : `<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:8px">${empresa}</div>`
+    win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Voucher ${v.codigo}</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=DM+Mono:wght@500;700&display=swap" rel="stylesheet"><style> *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important} body{font-family:Inter,sans-serif;background:#f0f4f8;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px} .toolbar{display:flex;gap:10px;margin-bottom:20px} .toolbar button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none;font-family:DM Mono,monospace} .btn-print{background:#0f172a;color:#fff} .btn-close{background:#e2e8f0;color:#475569} .card{background:#0f172a;border-radius:20px;width:560px;padding:36px 40px;position:relative;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)} .card::before{content:'';position:absolute;top:-80px;right:-80px;width:260px;height:260px;background:#00d4ff;border-radius:50%;opacity:.06} .card::after{content:'';position:absolute;bottom:-60px;left:-60px;width:200px;height:200px;background:#7c3aed;border-radius:50%;opacity:.08} .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;position:relative;z-index:1} .badge{background:rgba(0,212,255,.15);border:1px solid rgba(0,212,255,.3);color:#00d4ff;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase} .title{font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;position:relative;z-index:1} .code{font-family:DM Mono,monospace;font-size:34px;font-weight:700;color:#fff;letter-spacing:6px;margin-bottom:24px;position:relative;z-index:1;text-shadow:0 0 30px rgba(0,212,255,.4)} .divider{border:none;border-top:1px dashed rgba(255,255,255,.12);margin:0 0 22px;position:relative;z-index:1} .benefits{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;position:relative;z-index:1} .benefit{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 16px;text-align:center} .benefit-val{font-size:28px;font-weight:900;color:#00d4ff;line-height:1} .benefit-label{font-size:11px;color:#64748b;margin-top:5px;text-transform:uppercase;letter-spacing:1px} .footer{display:flex;justify-content:space-between;align-items:center;position:relative;z-index:1} .footer-info{font-size:11px;color:#475569;line-height:1.6} .event{display:inline-block;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);color:#fbbf24;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;margin-bottom:16px;position:relative;z-index:1} @media print{.toolbar{display:none!important}} </style></head><body><div class="toolbar"><button class="btn-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="btn-close" onclick="window.close()">✕ Fechar</button></div><div class="card"><div class="top">${logoTag}<div class="badge">🎫 Voucher</div></div>${v.comemoracao ? `<div class="event">🎉 ${v.comemoracao}</div>` : ''}<div class="title">Código de Desconto Exclusivo</div><div class="code">${v.codigo}</div><hr class="divider"><div class="benefits">${v.pctAdesao > 0 ? `<div class="benefit"><div class="benefit-val">${v.pctAdesao}%</div><div class="benefit-label">Desconto na<br>Adesão</div></div>` : ''}${v.pctMensalidade > 0 ? `<div class="benefit"><div class="benefit-val">${v.pctMensalidade}%</div><div class="benefit-label">Desconto na<br>Mensalidade</div></div>` : ''}${v.pctAdesao === 0 && v.pctMensalidade === 0 ? `<div class="benefit" style="grid-column:span 2"><div class="benefit-val">🎁</div><div class="benefit-label">Voucher especial</div></div>` : ''}</div><div class="footer"><div class="footer-info">Emitido em: ${criado}<br>${empresa}</div><div style="font-size:11px;color:#334155;font-family:DM Mono,monospace">Código único · Uso exclusivo</div></div></div></body></html>`)
+    win.document.close(); win.focus()
+  }
+
+  return (
+    <div style={s.body}>
+      <div style={s.sec}>
+        <div style={s.secTitle}>Gerar Novo Voucher</div>
+        <div style={s.row4}>
+          <div style={s.field}><label style={s.label}>Prefixo</label><input style={{ ...s.input, textTransform: 'uppercase' }} maxLength={8} value={prefixo} onChange={e => setPrefixo(e.target.value.toUpperCase())} placeholder="PROMO" /></div>
+          <div style={s.field}><label style={s.label}>% Adesão</label><input type="number" style={s.input} min={0} max={100} value={vda} onChange={e => setVda(e.target.value)} /></div>
+          <div style={s.field}><label style={s.label}>% Mensalidade</label><input type="number" style={s.input} min={0} max={100} value={vdm} onChange={e => setVdm(e.target.value)} /></div>
+          <div style={s.field}><label style={s.label}>Data comemorativa</label><input style={s.input} value={vdate} onChange={e => setVdate(e.target.value)} placeholder="Ex: Natal 2025" /></div>
+        </div>
+        <button onClick={gerarVoucher} style={{ padding: '10px 18px', borderRadius: 9, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', marginTop: 8 }}>🎫 Gerar Voucher</button>
+        {ultimo && (
+          <div style={{ marginTop: 14, padding: 16, background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.25)', borderRadius: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, letterSpacing: 1, textTransform: 'uppercase' }}>Voucher gerado!</div>
+            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent3)', letterSpacing: 4, fontFamily: 'DM Mono, monospace', marginBottom: 8 }}>{ultimo.codigo}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Adesão: {ultimo.pctAdesao}% · Mensal: {ultimo.pctMensalidade}%{ultimo.comemoracao && ` · ${ultimo.comemoracao}`}</div>
+            <button onClick={() => imprimirVoucher(ultimo)} style={{ padding: '9px 18px', borderRadius: 9, background: 'linear-gradient(135deg,#0f172a,#1e3a5f)', border: '1px solid rgba(0,212,255,.3)', color: '#00d4ff' }}>🖨 Imprimir PDF</button>
+          </div>
+        )}
+      </div>
+      <div style={s.sec}>
+        <div style={s.secTitle}>Vouchers Ativos</div>
+        {vouchers.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum voucher cadastrado.</p>}
+        {vouchers.map(v => (
+          <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}><div style={{ fontWeight: 700, color: 'var(--accent)', fontFamily: 'DM Mono, monospace', letterSpacing: 2, fontSize: 15 }}>{v.codigo}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>Adesão {v.pctAdesao}% · Mensal {v.pctMensalidade}%{v.comemoracao && ` · ${v.comemoracao}`} · {v.criado && new Date(v.criado).toLocaleDateString('pt-BR')}</div></div>
+            <button onClick={() => imprimirVoucher(v)} style={{ padding: '6px 12px', borderRadius: 7, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', whiteSpace: 'nowrap' }}>🖨 PDF</button>
+            <button onClick={() => removerVoucher(v.id)} style={{ padding: '6px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)' }}>🗑</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // ══════════════════════════════════════════════
@@ -713,23 +921,63 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA HISTÓRICO (com visualização)
+// ABA HISTÓRICO (com visualização de documentos)
 // ══════════════════════════════════════════════
 function TabHistorico({ cfg }) {
   const [filtroTipo,   setFiltroTipo]   = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [busca,        setBusca]        = useState('')
+  const [modalDoc,     setModalDoc]     = useState(null) // { html, title }
+  const [loadingDoc,   setLoadingDoc]   = useState(false)
+
   const docs = (cfg.docHistory || []).filter(d => {
     if (filtroTipo   && d.type !== filtroTipo)   return false
     if (filtroStatus && d.status !== filtroStatus) return false
     if (busca && !d.clientName?.toLowerCase().includes(busca.toLowerCase())) return false
     return true
   })
+
+  async function verDocumento(doc) {
+    setLoadingDoc(true)
+    setModalDoc({ title: `${doc.type === 'contrato' ? '📝 Contrato' : '📄 Proposta'} – ${doc.clientName}`, html: '' })
+    try {
+      const { data: r } = await supabase.from('vx_storage').select('value').eq('key', `doc:${doc.signToken}`).single()
+      if (r?.value) {
+        const d = JSON.parse(r.value)
+        setModalDoc({ title: `${doc.type === 'contrato' ? '📝 Contrato' : '📄 Proposta'} – ${doc.clientName}`, html: d.html || '<p>Sem conteúdo HTML.</p>' })
+      } else {
+        setModalDoc(prev => ({ ...prev, html: '<p style="color:#64748b">Documento não encontrado.</p>' }))
+      }
+    } catch (e) {
+      setModalDoc(prev => ({ ...prev, html: '<p style="color:#ef4444">Erro ao carregar documento.</p>' }))
+    } finally {
+      setLoadingDoc(false)
+    }
+  }
+
   function statusLabel(st) {
     if (st === 'signed')  return { txt: '✅ Assinado', cor: 'var(--accent3)' }
     if (st === 'pending') return { txt: '⏳ Pendente', cor: 'var(--warning)' }
     return { txt: '📝 Rascunho', cor: 'var(--muted)' }
   }
+
+  function openPrint(html, title) {
+    const win = window.open('', '_blank', 'width=900,height=700')
+    if (!win) { alert('Permita popups.'); return }
+    win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${title}</title>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+      <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}body{margin:0;background:#fff}
+      .tb{display:flex;gap:10px;padding:14px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
+      .tb button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none}
+      .bp{background:#0f172a;color:#fff}.bc{background:#e2e8f0;color:#475569}
+      @media print{.tb{display:none!important}}</style>
+      </head><body>
+      <div class="tb"><button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="bc" onclick="window.close()">✕ Fechar</button></div>
+      ${html}</body></html>`)
+    win.document.close()
+    win.focus()
+  }
+
   return (
     <div style={s.body}>
       <div style={s.sec}>
@@ -739,22 +987,45 @@ function TabHistorico({ cfg }) {
           <select style={s.input} value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}><option value="">Todos</option><option value="pending">Pendente</option><option value="signed">Assinado</option><option value="draft">Rascunho</option></select>
           <input style={{ ...s.input, flex: 1, minWidth: 160 }} placeholder="Buscar por cliente..." value={busca} onChange={e => setBusca(e.target.value)} />
         </div>
-        {docs.length === 0 && <p style={{ color: 'var(--muted)' }}>Nenhum documento encontrado.</p>}
+        {docs.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum documento encontrado.</p>}
         {docs.map((d, i) => {
           const sl = statusLabel(d.status)
           return (
             <div key={i} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{d.clientName || 'Cliente'}</div>
                 <div style={{ fontSize: 12, color: sl.cor, fontWeight: 600 }}>{sl.txt}</div>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
                 {d.type === 'contrato' ? '📝 Contrato' : '📄 Proposta'} · {d.date}
+                {d.signedBy && <span style={{ marginLeft: 8 }}>✅ Cliente: {d.signedBy}</span>}
+                {d.consultantSignedBy && <span style={{ marginLeft: 8 }}>✅ Consultor: {d.consultantSignedBy}</span>}
               </div>
+              <button onClick={() => verDocumento(d)} style={{ padding: '4px 12px', borderRadius: 6, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontSize: 12, cursor: 'pointer' }}>
+                👁️ Ver documento
+              </button>
             </div>
           )
         })}
       </div>
+
+      {modalDoc && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, width: '100%', maxWidth: 860, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>{modalDoc.title}</h3>
+              <button onClick={() => setModalDoc(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#fff' }}>
+              {loadingDoc ? <p style={{ textAlign: 'center', color: 'var(--muted)' }}>⏳ Carregando...</p> : <div dangerouslySetInnerHTML={{ __html: modalDoc.html }} />}
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setModalDoc(null)} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)' }}>Fechar</button>
+              <button onClick={() => openPrint(modalDoc.html, modalDoc.title)} style={{ padding: '8px 16px', borderRadius: 8, background: 'linear-gradient(135deg,var(--accent),#0099bb)', border: 'none', color: '#fff' }}>🖨 Imprimir</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -807,7 +1078,7 @@ function TabClientes({ cfg, setCfg, empresaId }) {
           <input style={{ ...s.input, flex: 1 }} placeholder="CNPJ, CPF ou nome..." value={busca} onChange={e => setBusca(e.target.value)} />
           <button onClick={() => setForm(emptyClient)} style={{ padding: '10px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', whiteSpace: 'nowrap' }}>+ Novo Cliente</button>
         </div>
-        {filtrados.length === 0 && !form && <p style={{ color: 'var(--muted)' }}>Nenhum cliente encontrado.</p>}
+        {filtrados.length === 0 && !form && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum cliente encontrado.</p>}
         {filtrados.map(c => (
           <div key={c.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ flex: 1 }}>
@@ -867,7 +1138,7 @@ function TabTema({ cfg, setCfg, empresaId }) {
         <div style={s.secTitle}>Aparência</div>
         {[['dark','🌙 Tema Escuro','Fundo escuro'],['light','☀️ Tema Claro','Fundo branco']].map(([t,title,sub]) => (
           <div key={t} style={temaStyle(t)} onClick={() => aplicarTema(t)}>
-            <div><div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{sub}</div></div>
+            <div><div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div><div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{sub}</div></div>
             <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${tema === t ? 'var(--accent)' : 'var(--border)'}`, background: tema === t ? 'var(--accent)' : 'transparent' }} />
           </div>
         ))}
