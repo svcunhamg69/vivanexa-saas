@@ -6,9 +6,10 @@
 //    CNPJs, usuários e tabela de preços por módulo
 // 3. Usuários: permissões granulares + perfis personalizados
 // 4. Vouchers: botão imprimir PDF estilizado
-// 5. KPIs: seletor de ícone com galeria de opções
-// 6. Documentos: Nova aba para upload e gestão de documentos importados
+// 5. KPIs: seletor de ícone com galeria de opções + obrigatoriedade
+// 6. Documentos: Nova aba para upload e gestão de documentos importados (HTML/PDF)
 // 7. Histórico: Melhoria na aba para visualizar documentos gerados e assinados
+// 8. Descontos: Lógica de percentuais e modo de desconto aprimorada
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -105,11 +106,9 @@ async function salvarStorage(empresaId, novoCfg) {
 function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [company,  setCompany]  = useState(cfg.company  || '')
   const [slogan,   setSlogan]   = useState(cfg.slogan   || '')
-  // CORREÇÃO: lê logob64 do cfg a cada render (não só no mount)
   const [logoB64,  setLogoB64]  = useState(cfg.logob64  || '')
   const [saving,   setSaving]   = useState(false)
 
-  // Sincroniza quando cfg mudar (após salvar em outra aba)
   useEffect(() => {
     setCompany(cfg.company  || '')
     setSlogan(cfg.slogan    || '')
@@ -134,7 +133,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setSaving(false)
     if (error) { toast('Erro ao salvar: ' + error.message, 'err'); return }
     setCfg(novoCfg)
-    // Força recarregar a logo do storage para confirmar que persistiu
     toast('✅ Empresa salva com sucesso!')
   }
 
@@ -158,7 +156,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
           <input type="file" accept="image/*" onChange={handleLogo} style={{ ...s.input, padding: '6px' }} />
         </div>
 
-        {/* CORREÇÃO: preview sempre atualizado + botão remover */}
         {logoB64 ? (
           <div style={{ marginTop: 12, padding: 14, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: 1, textTransform: 'uppercase' }}>Pré-visualização</div>
@@ -295,15 +292,21 @@ function TabMetas({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA KPIs — COM GALERIA DE ÍCONES
+// ABA KPIs — COM GALERIA DE ÍCONES + OBRIGATORIEDADE
 // ══════════════════════════════════════════════
 function TabKpis({ cfg, setCfg, empresaId }) {
   const [kpis,        setKpis]        = useState(cfg.kpiTemplates || [])
   const [saving,      setSaving]      = useState(false)
   const [iconPickerId, setIconPickerId] = useState(null) // qual KPI está com seletor aberto
+  const [kpiObrigatorio, setKpiObrigatorio] = useState(cfg.kpiObrigatorio || false) // Nova configuração
+
+  useEffect(() => {
+    setKpis(cfg.kpiTemplates || [])
+    setKpiObrigatorio(cfg.kpiObrigatorio || false)
+  }, [cfg])
 
   function addKpi() {
-    setKpis(prev => [...prev, { id: Date.now(), nome: '', icone: '📊', meta: 0, unidade: 'un', cor: '#00d4ff' }])
+    setKpis(prev => [...prev, { id: Date.now().toString(), nome: '', icone: '📊', meta: 0, unidade: 'un', cor: '#00d4ff' }])
   }
   function updateKpi(id, campo, val) {
     setKpis(prev => prev.map(k => k.id === id ? { ...k, [campo]: val } : k))
@@ -315,7 +318,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, kpiTemplates: kpis }
+    const novoCfg = { ...cfg, kpiTemplates: kpis, kpiObrigatorio: kpiObrigatorio } // Salva a nova configuração
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -334,7 +337,6 @@ function TabKpis({ cfg, setCfg, empresaId }) {
         {kpis.map(k => (
           <div key={k.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: iconPickerId === k.id ? 12 : 0 }}>
-              {/* Botão do ícone com galeria */}
               <div style={{ position: 'relative' }}>
                 <button onClick={() => setIconPickerId(iconPickerId === k.id ? null : k.id)}
                   style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'border-color .2s', borderColor: iconPickerId === k.id ? 'var(--accent)' : undefined }}
@@ -365,7 +367,6 @@ function TabKpis({ cfg, setCfg, empresaId }) {
               </button>
             </div>
 
-            {/* Galeria de ícones */}
             {iconPickerId === k.id && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 0 2px' }}>
                 {KPI_ICONS.map(ic => (
@@ -384,6 +385,27 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           ➕ Adicionar KPI
         </button>
       </div>
+
+      {/* Nova seção: Obrigatoriedade de Preenchimento KPI */}
+      <div style={s.sec}>
+        <div style={s.secTitle}>Configurações de Lançamento de KPIs</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+          <label style={{ ...s.label, marginBottom: 0, flex: 1, cursor: 'pointer' }} htmlFor="kpi-obrigatorio-toggle">
+            Obrigar preenchimento diário de KPIs
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              Se ativado, o usuário só terá acesso total ao sistema após preencher os KPIs do dia anterior.
+            </p>
+          </label>
+          <label className="switch">
+            <input type="checkbox" id="kpi-obrigatorio-toggle"
+              checked={kpiObrigatorio}
+              onChange={e => setKpiObrigatorio(e.target.checked)}
+            />
+            <span className="slider round"></span>
+          </label>
+        </div>
+      </div>
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>
         {saving ? '⏳ Salvando...' : '✅ Salvar KPIs'}
       </button>
@@ -414,7 +436,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
     setUsers(prev => prev.filter(u => u.id !== id))
   }
 
-  // Quando muda o perfil no form, aplica as permissões do perfil
   function mudarPerfil(perfilId) {
     const p = perfis.find(x => x.id === perfilId)
     setForm(f => ({ ...f, perfilId, permissoes: p?.permissoes || PERMISSOES_USER }))
@@ -486,7 +507,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 
   return (
     <div style={s.body}>
-      {/* Sub-abas */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {[['lista','👥 Usuários'],['perfis','🔐 Tipos de Perfil']].map(([id, label]) => (
           <button key={id} onClick={() => setAbaU(id)}
@@ -499,7 +519,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
         ))}
       </div>
 
-      {/* ── LISTA DE USUÁRIOS ── */}
       {abaU === 'lista' && (
         <div style={s.sec}>
           <div style={s.secTitle}>Usuários do Sistema</div>
@@ -532,7 +551,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
             + Novo Usuário
           </button>
 
-          {/* Formulário do usuário */}
           {form && (
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
               <div style={{ ...s.secTitle, marginBottom: 14 }}>
@@ -565,7 +583,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
                 </div>
               </div>
 
-              {/* Permissões individuais */}
               <div style={{ marginTop: 8 }}>
                 <div style={{ ...s.secTitle, marginBottom: 10 }}>🔐 Permissões individuais</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -601,7 +618,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
         </div>
       )}
 
-      {/* ── TIPOS DE PERFIL ── */}
       {abaU === 'perfis' && (
         <div style={s.sec}>
           <div style={s.secTitle}>Tipos de Perfil de Acesso</div>
@@ -658,7 +674,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
                         {ativo && <span style={{ color: '#fff', fontSize: 10 }}>✓</span>}
                       </div>
                       {p.label}
-                    </div >
+                    </div>
                   )
                 })}
               </div>
@@ -681,253 +697,326 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 // ABA PRODUTOS — COMPLETO COM PLANOS + PREÇOS
 // ══════════════════════════════════════════════
 function TabProdutos({ cfg, setCfg, empresaId }) {
-  const [planos,  setPlanos]  = useState(cfg.plans   || PLANOS_PADRAO)
-  const [precos,  setPrecos]  = useState(cfg.prices  || PRECOS_PADRAO)
-  const [modulos, setModulos] = useState(cfg.modulos || MODULOS_PADRAO)
-  const [saving,  setSaving]  = useState(false)
-  const [abaP,    setAbaP]    = useState('planos') // 'planos' | 'precos' | 'modulos'
-  const [novoMod, setNovoMod] = useState('')
+  const [produtos, setProdutos] = useState(cfg.products || MODULOS_PADRAO.map(m => ({ id: m, nome: m, precos: PRECOS_PADRAO[m] || {} })))
+  const [planos,   setPlanos]   = useState(cfg.plans    || PLANOS_PADRAO)
+  const [saving,   setSaving]   = useState(false)
+  const [formProduto, setFormProduto] = useState(null) // Para adicionar/editar produto
+  const [formPlano,   setFormPlano]   = useState(null)   // Para adicionar/editar plano
+  const [unlimitedUsers, setUnlimitedUsers] = useState(cfg.unlimitedUsers || false) // Nova configuração
 
-  // ── Planos ──
-  function updatePlano(id, campo, val) {
-    setPlanos(prev => prev.map(p => p.id === id ? { ...p, [campo]: val } : p))
+  useEffect(() => {
+    setProdutos(cfg.products || MODULOS_PADRAO.map(m => ({ id: m, nome: m, precos: PRECOS_PADRAO[m] || {} })))
+    setPlanos(cfg.plans || PLANOS_PADRAO)
+    setUnlimitedUsers(cfg.unlimitedUsers || false)
+  }, [cfg])
+
+  function addProduto() {
+    setFormProduto({ id: 'novo_' + Date.now(), nome: '', precos: {}, semAdesao: false, apenasBasicProTop: false })
   }
+  function editProduto(prod) {
+    setFormProduto({ ...prod,
+      semAdesao: prod.precos[planos[0]?.id]?.[0] === 0, // Verifica se o preço de adesão do primeiro plano é 0
+      apenasBasicProTop: !planos.some(p => p.id === 'topplus' && prod.precos[p.id]) // Verifica se Top Plus não tem preço
+    })
+  }
+  function removeProduto(id) {
+    if (!confirm('Remover produto?')) return
+    setProdutos(prev => prev.filter(p => p.id !== id))
+  }
+
   function addPlano() {
-    setPlanos(prev => [...prev, { id: 'plano_' + Date.now(), nome: '', maxCnpjs: 0, usuarios: 1 }])
+    setFormPlano({ id: 'novo_' + Date.now(), nome: '', maxCnpjs: 0, usuarios: 0 })
+  }
+  function editPlano(plano) {
+    setFormPlano({ ...plano })
   }
   function removePlano(id) {
     if (!confirm('Remover plano?')) return
     setPlanos(prev => prev.filter(p => p.id !== id))
   }
 
-  // ── Preços ──
-  function updatePreco(mod, planId, idx, val) {
-    setPrecos(prev => {
-      const novo = { ...prev }
-      if (!novo[mod]) novo[mod] = {}
-      const arr = [...(novo[mod][planId] || [0, 0])]
-      arr[idx] = Number(val) || 0
-      novo[mod] = { ...novo[mod], [planId]: arr }
-      return novo
-    })
-  }
-
-  // ── Módulos ──
-  function addModulo() {
-    const m = novoMod.trim()
-    if (!m || modulos.includes(m)) return
-    setModulos(prev => [...prev, m])
-    setNovoMod('')
-    setPrecos(prev => ({ ...prev, [m]: {} }))
-  }
-  function removeModulo(m) {
-    if (!confirm(`Remover módulo "${m}"?`)) return
-    setModulos(prev => prev.filter(x => x !== m))
-    setPrecos(prev => { const n = { ...prev }; delete n[m]; return n })
-  }
-
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, plans: planos, prices: precos, modulos }
+    const novoCfg = { ...cfg, products: produtos, plans: planos, unlimitedUsers: unlimitedUsers }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
     setCfg(novoCfg)
-    toast('✅ Produtos salvos!')
+    toast('✅ Produtos e Planos salvos!')
+  }
+
+  async function salvarProdutoForm() {
+    if (!formProduto.nome) { toast('Nome do produto obrigatório', 'err'); return }
+
+    const novosPrecos = {}
+    planos.forEach(plano => {
+      const adesao = parseFloat(formProduto.precos[`${plano.id}_adesao`] || 0)
+      const mensalidade = parseFloat(formProduto.precos[`${plano.id}_mensalidade`] || 0)
+      novosPrecos[plano.id] = [adesao, mensalidade]
+    })
+
+    const produtoFinal = {
+      id: formProduto.id,
+      nome: formProduto.nome,
+      precos: novosPrecos
+    }
+
+    let novosProdutos
+    if (produtos.find(p => p.id === formProduto.id)) {
+      novosProdutos = produtos.map(p => p.id === formProduto.id ? produtoFinal : p)
+    } else {
+      novosProdutos = [...produtos, produtoFinal]
+    }
+    setProdutos(novosProdutos)
+    setFormProduto(null)
+    toast('✅ Produto salvo!')
+  }
+
+  async function salvarPlanoForm() {
+    if (!formPlano.nome || !formPlano.id) { toast('Nome e ID do plano obrigatórios', 'err'); return }
+    let novos
+    if (planos.find(p => p.id === formPlano.id)) {
+      novos = planos.map(p => p.id === formPlano.id ? formPlano : p)
+    } else {
+      novos = [...planos, formPlano]
+    }
+    setPlanos(novos)
+    setFormPlano(null)
+    toast('✅ Plano salvo!')
+  }
+
+  async function restaurarPadrao() {
+    if (!confirm('Restaurar preços padrão? Isso apagará suas configurações atuais.')) return
+    const novoCfg = { ...cfg,
+      products: MODULOS_PADRAO.map(m => ({ id: m, nome: m, precos: PRECOS_PADRAO[m] || {} })),
+      plans: PLANOS_PADRAO
+    }
+    const { error } = await salvarStorage(empresaId, novoCfg)
+    if (error) { toast('Erro', 'err'); return }
+    setCfg(novoCfg)
+    toast('🔄 Padrões restaurados!')
   }
 
   return (
     <div style={s.body}>
-      {/* Sub-abas */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-        {[['planos','📋 Planos'],['precos','💲 Tabela de Preços'],['modulos','📦 Módulos']].map(([id, label]) => (
-          <button key={id} onClick={() => setAbaP(id)}
-            style={{ padding: '8px 16px', borderRadius: 9, fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer',
-              background: abaP === id ? 'rgba(0,212,255,.12)' : 'var(--surface2)',
-              border: `1px solid ${abaP === id ? 'rgba(0,212,255,.35)' : 'var(--border)'}`,
-              color: abaP === id ? 'var(--accent)' : 'var(--muted)', fontWeight: abaP === id ? 600 : 400 }}>
-            {label}
-          </button>
-        ))}
+      <div style={s.sec}>
+        <div style={s.secTitle}>Configurações Gerais</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+          <label style={{ ...s.label, marginBottom: 0, flex: 1, cursor: 'pointer' }} htmlFor="unlimited-users-toggle">
+            Usuários Ilimitados nas ofertas
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              Exibe "Usuários Ilimitados" nas ofertas com desconto e fechamento.
+            </p>
+          </label>
+          <label className="switch">
+            <input type="checkbox" id="unlimited-users-toggle"
+              checked={unlimitedUsers}
+              onChange={e => setUnlimitedUsers(e.target.checked)}
+            />
+            <span className="slider round"></span>
+          </label>
+        </div>
       </div>
 
-      {/* ── PLANOS ── */}
-      {abaP === 'planos' && (
-        <div style={s.sec}>
-          <div style={s.secTitle}>Planos Disponíveis</div>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-            Configure os planos, quantidade máxima de CNPJs e usuários permitidos em cada um.
-          </p>
+      <div style={s.sec}>
+        <div style={s.secTitle}>📦 Produtos e Planos</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+          Configure os produtos/módulos e seus preços para cada plano disponível.
+        </p>
 
-          {/* Tabela de planos */}
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                  {['Plano','Máx. CNPJs','Usuários',''].map(h => (
-                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {planos.map(p => (
-                  <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '8px 12px' }}>
-                      <input style={{ ...s.input, fontWeight: 700, color: 'var(--accent)' }} value={p.nome}
-                        onChange={e => updatePlano(p.id, 'nome', e.target.value)} placeholder="Nome do plano" />
-                    </td>
-                    <td style={{ padding: '8px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input type="number" style={{ ...s.input, width: 90 }} value={p.maxCnpjs}
-                          onChange={e => updatePlano(p.id, 'maxCnpjs', Number(e.target.value))} />
-                        {p.maxCnpjs >= 999 && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap' }}>∞ Ilimitado</span>}
-                      </div>
-                    </td>
-                    <td style={{ padding: '8px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <input type="number" style={{ ...s.input, width: 90 }} value={p.usuarios}
-                          onChange={e => updatePlano(p.id, 'usuarios', Number(e.target.value))} />
-                        {p.usuarios >= 999 && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap' }}>∞ Ilimitado</span>}
-                      </div>
-                    </td>
-                    <td style={{ padding: '8px 12px' }}>
-                      <button onClick={() => removePlano(p.id)}
-                        style={{ padding: '6px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--danger)', cursor: 'pointer' }}>
-                        🗑
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <button onClick={addPlano}
-            style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 12 }}>
-            + Novo Plano
-          </button>
-          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
-            💡 Dica: use 999 em CNPJs ou Usuários para indicar "Ilimitado"
-          </div>
-        </div>
-      )}
-
-      {/* ── TABELA DE PREÇOS ── */}
-      {abaP === 'precos' && (
-        <div style={s.sec}>
-          <div style={s.secTitle}>Tabela de Preços por Módulo e Plano</div>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-            Preencha os valores de <strong style={{ color: 'var(--text)' }}>Adesão</strong> e <strong style={{ color: 'var(--text)' }}>Mensalidade</strong> para cada combinação de módulo e plano.
-          </p>
-
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr style={{ background: 'var(--surface2)', borderBottom: '2px solid var(--border)' }}>
-                  <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1, minWidth: 120 }}>Módulo</th>
-                  {planos.map(p => (
-                    <th key={p.id} colSpan={2} style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--accent)', fontWeight: 700, borderLeft: '1px solid var(--border)', fontSize: 12 }}>
-                      {p.nome}
-                      <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400, marginTop: 2 }}>
-                        {p.maxCnpjs >= 999 ? '∞ CNPJs' : `até ${p.maxCnpjs} CNPJs`} · {p.usuarios >= 999 ? '∞ usuários' : `${p.usuarios} user${p.usuarios > 1 ? 's' : ''}`}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-                <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ padding: '8px 12px', textAlign: 'left' }}></th>
-                  {planos.map(p => (
-                    <>
-                      <th key={`${p.id}-adesao`} style={{ padding: '8px 6px', textAlign: 'center', fontSize: 10, color: 'var(--muted)', borderLeft: '1px solid var(--border)' }}>Adesão</th>
-                      <th key={`${p.id}-mensalidade`} style={{ padding: '8px 6px', textAlign: 'center', fontSize: 10, color: 'var(--muted)' }}>Mensal.</th>
-                    </>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {modulos.map(mod => (
-                  <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text)' }}>{mod}</td>
-                    {planos.map(p => (
-                      <>
-                        <td key={`${mod}-${p.id}-adesao`} style={{ padding: '4px 6px', borderLeft: '1px solid var(--border)' }}>
-                          <input type="number" style={{ ...s.input, width: '100%', padding: '6px 8px', textAlign: 'center' }}
-                            value={precos[mod]?.[p.id]?.[0] || 0}
-                            onChange={e => updatePreco(mod, p.id, 0, e.target.value)} />
-                        </td>
-                        <td key={`${mod}-${p.id}-mensalidade`} style={{ padding: '4px 6px' }}>
-                          <input type="number" style={{ ...s.input, width: '100%', padding: '6px 8px', textAlign: 'center' }}
-                            value={precos[mod]?.[p.id]?.[1] || 0}
-                            onChange={e => updatePreco(mod, p.id, 1, e.target.value)} />
-                        </td>
-                      </>
+        {/* Lista de Produtos */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>Produtos/Módulos</div>
+          {produtos.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum produto cadastrado.</p>}
+          {produtos.map(p => (
+            <div key={p.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nome}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                    {planos.map(plano => (
+                      <span key={plano.id} style={{ marginRight: 8 }}>
+                        {plano.nome}: R$ {p.precos[plano.id]?.[0] || 0} / R$ {p.precos[plano.id]?.[1] || 0}
+                      </span>
                     ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ── MÓDULOS ── */}
-      {abaP === 'modulos' && (
-        <div style={s.sec}>
-          <div style={s.secTitle}>Módulos de Software</div>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-            Gerencie os módulos que compõem sua oferta de produtos.
-          </p>
-
-          <div style={{ marginBottom: 16 }}>
-            <label style={s.label}>Adicionar novo módulo</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input style={{ ...s.input, flex: 1 }} value={novoMod} onChange={e => setNovoMod(e.target.value)} placeholder="Nome do módulo (ex: CRM)" />
-              <button onClick={addModulo}
-                style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
-                Adicionar
-              </button>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {modulos.map(m => (
-              <div key={m} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>{m}</span>
-                <button onClick={() => removeModulo(m)}
-                  style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14 }}>
-                  ✕
+                  </div>
+                </div>
+                <button onClick={() => editProduto(p)}
+                  style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                  ✏️ Editar
+                </button>
+                <button onClick={() => removeProduto(p.id)}
+                  style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                  🗑
                 </button>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
+          <button onClick={addProduto}
+            style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
+            + Novo Produto
+          </button>
         </div>
-      )}
 
-      <button style={s.saveBtn} onClick={salvar} disabled={saving}>
-        {saving ? '⏳ Salvando...' : '✅ Salvar Produtos'}
-      </button>
+        {/* Lista de Planos */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>Planos Disponíveis</div>
+          {planos.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum plano cadastrado.</p>}
+          {planos.map(plano => (
+            <div key={plano.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{plano.nome}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                    ID: {plano.id} · CNPJs: {plano.maxCnpjs} · Usuários: {plano.usuarios}
+                  </div>
+                </div>
+                <button onClick={() => editPlano(plano)}
+                  style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                  ✏️ Editar
+                </button>
+                <button onClick={() => removePlano(plano.id)}
+                  style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                  🗑
+                </button>
+              </div>
+            </div>
+          ))}
+          <button onClick={addPlano}
+            style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
+            + Novo Plano
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button style={s.saveBtn} onClick={salvar} disabled={saving}>
+            {saving ? '⏳ Salvando...' : '✅ Salvar Tudo'}
+          </button>
+          <button onClick={restaurarPadrao}
+            style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+            🔄 Restaurar preços padrão
+          </button>
+        </div>
+
+        {/* Modal de Adicionar/Editar Produto */}
+        {formProduto && (
+          <div className="modal-overlay">
+            <div className="modal-box">
+              <div className="modal-header">
+                <h3>{formProduto.id.startsWith('novo') ? '📦 Novo Produto' : '✏️ Editar Produto'}</h3>
+                <button className="modal-close" onClick={() => setFormProduto(null)}>✕</button>
+              </div>
+              <div className="modal-body">
+                <div style={s.field}>
+                  <label style={s.label}>Nome do Produto</label>
+                  <input style={s.input} value={formProduto.nome} onChange={e => setFormProduto(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Gestão Fiscal" />
+                </div>
+                <div style={{ ...s.secTitle, marginTop: 16, marginBottom: 10 }}>PREÇOS POR PLANO (Adesão | Mensalidade)</div>
+                {planos.map(plano => (
+                  <div key={plano.id} style={{ marginBottom: 10, padding: '10px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6, color: 'var(--accent)' }}>{plano.nome}</div>
+                    <div style={s.row2}>
+                      <div style={s.field}>
+                        <label style={s.label}>Adesão (R$)</label>
+                        <input type="number" style={s.input}
+                          value={formProduto.precos[`${plano.id}_adesao`] !== undefined ? formProduto.precos[`${plano.id}_adesao`] : (formProduto.precos[plano.id]?.[0] || 0)}
+                          onChange={e => setFormProduto(f => ({ ...f, precos: { ...f.precos, [`${plano.id}_adesao`]: e.target.value } }))}
+                          placeholder="0" />
+                      </div>
+                      <div style={s.field}>
+                        <label style={s.label}>Mensalidade (R$)</label>
+                        <input type="number" style={s.input}
+                          value={formProduto.precos[`${plano.id}_mensalidade`] !== undefined ? formProduto.precos[`${plano.id}_mensalidade`] : (formProduto.precos[plano.id]?.[1] || 0)}
+                          onChange={e => setFormProduto(f => ({ ...f, precos: { ...f.precos, [`${plano.id}_mensalidade`]: e.target.value } }))}
+                          placeholder="0" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                  <input type="checkbox" id="sem-adesao" checked={formProduto.semAdesao} onChange={e => setFormProduto(f => ({ ...f, semAdesao: e.target.checked }))} />
+                  <label htmlFor="sem-adesao" style={s.label}>Sem adesão (módulo como CND)</label>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 5 }}>
+                  <input type="checkbox" id="apenas-basic-pro-top" checked={formProduto.apenasBasicProTop} onChange={e => setFormProduto(f => ({ ...f, apenasBasicProTop: e.target.checked }))} />
+                  <label htmlFor="apenas-basic-pro-top" style={s.label}>Apenas planos Basic/Pro/Top (como IF/EP)</label>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn-cancel" onClick={() => setFormProduto(null)}>Cancelar</button>
+                <button className="btn-primary" onClick={salvarProdutoForm}>✅ Salvar Produto</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Adicionar/Editar Plano */}
+        {formPlano && (
+          <div className="modal-overlay">
+            <div className="modal-box">
+              <div className="modal-header">
+                <h3>{formPlano.id.startsWith('novo') ? '➕ Novo Plano' : '✏️ Editar Plano'}</h3>
+                <button className="modal-close" onClick={() => setFormPlano(null)}>✕</button>
+              </div>
+              <div className="modal-body">
+                <div style={s.field}>
+                  <label style={s.label}>Nome Exibido</label>
+                  <input style={s.input} value={formPlano.nome} onChange={e => setFormPlano(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Basic" />
+                </div>
+                <div style={s.field}>
+                  <label style={s.label}>ID/Chave (único)</label>
+                  <input style={s.input} value={formPlano.id} onChange={e => setFormPlano(f => ({ ...f, id: e.target.value }))} placeholder="Ex: basic" disabled={!formPlano.id.startsWith('novo')} />
+                </div>
+                <div style={s.field}>
+                  <label style={s.label}>Máx CNPJs</label>
+                  <input type="number" style={s.input} value={formPlano.maxCnpjs} onChange={e => setFormPlano(f => ({ ...f, maxCnpjs: parseInt(e.target.value) || 0 }))} placeholder="0" />
+                </div>
+                <div style={s.field}>
+                  <label style={s.label}>Usuários</label>
+                  <input type="number" style={s.input} value={formPlano.usuarios} onChange={e => setFormPlano(f => ({ ...f, usuarios: parseInt(e.target.value) || 0 }))} placeholder="0" />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn-cancel" onClick={() => setFormPlano(null)}>Cancelar</button>
+                <button className="btn-primary" onClick={salvarPlanoForm}>✅ Salvar Plano</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
 // ══════════════════════════════════════════════
-// ABA DESCONTOS
+// ABA DESCONTOS — APRIMORADA
 // ══════════════════════════════════════════════
 function TabDescontos({ cfg, setCfg, empresaId }) {
-  const [discAdPct,  setDiscAdPct]  = useState(cfg.discAdPct  || 50)
-  const [discMenPct, setDiscMenPct] = useState(cfg.discMenPct || 0)
-  const [discClosePct, setDiscClosePct] = useState(cfg.discClosePct || 40)
-  const [saving,     setSaving]     = useState(false)
+  const [descontoEmTela, setDescontoEmTela] = useState(cfg.descontoEmTela || false)
+  const [somenteViaVoucher, setSomenteViaVoucher] = useState(cfg.somenteViaVoucher || false)
+  const [percAdesaoTela, setPercAdesaoTela] = useState(cfg.percAdesaoTela || 0)
+  const [percMensalidadeTela, setPercMensalidadeTela] = useState(cfg.percMensalidadeTela || 0)
+  const [percAdesaoFechamento, setPercAdesaoFechamento] = useState(cfg.percAdesaoFechamento || 0)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setDiscAdPct(cfg.discAdPct || 50)
-    setDiscMenPct(cfg.discMenPct || 0)
-    setDiscClosePct(cfg.discClosePct || 40)
+    setDescontoEmTela(cfg.descontoEmTela || false)
+    setSomenteViaVoucher(cfg.somenteViaVoucher || false)
+    setPercAdesaoTela(cfg.percAdesaoTela || 0)
+    setPercMensalidadeTela(cfg.percMensalidadeTela || 0)
+    setPercAdesaoFechamento(cfg.percAdesaoFechamento || 0)
   }, [cfg])
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, discAdPct, discMenPct, discClosePct }
+    const novoCfg = {
+      ...cfg,
+      descontoEmTela,
+      somenteViaVoucher,
+      percAdesaoTela,
+      percMensalidadeTela,
+      percAdesaoFechamento,
+    }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -938,229 +1027,352 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
   return (
     <div style={s.body}>
       <div style={s.sec}>
-        <div style={s.secTitle}>Configurações de Desconto Padrão</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
-          Defina os percentuais de desconto padrão aplicados nas propostas e contratos.
-        </p>
-
-        <div style={s.field}>
-          <label style={s.label}>Desconto Padrão na Adesão (%)</label>
-          <input type="number" style={s.input} value={discAdPct} onChange={e => setDiscAdPct(Number(e.target.value))} placeholder="50" min="0" max="100" />
+        <div style={s.secTitle}>MODO DE DESCONTO</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+          <label style={{ ...s.label, marginBottom: 0, flex: 1, cursor: 'pointer' }} htmlFor="desconto-em-tela-toggle">
+            Desconto em Tela
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              Mostra desconto após o preço cheio automaticamente.
+            </p>
+          </label>
+          <label className="switch">
+            <input type="checkbox" id="desconto-em-tela-toggle"
+              checked={descontoEmTela}
+              onChange={e => setDescontoEmTela(e.target.checked)}
+            />
+            <span className="slider round"></span>
+          </label>
         </div>
-        <div style={s.field}>
-          <label style={s.label}>Desconto Padrão na Mensalidade (%)</label>
-          <input type="number" style={s.input} value={discMenPct} onChange={e => setDiscMenPct(Number(e.target.value))} placeholder="0" min="0" max="100" />
-        </div>
-        <div style={s.field}>
-          <label style={s.label}>Desconto de Fechamento na Adesão (%)</label>
-          <input type="number" style={s.input} value={discClosePct} onChange={e => setDiscClosePct(Number(e.target.value))} placeholder="40" min="0" max="100" />
-          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-            Este desconto é aplicado na adesão para a "Oferta de Fechamento".
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+          <label style={{ ...s.label, marginBottom: 0, flex: 1, cursor: 'pointer' }} htmlFor="somente-via-voucher-toggle">
+            Somente via Voucher
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              Desconto só é aplicado com código de voucher válido.
+            </p>
+          </label>
+          <label className="switch">
+            <input type="checkbox" id="somente-via-voucher-toggle"
+              checked={somenteViaVoucher}
+              onChange={e => setSomenteViaVoucher(e.target.checked)}
+            />
+            <span className="slider round"></span>
+          </label>
         </div>
       </div>
+
+      <div style={s.sec}>
+        <div style={s.secTitle}>PERCENTUAIS DE DESCONTO</div>
+        <div style={s.row2}>
+          <div style={s.field}>
+            <label style={s.label}>% Adesão (tela)</label>
+            <input type="number" style={s.input} value={percAdesaoTela} onChange={e => setPercAdesaoTela(e.target.value)} placeholder="0" />
+          </div>
+          <div style={s.field}>
+            <label style={s.label}>% Mensalidade (tela)</label>
+            <input type="number" style={s.input} value={percMensalidadeTela} onChange={e => setPercMensalidadeTela(e.target.value)} placeholder="0" />
+          </div>
+        </div>
+        <div style={s.field}>
+          <label style={s.label}>% Adesão (fechamento)</label>
+          <input type="number" style={s.input} value={percAdesaoFechamento} onChange={e => setPercAdesaoFechamento(e.target.value)} placeholder="0" />
+        </div>
+      </div>
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>
-        {saving ? '⏳ Salvando...' : '✅ Salvar Descontos'}
+        {saving ? '⏳ Salvando...' : '✅ Salvar'}
       </button>
     </div>
   )
 }
 
 // ══════════════════════════════════════════════
-// ABA VOUCHERS — COM BOTÃO IMPRIMIR PDF
+// ABA VOUCHERS — COM IMPRESSÃO DE PDF
 // ══════════════════════════════════════════════
 function TabVouchers({ cfg, setCfg, empresaId }) {
+  const [prefixo, setPrefixo] = useState('PROMO')
+  const [percAdesao, setPercAdesao] = useState(0)
+  const [percMensalidade, setPercMensalidade] = useState(0)
+  const [dataComemorativa, setDataComemorativa] = useState('')
   const [vouchers, setVouchers] = useState(cfg.vouchers || [])
-  const [form, setForm] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [showVoucherModal, setShowVoucherModal] = useState(false)
+  const [currentVoucher, setCurrentVoucher] = useState(null)
 
-  const emptyForm = { id: '', codigo: '', tipo: 'percent', valor: 0, validade: '', usado: false, cliente: '', dataUso: '' }
+  useEffect(() => {
+    setVouchers(cfg.vouchers || [])
+  }, [cfg])
 
-  function addVoucher() {
-    setForm({ ...emptyForm, id: Date.now().toString(), codigo: 'VIVANEXA' + Math.random().toString(36).substring(2, 8).toUpperCase() })
+  function gerarCodigo() {
+    return Math.random().toString(36).substring(2, 8).toUpperCase()
   }
 
-  function editVoucher(v) { setForm({ ...v }) }
-
-  function removeVoucher(id) {
-    if (!confirm('Remover voucher?')) return
-    setVouchers(prev => prev.filter(v => v.id !== id))
-  }
-
-  async function salvarVoucher() {
-    if (!form.codigo || !form.valor || !form.validade) { toast('Preencha todos os campos obrigatórios', 'err'); return }
+  async function gerarVoucher() {
+    if (!prefixo) { toast('Prefixo obrigatório', 'err'); return }
     setSaving(true)
-    let novos
-    if (vouchers.find(v => v.id === form.id)) {
-      novos = vouchers.map(v => v.id === form.id ? form : v)
-    } else {
-      novos = [...vouchers, form]
+    const novoVoucher = {
+      id: Date.now().toString(),
+      codigo: `${prefixo}-${gerarCodigo()}`,
+      percAdesao: parseFloat(percAdesao),
+      percMensalidade: parseFloat(percMensalidade),
+      dataGeracao: new Date().toISOString(),
+      dataComemorativa: dataComemorativa,
+      usado: false,
+      userId: 'admin', // Ou o ID do usuário logado
     }
-    const novoCfg = { ...cfg, vouchers: novos }
+    const novosVouchers = [...vouchers, novoVoucher]
+    const novoCfg = { ...cfg, vouchers: novosVouchers }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
-    if (error) { toast('Erro ao salvar', 'err'); return }
-    setVouchers(novos)
+    if (error) { toast('Erro ao gerar voucher', 'err'); return }
     setCfg(novoCfg)
-    setForm(null)
-    toast('✅ Voucher salvo!')
+    setVouchers(novosVouchers)
+    toast('✅ Voucher gerado!')
+    setCurrentVoucher(novoVoucher)
+    setShowVoucherModal(true)
+  }
+
+  function removerVoucher(id) {
+    if (!confirm('Remover voucher?')) return
+    const novosVouchers = vouchers.filter(v => v.id !== id)
+    const novoCfg = { ...cfg, vouchers: novosVouchers }
+    salvarStorage(empresaId, novoCfg)
+    setCfg(novoCfg)
+    setVouchers(novosVouchers)
+    toast('🗑 Voucher removido!')
   }
 
   function imprimirVoucher(voucher) {
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <html>
-      <head>
-        <title>Voucher ${voucher.codigo}</title>
-        <style>
-          body { font-family: 'Inter', sans-serif; margin: 0; padding: 40px; background: #f0f2f5; color: #333; }
-          .voucher-card {
-            width: 100%; max-width: 500px; margin: 0 auto; padding: 30px;
-            background: linear-gradient(135deg, #00d4ff, #0099bb);
-            border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            color: #fff; text-align: center; position: relative; overflow: hidden;
-          }
-          .voucher-card::before {
-            content: ''; position: absolute; top: -50px; left: -50px;
-            width: 150px; height: 150px; background: rgba(255,255,255,0.1);
-            border-radius: 50%; transform: rotate(45deg);
-          }
-          .voucher-card::after {
-            content: ''; position: absolute; bottom: -50px; right: -50px;
-            width: 150px; height: 150px; background: rgba(255,255,255,0.1);
-            border-radius: 50%; transform: rotate(45deg);
-          }
-          h1 { font-size: 36px; margin-bottom: 10px; font-weight: 800; }
-          h2 { font-size: 24px; margin-bottom: 20px; font-weight: 600; }
-          .code {
-            font-family: 'DM Mono', monospace; font-size: 48px; font-weight: 700;
-            background: rgba(255,255,255,0.2); padding: 15px 25px; border-radius: 10px;
-            margin-bottom: 25px; display: inline-block; letter-spacing: 2px;
-          }
-          .details p { font-size: 16px; margin-bottom: 8px; }
-          .validity { font-size: 14px; opacity: 0.8; margin-top: 20px; }
-          @media print {
-            body { background: #fff; padding: 0; }
-            .voucher-card { box-shadow: none; border: 1px solid #eee; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="voucher-card">
-          <h1>VOUCHER DE DESCONTO</h1>
-          <h2>${voucher.tipo === 'percent' ? `${voucher.valor}% de Desconto` : `R$ ${voucher.valor.toLocaleString('pt-BR')} de Desconto`}</h2>
-          <div class="code">${voucher.codigo}</div>
-          <div class="details">
-            <p>Válido para: ${voucher.cliente || 'Qualquer cliente'}</p>
-            <p>Status: ${voucher.usado ? `Usado em ${voucher.dataUso}` : 'Disponível'}</p>
-          </div>
-          <p class="validity">Válido até: ${voucher.validade}</p>
-        </div>
-      </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
+    setCurrentVoucher(voucher)
+    setShowVoucherModal(true)
   }
 
   return (
     <div style={s.body}>
       <div style={s.sec}>
-        <div style={s.secTitle}>Vouchers de Desconto</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-          Crie e gerencie vouchers de desconto para seus clientes.
-        </p>
+        <div style={s.secTitle}>GERAR NOVO VOUCHER</div>
+        <div style={s.field}>
+          <label style={s.label}>Prefixo</label>
+          <input style={s.input} value={prefixo} onChange={e => setPrefixo(e.target.value)} placeholder="Ex: PROMO" />
+        </div>
+        <div style={s.row2}>
+          <div style={s.field}>
+            <label style={s.label}>% Adesão</label>
+            <input type="number" style={s.input} value={percAdesao} onChange={e => setPercAdesao(e.target.value)} placeholder="0" />
+          </div>
+          <div style={s.field}>
+            <label style={s.label}>% Mensalidade</label>
+            <input type="number" style={s.input} value={percMensalidade} onChange={e => setPercMensalidade(e.target.value)} placeholder="0" />
+          </div>
+        </div>
+        <div style={s.field}>
+          <label style={s.label}>Data comemorativa (opcional)</label>
+          <input style={s.input} value={dataComemorativa} onChange={e => setDataComemorativa(e.target.value)} placeholder="Ex: Natal 2025" />
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button style={s.saveBtn} onClick={gerarVoucher} disabled={saving}>
+            {saving ? '⏳ Gerando...' : '🎫 Gerar Voucher'}
+          </button>
+          {currentVoucher && (
+            <button onClick={() => imprimirVoucher(currentVoucher)}
+              style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(124,58,237,.15)', border: '1px solid rgba(124,58,237,.3)', color: 'var(--accent2)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+              📄 Gerar PDF
+            </button>
+          )}
+        </div>
+      </div>
 
-        {vouchers.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum voucher cadastrado.</p>}
+      <div style={s.sec}>
+        <div style={s.secTitle}>VOUCHERS ATIVOS</div>
+        {vouchers.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum voucher ativo.</p>}
         {vouchers.map(v => (
           <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{v.codigo}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {v.tipo === 'percent' ? `${v.valor}% de Desconto` : `R$ ${v.valor.toLocaleString('pt-BR')}`} · Válido até: {v.validade}
+                {v.percAdesao}% off adesão {v.percMensalidade > 0 ? `e ${v.percMensalidade}% off mensalidade` : ''}
+                {v.dataComemorativa && ` (${v.dataComemorativa})`}
               </div>
-              {v.usado && (
-                <div style={{ fontSize: 11, color: 'var(--accent3)', marginTop: 3 }}>
-                  Usado por {v.cliente} em {v.dataUso}
-                </div>
-              )}
+              {v.usado && <span style={{ ...s.badge, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', color: 'var(--danger)', marginLeft: 8 }}>USADO</span>}
             </div>
             <button onClick={() => imprimirVoucher(v)}
-              style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.2)', color: 'var(--accent3)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-              🖨 Imprimir
+              style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(124,58,237,.1)', border: '1px solid rgba(124,58,237,.2)', color: 'var(--accent2)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+              📄 PDF
             </button>
-            <button onClick={() => editVoucher(v)}
-              style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-              ✏️ Editar
-            </button>
-            <button onClick={() => removeVoucher(v.id)}
+            <button onClick={() => removerVoucher(v.id)}
               style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
               🗑
             </button>
           </div>
         ))}
-        <button onClick={addVoucher}
-          style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
-          + Novo Voucher
-        </button>
+      </div>
 
-        {form && (
-          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
-            <div style={{ ...s.secTitle, marginBottom: 14 }}>
-              {form.id ? '✏️ Editar Voucher' : '➕ Novo Voucher'}
+      {showVoucherModal && currentVoucher && (
+        <VoucherModal voucher={currentVoucher} onClose={() => setShowVoucherModal(false)} empresaCfg={cfg} />
+      )}
+    </div>
+  )
+}
+
+// Componente Modal do Voucher (para impressão)
+function VoucherModal({ voucher, onClose, empresaCfg }) {
+  const voucherRef = useRef()
+
+  const handlePrint = () => {
+    const printWindow = window.open('', '', 'height=600,width=800');
+    printWindow.document.write('<html><head><title>Voucher de Desconto</title>');
+    printWindow.document.write('<style>');
+    printWindow.document.write(`
+      body { font-family: 'Inter', sans-serif; margin: 0; padding: 20px; background: #f0f2f5; color: #333; }
+      .voucher-container {
+        width: 100%; max-width: 600px; margin: 0 auto; padding: 30px;
+        background: linear-gradient(135deg, #1a2540, #111827);
+        border-radius: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        color: #e2e8f0; text-align: center; position: relative; overflow: hidden;
+        border: 2px dashed rgba(0,212,255,0.3);
+      }
+      .voucher-header { margin-bottom: 25px; }
+      .voucher-header h1 {
+        font-family: 'Syne', sans-serif; font-size: 36px; font-weight: 800;
+        color: #00d4ff; text-transform: uppercase; letter-spacing: 2px;
+        margin-bottom: 10px;
+      }
+      .voucher-header p { font-size: 16px; color: #64748b; margin-top: 5px; }
+      .logo { max-height: 80px; margin-bottom: 20px; filter: drop-shadow(0 0 8px rgba(0,212,255,0.4)); }
+      .benefits { margin-bottom: 30px; padding: 15px 20px; background: rgba(0,212,255,0.08); border-radius: 10px; }
+      .benefits h2 {
+        font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 700;
+        color: #10b981; margin-bottom: 15px;
+      }
+      .benefit-item {
+        font-size: 38px; font-weight: 700; color: #10b981;
+        margin-bottom: 10px;
+      }
+      .benefit-item span { font-size: 20px; color: #e2e8f0; font-weight: 400; }
+      .voucher-code-section { margin-bottom: 30px; }
+      .voucher-code-section h3 {
+        font-size: 14px; color: #64748b; text-transform: uppercase;
+        letter-spacing: 1px; margin-bottom: 8px;
+      }
+      .voucher-code {
+        font-family: 'DM Mono', monospace; font-size: 48px; font-weight: 700;
+        color: #00d4ff; background: rgba(0,212,255,0.05); padding: 10px 25px;
+        border-radius: 12px; display: inline-block; letter-spacing: 3px;
+        border: 1px solid rgba(0,212,255,0.2);
+      }
+      .validity { font-size: 14px; color: #64748b; line-height: 1.6; margin-bottom: 30px; }
+      .validity strong { color: #e2e8f0; }
+      .footer {
+        border-top: 1px solid rgba(100,116,139,0.2); padding-top: 20px;
+        margin-top: 20px;
+      }
+      .footer .company-name {
+        font-family: 'Syne', sans-serif; font-size: 24px; font-weight: 800;
+        color: #e2e8f0; margin-bottom: 5px;
+      }
+      .footer .website { font-size: 14px; color: #00d4ff; text-decoration: none; }
+      .watermark {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg);
+        font-size: 120px; color: rgba(100,116,139,0.08); pointer-events: none;
+        user-select: none; z-index: 0; font-family: 'Syne', sans-serif; font-weight: 800;
+      }
+      @media print {
+        body { background: #fff; }
+        .voucher-container { box-shadow: none; border: 1px solid #ccc; }
+        .voucher-header h1, .voucher-code { color: #007bff; }
+        .benefits h2, .benefit-item { color: #28a745; }
+        .watermark { display: none; }
+      }
+    `);
+    printWindow.document.write('</style>');
+    printWindow.document.write('</head><body>');
+    printWindow.document.write(voucherRef.current.innerHTML);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
+
+  const dataGeracao = new Date(voucher.dataGeracao).toLocaleDateString('pt-BR')
+  const empresaNome = empresaCfg.company || 'VIVANEXA'
+  const empresaSlogan = empresaCfg.slogan || 'Assistente Comercial'
+  const empresaLogo = empresaCfg.logob64
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box" style={{ maxWidth: 680 }}>
+        <div className="modal-header">
+          <h3>🎫 Pré-visualização do Voucher</h3>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ padding: 0 }}>
+          <div ref={voucherRef} className="voucher-container" style={{ margin: '20px auto', position: 'relative', zIndex: 1 }}>
+            <div className="watermark">{empresaNome}</div>
+            <div className="voucher-header">
+              {empresaLogo && <img src={empresaLogo} alt="Logo" className="logo" />}
+              <h1>VOUCHER DE DESCONTO</h1>
+              <p>{empresaSlogan}</p>
             </div>
-            <div style={s.field}>
-              <label style={s.label}>Código do Voucher</label>
-              <input style={s.input} value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))} placeholder="VIVANEXA123" />
+
+            <div className="benefits">
+              <h2>BENEFÍCIOS INCLUÍDOS</h2>
+              {voucher.percAdesao > 0 && (
+                <div className="benefit-item">{voucher.percAdesao}% <span>NA ADESÃO</span></div>
+              )}
+              {voucher.percMensalidade > 0 && (
+                <div className="benefit-item">{voucher.percMensalidade}% <span>NA MENSALIDADE</span></div>
+              )}
+              {(voucher.percAdesao === 0 && voucher.percMensalidade === 0) && (
+                <div className="benefit-item" style={{ fontSize: 24 }}>Desconto especial!</div>
+              )}
             </div>
-            <div style={s.row2}>
-              <div style={s.field}>
-                <label style={s.label}>Tipo de Desconto</label>
-                <select style={s.input} value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
-                  <option value="percent">Percentual (%)</option>
-                  <option value="fixed">Valor Fixo (R$)</option>
-                </select>
-              </div>
-              <div style={s.field}>
-                <label style={s.label}>Valor</label>
-                <input type="number" style={s.input} value={form.valor} onChange={e => setForm(f => ({ ...f, valor: Number(e.target.value) }))} placeholder="50" />
-              </div>
+
+            <div className="voucher-code-section">
+              <h3>CÓDIGO DO VOUCHER</h3>
+              <div className="voucher-code">{voucher.codigo}</div>
             </div>
-            <div style={s.field}>
-              <label style={s.label}>Validade (até)</label>
-              <input type="date" style={s.input} value={form.validade} onChange={e => setForm(f => ({ ...f, validade: e.target.value }))} />
+
+            <div className="validity">
+              Válido para contratação de novos serviços {empresaNome}.<br/>
+              Apresente este voucher ao consultor para aplicar o desconto.
+              <p style={{ marginTop: 10 }}>
+                Gerado em: <strong>{dataGeracao}</strong> {voucher.dataComemorativa && `(Ref: ${voucher.dataComemorativa})`}
+                <br/>
+                Uso: <strong>Único</strong>
+              </p>
             </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-              <button style={s.saveBtn} onClick={salvarVoucher} disabled={saving}>
-                {saving ? '⏳...' : '✅ Salvar Voucher'}
-              </button>
-              <button onClick={() => setForm(null)}
-                style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
-                Cancelar
-              </button>
+
+            <div className="footer">
+              <div className="company-name">{empresaNome}</div>
+              <a href="https://www.vivanexa.com.br" target="_blank" rel="noopener noreferrer" className="website">www.vivanexa.com.br</a>
             </div>
           </div>
-        )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn-cancel" onClick={onClose}>Fechar</button>
+          <button className="btn-primary" onClick={handlePrint}>🖨️ Imprimir / Salvar PDF</button>
+        </div>
       </div>
     </div>
   )
 }
 
 // ══════════════════════════════════════════════
-// NOVA ABA: DOCUMENTOS (Importados)
+// ABA DOCUMENTOS — PARA UPLOAD E GESTÃO DE ARQUIVOS
 // ══════════════════════════════════════════════
 function TabDocumentos({ cfg, setCfg, empresaId }) {
-  const [docsImportados, setDocsImportados] = useState(cfg.importedDocs || [])
+  const [documentosImportados, setDocumentosImportados] = useState(cfg.importedDocs || [])
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const fileInputRef = useRef(null)
+  const [showDocModal, setShowDocModal] = useState(false)
+  const [currentDocContent, setCurrentDocContent] = useState('')
+  const [currentDocName, setCurrentDocName] = useState('')
 
   useEffect(() => {
-    setDocsImportados(cfg.importedDocs || [])
-  }, [cfg.importedDocs])
+    setDocumentosImportados(cfg.importedDocs || [])
+  }, [cfg])
 
-  async function handleFileUpload(e) {
-    const file = e.target.files[0]
+  async function handleFileUpload(event) {
+    const file = event.target.files[0]
     if (!file) return
 
     if (file.size > 5 * 1024 * 1024) { // 5MB limit
@@ -1168,97 +1380,90 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
       return;
     }
 
-    const fileType = file.type.startsWith('application/pdf') ? 'pdf' : (file.type.startsWith('text/html') ? 'html' : null);
-    if (!fileType) {
-      toast('Formato de arquivo não suportado. Use PDF ou HTML.', 'err');
+    setUploading(true)
+    const filePath = `${empresaId}/imported_docs/${Date.now()}-${file.name}`
+    const { data, error } = await supabase.storage
+      .from('documents') // Certifique-se que você tem um bucket 'documents' no Supabase Storage
+      .upload(filePath, file)
+
+    if (error) {
+      toast('Erro ao fazer upload: ' + error.message, 'err');
+      setUploading(false);
       return;
     }
 
-    setUploading(true)
-    const fileName = `${Date.now()}-${file.name}`
-    const filePath = `${empresaId}/imported_docs/${fileName}`
+    const publicUrl = supabase.storage.from('documents').getPublicUrl(filePath).data.publicUrl;
 
-    try {
-      const { data, error } = await supabase.storage
-        .from('vx_storage') // Usar o mesmo bucket 'vx_storage'
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false,
-          contentType: file.type,
-        })
-
-      if (error) throw error
-
-      const { data: publicUrlData } = supabase.storage
-        .from('vx_storage')
-        .getPublicUrl(filePath)
-
-      if (!publicUrlData.publicUrl) throw new Error('Não foi possível obter a URL pública.')
-
-      const newDoc = {
-        id: Date.now().toString(),
-        name: file.name,
-        type: fileType,
-        url: publicUrlData.publicUrl,
-        uploadedAt: new Date().toISOString(),
-        uploadedBy: 'admin', // Ou o ID do usuário logado
-      }
-
-      const updatedDocs = [...docsImportados, newDoc]
-      const novoCfg = { ...cfg, importedDocs: updatedDocs }
-      const { error: saveError } = await salvarStorage(empresaId, novoCfg)
-
-      if (saveError) throw saveError
-
-      setCfg(novoCfg)
-      setDocsImportados(updatedDocs)
-      toast('✅ Documento importado com sucesso!')
-    } catch (error) {
-      console.error('Erro ao fazer upload ou salvar documento:', error)
-      toast('Erro ao importar documento: ' + error.message, 'err')
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '' // Limpa o input file
-      }
+    const novoDocumento = {
+      id: Date.now().toString(),
+      nome: file.name,
+      url: publicUrl,
+      tipo: file.type,
+      uploadedAt: new Date().toISOString(),
+      userId: 'admin', // Ou o ID do usuário logado
     }
+
+    const novosDocumentos = [...documentosImportados, novoDocumento]
+    const novoCfg = { ...cfg, importedDocs: novosDocumentos }
+    const { error: saveError } = await salvarStorage(empresaId, novoCfg)
+
+    setUploading(false)
+    if (saveError) {
+      toast('Erro ao salvar no banco de dados: ' + saveError.message, 'err');
+      return;
+    }
+    setCfg(novoCfg)
+    setDocumentosImportados(novosDocumentos)
+    toast('✅ Documento importado com sucesso!')
   }
 
-  async function removeDocument(id) {
-    if (!confirm('Tem certeza que deseja remover este documento? Esta ação é irreversível.')) return
+  async function removerDocumento(docId, docUrl) {
+    if (!confirm('Remover documento? Esta ação é irreversível.')) return
 
     setSaving(true)
-    try {
-      const docToRemove = docsImportados.find(d => d.id === id)
-      if (!docToRemove) throw new Error('Documento não encontrado.')
+    // Extrair o caminho do arquivo da URL pública para remover do storage
+    const pathSegments = docUrl.split('/')
+    const filePath = pathSegments.slice(pathSegments.indexOf(empresaId)).join('/')
 
-      // Remove do Supabase Storage
-      const pathSegments = docToRemove.url.split('/')
-      const fileNameInStorage = pathSegments[pathSegments.length - 1]
-      const folderPath = `${empresaId}/imported_docs/`
-      const { error: storageError } = await supabase.storage
-        .from('vx_storage')
-        .remove([folderPath + fileNameInStorage])
+    const { error: deleteError } = await supabase.storage
+      .from('documents')
+      .remove([filePath])
 
-      if (storageError && storageError.statusCode !== '404') { // Ignorar 404 se o arquivo já não existir
-        console.warn('Erro ao remover do storage (pode já ter sido removido):', storageError.message)
+    if (deleteError) {
+      toast('Erro ao remover do storage: ' + deleteError.message, 'err');
+      setSaving(false);
+      return;
+    }
+
+    const novosDocumentos = documentosImportados.filter(doc => doc.id !== docId)
+    const novoCfg = { ...cfg, importedDocs: novosDocumentos }
+    const { error: saveError } = await salvarStorage(empresaId, novoCfg)
+
+    setSaving(false)
+    if (saveError) {
+      toast('Erro ao atualizar banco de dados: ' + saveError.message, 'err');
+      return;
+    }
+    setCfg(novoCfg)
+    setDocumentosImportados(novosDocumentos)
+    toast('🗑 Documento removido!')
+  }
+
+  async function visualizarDocumento(doc) {
+    if (doc.tipo.includes('pdf')) {
+      window.open(doc.url, '_blank');
+    } else if (doc.tipo.includes('html')) {
+      try {
+        const response = await fetch(doc.url);
+        const htmlContent = await response.text();
+        setCurrentDocContent(htmlContent);
+        setCurrentDocName(doc.nome);
+        setShowDocModal(true);
+      } catch (error) {
+        toast('Erro ao carregar conteúdo HTML: ' + error.message, 'err');
       }
-
-      // Remove da configuração da empresa
-      const updatedDocs = docsImportados.filter(d => d.id !== id)
-      const novoCfg = { ...cfg, importedDocs: updatedDocs }
-      const { error: saveError } = await salvarStorage(empresaId, novoCfg)
-
-      if (saveError) throw saveError
-
-      setCfg(novoCfg)
-      setDocsImportados(updatedDocs)
-      toast('🗑 Documento removido com sucesso!')
-    } catch (error) {
-      console.error('Erro ao remover documento:', error)
-      toast('Erro ao remover documento: ' + error.message, 'err')
-    } finally {
-      setSaving(false)
+    } else {
+      toast('Tipo de documento não suportado para visualização direta.', 'err');
     }
   }
 
@@ -1267,185 +1472,210 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
       <div style={s.sec}>
         <div style={s.secTitle}>📄 Documentos Importados</div>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-          Faça upload de documentos (PDF ou HTML) para usar na plataforma.
+          Faça upload de documentos (PDF, HTML) para uso interno ou como modelos.
+          **Não suporta edição online de .doc/.docx.**
         </p>
 
         <div style={s.field}>
-          <label style={s.label}>Upload de Documento (PDF ou HTML, máx 5MB)</label>
-          <input
-            type="file"
-            accept=".pdf,.html"
-            onChange={handleFileUpload}
-            ref={fileInputRef}
-            style={{ ...s.input, padding: '6px' }}
-            disabled={uploading}
-          />
-          {uploading && <p style={{ fontSize: 12, color: 'var(--accent)', marginTop: 8 }}>⏳ Enviando documento...</p>}
+          <label style={s.label}>Upload de Documento (PDF, HTML — máx 5MB)</label>
+          <input type="file" accept=".pdf,.html" onChange={handleFileUpload} style={{ ...s.input, padding: '6px' }} disabled={uploading} />
+          {uploading && <p style={{ fontSize: 12, color: 'var(--accent)', marginTop: 5 }}>⏳ Fazendo upload...</p>}
         </div>
 
-        {docsImportados.length === 0 && !uploading && (
-          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 20 }}>Nenhum documento importado ainda.</p>
-        )}
-
         <div style={{ marginTop: 20 }}>
-          {docsImportados.map(doc => (
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 10, color: 'var(--accent)' }}>Documentos na Nuvem</div>
+          {documentosImportados.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum documento importado.</p>}
+          {documentosImportados.map(doc => (
             <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{doc.name}</div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{doc.nome}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {doc.type.toUpperCase()} · Importado em {new Date(doc.uploadedAt).toLocaleDateString('pt-BR')}
+                  {new Date(doc.uploadedAt).toLocaleDateString('pt-BR')} · {doc.tipo.split('/')[1].toUpperCase()}
                 </div>
               </div>
-              <a href={doc.url} target="_blank" rel="noopener noreferrer"
-                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'none' }}>
+              <button onClick={() => visualizarDocumento(doc)}
+                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
                 👁 Ver
-              </a>
-              <button onClick={() => removeDocument(doc.id)} disabled={saving}
-                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+              </button>
+              <button onClick={() => removerDocumento(doc.id, doc.url)}
+                style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }} disabled={saving}>
                 🗑
               </button>
             </div>
           ))}
         </div>
       </div>
+
+      {showDocModal && (
+        <div className="modal-overlay">
+          <div className="modal-box" style={{ maxWidth: '80vw', width: '90%', height: '90vh' }}>
+            <div className="modal-header">
+              <h3>Visualizar Documento: {currentDocName}</h3>
+              <button className="modal-close" onClick={() => setShowDocModal(false)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#fff', color: '#333' }}>
+              <div dangerouslySetInnerHTML={{ __html: currentDocContent }} />
+            </div>
+            <div className="modal-footer">
+              <button className="btn-cancel" onClick={() => setShowDocModal(false)}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 // ══════════════════════════════════════════════
-// ABA HISTÓRICO (Documentos Gerados e Assinados)
+// ABA HISTÓRICO — MELHORADA
 // ══════════════════════════════════════════════
 function TabHistorico({ cfg, setCfg, empresaId }) {
   const [docHistory, setDocHistory] = useState(cfg.docHistory || [])
-  const [loading, setLoading] = useState(true)
-  const [selectedDoc, setSelectedDoc] = useState(null) // Para modal de visualização
+  const [filterType, setFilterType] = useState('todos') // 'todos', 'propostas', 'contratos'
+  const [filterStatus, setFilterStatus] = useState('todos') // 'todos', 'aguardando', 'assinado', 'rascunho'
+  const [searchTerm, setSearchTerm] = useState('')
+  const [showDocModal, setShowDocModal] = useState(false)
+  const [currentDocContent, setCurrentDocContent] = useState('')
+  const [currentDocTitle, setCurrentDocTitle] = useState('')
+  const [loadingDocContent, setLoadingDocContent] = useState(false)
 
   useEffect(() => {
-    // Ordena os documentos do mais recente para o mais antigo
-    const sortedHistory = [...(cfg.docHistory || [])].sort((a, b) => new Date(b.generatedAt) - new Date(a.generatedAt))
-    setDocHistory(sortedHistory)
-    setLoading(false)
-  }, [cfg.docHistory])
+    setDocHistory(cfg.docHistory || [])
+  }, [cfg])
 
-  // Função para buscar o HTML completo do documento (se não estiver no docHistory)
-  async function fetchFullDocument(token) {
-    setLoading(true)
+  const filteredDocs = docHistory.filter(doc => {
+    const matchesType = filterType === 'todos' || doc.type === filterType
+    const matchesStatus = filterStatus === 'todos' || doc.status === filterStatus
+    const matchesSearch = searchTerm === '' ||
+                          doc.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          doc.title.toLowerCase().includes(searchTerm.toLowerCase())
+    return matchesType && matchesStatus && matchesSearch
+  }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)) // Mais recentes primeiro
+
+  async function visualizarDocumento(doc) {
+    setLoadingDocContent(true)
+    setCurrentDocTitle(doc.title)
     try {
-      const { data: docRow, error } = await supabase
-        .from('vx_storage')
-        .select('value')
-        .eq('key', `doc:${token}`)
-        .single()
+      // Assumindo que o conteúdo HTML está no Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('documents') // Seu bucket de documentos
+        .download(`${empresaId}/generated_docs/${doc.id}.html`) // Caminho onde o HTML foi salvo
 
       if (error) throw error
-      if (!docRow?.value) throw new Error('Documento não encontrado no storage.')
 
-      const docData = JSON.parse(docRow.value)
-      setSelectedDoc(docData)
-    } catch (e) {
-      console.error('Erro ao carregar documento completo:', e)
-      toast('Erro ao carregar documento. Tente novamente.', 'err')
-      setSelectedDoc(null)
-    } finally {
-      setLoading(false)
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setCurrentDocContent(e.target.result)
+        setShowDocModal(true)
+        setLoadingDocContent(false)
+      }
+      reader.readAsText(data)
+
+    } catch (error) {
+      toast('Erro ao carregar conteúdo do documento: ' + error.message, 'err')
+      setLoadingDocContent(false)
     }
   }
 
-  function getStatusLabel(doc) {
-    if (doc.status === 'signed') return '✅ Assinado'
-    if (doc.status === 'pending') return '✍️ Aguardando Assinatura'
-    return '⏳ Gerado'
+  function getStatusLabel(status) {
+    switch (status) {
+      case 'rascunho': return 'Rascunho'
+      case 'aguardando': return 'Aguardando assinatura'
+      case 'assinado': return 'Assinado'
+      default: return status
+    }
   }
 
-  function getStatusColor(doc) {
-    if (doc.status === 'signed') return 'var(--accent3)'
-    if (doc.status === 'pending') return 'var(--warning)'
-    return 'var(--muted)'
+  function getStatusColor(status) {
+    switch (status) {
+      case 'rascunho': return 'var(--muted)'
+      case 'aguardando': return 'var(--warning)'
+      case 'assinado': return 'var(--accent3)'
+      default: return 'var(--muted)'
+    }
   }
 
   return (
     <div style={s.body}>
       <div style={s.sec}>
-        <div style={s.secTitle}>🗂️ Histórico de Documentos</div>
+        <div style={s.secTitle}>🗂️ Propostas e Contratos Gerados</div>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-          Visualize todas as propostas e contratos gerados e seus status de assinatura.
+          Acompanhe o status de todas as propostas e contratos gerados pelo sistema.
         </p>
 
-        {loading && (
-          <div style={s.centro}>
-            <div style={s.spinner} />
-            <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 20 }}>Carregando histórico...</p>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          <select style={{ ...s.input, flex: 1, minWidth: 120 }} value={filterType} onChange={e => setFilterType(e.target.value)}>
+            <option value="todos">Todos</option>
+            <option value="proposta">Propostas</option>
+            <option value="contrato">Contratos</option>
+          </select>
+          <select style={{ ...s.input, flex: 1, minWidth: 160 }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+            <option value="todos">Todos os status</option>
+            <option value="aguardando">Aguardando assinatura</option>
+            <option value="assinado">Assinado</option>
+            <option value="rascunho">Rascunho</option>
+          </select>
+          <input type="text" style={{ ...s.input, flex: 2, minWidth: 180 }} placeholder="Buscar por cliente..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          <button onClick={() => { setFilterType('todos'); setFilterStatus('todos'); setSearchTerm('') }}
+            style={{ padding: '10px 16px', borderRadius: 8, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+            🗑 Limpar
+          </button>
+        </div>
 
-        {!loading && docHistory.length === 0 && (
-          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 20 }}>Nenhum documento gerado ainda.</p>
-        )}
+        {filteredDocs.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum documento encontrado com os filtros aplicados.</p>}
 
-        {!loading && docHistory.length > 0 && (
-          <div style={{ marginTop: 20 }}>
-            {docHistory.map(doc => (
-              <div key={doc.signToken} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>
-                      {doc.type === 'proposta' ? 'Proposta Comercial' : 'Contrato'} para {doc.clientName}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                      Gerado em {new Date(doc.generatedAt).toLocaleDateString('pt-BR')}
-                      {doc.signedBy && ` por ${doc.signedBy}`}
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: getStatusColor(doc), marginTop: 4 }}>
-                      {getStatusLabel(doc)}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                    <button onClick={() => fetchFullDocument(doc.signToken)}
-                      style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-                      👁 Ver Documento
-                    </button>
-                    {doc.signToken && (
-                      <a href={`/sign/${doc.signToken}`} target="_blank" rel="noopener noreferrer"
-                        style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(124,58,237,.1)', border: '1px solid rgba(124,58,237,.2)', color: 'var(--accent2)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'none' }}>
-                        🔗 Link Assinatura
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
+        {filteredDocs.map(doc => (
+          <div key={doc.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{doc.title}</div>
+              <span style={{ fontSize: 11, color: getStatusColor(doc.status), background: `${getStatusColor(doc.status).replace('var(--', 'rgba(').replace(')', ',.1)')}`, padding: '4px 10px', borderRadius: 15, fontWeight: 600 }}>
+                {getStatusLabel(doc.status)}
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>
+              Cliente: <strong>{doc.clientName}</strong> · Gerado por: {doc.userName}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+              {new Date(doc.createdAt).toLocaleString('pt-BR')}
+              {doc.consultantSignedAt && <span style={{ marginLeft: 10 }}> · Consultor assinou em {new Date(doc.consultantSignedAt).toLocaleString('pt-BR')}</span>}
+              {doc.clientSignedAt && <span style={{ marginLeft: 10 }}> · Cliente assinou em {new Date(doc.clientSignedAt).toLocaleString('pt-BR')}</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => visualizarDocumento(doc)}
+                style={{ padding: '8px 14px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 13 }}>
+                👁 Ver Documento
+              </button>
+              {doc.signatureLink && (
+                <a href={doc.signatureLink} target="_blank" rel="noopener noreferrer"
+                  style={{ padding: '8px 14px', borderRadius: 8, background: 'rgba(124,58,237,.1)', border: '1px solid rgba(124,58,237,.2)', color: 'var(--accent2)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 13, textDecoration: 'none' }}>
+                  🔗 Link Assinatura
+                </a>
+              )}
+              {/* Adicionar botão de "Enviar" se necessário, como na imagem */}
+            </div>
           </div>
-        )}
+        ))}
       </div>
 
-      {/* Modal de Visualização de Documento */}
-      {selectedDoc && (
+      {showDocModal && (
         <div className="modal-overlay">
-          <div className="modal-box" style={{ maxWidth: 800 }}>
+          <div className="modal-box" style={{ maxWidth: '80vw', width: '90%', height: '90vh' }}>
             <div className="modal-header">
-              <h3>{selectedDoc.type === 'proposta' ? 'Proposta Comercial' : 'Contrato'} para {selectedDoc.clientName}</h3>
-              <button className="modal-close" onClick={() => setSelectedDoc(null)}>✕</button>
+              <h3>Visualizar: {currentDocTitle}</h3>
+              <button className="modal-close" onClick={() => setShowDocModal(false)}>✕</button>
             </div>
-            <div className="modal-body" style={{ padding: 0 }}>
-              {selectedDoc.html ? (
-                <div
-                  style={{ padding: '20px 24px', maxHeight: 'calc(90vh - 180px)', overflowY: 'auto', background: '#fff', color: '#333' }}
-                  dangerouslySetInnerHTML={{ __html: selectedDoc.html }}
-                />
-              ) : (
-                <div style={{ padding: '20px 24px', textAlign: 'center', color: 'var(--muted)' }}>
-                  Conteúdo do documento não disponível.
+            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#fff', color: '#333' }}>
+              {loadingDocContent ? (
+                <div style={s.centro}>
+                  <div style={s.spinner}></div>
+                  <p style={{ marginTop: 15, color: 'var(--muted)' }}>Carregando documento...</p>
                 </div>
+              ) : (
+                <div dangerouslySetInnerHTML={{ __html: currentDocContent }} />
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setSelectedDoc(null)}>Fechar</button>
-              {selectedDoc.signToken && (
-                <a href={`/sign/${selectedDoc.signToken}`} target="_blank" rel="noopener noreferrer"
-                  className="btn-primary" style={{ textDecoration: 'none' }}>
-                  Ir para Assinatura
-                </a>
-              )}
+              <button className="btn-cancel" onClick={() => setShowDocModal(false)}>Fechar</button>
             </div>
           </div>
         </div>
@@ -1462,17 +1692,27 @@ function TabClientes({ cfg, setCfg, empresaId }) {
   const [form, setForm] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  const emptyForm = { id: '', name: '', cnpj: '', email: '', phone: '', address: '', city: '', state: '', zip: '' }
+  useEffect(() => {
+    setClients(cfg.clients || [])
+  }, [cfg])
+
+  const emptyForm = {
+    id: '', nomeFantasia: '', razaoSocial: '', cnpj: '', contatoNome: '',
+    email: '', telefone: '', cep: '', endereco: '', bairro: '', cidade: '', estado: '',
+    respImplNome: '', respImplEmail: '', respImplTelefone: '',
+    respFinNome: '', respFinEmail: '', respFinTelefone: '',
+    cpfContatoPrincipal: '', regimeTributario: ''
+  }
 
   function addClient() { setForm({ ...emptyForm, id: Date.now().toString() }) }
-  function editClient(c) { setForm({ ...c }) }
+  function editClient(client) { setForm({ ...emptyForm, ...client }) }
   function removeClient(id) {
     if (!confirm('Remover cliente?')) return
     setClients(prev => prev.filter(c => c.id !== id))
   }
 
   async function salvarClient() {
-    if (!form.name || !form.cnpj) { toast('Nome e CNPJ obrigatórios', 'err'); return }
+    if (!form.nomeFantasia && !form.razaoSocial) { toast('Nome Fantasia ou Razão Social obrigatórios', 'err'); return }
     setSaving(true)
     let novos
     if (clients.find(c => c.id === form.id)) {
@@ -1494,17 +1734,13 @@ function TabClientes({ cfg, setCfg, empresaId }) {
     <div style={s.body}>
       <div style={s.sec}>
         <div style={s.secTitle}>🗃️ Clientes Cadastrados</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-          Gerencie a base de clientes da sua empresa.
-        </p>
-
         {clients.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>Nenhum cliente cadastrado.</p>}
         {clients.map(c => (
           <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{c.nomeFantasia || c.razaoSocial}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {c.cnpj} · {c.city}/{c.state}
+                {c.cnpj || c.cpfContatoPrincipal} · {c.cidade} - {c.estado}
               </div>
             </div>
             <button onClick={() => editClient(c)}
@@ -1523,49 +1759,104 @@ function TabClientes({ cfg, setCfg, empresaId }) {
         </button>
 
         {form && (
-          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
-            <div style={{ ...s.secTitle, marginBottom: 14 }}>
-              {form.id ? '✏️ Editar Cliente' : '➕ Novo Cliente'}
-            </div>
-            <div style={s.field}>
-              <label style={s.label}>Nome/Razão Social</label>
-              <input style={s.input} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do Cliente" />
-            </div>
-            <div style={s.row2}>
-              <div style={s.field}><label style={s.label}>CNPJ</label>
-                <input style={s.input} value={form.cnpj} onChange={e => setForm(f => ({ ...f, cnpj: e.target.value }))} placeholder="00.000.000/0000-00" />
+          <div className="modal-overlay">
+            <div className="modal-box">
+              <div className="modal-header">
+                <h3>{form.id.startsWith('novo') ? '➕ Novo Cliente' : '✏️ Editar Cliente'}</h3>
+                <button className="modal-close" onClick={() => setForm(null)}>✕</button>
               </div>
-              <div style={s.field}><label style={s.label}>E-mail</label>
-                <input style={s.input} type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@cliente.com" />
+              <div className="modal-body">
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>Nome Fantasia / Nome</label>
+                    <input style={s.input} value={form.nomeFantasia} onChange={e => setForm(f => ({ ...f, nomeFantasia: e.target.value }))} placeholder="Nome Fantasia" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>Razão Social</label>
+                    <input style={s.input} value={form.razaoSocial} onChange={e => setForm(f => ({ ...f, razaoSocial: e.target.value }))} placeholder="Razão Social" />
+                  </div>
+                </div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>CPF / CNPJ</label>
+                    <input style={s.input} value={form.cnpj} onChange={e => setForm(f => ({ ...f, cnpj: e.target.value }))} placeholder="00.000.000/0000-00" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>Nome do Contato</label>
+                    <input style={s.input} value={form.contatoNome} onChange={e => setForm(f => ({ ...f, contatoNome: e.target.value }))} placeholder="Nome do Contato Principal" />
+                  </div>
+                </div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>E-mail</label>
+                    <input style={s.input} type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@cliente.com" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>Telefone / WhatsApp</label>
+                    <input style={s.input} value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" />
+                  </div>
+                </div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>CEP</label>
+                    <input style={s.input} value={form.cep} onChange={e => setForm(f => ({ ...f, cep: e.target.value }))} placeholder="00000-000" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>Endereço</label>
+                    <input style={s.input} value={form.endereco} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} placeholder="Rua, número" />
+                  </div>
+                </div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>Bairro</label>
+                    <input style={s.input} value={form.bairro} onChange={e => setForm(f => ({ ...f, bairro: e.target.value }))} placeholder="Bairro" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>Cidade</label>
+                    <input style={s.input} value={form.cidade} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} placeholder="Cidade" />
+                  </div>
+                </div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>Estado (UF)</label>
+                    <input style={s.input} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))} placeholder="UF" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>CPF do Contato Principal</label>
+                    <input style={s.input} value={form.cpfContatoPrincipal} onChange={e => setForm(f => ({ ...f, cpfContatoPrincipal: e.target.value }))} placeholder="000.000.000-00" />
+                  </div>
+                </div>
+                <div style={s.field}>
+                  <label style={s.label}>Regime Tributário</label>
+                  <select style={s.input} value={form.regimeTributario} onChange={e => setForm(f => ({ ...f, regimeTributario: e.target.value }))}>
+                    <option value="">Selecione...</option>
+                    <option value="Simples Nacional">Simples Nacional</option>
+                    <option value="Lucro Presumido">Lucro Presumido</option>
+                    <option value="Lucro Real">Lucro Real</option>
+                    <option value="MEI">MEI</option>
+                  </select>
+                </div>
+
+                <div style={{ ...s.secTitle, marginTop: 20, marginBottom: 10 }}>👷 Responsável pela Implantação</div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>Nome</label>
+                    <input style={s.input} value={form.respImplNome} onChange={e => setForm(f => ({ ...f, respImplNome: e.target.value }))} placeholder="Nome" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>E-mail</label>
+                    <input style={s.input} type="email" value={form.respImplEmail} onChange={e => setForm(f => ({ ...f, respImplEmail: e.target.value }))} placeholder="email@empresa.com" />
+                  </div>
+                </div>
+                <div style={s.field}><label style={s.label}>Telefone</label>
+                  <input style={s.input} value={form.respImplTelefone} onChange={e => setForm(f => ({ ...f, respImplTelefone: e.target.value }))} placeholder="(00) 00000-0000" />
+                </div>
+
+                <div style={{ ...s.secTitle, marginTop: 20, marginBottom: 10 }}>💰 Responsável Financeiro</div>
+                <div style={s.row2}>
+                  <div style={s.field}><label style={s.label}>Nome</label>
+                    <input style={s.input} value={form.respFinNome} onChange={e => setForm(f => ({ ...f, respFinNome: e.target.value }))} placeholder="Nome" />
+                  </div>
+                  <div style={s.field}><label style={s.label}>E-mail</label>
+                    <input style={s.input} type="email" value={form.respFinEmail} onChange={e => setForm(f => ({ ...f, respFinEmail: e.target.value }))} placeholder="email@empresa.com" />
+                  </div>
+                </div>
+                <div style={s.field}><label style={s.label}>Telefone</label>
+                  <input style={s.input} value={form.respFinTelefone} onChange={e => setForm(f => ({ ...f, respFinTelefone: e.target.value }))} placeholder="(00) 00000-0000" />
+                </div>
               </div>
-            </div>
-            <div style={s.row2}>
-              <div style={s.field}><label style={s.label}>Telefone</label>
-                <input style={s.input} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="(00) 00000-0000" />
+              <div className="modal-footer">
+                <button className="btn-cancel" onClick={() => setForm(null)}>Cancelar</button>
+                <button className="btn-primary" onClick={salvarClient} disabled={saving}>
+                  {saving ? '⏳ Salvando...' : '✅ Salvar Cliente'}
+                </button>
               </div>
-              <div style={s.field}><label style={s.label}>Endereço</label>
-                <input style={s.input} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Rua, Número, Bairro" />
-              </div>
-            </div>
-            <div style={s.modalGrid3}>
-              <div style={s.field}><label style={s.label}>Cidade</label>
-                <input style={s.input} value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="Cidade" />
-              </div>
-              <div style={s.field}><label style={s.label}>Estado</label>
-                <input style={s.input} value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))} placeholder="UF" />
-              </div>
-              <div style={s.field}><label style={s.label}>CEP</label>
-                <input style={s.input} value={form.zip} onChange={e => setForm(f => ({ ...f, zip: e.target.value }))} placeholder="00000-000" />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-              <button style={s.saveBtn} onClick={salvarClient} disabled={saving}>
-                {saving ? '⏳...' : '✅ Salvar Cliente'}
-              </button>
-              <button onClick={() => setForm(null)}
-                style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
-                Cancelar
-              </button>
             </div>
           </div>
         )}
@@ -1578,50 +1869,64 @@ function TabClientes({ cfg, setCfg, empresaId }) {
 // ABA TEMA
 // ══════════════════════════════════════════════
 function TabTema({ cfg, setCfg, empresaId }) {
-  const [primaryColor, setPrimaryColor] = useState(cfg.theme?.primaryColor || '#00d4ff')
-  const [secondaryColor, setSecondaryColor] = useState(cfg.theme?.secondaryColor || '#7c3aed')
-  const [successColor, setSuccessColor] = useState(cfg.theme?.successColor || '#10b981')
+  const [temaEscuro, setTemaEscuro] = useState(cfg.temaEscuro !== undefined ? cfg.temaEscuro : true)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    setPrimaryColor(cfg.theme?.primaryColor || '#00d4ff')
-    setSecondaryColor(cfg.theme?.secondaryColor || '#7c3aed')
-    setSuccessColor(cfg.theme?.successColor || '#10b981')
+    setTemaEscuro(cfg.temaEscuro !== undefined ? cfg.temaEscuro : true)
   }, [cfg])
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, theme: { primaryColor, secondaryColor, successColor } }
+    const novoCfg = { ...cfg, temaEscuro: temaEscuro }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
     setCfg(novoCfg)
     toast('✅ Tema salvo!')
-    // Aplica o tema imediatamente
-    document.documentElement.style.setProperty('--accent', primaryColor)
-    document.documentElement.style.setProperty('--accent2', secondaryColor)
-    document.documentElement.style.setProperty('--accent3', successColor)
+    // Aplicar o tema imediatamente
+    document.documentElement.setAttribute('data-theme', temaEscuro ? 'dark' : 'light')
   }
+
+  useEffect(() => {
+    // Aplica o tema inicial ao carregar
+    document.documentElement.setAttribute('data-theme', temaEscuro ? 'dark' : 'light')
+  }, [temaEscuro])
+
 
   return (
     <div style={s.body}>
       <div style={s.sec}>
-        <div style={s.secTitle}>🎨 Personalização do Tema</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
-          Personalize as cores principais da sua plataforma.
-        </p>
-
-        <div style={s.field}>
-          <label style={s.label}>Cor Primária (Accent)</label>
-          <input type="color" style={{ ...s.input, height: 40, padding: 5 }} value={primaryColor} onChange={e => setPrimaryColor(e.target.value)} />
+        <div style={s.secTitle}>APARÊNCIA</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+          <label style={{ ...s.label, marginBottom: 0, flex: 1, cursor: 'pointer' }} htmlFor="tema-escuro-toggle">
+            🌙 Tema Escuro
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              Fundo escuro com cores vibrantes (padrão).
+            </p>
+          </label>
+          <label className="switch">
+            <input type="checkbox" id="tema-escuro-toggle"
+              checked={temaEscuro}
+              onChange={e => setTemaEscuro(e.target.checked)}
+            />
+            <span className="slider round"></span>
+          </label>
         </div>
-        <div style={s.field}>
-          <label style={s.label}>Cor Secundária (Accent 2)</label>
-          <input type="color" style={{ ...s.input, height: 40, padding: 5 }} value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} />
-        </div>
-        <div style={s.field}>
-          <label style={s.label}>Cor de Sucesso (Accent 3)</label>
-          <input type="color" style={{ ...s.input, height: 40, padding: 5 }} value={successColor} onChange={e => setSuccessColor(e.target.value)} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+          <label style={{ ...s.label, marginBottom: 0, flex: 1, cursor: 'pointer' }} htmlFor="tema-claro-toggle">
+            ☀️ Tema Claro
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              Fundo branco, ideal para ambientes iluminados.
+            </p>
+          </label>
+          <label className="switch">
+            <input type="checkbox" id="tema-claro-toggle"
+              checked={!temaEscuro}
+              onChange={e => setTemaEscuro(!e.target.checked)}
+            />
+            <span className="slider round"></span>
+          </label>
         </div>
       </div>
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>
@@ -1639,121 +1944,150 @@ export default function Configuracoes() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('empresa')
   const [cfg, setCfg] = useState(null)
-  const [empresaId, setEmpresaId] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [empresaId, setEmpresaId] = useState(null)
   const [user, setUser] = useState(null)
 
   useEffect(() => {
-    async function getSession() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        router.push('/')
+    async function loadUserAndConfig() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/login')
         return
       }
-      setUser(session.user)
-      // Assume que o empresaId está no metadata do usuário ou em uma tabela de perfis
-      const userEmpresaId = session.user.user_metadata?.empresa_id || 'default_empresa_id' // TODO: Ajustar conforme sua lógica
-      setEmpresaId(userEmpresaId)
-      carregarConfig(userEmpresaId)
-    }
-    getSession()
-  }, [router])
+      setUser(user)
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('uuid', user.id)
+        .single()
 
-  useEffect(() => {
-    if (cfg?.theme) {
-      document.documentElement.style.setProperty('--accent', cfg.theme.primaryColor)
-      document.documentElement.style.setProperty('--accent2', cfg.theme.secondaryColor)
-      document.documentElement.style.setProperty('--accent3', cfg.theme.successColor)
-    }
-  }, [cfg?.theme])
+      if (profileError || !profile?.company_id) {
+        console.error('Erro ao carregar perfil ou company_id não encontrado:', profileError);
+        // Tratar caso de empresa não encontrada, talvez redirecionar ou mostrar erro
+        setLoading(false);
+        return;
+      }
+      setEmpresaId(profile.company_id)
 
-  async function carregarConfig(id) {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('vx_storage')
-      .select('value')
-      .eq('key', `cfg:${id}`)
-      .single()
+      const { data, error } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `cfg:${profile.company_id}`)
+        .single()
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found (primeiro acesso)
-      console.error('Erro ao carregar config:', error)
-      toast('Erro ao carregar configurações.', 'err')
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+        console.error('Erro ao carregar configurações:', error);
+        setLoading(false);
+        return;
+      }
+
+      const initialCfg = data ? JSON.parse(data.value) : {
+        company: 'Minha Empresa',
+        slogan: 'Assistente Comercial',
+        logob64: '',
+        goals: [],
+        kpiTemplates: [],
+        users: [],
+        products: MODULOS_PADRAO.map(m => ({ id: m, nome: m, precos: PRECOS_PADRAO[m] || {} })),
+        plans: PLANOS_PADRAO,
+        discounts: {
+          descontoEmTela: false,
+          somenteViaVoucher: false,
+          percAdesaoTela: 0,
+          percMensalidadeTela: 0,
+          percAdesaoFechamento: 0,
+        },
+        vouchers: [],
+        docModels: {
+          proposta: '',
+          contrato: '',
+        },
+        signatureConfig: {
+          emailRemetente: '',
+          whatsappEmpresa: '',
+          baseUrl: '',
+        },
+        docHistory: [],
+        importedDocs: [], // Inicializa documentos importados
+        clients: [],
+        temaEscuro: true,
+        kpiObrigatorio: false, // Nova configuração
+      }
+      setCfg(initialCfg)
       setLoading(false)
-      return
     }
-
-    const initialCfg = data?.value ? JSON.parse(data.value) : {
-      company: 'Minha Empresa',
-      slogan: 'Assistente Comercial Inteligente',
-      logob64: null,
-      users: [],
-      kpiTemplates: [],
-      goals: [],
-      plans: PLANOS_PADRAO,
-      prices: PRECOS_PADRAO,
-      modulos: MODULOS_PADRAO,
-      discAdPct: 50,
-      discMenPct: 0,
-      discClosePct: 40,
-      vouchers: [],
-      docHistory: [], // Inicializa o histórico de documentos
-      importedDocs: [], // Inicializa documentos importados
-      clients: [],
-      perfisTipos: [
-        { id: 'admin', nome: 'Administrador', permissoes: PERMISSOES_ADMIN, fixo: true },
-        { id: 'user',  nome: 'Vendedor',      permissoes: PERMISSOES_USER,  fixo: true },
-      ],
-      theme: { primaryColor: '#00d4ff', secondaryColor: '#7c3aed', successColor: '#10b981' },
-    }
-    setCfg(initialCfg)
-    setLoading(false)
-  }
+    loadUserAndConfig()
+  }, [router])
 
   if (loading) {
     return (
-      <div style={s.fullPageCenter}>
-        <div style={s.spinner} />
-        <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 20 }}>Carregando configurações...</p>
+      <div style={s.loadingContainer}>
+        <div style={s.spinner}></div>
+        <p style={{ marginTop: 15, color: 'var(--muted)' }}>Carregando configurações...</p>
       </div>
     )
   }
 
   if (!cfg || !empresaId) {
     return (
-      <div style={s.fullPageCenter}>
-        <p style={{ color: 'var(--danger)', fontSize: 14 }}>Erro ao carregar configurações ou ID da empresa não encontrado.</p>
+      <div style={s.loadingContainer}>
+        <p style={{ color: 'var(--danger)' }}>Erro ao carregar configurações ou ID da empresa. Tente novamente.</p>
       </div>
     )
+  }
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'empresa':    return <TabEmpresa    cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'metas':      return <TabMetas      cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'kpis':       return <TabKpis       cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'usuarios':   return <TabUsuarios   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'produtos':   return <TabProdutos   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'descontos':  return <TabDescontos  cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'vouchers':   return <TabVouchers   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'documentos': return <TabDocumentos cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'historico':  return <TabHistorico  cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'clientes':   return <TabClientes   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      case 'tema':       return <TabTema       cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+      default:           return <TabEmpresa    cfg={cfg} setCfg={setCfg} empresaId={empresaId} />
+    }
   }
 
   return (
     <div style={s.container}>
       <div style={s.sidebar}>
-        <h2 style={s.sidebarTitle}>⚙️ Configurações</h2>
-        <nav>
+        <div style={s.logoContainer}>
+          {cfg.logob64 ? (
+            <img src={cfg.logob64} alt="Logo" style={s.logo} />
+          ) : (
+            <div style={s.appName}>{cfg.company || 'VIVANEXA'}</div>
+          )}
+          <div style={s.appSlogan}>{cfg.slogan || 'Assistente Comercial'}</div>
+        </div>
+        <nav style={s.nav}>
           {TABS.map(tab => (
             <button
               key={tab.id}
+              style={{ ...s.navItem, ...(activeTab === tab.id ? s.navItemActive : {}) }}
               onClick={() => setActiveTab(tab.id)}
-              style={{ ...s.tabButton, ...(activeTab === tab.id ? s.tabButtonActive : {}) }}
             >
               {tab.label}
             </button>
           ))}
         </nav>
+        <button onClick={() => router.push('/dashboard')} style={s.backToDash}>
+          ← Voltar para o Dashboard
+        </button>
       </div>
-      <div style={s.content}>
-        {activeTab === 'empresa'    && <TabEmpresa    cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
-        {activeTab === 'metas'      && <TabMetas      cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
-        {activeTab === 'kpis'       && <TabKpis       cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
-        {activeTab === 'usuarios'   && <TabUsuarios   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
-        {activeTab === 'produtos'   && <TabProdutos   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
-        {activeTab === 'descontos'  && <TabDescontos  cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
-        {activeTab === 'vouchers'   && <TabVouchers   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
-        {activeTab === 'documentos' && <TabDocumentos cfg={cfg} setCfg={setCfg} empresaId={empresaId} />} {/* Nova aba */}
-        {activeTab === 'historico'  && <TabHistorico  cfg={cfg} setCfg={setCfg} empresaId={empresaId} />} {/* Aba atualizada */}
-        {activeTab === 'clientes'   && <TabClientes   cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
-        {activeTab === 'tema'       && <TabTema       cfg={cfg} setCfg={setCfg} empresaId={empresaId} />}
+      <div style={s.mainContent}>
+        <div style={s.header}>
+          <h1 style={s.title}>⚙️ Configurações</h1>
+          <button onClick={() => router.push('/dashboard')} style={s.closeBtn}>✕</button>
+        </div>
+        <div style={s.contentArea}>
+          {renderTabContent()}
+        </div>
       </div>
       <div id="vx-toast" style={s.toast}></div>
     </div>
@@ -1761,126 +2095,165 @@ export default function Configuracoes() {
 }
 
 // ══════════════════════════════════════════════
-// ESTILOS LOCAIS
+// ESTILOS (s)
 // ══════════════════════════════════════════════
 const s = {
   container: {
     display: 'flex',
     minHeight: '100vh',
+    background: 'var(--bg)',
+    color: 'var(--text)',
     width: '100%',
-    maxWidth: 1200,
-    margin: '0 auto',
-    padding: '20px',
-    gap: '20px',
   },
   sidebar: {
-    width: 220,
-    flexShrink: 0,
+    width: 260,
     background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 16,
+    borderRight: '1px solid var(--border)',
     padding: '20px 0',
-    alignSelf: 'flex-start',
-    position: 'sticky',
-    top: 20,
+    display: 'flex',
+    flexDirection: 'column',
+    flexShrink: 0,
   },
-  sidebarTitle: {
-    fontFamily: 'Syne, sans-serif',
-    fontSize: 18,
-    fontWeight: 700,
-    color: 'var(--accent)',
-    padding: '0 20px 15px',
+  logoContainer: {
+    padding: '0 20px 20px',
     borderBottom: '1px solid var(--border)',
-    marginBottom: 15,
+    marginBottom: 20,
+    textAlign: 'center',
   },
-  tabButton: {
+  logo: {
+    height: 60,
+    maxWidth: '100%',
+    objectFit: 'contain',
+    marginBottom: 8,
+  },
+  appName: {
+    fontFamily: 'Syne, sans-serif',
+    fontSize: 22,
+    fontWeight: 800,
+    color: 'var(--accent)',
+  },
+  appSlogan: {
+    fontSize: 13,
+    color: 'var(--muted)',
+  },
+  nav: {
+    flex: 1,
+    padding: '0 10px',
+  },
+  navItem: {
     display: 'flex',
     alignItems: 'center',
     gap: 10,
     width: '100%',
-    padding: '12px 20px',
-    background: 'none',
+    padding: '12px 15px',
+    borderRadius: 10,
+    background: 'transparent',
     border: 'none',
     color: 'var(--muted)',
     fontSize: 14,
+    fontFamily: 'DM Mono, monospace',
     textAlign: 'left',
     cursor: 'pointer',
+    marginBottom: 5,
     transition: 'all .2s',
-    fontFamily: 'DM Mono, monospace',
-    fontWeight: 500,
   },
-  tabButtonActive: {
+  navItemActive: {
     background: 'rgba(0,212,255,.1)',
     color: 'var(--accent)',
-    borderLeft: '4px solid var(--accent)',
-    paddingLeft: 16,
+    fontWeight: 600,
   },
-  content: {
+  backToDash: {
+    display: 'block',
+    width: 'calc(100% - 20px)',
+    margin: '20px 10px 0',
+    padding: '12px 15px',
+    borderRadius: 10,
+    background: 'var(--surface2)',
+    border: '1px solid var(--border)',
+    color: 'var(--muted)',
+    fontSize: 13,
+    fontFamily: 'DM Mono, monospace',
+    cursor: 'pointer',
+    textAlign: 'center',
+    transition: 'all .2s',
+  },
+  mainContent: {
     flex: 1,
+    padding: '20px 30px',
+    overflowY: 'auto',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 25,
+  },
+  title: {
+    fontFamily: 'Syne, sans-serif',
+    fontSize: 28,
+    fontWeight: 700,
+    color: 'var(--text)',
+  },
+  closeBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--muted)',
+    fontSize: 24,
+    cursor: 'pointer',
+  },
+  contentArea: {
     background: 'var(--surface)',
     border: '1px solid var(--border)',
     borderRadius: 16,
-    padding: '28px 32px',
+    padding: '25px 30px',
     boxShadow: 'var(--shadow)',
   },
   body: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 25,
+    maxWidth: 800,
+    margin: '0 auto',
   },
   sec: {
-    marginBottom: 20,
+    marginBottom: 30,
     paddingBottom: 20,
     borderBottom: '1px solid var(--border)',
   },
   secTitle: {
     fontFamily: 'Syne, sans-serif',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 700,
-    color: 'var(--text)',
-    marginBottom: 12,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
+    color: 'var(--accent)',
+    marginBottom: 15,
   },
   field: {
     marginBottom: 15,
   },
   label: {
+    display: 'block',
     fontSize: 12,
     color: 'var(--muted)',
-    display: 'block',
     marginBottom: 6,
     letterSpacing: '.5px',
+    textTransform: 'uppercase',
   },
   input: {
     width: '100%',
-    background: 'var(--surface2)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
     padding: '10px 14px',
-    fontSize: 14,
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--surface2)',
     color: 'var(--text)',
+    fontSize: 14,
+    fontFamily: 'DM Mono, monospace',
     outline: 'none',
     transition: 'border-color .2s',
-    fontFamily: 'DM Mono, monospace',
-  },
-  'input:focus': {
-    borderColor: 'var(--accent)',
   },
   row2: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
     gap: 15,
-    marginBottom: 15,
-  },
-  modalGrid3: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr',
-    gap: 10,
-    marginBottom: 15,
   },
   saveBtn: {
+    display: 'block',
     width: '100%',
     padding: '12px 20px',
     borderRadius: 10,
@@ -1891,13 +2264,8 @@ const s = {
     fontSize: 15,
     fontWeight: 700,
     cursor: 'pointer',
+    letterSpacing: .5,
     transition: 'all .2s',
-    letterSpacing: '.5px',
-    marginTop: 10,
-  },
-  'saveBtn:disabled': {
-    opacity: .6,
-    cursor: 'not-allowed',
   },
   toast: {
     position: 'fixed',
@@ -1907,21 +2275,22 @@ const s = {
     color: '#fff',
     padding: '12px 20px',
     borderRadius: 10,
-    boxShadow: '0 4px 15px rgba(0,0,0,.2)',
+    fontSize: 14,
+    fontFamily: 'DM Mono, monospace',
     opacity: 0,
     transform: 'translateY(20px)',
     transition: 'all .3s ease-out',
-    zIndex: 7000,
-    fontFamily: 'DM Mono, monospace',
-    fontSize: 14,
+    zIndex: 1000,
   },
-  fullPageCenter: {
+  loadingContainer: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100vh',
     width: '100%',
+    background: 'var(--bg)',
+    color: 'var(--text)',
   },
   spinner: {
     width: 40,
@@ -1931,37 +2300,47 @@ const s = {
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
   },
-  centro: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 200,
+  // Estilos para o switch toggle
+  switch: {
+    position: 'relative',
+    display: 'inline-block',
+    width: 44,
+    height: 24,
   },
-}
-
-// Keyframes para o spinner (se não estiver no CSS global)
-const globalStyles = `
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:6000;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
-  .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:560px;box-shadow:var(--shadow);display:flex;flex-direction:column;max-height:90vh;position:relative}
-  .modal-header{padding:20px 24px 0;flex-shrink:0}
-  .modal-header h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--accent)}
-  .modal-close{position:absolute;top:16px;right:20px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
-  .modal-close:hover{color:var(--text)}
-  .modal-body{padding:20px 24px;overflow-y:auto;flex:1}
-  .modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
-  .btn-cancel{padding:10px 18px;border-radius:10px;background:rgba(100,116,139,.12);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:13px;cursor:pointer}
-  .btn-primary{padding:10px 22px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#0099bb);border:none;color:#fff;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
-  .btn-primary:hover{box-shadow:0 0 16px rgba(0,212,255,.4);transform:translateY(-1px)}
-`;
-
-// Adiciona os estilos globais se não estiverem já no seu CSS
-if (typeof window !== 'undefined' && !document.getElementById('global-config-styles')) {
-  const styleTag = document.createElement('style');
-  styleTag.id = 'global-config-styles';
-  styleTag.textContent = globalStyles;
-  document.head.appendChild(styleTag);
+  'switch input': {
+    opacity: 0,
+    width: 0,
+    height: 0,
+  },
+  slider: {
+    position: 'absolute',
+    cursor: 'pointer',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'var(--border)',
+    transition: '.4s',
+    borderRadius: 24,
+  },
+  'slider:before': {
+    position: 'absolute',
+    content: '""',
+    height: 16,
+    width: 16,
+    left: 4,
+    bottom: 4,
+    backgroundColor: 'white',
+    transition: '.4s',
+    borderRadius: '50%',
+  },
+  'input:checked + .slider': {
+    backgroundColor: 'var(--accent3)',
+  },
+  'input:focus + .slider': {
+    boxShadow: '0 0 1px var(--accent3)',
+  },
+  'input:checked + .slider:before': {
+    transform: 'translateX(20px)',
+  },
 }
