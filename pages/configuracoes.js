@@ -394,7 +394,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
   </div>
 )}
           </div>
-        ))}
+        
 
         <button onClick={addKpi}
           style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', fontWeight: 600, marginTop: 8 }}>
