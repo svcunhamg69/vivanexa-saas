@@ -1,11 +1,14 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v6
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v5
 // ============================================================
-// v6 ADICIONA:
-// • Seleção múltipla de módulos com botões (sem mensagens intermediárias)
-// • Header clicável (logo/nome da empresa) em todas as páginas
+// v5 ADICIONA ao v4:
+// • Manifesto de assinatura no contrato (token + signatários)
+// • Contagem regressiva configurável (hora + texto)
+// • Salvar clientes com histórico de documentos
+// • Módulos clicáveis (chips) — toggle em cfg.modChips
+// • Limpar mensagens ao iniciar nova consulta
 // ============================================================
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
@@ -13,7 +16,9 @@ import { supabase } from '../lib/supabase'
 // ── Config padrão ─────────────────────────────────────────────
 const DEFAULT_CFG = {
   company:'VIVANEXA', slogan:'Assistente Comercial de Preços',
-  discMode:'screen', discAdPct:50, discMenPct:0, discClosePct:40, unlimitedStrategy:true,
+  discMode:'screen', discAdPct:50, discMenPct:0, discClosePct:40,
+  unlimitedStrategy:true, modChips:true,
+  closingHour:18, closingText:'',
   plans:[
     {id:'basic',   name:'Basic',    maxCnpjs:25,  users:1},
     {id:'pro',     name:'Pro',      maxCnpjs:80,  users:1},
@@ -29,9 +34,11 @@ const DEFAULT_CFG = {
     'EP':           {basic:[0,39],  pro:[0,82],  top:[0,167]},
   },
   vouchers:[],
+  clients:[],
   productNames:{'Gestão Fiscal':'Gestão Fiscal','CND':'CND','XML':'XML','BIA':'BIA','IF':'Inteligência Fiscal','EP':'e-PROCESSOS','Tributos':'Tributos'},
 }
 const IF_NO_CNPJ = ['IF','Tributos','EP']
+const ALL_MODS   = ['Gestão Fiscal','BIA','CND','XML','IF','EP','Tributos']
 
 // ── Utilitários ──────────────────────────────────────────────
 const fmt   = n => 'R$ ' + Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})
@@ -40,9 +47,9 @@ const isCNPJ = s => s.length===14
 const isCPF  = s => s.length===11
 
 function fmtDoc(s){
-  if(!s) return '—'
-  if(s.length===14) return s.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5')
-  if(s.length===11) return s.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4')
+  if(!s)return'—'
+  if(s.length===14)return s.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5')
+  if(s.length===11)return s.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4')
   return s
 }
 function getPlan(n,plans){const s=[...plans].sort((a,b)=>a.maxCnpjs-b.maxCnpjs);for(const p of s)if(n<=p.maxCnpjs)return p.id;return s[s.length-1].id}
@@ -52,7 +59,7 @@ function calcTrib(n){if(!n||n<=0)return 0;if(n<=50)return 169.90;if(n<=100)retur
 function getPrice(mod,planId,cfg){const p=(cfg.prices[mod]||DEFAULT_CFG.prices[mod])||{};if(p[planId])return p[planId];const k=Object.keys(p);if(!k.length)return[0,0];return p[k[k.length-1]]||[0,0]}
 function generateToken(){return Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2)+Date.now().toString(36)}
 
-// ── Cálculos de preço ────────────────────────────────────────
+// ── Cálculos ─────────────────────────────────────────────────
 function calcFull(mods,plan,ifPlan,cnpjs,notas,cfg){
   const res=[];let tAd=0,tMen=0
   for(const mod of mods){
@@ -104,14 +111,12 @@ function parseMods(t,cfg){
   const ifN=(pn('IF',cfg)||'').toLowerCase()
   if(/intelig[eê]ncia\s*fiscal|intelig.*fiscal/i.test(lo)||(ifN&&lo.includes(ifN)))found.push('IF')
   const tn=lo.replace(/intelig[eê]ncia\s*fiscal|intelig[\w\s]*fiscal/gi,'')
-  const gN=(pn('Gestão Fiscal',cfg)||'').toLowerCase()
-  if(/gest[aã]o\s*(e\s*an[aá]lise|fiscal)/i.test(tn)||(/\bfiscal\b/i.test(tn)&&!/intelig/i.test(tn))||(gN&&tn.includes(gN)))found.push('Gestão Fiscal')
+  if(/gest[aã]o\s*(e\s*an[aá]lise|fiscal)/i.test(tn)||/\bfiscal\b/i.test(tn))found.push('Gestão Fiscal')
   if(/\bbia\b/i.test(lo))found.push('BIA')
   if(/\bcnd\b/i.test(lo))found.push('CND')
   if(/\bxml\b/i.test(lo))found.push('XML')
   if(/tributos/i.test(lo))found.push('Tributos')
-  const epN=(pn('EP',cfg)||'').toLowerCase()
-  if(/e[\s-]?process[o]?s?|eprocess/i.test(lo)||(epN&&lo.includes(epN)))found.push('EP')
+  if(/e[\s-]?process[o]?s?|eprocess/i.test(lo))found.push('EP')
   return found
 }
 function parseIFPlan(t,plans){
@@ -124,8 +129,7 @@ async function fetchCNPJ(cnpj){
   try{
     const r=await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);if(!r.ok)return null
     const d=await r.json();const f=(d.ddd_telefone_1||d.ddd_telefone_2||'').replace(/\D/g,'')
-    const end=(d.descricao_tipo_logradouro?d.descricao_tipo_logradouro+' ':'')+
-      (d.logradouro||'')+(d.numero&&d.numero!=='S/N'?' '+d.numero:'')+(d.complemento?' – '+d.complemento:'')
+    const end=(d.descricao_tipo_logradouro?d.descricao_tipo_logradouro+' ':'')+(d.logradouro||'')+(d.numero&&d.numero!=='S/N'?' '+d.numero:'')+(d.complemento?' – '+d.complemento:'')
     return{nome:d.razao_social||'',fantasia:d.nome_fantasia||d.razao_social||'',email:d.email||'',
       telefone:f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'',municipio:d.municipio||'',uf:d.uf||'',
       cep:d.cep?.replace(/\D/g,'')||'',logradouro:end.trim(),bairro:d.bairro||'',cnpj,tipo:'PJ'}
@@ -139,49 +143,35 @@ async function fetchCEP(cep){
   }catch{return null}
 }
 
-// ── Build Proposta HTML (com suporte a template personalizado) ──
+function openPrint(html,title){
+  const win=window.open('','_blank','width=900,height=700')
+  if(!win){alert('Permita popups.');return}
+  win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${title}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+  <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}body{margin:0;background:#fff}
+  .tb{display:flex;gap:10px;padding:14px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
+  .tb button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none}
+  .bp{background:#0f172a;color:#fff}.bc{background:#e2e8f0;color:#475569}
+  @media print{.tb{display:none!important}}</style>
+  </head><body>
+  <div class="tb"><button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="bc" onclick="window.close()">✕ Fechar</button></div>
+  ${html}</body></html>`)
+  win.document.close();win.focus()
+}
+
+// ── Build Proposta ────────────────────────────────────────────
 function buildProposal(S,cfg,user){
   const isC=S.closingToday===true,cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
   const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
   const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
   const results=isC?S.closingData?.results:S.quoteData?.results
-  const dates=getNextDates()
   const rows=(results||[]).map(r=>{
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:r.adD)
-    return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}</td><td style="padding:10px 14px;text-align:center">${adS}</td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}</td>`
+    return`<tr><td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}</td><td style="padding:10px 14px;text-align:center">${adS}</td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}</td></tr>`
   }).join('')
-  const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
+  const f=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
-
-  // Se tiver template personalizado, substituir variáveis
-  let template = cfg.propostaTemplate || ''
-  if (template) {
-    const vars = {
-      '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
-      '{{razao}}': co.razao||cd.nome||'',
-      '{{cnpj}}': fmtDoc(S.doc||''),
-      '{{contato}}': co.contato||'',
-      '{{email}}': co.email||cd.email||'',
-      '{{telefone}}': co.telefone||cd.telefone||'',
-      '{{cidade}}': co.cidade||cd.municipio||'',
-      '{{uf}}': co.uf||cd.uf||'',
-      '{{plano}}': S.plan?getPlanLabel(S.plan,cfg.plans):'—',
-      '{{cnpjs_qty}}': S.cnpjs||'0',
-      '{{total_adesao}}': fmt(tAd),
-      '{{total_mensalidade}}': fmt(tMen),
-      '{{data_hoje}}': today,
-      '{{consultor_nome}}': user?.nome||'',
-      '{{company}}': cfg.company||'Vivanexa',
-      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th></tr></thead><tbody>${rows}</tbody></table>`
-    }
-    for (const [k, v] of Object.entries(vars)) {
-      template = template.replace(new RegExp(k, 'g'), v)
-    }
-    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">${template}</div>`
-  }
-
-  // Template padrão
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px">
     ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">`:`<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">${cfg.company||'Vivanexa'}</div>`}
@@ -196,10 +186,10 @@ function buildProposal(S,cfg,user){
   <div style="padding:32px 44px">
     <div style="margin-bottom:26px">${sec('Dados do Cliente')}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        ${field('Empresa',co.empresa||cd.fantasia||cd.nome||'')}${field('Razão Social',co.razao||cd.nome||'')}
-        ${field('CPF / CNPJ',fmtDoc(S.doc||''))}${field('Contato',co.contato||'')}
-        ${field('E-mail',co.email||cd.email||'')}${field('Telefone',co.telefone||cd.telefone||'')}
-        ${field('Cidade',co.cidade||cd.municipio||'')}${field('Estado',co.uf||cd.uf||'')}
+        ${f('Empresa',co.empresa||cd.fantasia||cd.nome||'')}${f('Razão Social',co.razao||cd.nome||'')}
+        ${f('CPF / CNPJ',fmtDoc(S.doc||''))}${f('Contato',co.contato||'')}
+        ${f('E-mail',co.email||cd.email||'')}${f('Telefone',co.telefone||cd.telefone||'')}
+        ${f('Cidade',co.cidade||cd.municipio||'')}${f('Estado',co.uf||cd.uf||'')}
       </div>
     </div>
     <div style="margin-bottom:26px">${sec('Módulos Contratados')}
@@ -228,7 +218,7 @@ function buildProposal(S,cfg,user){
 </div>`
 }
 
-// ── Build Contrato HTML (com token e template) ───────────────────
+// ── Build Contrato com Manifesto de Assinatura ────────────────
 function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   const cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
@@ -239,44 +229,45 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
     payMethod?.startsWith('boleto')?`Boleto ${payMethod.replace('boleto','').replace('x','×')}×`:payMethod
   const tableRows=(results||[]).map(r=>{
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:(r.adD||0))
-    return`<td style="padding:8px 12px;border:1px solid #e2e8f0">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td>`
+    return`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td></tr>`
   }).join('')
-  const sec=(n,t)=>`<h3 style="font-family:Inter,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
+  const sec=(n,t)=>`<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
   const row=(l,v)=>`<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v||'—'}</span></div>`
   const endStr=[co.logradouro||cd.logradouro,co.bairro||cd.bairro,co.cidade||cd.municipio,co.uf||cd.uf].filter(Boolean).join(', ')
 
-  // Se tiver template personalizado
-  let template = cfg.contratoTemplate || ''
-  if (template) {
-    const vars = {
-      '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
-      '{{razao}}': co.razao||cd.nome||'',
-      '{{cnpj}}': fmtDoc(S.doc||''),
-      '{{contato}}': co.contato||'',
-      '{{email}}': co.email||cd.email||'',
-      '{{telefone}}': co.telefone||cd.telefone||'',
-      '{{endereco}}': endStr,
-      '{{regime}}': co.regime||'',
-      '{{plano}}': S.plan?getPlanLabel(S.plan,cfg.plans):'—',
-      '{{cnpjs_qty}}': S.cnpjs||'0',
-      '{{total_adesao}}': fmt(tAd),
-      '{{total_mensalidade}}': fmt(tMen),
-      '{{condicao_pagamento}}': payLabel,
-      '{{vencimento_adesao}}': dateAd||'—',
-      '{{vencimento_mensal}}': dateMen||'—',
-      '{{data_hoje}}': today,
-      '{{consultor_nome}}': user?.nome||'',
-      '{{company}}': cfg.company||'Vivanexa',
-      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0"><thead><tr style="background:#0f172a;color:#fff"><th>Produto</th><th>Adesão</th><th>Qtd. CNPJs</th><th>Mensalidade</th></tr></thead><tbody>${tableRows}</tbody></table>`
-    }
-    for (const [k, v] of Object.entries(vars)) {
-      template = template.replace(new RegExp(k, 'g'), v)
-    }
-    if (token) template += `<div style="font-size:10px;color:#64748b;margin-top:8px;word-break:break-all">Identificador: ${token}</div>`
-    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">${template}</div>`
-  }
+  // ── Manifesto de assinatura ──
+  const docId=token||generateToken()
+  const manifesto=`
+  <div style="margin-top:40px;border:2px solid #10b981;border-radius:12px;padding:24px;background:#f0fdf4">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <div style="font-size:24px">✅</div>
+      <div>
+        <div style="font-family:Syne,sans-serif;font-size:16px;font-weight:800;color:#065f46">MANIFESTO DE ASSINATURAS ELETRÔNICAS</div>
+        <div style="font-size:11px;color:#10b981;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:2px">DOCUMENTO VÁLIDO</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
+        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DO CONTRATANTE (CLIENTE)</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-client-name">${co.contato||cd.fantasia||cd.nome||'Aguardando'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> <span id="manifest-client-cpf">${co.cpfContato||'—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-client-email">${co.email||cd.email||'—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-client-date">Aguardando assinatura</span></div>
+        <div style="font-size:11px;color:#6b7280;margin-top:6px;padding-top:6px;border-top:1px solid #d1fae5"><strong>Token:</strong> ${docId}</div>
+      </div>
+      <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
+        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DA CONTRATADA (CONSULTOR)</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-consult-name">${user?.nome||'—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-consult-date">Aguardando assinatura</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> ${user?.email||'—'}</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;font-size:11px;color:#6b7280;line-height:1.6">
+      Assinaturas eletrônicas simples conforme <strong>Lei nº 14.063/2020</strong> e MP 2.200-2/2001.<br>
+      Documento: <strong>doc_${docId}</strong> · Verificação: <a href="https://assinatura.iti.gov.br" style="color:#10b981">assinatura.iti.gov.br</a>
+    </div>
+  </div>`
 
-  // Template padrão
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
   <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:28px 44px;display:flex;align-items:center;gap:20px">
     ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain">`:''}
@@ -286,7 +277,7 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   <div style="padding:28px 44px">
     <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px 20px;margin-bottom:20px;border-left:4px solid #00d4ff">
       <p style="font-size:13px;color:#0c4a6e;margin-bottom:6px">Segue abaixo os termos do pedido registrado com nosso time de vendas.</p>
-      <p style="font-size:13px;color:#0c4a6e">Confira os dados abaixo com atenção e caso esteja tudo correto, basta <strong>ASSINAR</strong> esse pedido para darmos seguimento ao seu treinamento e implantação.</p>
+      <p style="font-size:13px;color:#0c4a6e">Confira os dados com atenção e caso esteja tudo correto, basta <strong>ASSINAR</strong> para darmos seguimento ao treinamento e implantação.</p>
     </div>
     ${sec('1','CONTRATADA')}
     <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
@@ -323,30 +314,23 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
     </div>
     <div style="border-top:2px solid #e2e8f0;padding-top:24px;margin-top:24px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px">
-        <div style="text-align:center"><div style="border-top:1px solid #0f172a;padding-top:8px;margin-top:60px"><div style="font-weight:600;font-size:13px">${cfg.company||'Vivanexa'}</div><div style="font-size:11px;color:#64748b">CONTRATADA</div></div></div>
-        <div style="text-align:center"><div style="border-top:1px solid #0f172a;padding-top:8px;margin-top:60px"><div style="font-weight:600;font-size:13px">${co.razao||cd.nome||'Cliente'}</div><div style="font-size:11px;color:#64748b">CONTRATANTE</div></div></div>
+        <div style="text-align:center">
+          <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
+          <div style="font-weight:600;font-size:13px">${cfg.company||'Vivanexa'}</div>
+          <div style="font-size:11px;color:#64748b">CONTRATADA</div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade||cd.municipio||''} · ${today}</div>
+        </div>
+        <div style="text-align:center">
+          <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
+          <div style="font-weight:600;font-size:13px">${co.razao||cd.nome||'Cliente'}</div>
+          <div style="font-size:11px;color:#64748b">CONTRATANTE</div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade||cd.municipio||''} · ${today}</div>
+        </div>
       </div>
-      <div style="text-align:center;margin-top:24px;font-size:11px;color:#94a3b8">${today} · Assinatura Eletrônica conforme Lei nº 14.063/2020</div>
-      ${token ? `<div style="text-align:center;font-size:10px;color:#64748b;margin-top:8px;word-break:break-all">Identificador do documento: ${token}</div>` : ''}
     </div>
+    ${manifesto}
   </div>
 </div>`
-}
-
-function openPrint(html,title){
-  const win=window.open('','_blank','width=900,height=700')
-  if(!win){alert('Permita popups para imprimir.');return}
-  win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${title}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
-  <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}body{margin:0;background:#fff}
-  .tb{display:flex;gap:10px;padding:14px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
-  .tb button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none}
-  .bp{background:#0f172a;color:#fff}.bc{background:#e2e8f0;color:#475569}
-  @media print{.tb{display:none!important}}</style>
-  </head><body>
-  <div class="tb"><button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="bc" onclick="window.close()">✕ Fechar</button></div>
-  ${html}</body></html>`)
-  win.document.close();win.focus()
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -355,21 +339,21 @@ function openPrint(html,title){
 export default function Chat(){
   const router   = useRouter()
   const msgRef   = useRef(null)
-  const inputRef = useRef(null)
-
-  // Core state
   const [userProfile,   setUserProfile]   = useState(null)
   const [cfg,           setCfg]           = useState(DEFAULT_CFG)
+  const cfgRef = useRef(DEFAULT_CFG)
   const [empresaId,     setEmpresaId]     = useState(null)
   const [messages,      setMessages]      = useState([])
   const [input,         setInput]         = useState('')
   const [thinking,      setThinking]      = useState(false)
-  const [chips,         setChips]         = useState([])
   const [timerVal,      setTimerVal]      = useState('')
   const [timerDeadline, setTimerDeadline] = useState(null)
-  const [tempModulesSelecionados, setTempModulesSelecionados] = useState([]) // para seleção múltipla com botões
 
-  // Painel ativo: null | 'documentos' | 'historico' | 'assinaturas'
+  // Módulos chips selecionados
+  const [selectedMods,  setSelectedMods]  = useState([])
+  const [awaitingMods,  setAwaitingMods]  = useState(false)
+
+  // Painéis overlay
   const [painel,      setPainel]      = useState(null)
   const [histDocs,    setHistDocs]    = useState([])
   const [histLoading, setHistLoading] = useState(false)
@@ -390,27 +374,26 @@ export default function Chat(){
   const [wizTAd,   setWizTAd]   = useState(0)
   const [wizTMen,  setWizTMen]  = useState(0)
 
-  // Modal enviar para assinatura
+  // Modal envio assinatura
   const [showSign,       setShowSign]       = useState(false)
   const [signDoc,        setSignDoc]        = useState(null)
   const [signEmailInput, setSignEmailInput] = useState('')
-  const [signSalvo,      setSignSalvo]      = useState(false)
 
-  // Modal assinar agora
-  const [showSignForm,   setShowSignForm]   = useState(false)
-  const [signFormSide,   setSignFormSide]   = useState('client')
-  const [signFormDoc,    setSignFormDoc]    = useState(null)
-  const [sfNome,         setSfNome]         = useState('')
-  const [sfCpf,          setSfCpf]          = useState('')
-  const [sfEmail,        setSfEmail]        = useState('')
-  const [sfAgreed,       setSfAgreed]       = useState(false)
-  const [sfSaving,       setSfSaving]       = useState(false)
-  const [sfErro,         setSfErro]         = useState('')
+  // Modal formulário assinatura
+  const [showSignForm, setShowSignForm] = useState(false)
+  const [signFormSide, setSignFormSide] = useState('client')
+  const [signFormDoc,  setSignFormDoc]  = useState(null)
+  const [sfNome,       setSfNome]       = useState('')
+  const [sfCpf,        setSfCpf]        = useState('')
+  const [sfEmail,      setSfEmail]      = useState('')
+  const [sfAgreed,     setSfAgreed]     = useState(false)
+  const [sfSaving,     setSfSaving]     = useState(false)
+  const [sfErro,       setSfErro]       = useState('')
 
   // Ver documento
-  const [showDocView,  setShowDocView]  = useState(false)
-  const [docViewHtml,  setDocViewHtml]  = useState('')
-  const [docViewTitle, setDocViewTitle] = useState('')
+  const [showDocView,    setShowDocView]    = useState(false)
+  const [docViewHtml,    setDocViewHtml]    = useState('')
+  const [docViewTitle,   setDocViewTitle]   = useState('')
   const [docViewLoading, setDocViewLoading] = useState(false)
 
   const S = useRef({
@@ -426,7 +409,8 @@ export default function Chat(){
       if(!session){router.replace('/');return}
       const{data:profile}=await supabase.from('perfis').select('*').eq('id',session.user.id).single()
       const nome=profile?.nome||session.user.email?.split('@')[0]||'Consultor'
-      setUserProfile({...session.user,nome,perfil:profile})
+      const up={...session.user,nome,perfil:profile}
+      setUserProfile(up)
       const eid=profile?.empresa_id||session.user.id
       setEmpresaId(eid)
       await loadCfg(eid)
@@ -437,9 +421,11 @@ export default function Chat(){
 
   useEffect(()=>{
     if(!userProfile)return
-    setTimeout(()=>addBot(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da ${cfg.company||'Vivanexa'}.\nPara começar, informe o **CPF ou CNPJ** do cliente:`),300)
+    const c=cfgRef.current
+    setTimeout(()=>addBot(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da ${c.company||'Vivanexa'}.\nPara começar, informe o **CPF ou CNPJ** do cliente:`),300)
   },[userProfile])
 
+  // Timer
   useEffect(()=>{
     if(!timerDeadline){setTimerVal('');return}
     const iv=setInterval(()=>{
@@ -458,60 +444,74 @@ export default function Chat(){
       const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).single()
       if(row?.value){
         const saved=JSON.parse(row.value)
-        setCfg({...DEFAULT_CFG,...saved,plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices})
+        const merged={...DEFAULT_CFG,...saved,plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices}
+        cfgRef.current=merged
+        setCfg(merged)
       }
     }catch{}
   }
 
-  // ── Salvar doc no histórico ───────────────────
+  // ── Salvar doc + cliente ──────────────────────
   async function saveToHistory(type,clientName,html,extra={}){
     const id='doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)
-    const token=generateToken()
-    const entry={id,type,clientName,date:new Date().toLocaleString('pt-BR'),dateISO:new Date().toISOString(),status:'draft',signToken:token,signedAt:null,signedBy:null,signCPF:null,signIP:null,consultantSignedAt:null,consultantSignedBy:null,consultor:userProfile?.nome||'',consultorEmail:userProfile?.email||'',empresaId:empresaId||'',...extra}
+    const token=extra.token||generateToken()
+    const entry={id,type,clientName,date:new Date().toLocaleString('pt-BR'),dateISO:new Date().toISOString(),
+      status:'draft',signToken:token,signedAt:null,signedBy:null,signCPF:null,signIP:null,
+      consultantSignedAt:null,consultantSignedBy:null,
+      consultor:userProfile?.nome||'',consultorEmail:userProfile?.email||'',empresaId:empresaId||'',...extra}
     try{await supabase.from('vx_storage').upsert({key:`doc:${token}`,value:JSON.stringify({...entry,html}),updated_at:new Date().toISOString()})}catch(e){console.warn(e)}
+
+    // Salvar cliente com histórico de documentos
+    const c=cfgRef.current
+    const docSnap=S.doc||''
+    if(docSnap){
+      const clients=c.clients||[]
+      const idx=clients.findIndex(cl=>cl.doc===docSnap)
+      const co=S.contactData||{},cd=S.clientData||{}
+      const clientRec={
+        doc:docSnap,nome:co.razao||co.empresa||cd.nome||cd.fantasia||clientName,
+        fantasia:co.empresa||cd.fantasia||'',email:co.email||cd.email||'',
+        telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',
+        ultimoContato:new Date().toISOString(),
+        documentos:[...((idx>=0?clients[idx].documentos:[])||[]),{id,type,date:entry.date,status:'draft',token}]
+      }
+      if(idx>=0)clients[idx]=clientRec; else clients.push(clientRec)
+    }
+
+    // Atualiza cfg
     try{
       const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
-      const cfgData=cfgRow?.value?JSON.parse(cfgRow.value):{...cfg}
+      const cfgData=cfgRow?.value?JSON.parse(cfgRow.value):{...c}
       if(!cfgData.docHistory)cfgData.docHistory=[]
       cfgData.docHistory.unshift(entry)
       if(cfgData.docHistory.length>200)cfgData.docHistory=cfgData.docHistory.slice(0,200)
+      if(!cfgData.clients)cfgData.clients=[]
+      const docSnap2=S.doc||''
+      if(docSnap2){
+        const co=S.contactData||{},cd=S.clientData||{}
+        const idx=cfgData.clients.findIndex(cl=>cl.doc===docSnap2)
+        const clientRec={
+          doc:docSnap2,nome:co.razao||co.empresa||cd.nome||cd.fantasia||clientName,
+          fantasia:co.empresa||cd.fantasia||'',email:co.email||cd.email||'',
+          telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',
+          ultimoContato:new Date().toISOString(),
+          documentos:[...((idx>=0?cfgData.clients[idx].documentos:[])||[]),{id,type,date:entry.date,status:'draft',token}]
+        }
+        if(idx>=0)cfgData.clients[idx]=clientRec; else cfgData.clients.push(clientRec)
+      }
       await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(cfgData),updated_at:new Date().toISOString()})
-      setCfg(cfgData)
+      cfgRef.current=cfgData;setCfg(cfgData)
     }catch(e){console.warn(e)}
     return{id,token,html,type,clientName,...entry}
   }
 
-  // Função para salvar cliente automaticamente
-  async function salvarClienteAutomatico(clientName, doc, email, telefone, cidade) {
-    const clientes = cfg.clients || [];
-    const existe = clientes.some(c => c.cnpj === doc || c.cpf === doc || c.email === email);
-    if (!existe) {
-      const novoCliente = {
-        id: Date.now().toString(),
-        nome: clientName,
-        cnpj: isCNPJ(doc) ? doc : '',
-        cpf: isCPF(doc) ? doc : '',
-        email: email,
-        telefone: telefone,
-        cidade: cidade,
-        dataCadastro: new Date().toISOString()
-      };
-      const novosClientes = [...clientes, novoCliente];
-      const novoCfg = { ...cfg, clients: novosClientes };
-      await salvarStorage(empresaId, novoCfg);
-      setCfg(novoCfg);
-    }
-  }
-
-  const addBot  =(c,h=false)=>setMessages(p=>[...p,{role:'bot', content:c,isHTML:h, id:Date.now()+Math.random()}])
+  const addBot  =(c,h=false)=>setMessages(p=>[...p,{role:'bot',content:c,isHTML:h,id:Date.now()+Math.random()}])
   const addUser =c           =>setMessages(p=>[...p,{role:'user',content:c,isHTML:false,id:Date.now()+Math.random()}])
 
   const resetS=()=>{
     Object.assign(S,{stage:'await_doc',doc:null,clientData:null,contactData:{},users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,quoteData:null,closingData:null,closingToday:false,appliedVoucher:null,awaitingVoucher:false})
-    setTimerDeadline(null);setTimerVal('')
-    setTempModulesSelecionados([])
-    setMessages([]) // Limpa mensagens ao resetar
-    addBot('🔄 Consulta encerrada!\n\nPronto, ' + (userProfile?.nome || '') + '! Informe o CPF ou CNPJ do próximo cliente:')
+    setTimerDeadline(null);setTimerVal('');setSelectedMods([]);setAwaitingMods(false)
+    setMessages([]) // LIMPAR TELA
   }
 
   async function buscarCep(cep){
@@ -519,16 +519,14 @@ export default function Chat(){
     if(d)setCf(f=>({...f,logradouro:d.logradouro||f.logradouro,bairro:d.bairro||f.bairro,cidade:d.municipio||f.cidade,uf:d.uf||f.uf}))
   }
 
-  // ── Carregar histórico enriquecido ────────────
+  // ── Histórico ─────────────────────────────────
   async function carregarHistorico(){
     setHistLoading(true)
     try{
-      const hist=cfg.docHistory||[]
+      const hist=(cfgRef.current.docHistory||[])
       const enriched=await Promise.all(hist.slice(0,50).map(async h=>{
-        try{
-          const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${h.signToken}`).single()
-          if(r?.value){const d=JSON.parse(r.value);return{...h,...d,html:d.html}}
-        }catch{}
+        try{const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${h.signToken}`).single()
+          if(r?.value){const d=JSON.parse(r.value);return{...h,...d,html:d.html}}}catch{}
         return h
       }))
       setHistDocs(enriched)
@@ -538,256 +536,206 @@ export default function Chat(){
 
   async function verDocumento(h){
     setDocViewTitle((h.type==='contrato'?'📝 Contrato':'📄 Proposta')+' — '+h.clientName)
-    setDocViewHtml('')
-    setShowDocView(true)
-    setDocViewLoading(true)
+    setDocViewHtml('');setShowDocView(true);setDocViewLoading(true)
     try{
       const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${h.signToken}`).single()
-      if(r?.value){const d=JSON.parse(r.value);setDocViewHtml(d.html||'<p>Documento sem conteúdo HTML.</p>')}
-      else setDocViewHtml('<p style="color:#64748b">Documento não encontrado no servidor.</p>')
-    }catch{setDocViewHtml('<p style="color:#ef4444">Erro ao carregar documento.</p>')}
+      if(r?.value){const d=JSON.parse(r.value);setDocViewHtml(d.html||'<p>Sem conteúdo HTML.</p>')}
+      else setDocViewHtml('<p style="color:#64748b">Documento não encontrado.</p>')
+    }catch{setDocViewHtml('<p style="color:#ef4444">Erro ao carregar.</p>')}
     setDocViewLoading(false)
   }
 
-  // ── URL de assinatura ─────────────────────────
   function buildSignUrl(doc){
-    const base=typeof window!=='undefined'?(cfg.signConfig?.url||window.location.origin):'https://vivanexa-saas.vercel.app'
+    const base=typeof window!=='undefined'?(cfgRef.current.signConfig?.url||window.location.origin):'https://vivanexa-saas.vercel.app'
     return`${base}/sign/${doc.signToken}`
   }
 
-  // ── Envio WhatsApp / Email ────────────────────
-  function enviarWhatsApp(doc,emailOverride){
-    const url=buildSignUrl(doc)
-    const tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
-    const msg=encodeURIComponent(`Olá! Segue o link para assinatura eletrônica do ${tipo} – ${cfg.company||'Vivanexa'}:\n\n${url}\n\nQualquer dúvida, entre em contato.`)
-    const wpp=(cfg.signConfig?.wpp||'').replace(/\D/g,'')
+  function enviarWhatsApp(doc){
+    const url=buildSignUrl(doc),tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
+    const msg=encodeURIComponent(`Olá! Segue o link para assinatura eletrônica do ${tipo} – ${cfgRef.current.company||'Vivanexa'}:\n\n${url}`)
+    const wpp=(cfgRef.current.signConfig?.wpp||'').replace(/\D/g,'')
     window.open(wpp?`https://wa.me/${wpp}?text=${msg}`:`https://wa.me/?text=${msg}`,'_blank')
     marcarEnviado(doc)
   }
-  function enviarEmail(doc,emailOverride){
-    const url=buildSignUrl(doc)
-    const tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
-    const subj=encodeURIComponent(`${tipo} – ${cfg.company||'Vivanexa'} – Aguardando sua assinatura`)
-    const body=encodeURIComponent(`Olá!\n\nSegue o link para assinatura eletrônica:\n\n${url}\n\n${cfg.company||'Vivanexa'}`)
-    const email=emailOverride||signEmailInput||doc.clientEmail||''
-    window.open(`mailto:${email}?subject=${subj}&body=${body}`,'_blank')
+  function enviarEmail(doc){
+    const url=buildSignUrl(doc),tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
+    const subj=encodeURIComponent(`${tipo} – ${cfgRef.current.company||'Vivanexa'} – Aguardando sua assinatura`)
+    const body=encodeURIComponent(`Olá!\n\nLink para assinatura:\n\n${url}\n\n${cfgRef.current.company||'Vivanexa'}`)
+    window.open(`mailto:${signEmailInput||doc.clientEmail||''}?subject=${subj}&body=${body}`,'_blank')
     marcarEnviado(doc)
   }
   async function marcarEnviado(doc){
-    try{
-      const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${doc.signToken}`).single()
-      if(r?.value){const d=JSON.parse(r.value);if(d.status==='draft')d.status='sent';await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify(d),updated_at:new Date().toISOString()})}
-    }catch{}
+    try{const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${doc.signToken}`).single()
+      if(r?.value){const d=JSON.parse(r.value);if(d.status==='draft')d.status='sent';await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify(d),updated_at:new Date().toISOString()})}}catch{}
   }
 
-  // ── Assinatura (qualquer lado) ────────────────
-  function abrirSignForm(doc, side){
-    setSignFormDoc(doc)
-    setSignFormSide(side)
-    if(side==='consultant'){
-      setSfNome(userProfile?.nome||'')
-      setSfCpf('')
-      setSfEmail(userProfile?.email||'')
-    }else{
-      setSfNome(doc.clientName||'')
-      setSfCpf('')
-      setSfEmail(doc.clientEmail||'')
-    }
-    setSfAgreed(false);setSfErro('')
-    setShowSignForm(true)
+  function abrirSignForm(doc,side){
+    setSignFormDoc(doc);setSignFormSide(side)
+    if(side==='consultant'){setSfNome(userProfile?.nome||'');setSfCpf('');setSfEmail(userProfile?.email||'')}
+    else{setSfNome(doc.clientName||'');setSfCpf('');setSfEmail(doc.clientEmail||'')}
+    setSfAgreed(false);setSfErro('');setShowSignForm(true)
   }
 
   async function confirmarSignForm(){
     if(!sfNome.trim()){setSfErro('Informe o nome.');return}
     if(!sfCpf.trim()){setSfErro('Informe o CPF.');return}
     if(!sfEmail.trim()){setSfErro('Informe o e-mail.');return}
-    if(!sfAgreed){setSfErro('Aceite os termos para assinar.');return}
+    if(!sfAgreed){setSfErro('Aceite os termos.');return}
     setSfSaving(true);setSfErro('')
     try{
       const now=new Date(),nowStr=now.toLocaleString('pt-BR')
       const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${signFormDoc.signToken}`).single()
       const docData=r?.value?JSON.parse(r.value):{...signFormDoc}
-
       if(signFormSide==='consultant'){
-        docData.consultantSignedAt=nowStr
-        docData.consultantSignedBy=sfNome.trim()
-        docData.consultantCPF=sfCpf.trim()
-        docData.consultantEmail=sfEmail.trim()
+        docData.consultantSignedAt=nowStr;docData.consultantSignedBy=sfNome.trim()
+        docData.consultantCPF=sfCpf.trim();docData.consultantEmail=sfEmail.trim()
       }else{
-        docData.signedAt=nowStr
-        docData.signedBy=sfNome.trim()
-        docData.signCPF=sfCpf.trim()
-        docData.signEmail=sfEmail.trim()
-        docData.signIP='(web)'
-        docData.clientEmail=sfEmail.trim()
+        docData.signedAt=nowStr;docData.signedBy=sfNome.trim()
+        docData.signCPF=sfCpf.trim();docData.signEmail=sfEmail.trim()
+        docData.signIP='(web)';docData.clientEmail=sfEmail.trim()
       }
-
       const bothSigned=!!(docData.signedAt&&docData.consultantSignedAt)
       docData.status=bothSigned?'signed':docData.signedAt?'pending':'sent'
-
       await supabase.from('vx_storage').upsert({key:`doc:${signFormDoc.signToken}`,value:JSON.stringify(docData),updated_at:now.toISOString()})
 
-      // Atualiza cfg.docHistory
       const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
       if(cfgRow?.value){
         const c=JSON.parse(cfgRow.value)
-        if(c.docHistory){
-          c.docHistory=c.docHistory.map(h=>h.signToken===signFormDoc.signToken?{...h,...docData,html:undefined}:h)
-          await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(c),updated_at:now.toISOString()})
-          setCfg(c)
-        }
+        if(c.docHistory){c.docHistory=c.docHistory.map(h=>h.signToken===signFormDoc.signToken?{...h,...docData,html:undefined}:h)}
+        await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(c),updated_at:now.toISOString()})
+        cfgRef.current=c;setCfg(c)
       }
-
       setShowSignForm(false)
       if(painel==='assinaturas'||painel==='historico')await carregarHistorico()
-
       if(bothSigned){
-        // Enviar email de cópia para ambas as partes
         const tipo=docData.type==='proposta'?'Proposta Comercial':'Contrato'
         const url=buildSignUrl(docData)
         const clientE=docData.clientEmail||docData.signEmail||''
         const consultorE=docData.consultorEmail||docData.consultantEmail||userProfile?.email||''
-        const destinatarios=[clientE,consultorE].filter(Boolean).join(',')
-        if(destinatarios){
-          const subj=encodeURIComponent(`✅ ${tipo} – ${cfg.company||'Vivanexa'} – Assinado por ambas as partes`)
-          const body=encodeURIComponent(`Olá!\n\n${tipo} foi assinado por ambas as partes.\n\nCliente: ${docData.signedBy} (${nowStr})\nConsultor: ${docData.consultantSignedBy} (${docData.consultantSignedAt})\n\nAcesse o documento: ${url}\n\n${cfg.company||'Vivanexa'}`)
-          if(confirm(`✅ Contrato totalmente assinado!\n\nDeseja enviar uma cópia para:\nCliente: ${clientE}\nConsultor: ${consultorE}\n\nClique OK para abrir o e-mail.`)){
-            window.open(`mailto:${destinatarios}?subject=${subj}&body=${body}`,'_blank')
-          }
+        const dest=[clientE,consultorE].filter(Boolean).join(',')
+        if(dest&&confirm(`✅ Contrato totalmente assinado!\n\nDeseja enviar uma cópia para:\nCliente: ${clientE}\nConsultor: ${consultorE}\n\nClique OK para abrir o e-mail.`)){
+          const subj=encodeURIComponent(`✅ ${tipo} – ${cfgRef.current.company||'Vivanexa'} – Assinado`)
+          const body=encodeURIComponent(`${tipo} assinado por ambas as partes.\n\nCliente: ${docData.signedBy} (${docData.signedAt})\nConsultor: ${docData.consultantSignedBy} (${docData.consultantSignedAt})\n\nAcesse: ${url}`)
+          window.open(`mailto:${dest}?subject=${subj}&body=${body}`,'_blank')
         }
       }else{
-        addBot(signFormSide==='consultant'?`✅ Assinatura do consultor registrada! Aguardando assinatura do cliente.`:`✅ Assinatura do cliente registrada! Aguardando assinatura do consultor.`)
+        addBot(signFormSide==='consultant'?`✅ Assinatura do consultor registrada!`:`✅ Assinatura do cliente registrada!`)
       }
-    }catch(e){console.error(e);setSfErro('Erro ao salvar assinatura. Tente novamente.')}
+    }catch(e){console.error(e);setSfErro('Erro ao salvar. Tente novamente.')}
     finally{setSfSaving(false)}
   }
 
-  // ── Lógica do chat ────────────────────────────
+  // ── Lógica chat ───────────────────────────────
   async function processInput(t){
+    const c=cfgRef.current
     const lo=t.toLowerCase()
     if(S.stage==='closed')return null
     if(['valeu','obrigado','obrigada','tchau'].some(w=>lo.includes(w))&&S.stage!=='await_doc'){S.stage='closed';return{h:false,c:'Perfeito! Boas vendas! 🚀'}}
 
-    // Modo voucher
     if(S.awaitingVoucher){
-      if(lo.includes('sem voucher')||lo.includes('pular')){S.awaitingVoucher=false;S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.stage='full_quoted';return{h:true,c:rFull(S.quoteData)}}
+      if(lo.includes('sem voucher')||lo.includes('pular')){S.awaitingVoucher=false;S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.stage='full_quoted';return{h:true,c:rFull(S.quoteData)}}
       const code=t.trim().toUpperCase()
-      const voucher=(cfg.vouchers||[]).find(v=>v.codigo===code&&v.ativo!==false)
-      if(!voucher)return{h:false,c:`❌ Voucher **${code}** não encontrado.\n\nTente outro código ou "sem voucher":` }
+      const voucher=(c.vouchers||[]).find(v=>v.codigo===code&&v.ativo!==false)
+      if(!voucher)return{h:false,c:`❌ Voucher **${code}** não encontrado.\n\n"sem voucher" para ver preço cheio:`}
       S.appliedVoucher=voucher;S.awaitingVoucher=false;S.stage='discounted'
-      const discData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg,{discAdPct:voucher.pctAdesao,discMenPct:voucher.pctMensalidade})
+      const discData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c,{discAdPct:voucher.pctAdesao,discMenPct:voucher.pctMensalidade})
       S.quoteData=discData
       const cn=S.clientData?.fantasia||S.clientData?.nome||fmtDoc(S.doc||'')
       addUser(t);addBot(`✅ Voucher **${voucher.codigo}** aplicado!`)
       setTimeout(()=>addBot(rDisc(discData,getNextDates(),cn),true),300);return null
     }
 
-    // CPF/CNPJ
     if(S.stage==='await_doc'){
       const doc=clean(t);if(!isCNPJ(doc)&&!isCPF(doc))return{h:false,c:'Por favor, informe o CPF ou CNPJ (somente números).'}
       S.doc=doc
+      // Verificar se cliente já existe
+      const existing=(c.clients||[]).find(cl=>cl.doc===doc)
       if(isCNPJ(doc)){setThinking(true);const cd=await fetchCNPJ(doc);setThinking(false)
-        if(cd){S.clientData=cd;S.stage='await_users';return{h:true,c:rClientCard(cd)+`<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ Empresa encontrada!<br><br>Quantos <strong style="color:var(--text)">usuários</strong> o cliente possui?</div>`}}
+        if(cd){S.clientData=cd;S.stage='await_users'
+          const hist=existing?.documentos?.length?`\n\n📋 **${existing.documentos.length} documento(s)** gerado(s) anteriormente para este cliente.`:'';
+          return{h:true,c:rClientCard(cd)+`<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ Empresa encontrada!${hist}<br><br>Quantos <strong style="color:var(--text)">usuários</strong> o cliente possui?</div>`}}
       }
       S.clientData={nome:isCPF(doc)?'Cliente PF':'Empresa',fantasia:'',cnpj:doc,tipo:isCPF(doc)?'PF':'PJ'}
-      S.stage='await_users';return{h:false,c:(isCNPJ(doc)?`⚠️ CNPJ ${fmtDoc(doc)} não localizado.\n`:'')+`Quantos usuários o cliente possui?`}
+      const hist=existing?.documentos?.length?`\n\n📋 **${existing.documentos.length} documento(s)** anteriores para este cliente.`:''
+      S.stage='await_users'
+      return{h:false,c:(isCNPJ(doc)?`⚠️ CNPJ ${fmtDoc(doc)} não localizado.\n`:'')+`Quantos usuários o cliente possui?${hist}`}
     }
-
-    // Usuários
-    if(S.stage==='await_users'){
-      const u=parseInt(t.match(/\d+/)?.[0]);if(!u||u<1)return{h:false,c:'Quantos usuários? (número)'}
-      S.users=u
-      S.stage='await_modules'
-      setTempModulesSelecionados([])
-      if (cfg.enableProductButtons) {
-        return { h: false, c: `👥 ${u} usuário${u>1?'s':''}!\n\nSelecione os módulos desejados clicando nos botões abaixo. Quando terminar, clique em "Confirmar seleção".` }
-      } else {
-        return { h: false, c: `👥 ${u} usuário${u>1?'s':''}!\n\nQuais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)` }
-      }
-    }
-
-    // Modo texto (sem botões)
-    if (S.stage === 'await_modules' && !cfg.enableProductButtons) {
-      const mods = parseMods(t, cfg);
-      if (mods.length) {
-        S.modules = mods;
-        return checkCalc();
-      } else {
-        return { h: false, c: 'Módulo não reconhecido. Use: Gestão Fiscal, BIA, CND, XML, IF, EP, Tributos (separados por vírgula).' }
-      }
-    }
-
-    // Plano IF
-    if(S.stage==='await_if_plan'){const p=parseIFPlan(t,cfg.plans);if(!p)return{h:false,c:`Informe o plano IF:\n(${cfg.plans.map(x=>x.name).join(', ')})`};S.ifPlan=p;S.stage='await_modules';return checkCalc()}
-
-    // Notas
+    if(S.stage==='await_users'){const u=parseInt(t.match(/\d+/)?.[0]);if(!u||u<1)return{h:false,c:'Quantos usuários? (número)'};S.users=u;S.stage='await_modules'
+      if(c.modChips!==false){setAwaitingMods(true);return{h:false,c:`👥 ${u} usuário${u>1?'s':''}!\n\nSelecione os **módulos** desejados e clique em Confirmar:`}}
+      return{h:false,c:`👥 ${u} usuário${u>1?'s':''}!\n\nQuais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)`}}
+    if(S.stage==='await_if_plan'){const p=parseIFPlan(t,c.plans);if(!p)return{h:false,c:`Informe o plano IF:\n(${c.plans.map(x=>x.name).join(', ')})`};S.ifPlan=p;S.stage='await_modules';return checkCalc()}
     if(S.stage==='await_notas'){const n=parseInt(t);if(!n||n<1)return{h:false,c:'Quantas notas fiscais por mês?'};S.notas=n;S.stage='await_modules';return checkCalc()}
 
+    const mods=parseMods(t,c);for(const m of mods)if(!S.modules.includes(m))S.modules.push(m)
+    const nCNPJ=S.modules.some(m=>!IF_NO_CNPJ.includes(m))
+    if(nCNPJ){const n=parseInt(t.match(/\b(\d+)\s*(cnpj[s]?)?\b/i)?.[1]);if(n&&!S.cnpjs)S.cnpjs=n}
     return checkCalc()
   }
 
   function checkCalc(){
-    // Verifica se há módulos
-    if(S.modules.length===0) {
-      if (cfg.enableProductButtons) {
-        S.stage='await_modules';
-        return { h: false, c: `Nenhum módulo selecionado. Selecione pelo menos um módulo nos botões e clique em "Confirmar seleção".` }
-      } else {
-        return { h: false, c: `Quais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)` }
-      }
-    }
-
+    const c=cfgRef.current
+    if(S.modules.length===0)return{h:false,c:`Quais módulos? (Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)`}
     if(S.modules.includes('EP')&&!S.modules.includes('Gestão Fiscal')){S.modules=S.modules.filter(m=>m!=='EP');return{h:false,c:`⚠️ EP exige Gestão Fiscal.`}}
-    if(S.modules.includes('IF')&&!S.ifPlan){S.stage='await_if_plan';return{h:false,c:`Qual o plano de IF?\n(${cfg.plans.map(p=>p.name).join(', ')})`}}
+    if(S.modules.includes('IF')&&!S.ifPlan){S.stage='await_if_plan';return{h:false,c:`Qual o plano de IF?\n(${c.plans.map(p=>p.name).join(', ')})`}}
     if(S.modules.includes('Tributos')&&!S.notas){S.stage='await_notas';return{h:false,c:'Quantas notas fiscais por mês?'}}
     const nCNPJ=S.modules.some(m=>!IF_NO_CNPJ.includes(m))
     if(nCNPJ&&!S.cnpjs)return{h:false,c:'Quantos CNPJs o cliente possui?'}
-    S.plan=nCNPJ?getPlan(S.cnpjs,cfg.plans):'basic'
-    if(cfg.discMode==='voucher'&&!S.appliedVoucher&&!S.awaitingVoucher){S.awaitingVoucher=true;return{h:false,c:`🎫 Modo desconto por Voucher.\n\nDigite o **código do voucher**:\n(ou "sem voucher" para ver preço cheio)`}}
-    S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.stage='full_quoted'
+    S.plan=nCNPJ?getPlan(S.cnpjs,c.plans):'basic'
+    if(c.discMode==='voucher'&&!S.appliedVoucher&&!S.awaitingVoucher){S.awaitingVoucher=true;return{h:false,c:`🎫 Modo voucher ativo.\n\nDigite o **código do voucher**:\n(ou "sem voucher" para ver preço cheio)`}}
+    S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.stage='full_quoted'
     return{h:true,c:rFull(S.quoteData)}
+  }
+
+  // ── Confirmar módulos via chips ───────────────
+  function confirmarMods(){
+    if(selectedMods.length===0){addBot('Selecione pelo menos um módulo.');return}
+    setAwaitingMods(false)
+    S.modules=[...selectedMods]
+    setSelectedMods([])
+    addUser(selectedMods.join(' + '))
+    const res=checkCalc()
+    if(res){
+      if(res.h)addBot(res.c,true); else addBot(res.c)
+    }
   }
 
   async function send(text){
     const txt=(text||input).trim();if(!txt)return
-    setInput('');addUser(txt);
+    if(awaitingMods){
+      // Input de texto na área de módulos (ex: cnpjs)
+      setInput('')
+      addUser(txt)
+      setThinking(true)
+      const resp=await processInput(txt)
+      setThinking(false)
+      if(resp)addBot(resp.c,resp.h)
+      return
+    }
+    setInput('');addUser(txt)
     setThinking(true);const resp=await processInput(txt);setThinking(false)
     if(resp)addBot(resp.c,resp.h)
-  }
-
-  // Função para finalizar seleção de módulos (modo botões)
-  function finalizarSelecaoModulos() {
-    if (tempModulesSelecionados.length === 0) {
-      addBot('⚠️ Nenhum módulo selecionado. Selecione pelo menos um módulo antes de confirmar.');
-      return;
-    }
-    S.modules = [...tempModulesSelecionados];
-    setTempModulesSelecionados([]);
-    // Avança
-    const next = checkCalc();
-    if (next && next.c) addBot(next.c, next.h);
-  }
-
-  function toggleModuloTemp(modulo) {
-    setTempModulesSelecionados(prev =>
-      prev.includes(modulo) ? prev.filter(m => m !== modulo) : [...prev, modulo]
-    );
   }
 
   useEffect(()=>{
     const dates=getNextDates()
     window.vx_disc=(yes)=>{
+      const c=cfgRef.current
       const cn=S.clientData?.fantasia||S.clientData?.nome||fmtDoc(S.doc||'')
-      if(yes){S.stage='discounted';S.quoteData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg,null);addUser('✅ Sim!');addBot(rDisc(S.quoteData,dates,cn),true)}
+      if(yes){S.stage='discounted';S.quoteData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c,null);addUser('✅ Sim!');addBot(rDisc(S.quoteData,dates,cn),true)}
       else{S.stage='closed';addUser('Não, obrigado');addBot('Sem problemas!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
-      setChips([])
     }
     window.vx_close=(yes)=>{
-      if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,cfg);S.closingData=d;S.closingToday=true;S.stage='closing';addUser('✅ Fechar hoje!');const dl=new Date();const hora=cfg.closeHour||18;dl.setHours(hora,0,0,0);setTimerDeadline(dl);addBot(rClose(d),true)}
+      const c=cfgRef.current
+      if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.closingData=d;S.closingToday=true;S.stage='closing'
+        const h=c.closingHour||18;const dl=new Date();dl.setHours(h,0,0,0);setTimerDeadline(dl)
+        addUser('✅ Fechar hoje!');addBot(rClose(d),true)}
       else{S.stage='discounted';addUser('Não por agora');addBot('Entendido!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
-      setChips([])
     }
-    window.vx_reset=()=>{resetS();}
+    window.vx_reset=()=>{
+      resetS()
+      const c=cfgRef.current
+      setTimeout(()=>addBot(`🔄 Nova consulta!\n\nInforme o CPF ou CNPJ do próximo cliente:`),100)
+    }
     window.vx_prop=()=>{
       const cd=S.clientData||{},co=S.contactData||{}
       setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
@@ -801,15 +749,13 @@ export default function Chat(){
   },[cfg])
 
   async function saveClient(){
-    S.contactData={...cf}
-    setShowClient(false)
+    S.contactData={...cf};setShowClient(false)
     const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
     if(clientMode==='proposta'){
-      const html=buildProposal(S,cfg,userProfile)
+      const html=buildProposal(S,cfgRef.current,userProfile)
       openPrint(html,'Proposta Comercial')
       const doc=await saveToHistory('proposta',clientName,html,{tAd:S.quoteData?.tAdD||0,tMen:S.quoteData?.tMenD||0,clientEmail:cf.email,modulos:S.modules})
-      await salvarClienteAutomatico(clientName, S.doc, cf.email, cf.telefone, cf.cidade)
-      setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
+      setSignDoc(doc);setSignEmailInput(cf.email||'')
       setTimeout(()=>setShowSign(true),600)
     }else{
       const isC=S.closingToday===true
@@ -825,13 +771,12 @@ export default function Chat(){
       if(wizTAd>0&&!wizAd){alert('Selecione a data de vencimento da adesão.');return}
       if(!wizMen){alert('Selecione a data da 1ª mensalidade.');return}
       setShowWiz(false)
-      const tokenTemp = generateToken()
-      const html=buildContract(S,cfg,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,tokenTemp)
+      const token=generateToken()
+      const html=buildContract(S,cfgRef.current,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token)
       openPrint(html,'Contrato')
       const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
-      saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen, signToken:tokenTemp}).then(doc=>{
-        salvarClienteAutomatico(clientName, S.doc, cf.email, cf.telefone, cf.cidade)
-        setSignDoc(doc);setSignEmailInput(cf.email||'');setSignSalvo(true)
+      saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
+        setSignDoc(doc);setSignEmailInput(cf.email||'')
         setTimeout(()=>setShowSign(true),600)
       })
     }
@@ -853,26 +798,33 @@ export default function Chat(){
     </div>`
   }
   function rFull(data){
-    const{results,tAd,tMen}=data;const dates=getNextDates();let h=''
+    const{results,tAd,tMen}=data;let h=''
     for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}${r.isPrepaid?' <small style="font-size:11px;color:var(--warning)">(pré-pago)</small>':''}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div></div>`}
     h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão total</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val">${fmt(tMen)}</span></div></div>`
     h+=`<div class="teaser-card"><div class="teaser-title">🎫 Licenças com desconto disponíveis!</div><div class="teaser-body">Deseja ver os valores com desconto?</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_disc(true)">✅ Sim!</button><button class="yn-btn no" onclick="window.vx_disc(false)">Não, obrigado</button></div></div>`
-    h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
+    h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${getNextDates().map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     return h
   }
   function rDisc(data,dates,cn){
+    const c=cfgRef.current
     const{results,tAd,tMen,tAdD,tMenD}=data;let h=''
-    for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div><hr class="section-divider">${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão c/ desconto</span><span class="val discount">${fmt(r.adD)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade c/ desconto</span><span class="val discount">${fmt(r.menD)}</span></div></div>`}
-    h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(tMen)}</span></div><hr class="section-divider"><div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(tAdD)}</span></div><div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(tMenD)}</span></div>${cfg.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
-    const closeMsg = cfg.closeMessage || `Oferta válida até as ${cfg.closeHour || 18}h de hoje`;
-    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${cfg.discClosePct||40}% OFF</strong> na adesão!<br>${closeMsg}</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
+    for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div><hr class="section-divider">${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(r.adD)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(r.menD)}</span></div></div>`}
+    h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(tMen)}</span></div><hr class="section-divider"><div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(tAdD)}</span></div><div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(tMenD)}</span></div>${c.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
+    const h2=c.closingHour||18
+    const textoExtra=c.closingText?`<div style="font-size:13px;color:var(--muted);margin-top:6px;font-style:italic">${c.closingText}</div>`:''
+    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${c.discClosePct||40}% OFF</strong> na adesão!<br>Oferta válida até as <strong style="color:var(--gold)">${h2}h de hoje</strong>.</div>${textoExtra}<div class="yn-row" style="margin-top:12px"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     return h
   }
   function rClose(data){
-    const{results,tAd,tMen}=data;const dates=getNextDates();let h=''
+    const c=cfgRef.current
+    const{results,tAd,tMen}=data;let h=''
+    // Timer com texto configurável
+    const h2=c.closingHour||18
+    const textoTimer=c.closingText||`Oferta válida até as ${h2}h de hoje`
+    h+=`<div class="timer-block"><div class="timer-label">⏱ ${textoTimer}</div><div id="vx-timer" class="timer-live">--:--:--</div><div class="timer-sub">Após este horário retornam os valores com desconto padrão</div></div>`
     for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão (fechamento)</span><span class="val closing">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val closing">${fmt(r.men)}</span></div></div>`}
-    h+=`<div class="price-card" style="border-color:rgba(251,191,36,.3)"><h4 style="color:var(--gold)">🔸 Total – Fechamento</h4><div class="price-row"><span class="label">Adesão total</span><span class="val closing">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val closing">${fmt(tMen)}</span></div>${cfg.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
+    h+=`<div class="price-card" style="border-color:rgba(251,191,36,.3)"><h4 style="color:var(--gold)">🔸 Total – Fechamento</h4><div class="price-row"><span class="label">Adesão total</span><span class="val closing">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val closing">${fmt(tMen)}</span></div>${c.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
     h+=`<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
       <button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button>
       <button class="prop-btn" style="background:linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08));border-color:rgba(251,191,36,.4);color:var(--gold)" onclick="window.vx_cont()">📝 Gerar Contrato</button>
@@ -881,230 +833,102 @@ export default function Chat(){
     return h
   }
 
-  // ── StatusBadge helper ────────────────────────
   function statusBadge(h){
-    if(h.status==='signed')   return{txt:'✅ Assinado',        cor:'var(--accent3)', bg:'rgba(16,185,129,.12)',  border:'rgba(16,185,129,.25)'}
-    if(h.status==='pending')  return{txt:'⏳ Aguardando',      cor:'var(--warning)',  bg:'rgba(251,191,36,.1)',   border:'rgba(251,191,36,.25)'}
-    if(h.status==='sent')     return{txt:'📤 Enviado',          cor:'var(--accent)',   bg:'rgba(0,212,255,.1)',    border:'rgba(0,212,255,.25)'}
-    return                          {txt:'📝 Rascunho',         cor:'var(--muted)',    bg:'rgba(100,116,139,.1)', border:'rgba(100,116,139,.2)'}
+    if(h.status==='signed')  return{txt:'✅ Assinado',       cor:'var(--accent3)',bg:'rgba(16,185,129,.12)', border:'rgba(16,185,129,.25)'}
+    if(h.status==='pending') return{txt:'⏳ Aguardando',     cor:'var(--warning)', bg:'rgba(251,191,36,.1)',  border:'rgba(251,191,36,.25)'}
+    if(h.status==='sent')    return{txt:'📤 Enviado',         cor:'var(--accent)',  bg:'rgba(0,212,255,.1)',   border:'rgba(0,212,255,.25)'}
+    return                         {txt:'📝 Rascunho',        cor:'var(--muted)',   bg:'rgba(100,116,139,.1)',border:'rgba(100,116,139,.2)'}
   }
 
-  if(!userProfile)return<div style={{background:'#0a0f1e',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'#64748b',fontFamily:'DM Mono, monospace'}}>Carregando...</div>
+  function abrirPainel(p){setPainel(p);if(p==='historico'||p==='assinaturas')carregarHistorico()}
 
-  // ── PAINEL OVERLAY (Histórico / Assinaturas / Documentos) ──
+  if(!userProfile)return<div style={{background:'#0a0f1e',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'#64748b',fontFamily:'DM Mono,monospace'}}>Carregando...</div>
+
+  // ── Painel overlay ────────────────────────────
   const renderPainel=()=>{
     if(!painel)return null
     return(
       <div style={{position:'fixed',inset:0,background:'var(--bg)',zIndex:200,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-        {/* Header do painel */}
         <div style={{background:'rgba(10,15,30,.9)',backdropFilter:'blur(12px)',borderBottom:'1px solid var(--border)',padding:'12px 20px',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
-          <button onClick={()=>setPainel(null)} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:20,padding:'4px 8px',borderRadius:8,lineHeight:1}}>✕</button>
-          <h2 style={{fontFamily:'Syne, sans-serif',fontSize:16,fontWeight:700,color:'var(--accent)'}}>
-            {painel==='historico'?'🗂️ Histórico de Documentos':painel==='assinaturas'?'✍️ Acompanhamento de Assinaturas':'📄 Documentos'}
+          <button onClick={()=>setPainel(null)} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:20,padding:'4px 8px',borderRadius:8}}>✕</button>
+          <h2 style={{fontFamily:'Syne,sans-serif',fontSize:16,fontWeight:700,color:'var(--accent)'}}>
+            {painel==='historico'?'🗂️ Histórico':painel==='assinaturas'?'✍️ Assinaturas':'📄 Documentos'}
           </h2>
-          {(painel==='historico'||painel==='assinaturas')&&(
-            <button onClick={carregarHistorico} style={{marginLeft:'auto',padding:'6px 14px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono, monospace',fontSize:12,cursor:'pointer'}}>
-              🔄 Atualizar
-            </button>
-          )}
+          {(painel==='historico'||painel==='assinaturas')&&<button onClick={carregarHistorico} style={{marginLeft:'auto',padding:'6px 14px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer'}}>🔄 Atualizar</button>}
         </div>
-
         <div style={{flex:1,overflowY:'auto',padding:'20px',maxWidth:900,width:'100%',margin:'0 auto'}}>
-
-          {/* ── HISTÓRICO ── */}
-          {painel==='historico'&&(
-            histLoading
-              ?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Carregando...</div>
-              : histDocs.length===0
-                ?<div style={{textAlign:'center',padding:40}}>
-                    <div style={{fontSize:40,marginBottom:12}}>📄</div>
-                    <div style={{color:'var(--muted)',fontSize:14}}>Nenhum documento gerado ainda.</div>
-                  </div>
-                : histDocs.map(h=>{
-                    const sb=statusBadge(h)
-                    return(
-                      <div key={h.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'16px 20px',marginBottom:12,boxShadow:'var(--shadow)'}}>
-                        <div style={{display:'flex',alignItems:'flex-start',gap:12,marginBottom:10}}>
-                          <span style={{fontSize:22,flexShrink:0}}>{h.type==='contrato'?'📝':'📄'}</span>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontWeight:700,fontSize:15,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{h.clientName||'Cliente não identificado'}</div>
-                            <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>
-                              {h.type==='contrato'?'Contrato':'Proposta'} · {h.date} · {h.consultor||'—'}
-                              {h.modulos?.length>0&&` · ${h.modulos.join(', ')}`}
-                            </div>
-                            {h.signedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:2}}>✅ Cliente: {h.signedBy} em {h.signedAt}</div>}
-                            {h.consultantSignedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:1}}>✅ Consultor: {h.consultantSignedBy} em {h.consultantSignedAt}</div>}
-                          </div>
-                          <span style={{fontSize:12,fontWeight:600,color:sb.cor,background:sb.bg,border:`1px solid ${sb.border}`,padding:'4px 10px',borderRadius:20,whiteSpace:'nowrap',flexShrink:0}}>{sb.txt}</span>
-                        </div>
-                        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                          <button onClick={()=>verDocumento(h)}
-                            style={{padding:'7px 14px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>
-                            👁 Ver documento
-                          </button>
-                          {h.status!=='signed'&&(
-                            <button onClick={()=>{setSignDoc(h);setSignEmailInput(h.clientEmail||'');setShowSign(true);setPainel(null)}}
-                              style={{padding:'7px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>
-                              ✍️ Reenviar para assinatura
-                            </button>
-                          )}
-                        </div>
+          {painel==='historico'&&(histLoading?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Carregando...</div>
+            :histDocs.length===0?<div style={{textAlign:'center',padding:40}}><div style={{fontSize:40,marginBottom:12}}>📄</div><div style={{color:'var(--muted)',fontSize:14}}>Nenhum documento gerado ainda.</div></div>
+            :histDocs.map(h=>{
+              const sb=statusBadge(h)
+              return(
+                <div key={h.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'16px 20px',marginBottom:12,boxShadow:'var(--shadow)'}}>
+                  <div style={{display:'flex',alignItems:'flex-start',gap:12,marginBottom:10}}>
+                    <span style={{fontSize:22,flexShrink:0}}>{h.type==='contrato'?'📝':'📄'}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:15,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{h.clientName||'Cliente'}</div>
+                      <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{h.type==='contrato'?'Contrato':'Proposta'} · {h.date} · {h.consultor}{h.modulos?.length>0?` · ${h.modulos.join(', ')}`:''}
                       </div>
-                    )
-                  })
-          )}
-
-          {/* ── ASSINATURAS ── */}
-          {painel==='assinaturas'&&(
-            histLoading
-              ?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Carregando...</div>
-              : histDocs.length===0
-                ?<div style={{textAlign:'center',padding:40}}>
-                    <div style={{fontSize:40,marginBottom:12}}>✍️</div>
-                    <div style={{color:'var(--muted)',fontSize:14}}>Nenhum documento para assinar.</div>
-                  </div>
-                : histDocs.map(h=>{
-                    const clienteAssinou=!!(h.signedAt&&h.signedBy)
-                    const consultorAssinou=!!(h.consultantSignedAt&&h.consultantSignedBy)
-                    const totalAssinado=clienteAssinou&&consultorAssinou
-                    return(
-                      <div key={h.id} style={{background:'var(--surface)',border:`1px solid ${totalAssinado?'rgba(16,185,129,.3)':'var(--border)'}`,borderRadius:14,padding:'18px 20px',marginBottom:14,boxShadow:'var(--shadow)'}}>
-                        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
-                          <span style={{fontSize:20}}>{h.type==='contrato'?'📝':'📄'}</span>
-                          <div style={{flex:1}}>
-                            <div style={{fontWeight:700,fontSize:15}}>{h.clientName||'Cliente'}</div>
-                            <div style={{fontSize:12,color:'var(--muted)',marginTop:1}}>{h.date} · {h.consultor}</div>
-                          </div>
-                          <span style={{fontSize:12,fontWeight:700,color:totalAssinado?'var(--accent3)':'var(--warning)',background:totalAssinado?'rgba(16,185,129,.1)':'rgba(251,191,36,.1)',padding:'4px 12px',borderRadius:20,border:`1px solid ${totalAssinado?'rgba(16,185,129,.3)':'rgba(251,191,36,.3)'}`}}>
-                            {totalAssinado?'✅ Totalmente Assinado':'⏳ Aguardando Assinaturas'}
-                          </span>
-                        </div>
-
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                          {/* CONTRATADA (Consultor) */}
-                          <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
-                            <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATADA (Consultor)</div>
-                            {consultorAssinou
-                              ?<>
-                                <div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.consultantSignedBy}</div>
-                                <div style={{fontSize:11,color:'var(--muted)'}}>{h.consultantSignedAt}</div>
-                              </>
-                              :<>
-                                <div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.consultor||'—'} — aguardando</div>
-                                <button onClick={()=>abrirSignForm(h,'consultant')}
-                                  style={{padding:'8px 14px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>
-                                  ✍️ Assinar agora
-                                </button>
-                              </>
-                            }
-                          </div>
-
-                          {/* CONTRATANTE (Cliente) */}
-                          <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
-                            <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATANTE (Cliente)</div>
-                            {clienteAssinou
-                              ?<>
-                                <div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.signedBy}</div>
-                                <div style={{fontSize:11,color:'var(--muted)'}}>{h.signedAt}</div>
-                              </>
-                              :<>
-                                <div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.clientName||'—'} — aguardando</div>
-                                <button onClick={()=>{setSignDoc(h);setSignEmailInput(h.clientEmail||'');setShowSign(true);setPainel(null)}}
-                                  style={{padding:'8px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>
-                                  📤 Enviar link
-                                </button>
-                              </>
-                            }
-                          </div>
-                        </div>
-
-                        {totalAssinado&&(
-                          <div style={{marginTop:12,padding:'10px 14px',background:'rgba(16,185,129,.08)',border:'1px solid rgba(16,185,129,.2)',borderRadius:8,fontSize:12,color:'var(--accent3)'}}>
-                            ✅ Contrato completamente assinado por ambas as partes.{' '}
-                            <button onClick={()=>verDocumento(h)} style={{background:'none',border:'none',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,textDecoration:'underline'}}>Ver documento</button>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })
-          )}
-
-          {/* ── DOCUMENTOS (templates info) ── */}
-          {painel==='documentos'&&(
-            <div>
-              <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 24px',marginBottom:16}}>
-                <h3 style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)',marginBottom:8}}>📄 Templates de Documentos</h3>
-                <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:14}}>Para editar os templates de Proposta e Contrato, acesse <strong style={{color:'var(--text)'}}>Configurações → Documentos</strong>.</p>
-                <button onClick={()=>{setPainel(null);router.push('/configuracoes')}}
-                  style={{padding:'10px 20px',borderRadius:9,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:600}}>
-                  ⚙️ Ir para Configurações → Documentos
-                </button>
-              </div>
-              <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 24px'}}>
-                <h3 style={{fontFamily:'Syne, sans-serif',fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:12}}>📋 Variáveis disponíveis nos templates</h3>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-                  {[['{{empresa}}','Nome fantasia'],['{{razao_social}}','Razão social'],['{{cnpj}}','CNPJ/CPF'],['{{contato}}','Nome do contato'],['{{email}}','E-mail'],['{{telefone}}','Telefone'],['{{cidade}}','Cidade'],['{{uf}}','Estado'],['{{regime}}','Regime tributário'],['{{plano}}','Nome do plano'],['{{cnpjs_qty}}','Qtd. CNPJs'],['{{total_adesao}}','Total adesão'],['{{total_mensalidade}}','Total mensalidade'],['{{data_adesao}}','Venc. adesão'],['{{data_mensalidade}}','1ª mensalidade'],['{{condicao_pagamento}}','Condição de pagamento'],['{{consultor_nome}}','Nome do consultor'],['{{data_hoje}}','Data atual'],['{{company}}','Nome da empresa'],['{{produtos_tabela}}','Tabela HTML de produtos']].map(([v,d])=>(
-                    <div key={v} style={{padding:'8px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,display:'flex',gap:8,alignItems:'center'}}>
-                      <code style={{fontSize:11,color:'var(--accent)',fontFamily:'DM Mono,monospace',flexShrink:0}}>{v}</code>
-                      <span style={{fontSize:12,color:'var(--muted)'}}>{d}</span>
+                      {h.signedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:2}}>✅ Cliente: {h.signedBy} em {h.signedAt}</div>}
+                      {h.consultantSignedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:1}}>✅ Consultor: {h.consultantSignedBy} em {h.consultantSignedAt}</div>}
                     </div>
-                  ))}
+                    <span style={{fontSize:12,fontWeight:600,color:sb.cor,background:sb.bg,border:`1px solid ${sb.border}`,padding:'4px 10px',borderRadius:20,whiteSpace:'nowrap',flexShrink:0}}>{sb.txt}</span>
+                  </div>
+                  <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                    <button onClick={()=>verDocumento(h)} style={{padding:'7px 14px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>👁 Ver documento</button>
+                    {h.status!=='signed'&&<button onClick={()=>{setSignDoc(h);setSignEmailInput(h.clientEmail||'');setShowSign(true);setPainel(null)}} style={{padding:'7px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>✍️ Reenviar para assinatura</button>}
+                  </div>
                 </div>
-              </div>
-            </div>
+              )})
           )}
+
+          {painel==='assinaturas'&&(histLoading?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Carregando...</div>
+            :histDocs.length===0?<div style={{textAlign:'center',padding:40}}><div style={{fontSize:40,marginBottom:12}}>✍️</div><div style={{color:'var(--muted)',fontSize:14}}>Nenhum documento.</div></div>
+            :histDocs.map(h=>{
+              const clienteAssinou=!!(h.signedAt&&h.signedBy),consultorAssinou=!!(h.consultantSignedAt&&h.consultantSignedBy)
+              const total=clienteAssinou&&consultorAssinou
+              return(
+                <div key={h.id} style={{background:'var(--surface)',border:`1px solid ${total?'rgba(16,185,129,.3)':'var(--border)'}`,borderRadius:14,padding:'18px 20px',marginBottom:14,boxShadow:'var(--shadow)'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+                    <span style={{fontSize:20}}>{h.type==='contrato'?'📝':'📄'}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:15}}>{h.clientName||'Cliente'}</div>
+                      <div style={{fontSize:12,color:'var(--muted)',marginTop:1}}>{h.date} · {h.consultor}</div>
+                    </div>
+                    <span style={{fontSize:12,fontWeight:700,color:total?'var(--accent3)':'var(--warning)',background:total?'rgba(16,185,129,.1)':'rgba(251,191,36,.1)',padding:'4px 12px',borderRadius:20,border:`1px solid ${total?'rgba(16,185,129,.3)':'rgba(251,191,36,.3)'}`}}>
+                      {total?'✅ Totalmente Assinado':'⏳ Aguardando Assinaturas'}
+                    </span>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                    <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
+                      <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATADA (Consultor)</div>
+                      {consultorAssinou?<><div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.consultantSignedBy}</div><div style={{fontSize:11,color:'var(--muted)'}}>{h.consultantSignedAt}</div></>
+                        :<><div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.consultor||'—'} — aguardando</div>
+                        <button onClick={()=>abrirSignForm(h,'consultant')} style={{padding:'8px 14px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>✍️ Assinar agora</button></>}
+                    </div>
+                    <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
+                      <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATANTE (Cliente)</div>
+                      {clienteAssinou?<><div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.signedBy}</div><div style={{fontSize:11,color:'var(--muted)'}}>{h.signedAt}</div></>
+                        :<><div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.clientName||'—'} — aguardando</div>
+                        <button onClick={()=>{setSignDoc(h);setSignEmailInput(h.clientEmail||'');setShowSign(true);setPainel(null)}} style={{padding:'8px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>📤 Enviar link</button></>}
+                    </div>
+                  </div>
+                  {total&&<div style={{marginTop:12,padding:'10px 14px',background:'rgba(16,185,129,.08)',border:'1px solid rgba(16,185,129,.2)',borderRadius:8,fontSize:12,color:'var(--accent3)',display:'flex',gap:10,alignItems:'center'}}>
+                    ✅ Contrato completamente assinado.{' '}
+                    <button onClick={()=>verDocumento(h)} style={{background:'none',border:'none',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,textDecoration:'underline',padding:0}}>Ver documento</button>
+                  </div>}
+                </div>
+              )})
+          )}
+
+          {painel==='documentos'&&<div>
+            <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 24px',marginBottom:16}}>
+              <h3 style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)',marginBottom:8}}>📄 Templates de Documentos</h3>
+              <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:14}}>Para editar os templates, acesse <strong style={{color:'var(--text)'}}>Configurações → Documentos</strong>.</p>
+              <button onClick={()=>{setPainel(null);router.push('/configuracoes')}} style={{padding:'10px 20px',borderRadius:9,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:600}}>⚙️ Ir para Configurações → Documentos</button>
+            </div>
+          </div>}
         </div>
-      </div>
-    )
-  }
-
-  function abrirPainel(p){
-    setPainel(p)
-    if(p==='historico'||p==='assinaturas') carregarHistorico()
-  }
-
-  // Renderizar botões de módulos quando estiver na etapa de seleção e os botões estiverem habilitados
-  const renderModulosButtons = () => {
-    if (!cfg.enableProductButtons) return null
-    if (S.stage !== 'await_modules') return null
-    const modulos = cfg.modulos || MODULOS_PADRAO
-    return (
-      <div style={{ marginTop: 8, marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {modulos.map(mod => (
-          <button
-            key={mod}
-            onClick={() => toggleModuloTemp(mod)}
-            style={{
-              padding: '8px 14px',
-              borderRadius: 8,
-              background: tempModulesSelecionados.includes(mod) ? 'rgba(0,212,255,.2)' : 'var(--surface2)',
-              border: `1px solid ${tempModulesSelecionados.includes(mod) ? 'var(--accent)' : 'var(--border)'}`,
-              color: tempModulesSelecionados.includes(mod) ? 'var(--accent)' : 'var(--muted)',
-              cursor: 'pointer',
-              fontFamily: 'DM Mono, monospace',
-              fontSize: 12,
-              transition: 'all .15s'
-            }}
-          >
-            {mod}
-          </button>
-        ))}
-        <button
-          onClick={finalizarSelecaoModulos}
-          style={{
-            padding: '8px 14px',
-            borderRadius: 8,
-            background: 'linear-gradient(135deg,var(--accent3),#059669)',
-            border: 'none',
-            color: '#fff',
-            cursor: 'pointer',
-            fontFamily: 'DM Mono, monospace',
-            fontSize: 12,
-            fontWeight: 600
-          }}
-        >
-          ✅ Confirmar seleção
-        </button>
       </div>
     )
   }
@@ -1117,49 +941,32 @@ export default function Chat(){
     </Head>
     <style>{CSS}</style>
     <div className="orb orb1"/><div className="orb orb2"/>
-
-    {/* PAINEL OVERLAY */}
     {renderPainel()}
 
-    {/* HEADER com logo clicável */}
+    {/* HEADER */}
     <header>
-      <div className="header-logo" style={{cursor:'pointer'}} onClick={() => router.push('/chat')}>
-        {cfg.logob64
-          ?<img src={cfg.logob64} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
-          :<div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>
-        }
+      <div className="header-logo">
+        {cfg.logob64?<img src={cfg.logob64} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
+          :<div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>}
         {cfg.logob64&&<div style={{marginLeft:10}}><div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'var(--text)'}}>{cfg.company}</div><div style={{fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div></div>}
         {!cfg.logob64&&<div style={{marginLeft:4,fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div>}
       </div>
       <div className="status-dot">online</div>
-
       <nav style={{display:'flex',gap:4,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
-        {[
-          {id:'documentos', label:'📄 Documentos'},
-          {id:'historico',  label:'🗂️ Histórico'},
-          {id:'assinaturas',label:'✍️ Assinaturas'},
-        ].map(({id,label})=>(
-          <button key={id} onClick={()=>abrirPainel(id)}
-            style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace',letterSpacing:.3,transition:'all .15s'}}
-            onMouseEnter={e=>{e.target.style.color='var(--accent)';e.target.style.borderColor='rgba(0,212,255,.3)'}}
-            onMouseLeave={e=>{e.target.style.color='var(--muted)';e.target.style.borderColor='var(--border)'}}>
+        {[{id:'documentos',label:'📄 Documentos'},{id:'historico',label:'🗂️ Histórico'},{id:'assinaturas',label:'✍️ Assinaturas'}].map(({id,label})=>(
+          <button key={id} onClick={()=>abrirPainel(id)} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace',transition:'all .15s'}}
+            onMouseEnter={e=>{e.currentTarget.style.color='var(--accent)';e.currentTarget.style.borderColor='rgba(0,212,255,.3)'}}
+            onMouseLeave={e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>
             {label}
           </button>
         ))}
-        <button onClick={()=>router.push('/dashboard')}
-          style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>
-          📊 Dashboard
-        </button>
-        <button onClick={()=>router.push('/configuracoes')}
-          style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 10px',borderRadius:8,fontFamily:'DM Mono,monospace',fontSize:15}}>
-          ⚙️
-        </button>
+        <button onClick={()=>router.push('/dashboard')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>📊 Dashboard</button>
+        <button onClick={()=>router.push('/configuracoes')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:15,padding:'5px 10px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>⚙️</button>
         <span style={{fontSize:11,color:'var(--muted)'}}>👤 <span style={{color:'var(--text)',fontWeight:500}}>{userProfile.nome}</span></span>
         <button className="logout-btn" onClick={async()=>{await supabase.auth.signOut();router.replace('/')}}>Sair</button>
       </nav>
     </header>
 
-    {/* CHAT */}
     <div className="chat-wrap">
       <div id="messages" ref={msgRef}>
         {messages.map(m=>(
@@ -1171,12 +978,41 @@ export default function Chat(){
         {thinking&&<div className="msg bot"><div className="thinking"><span/><span/><span/></div></div>}
         {timerVal&&timerDeadline&&<div className="timer-live">{timerVal}</div>}
       </div>
-      {/* Botões de módulos (se aplicável) */}
-      {renderModulosButtons()}
-      {/* Chips (outros) */}
-      {chips.length>0&&<div id="chips">{chips.map((c,i)=><button key={i} className="chip" onClick={()=>send(c)}>{c}</button>)}</div>}
+
+      {/* MÓDULOS CLICÁVEIS */}
+      {awaitingMods&&(
+        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'16px 20px',marginBottom:8}}>
+          <div style={{fontSize:12,color:'var(--muted)',marginBottom:12,letterSpacing:.5}}>Selecione os módulos:</div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
+            {ALL_MODS.map(m=>{
+              const sel=selectedMods.includes(m)
+              return(
+                <button key={m} onClick={()=>setSelectedMods(p=>sel?p.filter(x=>x!==m):[...p,m])}
+                  style={{padding:'8px 16px',borderRadius:20,fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',transition:'all .15s',
+                    background:sel?'rgba(0,212,255,.15)':'var(--surface2)',
+                    border:`1.5px solid ${sel?'var(--accent)':'var(--border)'}`,
+                    color:sel?'var(--accent)':'var(--muted)',fontWeight:sel?700:400}}>
+                  {m}
+                </button>
+              )
+            })}
+          </div>
+          {selectedMods.length>0&&<div style={{fontSize:12,color:'var(--accent3)',marginBottom:10}}>✅ Selecionados: {selectedMods.join(' · ')}</div>}
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={confirmarMods} disabled={selectedMods.length===0}
+              style={{padding:'10px 22px',borderRadius:10,background:selectedMods.length>0?'linear-gradient(135deg,var(--accent),#0099bb)':'var(--surface2)',border:'none',color:selectedMods.length>0?'#fff':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:selectedMods.length>0?'pointer':'not-allowed',transition:'all .2s'}}>
+              ✅ Confirmar módulos
+            </button>
+            <button onClick={()=>{setAwaitingMods(false);addBot('Quais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)')}}
+              style={{padding:'10px 16px',borderRadius:10,background:'rgba(100,116,139,.12)',border:'1px solid var(--border)',color:'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>
+              Digitar
+            </button>
+          </div>
+        </div>
+      )}
+
       <div id="inputArea">
-        <textarea ref={inputRef} id="userInput" placeholder="Digite CPF, CNPJ, módulos..." value={input}
+        <textarea id="userInput" placeholder="Digite CPF, CNPJ, módulos..." value={input}
           onChange={e=>{setInput(e.target.value);e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,100)+'px'}}
           onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}} rows={1}/>
         <button className="send-btn" onClick={()=>send()}>
@@ -1185,64 +1021,46 @@ export default function Chat(){
       </div>
     </div>
 
-    {/* MODAL: VER DOCUMENTO */}
+    {/* MODAL VER DOCUMENTO */}
     {showDocView&&(
       <div className="modal-overlay" style={{zIndex:300}}>
         <div className="modal-box" style={{maxWidth:860,maxHeight:'92vh'}}>
-          <div className="modal-header">
-            <h3 style={{fontSize:14}}>{docViewTitle}</h3>
-            <button className="modal-close" onClick={()=>setShowDocView(false)}>✕</button>
-          </div>
+          <div className="modal-header"><h3 style={{fontSize:14}}>{docViewTitle}</h3><button className="modal-close" onClick={()=>setShowDocView(false)}>✕</button></div>
           <div className="modal-body" style={{padding:0,flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-            {docViewLoading
-              ?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>⏳ Carregando documento...</div>
-              :<div style={{flex:1,overflowY:'auto',background:'#fff'}}>
-                <div dangerouslySetInnerHTML={{__html:docViewHtml}}/>
-              </div>
-            }
+            {docViewLoading?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>⏳ Carregando...</div>
+              :<div style={{flex:1,overflowY:'auto',background:'#fff'}}><div dangerouslySetInnerHTML={{__html:docViewHtml}}/></div>}
           </div>
           <div className="modal-footer">
             <button className="btn-cancel" onClick={()=>setShowDocView(false)}>Fechar</button>
-            <button className="btn-primary" onClick={()=>{const w=window.open('','_blank','width=900,height=700');w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet"><style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}body{margin:0}.tb{display:flex;gap:10px;padding:14px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0}.tb button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none}.bp{background:#0f172a;color:#fff}.bc{background:#e2e8f0;color:#475569}@media print{.tb{display:none!important}}</style></head><body><div class="tb"><button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="bc" onclick="window.close()">✕ Fechar</button></div>${docViewHtml}</body></html>`);w.document.close();w.focus()}}>
-              🖨 Imprimir
-            </button>
+            <button className="btn-primary" onClick={()=>openPrint(docViewHtml,docViewTitle)}>🖨 Imprimir</button>
           </div>
         </div>
       </div>
     )}
 
-    {/* MODAL: DADOS DO CLIENTE */}
+    {/* MODAL CLIENTE */}
     {showClient&&(
       <div className="modal-overlay">
         <div className="modal-box" style={{maxWidth:620}}>
-          <div className="modal-header">
-            <h3>{clientMode==='proposta'?'📄 Confirmar Dados do Cliente':'📝 Confirmar Dados do Cliente'}</h3>
-            <button className="modal-close" onClick={()=>setShowClient(false)}>✕</button>
-          </div>
+          <div className="modal-header"><h3>{clientMode==='proposta'?'📄':'📝'} Confirmar Dados do Cliente</h3><button className="modal-close" onClick={()=>setShowClient(false)}>✕</button></div>
           <div className="modal-body">
-            <div className="modal-sec">DADOS DO CLIENTE</div>
-            <div style={{marginBottom:10}}>
-              <div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>CPF / CNPJ</div>
-              <div style={{padding:'9px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:13,color:'var(--muted)',fontFamily:'DM Mono,monospace'}}>{fmtDoc(S.doc||'')}</div>
-            </div>
+            <div style={{padding:'9px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:13,color:'var(--muted)',fontFamily:'DM Mono,monospace',marginBottom:12}}>{fmtDoc(S.doc||'')}</div>
             <div className="modal-grid2">
-              <div className="field"><label>Nome Fantasia / Nome</label><input value={cf.empresa} onChange={e=>setCf(f=>({...f,empresa:e.target.value}))} placeholder="Nome fantasia"/></div>
+              <div className="field"><label>Nome Fantasia</label><input value={cf.empresa} onChange={e=>setCf(f=>({...f,empresa:e.target.value}))} placeholder="Nome fantasia"/></div>
               <div className="field"><label>Razão Social</label><input value={cf.razao} onChange={e=>setCf(f=>({...f,razao:e.target.value}))} placeholder="Razão social"/></div>
-              <div className="field"><label>Nome do Contato</label><input value={cf.contato} onChange={e=>setCf(f=>({...f,contato:e.target.value}))} placeholder="Responsável"/></div>
+              <div className="field"><label>Contato</label><input value={cf.contato} onChange={e=>setCf(f=>({...f,contato:e.target.value}))} placeholder="Responsável"/></div>
               <div className="field"><label>E-mail</label><input type="email" value={cf.email} onChange={e=>setCf(f=>({...f,email:e.target.value}))} placeholder="email@empresa.com"/></div>
-              <div className="field"><label>Telefone / WhatsApp</label><input value={cf.telefone} onChange={e=>setCf(f=>({...f,telefone:e.target.value}))} placeholder="(00) 00000-0000"/></div>
+              <div className="field"><label>Telefone</label><input value={cf.telefone} onChange={e=>setCf(f=>({...f,telefone:e.target.value}))} placeholder="(00) 00000-0000"/></div>
               <div className="field"><label>CEP</label>
                 <div style={{display:'flex',gap:6}}>
                   <input value={cf.cep} onChange={e=>setCf(f=>({...f,cep:e.target.value}))} placeholder="00000-000" style={{flex:1}} onBlur={e=>e.target.value.replace(/\D/g,'').length>=8&&buscarCep(e.target.value)}/>
-                  <button onClick={()=>buscarCep(cf.cep)} disabled={buscandoCep} style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontSize:12,fontFamily:'DM Mono,monospace',whiteSpace:'nowrap'}}>
-                    {buscandoCep?'⏳':'📍'}
-                  </button>
+                  <button onClick={()=>buscarCep(cf.cep)} disabled={buscandoCep} style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12}}>{buscandoCep?'⏳':'📍'}</button>
                 </div>
               </div>
               <div className="field"><label>Endereço</label><input value={cf.logradouro} onChange={e=>setCf(f=>({...f,logradouro:e.target.value}))} placeholder="Rua, número"/></div>
               <div className="field"><label>Bairro</label><input value={cf.bairro} onChange={e=>setCf(f=>({...f,bairro:e.target.value}))} placeholder="Bairro"/></div>
               <div className="field"><label>Cidade</label><input value={cf.cidade} onChange={e=>setCf(f=>({...f,cidade:e.target.value}))} placeholder="Cidade"/></div>
-              <div className="field"><label>Estado</label><input value={cf.uf} onChange={e=>setCf(f=>({...f,uf:e.target.value}))} placeholder="UF" maxLength={2}/></div>
+              <div className="field"><label>UF</label><input value={cf.uf} onChange={e=>setCf(f=>({...f,uf:e.target.value}))} placeholder="UF" maxLength={2}/></div>
               <div className="field"><label>CPF do Contato</label><input value={cf.cpfContato} onChange={e=>setCf(f=>({...f,cpfContato:e.target.value}))} placeholder="000.000.000-00"/></div>
               <div className="field"><label>Regime Tributário</label>
                 <select value={cf.regime} onChange={e=>setCf(f=>({...f,regime:e.target.value}))} style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono,monospace',fontSize:13,color:'var(--text)',outline:'none'}}>
@@ -1275,18 +1093,12 @@ export default function Chat(){
     {showWiz&&(
       <div className="modal-overlay">
         <div className="modal-box" style={{maxWidth:680}}>
-          <div className="modal-header">
-            <h3>📝 Configurar Contrato — Passo {wizStep}/2</h3>
-            <button className="modal-close" onClick={()=>setShowWiz(false)}>✕</button>
-          </div>
+          <div className="modal-header"><h3>📝 Configurar Contrato — Passo {wizStep}/2</h3><button className="modal-close" onClick={()=>setShowWiz(false)}>✕</button></div>
           <div className="modal-body">
             {wizStep===1&&<>
-              <div className="wiz-title">💳 Condição de Pagamento</div>
-              <div style={{fontSize:13,color:'var(--muted)',marginBottom:12}}>Adesão: <strong style={{color:'var(--text)'}}>{fmt(wizTAd)}</strong></div>
+              <div className="wiz-title">💳 Condição de Pagamento — Adesão: <strong>{fmt(wizTAd)}</strong></div>
               <div className="wiz-sec">À VISTA</div>
-              <div className={`pay-opt${wizPay==='pix'?' sel':''}`} onClick={()=>setWizPay('pix')}>
-                <span>🏦</span><div style={{flex:1}}><div className="po-t">PIX ou Boleto à vista</div></div><div className="po-v">{fmt(wizTAd)}</div>
-              </div>
+              <div className={`pay-opt${wizPay==='pix'?' sel':''}`} onClick={()=>setWizPay('pix')}><span>🏦</span><div style={{flex:1}}><div className="po-t">PIX ou Boleto à vista</div></div><div className="po-v">{fmt(wizTAd)}</div></div>
               <div className="wiz-sec" style={{marginTop:12}}>CARTÃO — SEM JUROS</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
                 {Array.from({length:10},(_,i)=>i+1).map(n=>(
@@ -1309,7 +1121,7 @@ export default function Chat(){
                 <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{wizDates.map(d=><button key={d} className={`date-pill${wizAd===d?' chosen':''}`} onClick={()=>setWizAd(d)}>{d}</button>)}</div>
                 <input className="date-inp" placeholder="Outra data (DD/MM)" value={wizAd&&!wizDates.includes(wizAd)?wizAd:''} onChange={e=>setWizAd(e.target.value)} style={{marginBottom:16}}/>
               </>}
-              <div style={{fontSize:13,color:'var(--muted)',margin:'4px 0 8px'}}>Vencimento 1ª Mensalidade ({fmt(wizTMen)}/mês)</div>
+              <div style={{fontSize:13,color:'var(--muted)',margin:'4px 0 8px'}}>1ª Mensalidade ({fmt(wizTMen)}/mês)</div>
               <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{wizDates.map(d=><button key={d} className={`date-pill${wizMen===d?' chosen':''}`} onClick={()=>setWizMen(d)}>{d}</button>)}</div>
               <input className="date-inp" placeholder="Outra data (DD/MM)" value={wizMen&&!wizDates.includes(wizMen)?wizMen:''} onChange={e=>setWizMen(e.target.value)}/>
             </>}
@@ -1323,16 +1135,13 @@ export default function Chat(){
       </div>
     )}
 
-    {/* MODAL: ENVIAR PARA ASSINATURA */}
+    {/* MODAL ENVIAR ASSINATURA */}
     {showSign&&signDoc&&(
       <div className="modal-overlay" style={{zIndex:250}}>
         <div className="modal-box" style={{maxWidth:500}}>
           <div className="modal-header">
             <h3>✍️ Enviar para Assinatura</h3>
-            <div style={{fontSize:12,color:'var(--muted)',marginTop:3}}>
-              {signDoc.type==='proposta'?'Proposta':'Contrato'} · {signDoc.clientName}
-              {signSalvo&&<span style={{marginLeft:8,background:'rgba(16,185,129,.15)',color:'var(--accent3)',padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:600}}>✅ Salvo na nuvem</span>}
-            </div>
+            <div style={{fontSize:12,color:'var(--muted)',marginTop:3}}>{signDoc.type==='proposta'?'Proposta':'Contrato'} · {signDoc.clientName}</div>
             <button className="modal-close" onClick={()=>setShowSign(false)}>✕</button>
           </div>
           <div className="modal-body">
@@ -1340,7 +1149,7 @@ export default function Chat(){
               <div style={{fontSize:10,color:'var(--muted)',textTransform:'uppercase',letterSpacing:1.5,marginBottom:6}}>Link de Assinatura</div>
               <div style={{display:'flex',gap:8}}>
                 <input readOnly value={buildSignUrl(signDoc)} style={{flex:1,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:11,color:'var(--accent)',outline:'none'}}/>
-                <button onClick={()=>navigator.clipboard.writeText(buildSignUrl(signDoc))} style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,whiteSpace:'nowrap'}}>📋</button>
+                <button onClick={()=>navigator.clipboard?.writeText(buildSignUrl(signDoc))} style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12}}>📋</button>
               </div>
             </div>
             <div style={{marginBottom:16}}>
@@ -1348,15 +1157,9 @@ export default function Chat(){
               <input type="email" value={signEmailInput} onChange={e=>setSignEmailInput(e.target.value)} placeholder="email do cliente" style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono,monospace',fontSize:13,color:'var(--text)',outline:'none'}}/>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              <button onClick={()=>enviarWhatsApp(signDoc)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#25d366,#128c7e)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
-                <span>💬</span> Enviar via WhatsApp
-              </button>
-              <button onClick={()=>enviarEmail(signDoc,signEmailInput)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#0f172a,#1e3a5f)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
-                <span>📧</span> Enviar por E-mail
-              </button>
-              <button onClick={()=>{setShowSign(false);abrirSignForm(signDoc,'client')}} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08))',border:'1px solid rgba(251,191,36,.4)',color:'var(--gold)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}>
-                <span>👆</span> Assinar agora (esta tela)
-              </button>
+              <button onClick={()=>enviarWhatsApp(signDoc)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#25d366,#128c7e)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>💬</span> Enviar via WhatsApp</button>
+              <button onClick={()=>enviarEmail(signDoc,signEmailInput)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#0f172a,#1e3a5f)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>📧</span> Enviar por E-mail</button>
+              <button onClick={()=>{setShowSign(false);abrirSignForm(signDoc,'client')}} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08))',border:'1px solid rgba(251,191,36,.4)',color:'var(--gold)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>👆</span> Assinar agora (esta tela)</button>
               <button onClick={()=>setShowSign(false)} style={{padding:'11px',borderRadius:10,background:'rgba(100,116,139,.12)',border:'1px solid var(--border)',color:'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>Fechar</button>
             </div>
           </div>
@@ -1364,7 +1167,7 @@ export default function Chat(){
       </div>
     )}
 
-    {/* MODAL: FORMULÁRIO DE ASSINATURA */}
+    {/* MODAL FORMULÁRIO ASSINATURA */}
     {showSignForm&&(
       <div className="modal-overlay" style={{zIndex:300}}>
         <div className="modal-box" style={{maxWidth:480}}>
@@ -1373,9 +1176,7 @@ export default function Chat(){
             <button className="modal-close" onClick={()=>setShowSignForm(false)}>✕</button>
           </div>
           <div className="modal-body">
-            <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:16}}>
-              Preencha os dados para registrar a assinatura eletrônica conforme a <strong style={{color:'var(--text)'}}>Lei nº 14.063/2020</strong>.
-            </p>
+            <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:16}}>Preencha os dados para registrar a assinatura eletrônica conforme a <strong style={{color:'var(--text)'}}>Lei nº 14.063/2020</strong>.</p>
             <div className="field"><label>Nome completo *</label><input value={sfNome} onChange={e=>setSfNome(e.target.value)} placeholder="Nome completo"/></div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
               <div className="field"><label>CPF *</label><input value={sfCpf} onChange={e=>setSfCpf(e.target.value)} placeholder="000.000.000-00"/></div>
@@ -1391,9 +1192,7 @@ export default function Chat(){
           </div>
           <div className="modal-footer">
             <button className="btn-cancel" onClick={()=>setShowSignForm(false)}>Cancelar</button>
-            <button className="btn-primary" onClick={confirmarSignForm} disabled={sfSaving}>
-              {sfSaving?'⏳ Registrando...':'✅ Confirmar Assinatura'}
-            </button>
+            <button className="btn-primary" onClick={confirmarSignForm} disabled={sfSaving}>{sfSaving?'⏳ Registrando...':'✅ Confirmar Assinatura'}</button>
           </div>
         </div>
       </div>
@@ -1401,7 +1200,6 @@ export default function Chat(){
   </>)
 }
 
-// ── CSS ───────────────────────────────────────────────────────
 const CSS=`
   :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--user-bubble:#1e3a5f;--bot-bubble:#131f35;--danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;--card-bg:#1a2540;--shadow:0 4px 24px rgba(0,0,0,.4)}
   *{box-sizing:border-box;margin:0;padding:0}html{font-size:15px}
@@ -1418,7 +1216,7 @@ const CSS=`
   .logout-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:5px 9px;border-radius:8px;font-family:'DM Mono',monospace}
   .logout-btn:hover{color:var(--danger)}
   .chat-wrap{position:relative;z-index:10;width:100%;max-width:820px;padding:14px 20px 0;flex:1;display:flex;flex-direction:column}
-  #messages{display:flex;flex-direction:column;gap:14px;padding-bottom:20px;min-height:400px;max-height:calc(100vh - 190px);overflow-y:auto;scroll-behavior:smooth}
+  #messages{display:flex;flex-direction:column;gap:14px;padding-bottom:10px;min-height:300px;max-height:calc(100vh - 200px);overflow-y:auto;scroll-behavior:smooth}
   #messages::-webkit-scrollbar{width:4px}#messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
   .msg{display:flex;flex-direction:column;max-width:92%;animation:fadeUp .3s ease}
   @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
@@ -1451,15 +1249,15 @@ const CSS=`
   .opp-banner{background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04));border:1px solid rgba(251,191,36,.3);border-radius:12px;padding:16px 18px;margin:8px 0}
   .opp-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--gold);margin-bottom:10px}
   .opp-body{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:12px}
+  .timer-block{background:linear-gradient(135deg,rgba(239,68,68,.1),rgba(239,68,68,.04));border:1px solid rgba(239,68,68,.25);border-radius:12px;padding:20px;margin:8px 0;text-align:center}
+  .timer-label{font-size:12px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px}
+  .timer-sub{font-size:11px;color:var(--muted);margin-top:10px}
+  .timer-live{font-size:32px;font-weight:700;font-family:'Syne',sans-serif;color:#ef4444;letter-spacing:4px;padding:8px 0}
   .section-label{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin:12px 0 6px}
   .dates-box{display:flex;gap:8px;flex-wrap:wrap}
   .date-chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:13px;color:var(--text)}
   .prop-btn{width:100%;padding:12px;border-radius:10px;background:linear-gradient(135deg,rgba(0,212,255,.15),rgba(0,212,255,.05));border:1px solid rgba(0,212,255,.3);color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;text-align:left;margin-bottom:4px}
   .reset-btn{width:100%;padding:10px;border-radius:10px;background:rgba(100,116,139,.1);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;margin-top:4px}
-  .timer-live{text-align:center;font-size:28px;font-weight:700;font-family:'Syne',sans-serif;color:var(--gold);letter-spacing:3px;padding:10px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:10px;margin:8px 0}
-  #chips{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0 4px}
-  .chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);cursor:pointer}
-  .chip:hover{color:var(--accent);border-color:var(--accent)}
   #inputArea{display:flex;gap:10px;align-items:flex-end;padding:14px 0 20px}
   #userInput{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 16px;font-family:'DM Mono',monospace;font-size:15px;color:var(--text);outline:none;resize:none;line-height:1.5;transition:border-color .2s;min-height:48px}
   #userInput:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.08)}
@@ -1473,7 +1271,6 @@ const CSS=`
   .modal-close{position:absolute;top:16px;right:20px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
   .modal-close:hover{color:var(--text)}
   .modal-body{padding:20px 24px;overflow-y:auto;flex:1}
-  .modal-sec{font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;margin-top:4px}
   .modal-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .modal-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
   .field{margin-bottom:10px}.field label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;letter-spacing:.5px}
