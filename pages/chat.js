@@ -6,6 +6,7 @@
 // • Salvar clientes com histórico de documentos
 // • Módulos clicáveis (chips) — toggle em cfg.modChips
 // • Limpar mensagens ao iniciar nova consulta
+// • Header clicável (logo e nome levam para /chat)
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -168,7 +169,7 @@ function buildProposal(S,cfg,user){
   const results=isC?S.closingData?.results:S.quoteData?.results
   const rows=(results||[]).map(r=>{
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:r.adD)
-    return`<tr><td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}</td><td style="padding:10px 14px;text-align:center">${adS}</td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}</td></tr>`
+    return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}</td><td style="padding:10px 14px;text-align:center">${adS}</td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}</td>`
   }).join('')
   const f=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
@@ -229,7 +230,7 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
     payMethod?.startsWith('boleto')?`Boleto ${payMethod.replace('boleto','').replace('x','×')}×`:payMethod
   const tableRows=(results||[]).map(r=>{
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:(r.adD||0))
-    return`<tr><td style="padding:8px 12px;border:1px solid #e2e8f0">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td></tr>`
+    return`<td style="padding:8px 12px;border:1px solid #e2e8f0">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td>`
   }).join('')
   const sec=(n,t)=>`<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
   const row=(l,v)=>`<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v||'—'}</span></div>`
@@ -943,9 +944,9 @@ export default function Chat(){
     <div className="orb orb1"/><div className="orb orb2"/>
     {renderPainel()}
 
-    {/* HEADER */}
+    {/* HEADER COM LOGO CLICÁVEL */}
     <header>
-      <div className="header-logo">
+      <div className="header-logo" style={{cursor:'pointer'}} onClick={() => router.push('/chat')}>
         {cfg.logob64?<img src={cfg.logob64} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
           :<div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>}
         {cfg.logob64&&<div style={{marginLeft:10}}><div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'var(--text)'}}>{cfg.company}</div><div style={{fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div></div>}
@@ -1158,7 +1159,7 @@ export default function Chat(){
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
               <button onClick={()=>enviarWhatsApp(signDoc)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#25d366,#128c7e)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>💬</span> Enviar via WhatsApp</button>
-              <button onClick={()=>enviarEmail(signDoc,signEmailInput)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#0f172a,#1e3a5f)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>📧</span> Enviar por E-mail</button>
+              <button onClick={()=>enviarEmail(signDoc)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#0f172a,#1e3a5f)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>📧</span> Enviar por E-mail</button>
               <button onClick={()=>{setShowSign(false);abrirSignForm(signDoc,'client')}} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08))',border:'1px solid rgba(251,191,36,.4)',color:'var(--gold)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>👆</span> Assinar agora (esta tela)</button>
               <button onClick={()=>setShowSign(false)} style={{padding:'11px',borderRadius:10,background:'rgba(100,116,139,.12)',border:'1px solid var(--border)',color:'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>Fechar</button>
             </div>
