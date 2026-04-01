@@ -7,6 +7,8 @@
 // 3. Usuários: permissões granulares + perfis personalizados
 // 4. Vouchers: botão imprimir PDF estilizado
 // 5. KPIs: seletor de ícone com galeria de opções
+// 6. Empresa: horário de fechamento e mensagem personalizada
+// 7. Produtos: toggle para botões de seleção de módulos
 // ============================================================
 
 import { useState, useEffect } from 'react'
@@ -97,20 +99,22 @@ async function salvarStorage(empresaId, novoCfg) {
 }
 
 // ══════════════════════════════════════════════
-// ABA EMPRESA — CORREÇÃO DA LOGO
+// ABA EMPRESA — COM CONFIGURAÇÕES DE FECHAMENTO
 // ══════════════════════════════════════════════
 function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [company,  setCompany]  = useState(cfg.company  || '')
   const [slogan,   setSlogan]   = useState(cfg.slogan   || '')
-  // CORREÇÃO: lê logob64 do cfg a cada render (não só no mount)
+  const [closeHour, setCloseHour] = useState(cfg.closeHour !== undefined ? cfg.closeHour : 18)
+  const [closeMessage, setCloseMessage] = useState(cfg.closeMessage || '')
   const [logoB64,  setLogoB64]  = useState(cfg.logob64  || '')
   const [saving,   setSaving]   = useState(false)
 
-  // Sincroniza quando cfg mudar (após salvar em outra aba)
   useEffect(() => {
     setCompany(cfg.company  || '')
     setSlogan(cfg.slogan    || '')
     setLogoB64(cfg.logob64  || '')
+    setCloseHour(cfg.closeHour !== undefined ? cfg.closeHour : 18)
+    setCloseMessage(cfg.closeMessage || '')
   }, [cfg])
 
   function handleLogo(e) {
@@ -126,12 +130,11 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, company, slogan, logob64: logoB64 }
+    const novoCfg = { ...cfg, company, slogan, logob64: logoB64, closeHour: Number(closeHour), closeMessage }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar: ' + error.message, 'err'); return }
     setCfg(novoCfg)
-    // Força recarregar a logo do storage para confirmar que persistiu
     toast('✅ Empresa salva com sucesso!')
   }
 
@@ -155,7 +158,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
           <input type="file" accept="image/*" onChange={handleLogo} style={{ ...s.input, padding: '6px' }} />
         </div>
 
-        {/* CORREÇÃO: preview sempre atualizado + botão remover */}
         {logoB64 ? (
           <div style={{ marginTop: 12, padding: 14, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: 1, textTransform: 'uppercase' }}>Pré-visualização</div>
@@ -176,6 +178,22 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
           </div>
         )}
       </div>
+
+      <div style={s.sec}>
+        <div style={s.secTitle}>Configurações de Oferta de Fechamento</div>
+        <div style={s.row2}>
+          <div style={s.field}>
+            <label style={s.label}>Horário limite (0-23)</label>
+            <input type="number" min={0} max={23} style={s.input} value={closeHour} onChange={e => setCloseHour(e.target.value)} />
+            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Oferta válida até este horário (ex: 18 = 18h)</div>
+          </div>
+          <div style={s.field}>
+            <label style={s.label}>Texto da oferta</label>
+            <input style={s.input} value={closeMessage} onChange={e => setCloseMessage(e.target.value)} placeholder="Oferta válida até as 18h de hoje" />
+          </div>
+        </div>
+      </div>
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>
         {saving ? '⏳ Salvando...' : '✅ Salvar Empresa'}
       </button>
@@ -184,7 +202,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA METAS
+// ABA METAS (igual, sem alterações)
 // ══════════════════════════════════════════════
 function TabMetas({ cfg, setCfg, empresaId }) {
   const mes = new Date().toISOString().slice(0, 7)
@@ -297,7 +315,8 @@ function TabMetas({ cfg, setCfg, empresaId }) {
 function TabKpis({ cfg, setCfg, empresaId }) {
   const [kpis,        setKpis]        = useState(cfg.kpiTemplates || [])
   const [saving,      setSaving]      = useState(false)
-  const [iconPickerId, setIconPickerId] = useState(null) // qual KPI está com seletor aberto
+  const [iconPickerId, setIconPickerId] = useState(null)
+  const [kpiRequired, setKpiRequired]  = useState(cfg.kpiRequired || false)
 
   function addKpi() {
     setKpis(prev => [...prev, { id: Date.now(), nome: '', icone: '📊', meta: 0, unidade: 'un', cor: '#00d4ff' }])
@@ -312,7 +331,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, kpiTemplates: kpis }
+    const novoCfg = { ...cfg, kpiTemplates: kpis, kpiRequired }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -331,7 +350,6 @@ function TabKpis({ cfg, setCfg, empresaId }) {
         {kpis.map(k => (
           <div key={k.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: iconPickerId === k.id ? 12 : 0 }}>
-              {/* Botão do ícone com galeria */}
               <div style={{ position: 'relative' }}>
                 <button onClick={() => setIconPickerId(iconPickerId === k.id ? null : k.id)}
                   style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 22, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'border-color .2s', borderColor: iconPickerId === k.id ? 'var(--accent)' : undefined }}
@@ -362,7 +380,6 @@ function TabKpis({ cfg, setCfg, empresaId }) {
               </button>
             </div>
 
-            {/* Galeria de ícones */}
             {iconPickerId === k.id && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 0 2px' }}>
                 {KPI_ICONS.map(ic => (
@@ -381,6 +398,33 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           ➕ Adicionar KPI
         </button>
       </div>
+
+      <div style={s.sec}>
+        <div style={s.secTitle}>🔐 Obrigatoriedade de KPIs</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <div
+            onClick={() => setKpiRequired(!kpiRequired)}
+            style={{
+              width: 40, height: 20, borderRadius: 10,
+              background: kpiRequired ? 'var(--accent3)' : 'rgba(100,116,139,.3)',
+              cursor: 'pointer', position: 'relative', transition: 'background .2s'
+            }}
+          >
+            <div style={{
+              width: 16, height: 16, borderRadius: '50%', background: '#fff',
+              position: 'absolute', top: 2, left: kpiRequired ? 22 : 2,
+              transition: 'left .2s'
+            }} />
+          </div>
+          <span style={{ fontSize: 13, color: 'var(--text)' }}>
+            {kpiRequired ? '✅ Exigir preenchimento diário de KPIs' : '⭕ Não exigir preenchimento diário'}
+          </span>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Se ativado, os usuários serão redirecionados para uma tela de lançamento de KPIs sempre que não tiverem preenchido o dia anterior.
+        </p>
+      </div>
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>
         {saving ? '⏳ Salvando...' : '✅ Salvar KPIs'}
       </button>
@@ -389,13 +433,13 @@ function TabKpis({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA USUÁRIOS — COM PERMISSÕES + PERFIS
+// ABA USUÁRIOS (igual, sem alterações)
 // ══════════════════════════════════════════════
 function TabUsuarios({ cfg, setCfg, empresaId }) {
   const [users,   setUsers]   = useState(cfg.users || [])
   const [form,    setForm]    = useState(null)
   const [saving,  setSaving]  = useState(false)
-  const [abaU,    setAbaU]    = useState('lista') // 'lista' | 'perfis'
+  const [abaU,    setAbaU]    = useState('lista')
   const [perfis,  setPerfis]  = useState(cfg.perfisTipos || [
     { id: 'admin', nome: 'Administrador', permissoes: PERMISSOES_ADMIN, fixo: true },
     { id: 'user',  nome: 'Vendedor',      permissoes: PERMISSOES_USER,  fixo: true },
@@ -411,7 +455,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
     setUsers(prev => prev.filter(u => u.id !== id))
   }
 
-  // Quando muda o perfil no form, aplica as permissões do perfil
   function mudarPerfil(perfilId) {
     const p = perfis.find(x => x.id === perfilId)
     setForm(f => ({ ...f, perfilId, permissoes: p?.permissoes || PERMISSOES_USER }))
@@ -443,7 +486,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
     toast('✅ Usuário salvo!')
   }
 
-  // ── Perfis personalizados ──
   function addPerfil() {
     setPerfilForm({ id: 'perfil_' + Date.now(), nome: '', permissoes: PERMISSOES_USER, fixo: false })
   }
@@ -483,7 +525,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 
   return (
     <div style={s.body}>
-      {/* Sub-abas */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {[['lista','👥 Usuários'],['perfis','🔐 Tipos de Perfil']].map(([id, label]) => (
           <button key={id} onClick={() => setAbaU(id)}
@@ -496,7 +537,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
         ))}
       </div>
 
-      {/* ── LISTA DE USUÁRIOS ── */}
       {abaU === 'lista' && (
         <div style={s.sec}>
           <div style={s.secTitle}>Usuários do Sistema</div>
@@ -529,7 +569,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
             + Novo Usuário
           </button>
 
-          {/* Formulário do usuário */}
           {form && (
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
               <div style={{ ...s.secTitle, marginBottom: 14 }}>
@@ -562,7 +601,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
                 </div>
               </div>
 
-              {/* Permissões individuais */}
               <div style={{ marginTop: 8 }}>
                 <div style={{ ...s.secTitle, marginBottom: 10 }}>🔐 Permissões individuais</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -598,7 +636,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
         </div>
       )}
 
-      {/* ── TIPOS DE PERFIL ── */}
       {abaU === 'perfis' && (
         <div style={s.sec}>
           <div style={s.secTitle}>Tipos de Perfil de Acesso</div>
@@ -675,17 +712,17 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA PRODUTOS — COMPLETO COM PLANOS + PREÇOS
+// ABA PRODUTOS — COM TOGGLE DE BOTÕES
 // ══════════════════════════════════════════════
 function TabProdutos({ cfg, setCfg, empresaId }) {
   const [planos,  setPlanos]  = useState(cfg.plans   || PLANOS_PADRAO)
   const [precos,  setPrecos]  = useState(cfg.prices  || PRECOS_PADRAO)
   const [modulos, setModulos] = useState(cfg.modulos || MODULOS_PADRAO)
   const [saving,  setSaving]  = useState(false)
-  const [abaP,    setAbaP]    = useState('planos') // 'planos' | 'precos' | 'modulos'
+  const [abaP,    setAbaP]    = useState('planos')
   const [novoMod, setNovoMod] = useState('')
+  const [enableProductButtons, setEnableProductButtons] = useState(cfg.enableProductButtons || false)
 
-  // ── Planos ──
   function updatePlano(id, campo, val) {
     setPlanos(prev => prev.map(p => p.id === id ? { ...p, [campo]: val } : p))
   }
@@ -697,7 +734,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
     setPlanos(prev => prev.filter(p => p.id !== id))
   }
 
-  // ── Preços ──
   function updatePreco(mod, planId, idx, val) {
     setPrecos(prev => {
       const novo = { ...prev }
@@ -709,7 +745,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
     })
   }
 
-  // ── Módulos ──
   function addModulo() {
     const m = novoMod.trim()
     if (!m || modulos.includes(m)) return
@@ -725,7 +760,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, plans: planos, prices: precos, modulos }
+    const novoCfg = { ...cfg, plans: planos, prices: precos, modulos, enableProductButtons }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -735,7 +770,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
 
   return (
     <div style={s.body}>
-      {/* Sub-abas */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {[['planos','📋 Planos'],['precos','💲 Tabela de Preços'],['modulos','📦 Módulos']].map(([id, label]) => (
           <button key={id} onClick={() => setAbaP(id)}
@@ -748,15 +782,12 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
         ))}
       </div>
 
-      {/* ── PLANOS ── */}
       {abaP === 'planos' && (
         <div style={s.sec}>
           <div style={s.secTitle}>Planos Disponíveis</div>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
             Configure os planos, quantidade máxima de CNPJs e usuários permitidos em cada um.
           </p>
-
-          {/* Tabela de planos */}
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
@@ -798,7 +829,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
               </tbody>
             </table>
           </div>
-
           <button onClick={addPlano}
             style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 12 }}>
             + Novo Plano
@@ -809,14 +839,12 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
         </div>
       )}
 
-      {/* ── TABELA DE PREÇOS ── */}
       {abaP === 'precos' && (
         <div style={s.sec}>
           <div style={s.secTitle}>Tabela de Preços por Módulo e Plano</div>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
             Preencha os valores de <strong style={{ color: 'var(--text)' }}>Adesão</strong> e <strong style={{ color: 'var(--text)' }}>Mensalidade</strong> para cada combinação de módulo e plano.
           </p>
-
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
@@ -871,7 +899,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
         </div>
       )}
 
-      {/* ── MÓDULOS ── */}
       {abaP === 'modulos' && (
         <div style={s.sec}>
           <div style={s.secTitle}>Módulos do Sistema</div>
@@ -900,6 +927,32 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
         </div>
       )}
 
+      <div style={s.sec}>
+        <div style={s.secTitle}>🖱️ Modo de Seleção de Módulos</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <div
+            onClick={() => setEnableProductButtons(!enableProductButtons)}
+            style={{
+              width: 40, height: 20, borderRadius: 10,
+              background: enableProductButtons ? 'var(--accent3)' : 'rgba(100,116,139,.3)',
+              cursor: 'pointer', position: 'relative', transition: 'background .2s'
+            }}
+          >
+            <div style={{
+              width: 16, height: 16, borderRadius: '50%', background: '#fff',
+              position: 'absolute', top: 2, left: enableProductButtons ? 22 : 2,
+              transition: 'left .2s'
+            }} />
+          </div>
+          <span style={{ fontSize: 13, color: 'var(--text)' }}>
+            {enableProductButtons ? '✅ Botões de seleção habilitados' : '⭕ Modo de digitação (padrão)'}
+          </span>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Quando habilitado, o usuário poderá escolher os módulos clicando em botões, em vez de digitar os nomes.
+        </p>
+      </div>
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>
         {saving ? '⏳ Salvando...' : '✅ Salvar Produtos'}
       </button>
@@ -908,7 +961,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA DESCONTOS
+// ABA DESCONTOS (igual)
 // ══════════════════════════════════════════════
 function TabDescontos({ cfg, setCfg, empresaId }) {
   const [discMode, setDiscMode] = useState(cfg.discMode    || 'screen')
@@ -974,7 +1027,7 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA VOUCHERS — COM IMPRESSÃO PDF
+// ABA VOUCHERS (igual)
 // ══════════════════════════════════════════════
 function TabVouchers({ cfg, setCfg, empresaId }) {
   const [prefixo,  setPrefixo]  = useState('PROMO')
@@ -1015,7 +1068,6 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
     toast('🗑 Voucher removido!')
   }
 
-  // IMPRESSÃO PDF DO VOUCHER
   function imprimirVoucher(v) {
     const win = window.open('', '_blank', 'width=700,height=520')
     if (!win) { alert('Permita popups para imprimir.'); return }
@@ -1103,7 +1155,6 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
           🎫 Gerar Voucher
         </button>
 
-        {/* Preview do último voucher gerado */}
         {ultimo && (
           <div style={{ marginTop: 14, padding: 16, background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.25)', borderRadius: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, letterSpacing: 1, textTransform: 'uppercase' }}>Voucher gerado com sucesso!</div>
@@ -1112,7 +1163,6 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
               Adesão: {ultimo.pctAdesao}% · Mensalidade: {ultimo.pctMensalidade}%
               {ultimo.comemoracao && ` · ${ultimo.comemoracao}`}
             </div>
-            {/* BOTÃO IMPRIMIR PDF */}
             <button onClick={() => imprimirVoucher(ultimo)}
               style={{ padding: '9px 18px', borderRadius: 9, background: 'linear-gradient(135deg,#0f172a,#1e3a5f)', border: '1px solid rgba(0,212,255,.3)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer', letterSpacing: .5 }}>
               🖨 Imprimir Voucher em PDF
@@ -1133,7 +1183,6 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
                 {v.criado && <span style={{ marginLeft: 8, opacity: .6 }}>· {new Date(v.criado).toLocaleDateString('pt-BR')}</span>}
               </div>
             </div>
-            {/* BOTÃO IMPRIMIR NA LISTA */}
             <button onClick={() => imprimirVoucher(v)}
               style={{ padding: '6px 12px', borderRadius: 7, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, whiteSpace: 'nowrap' }}>
               🖨 PDF
@@ -1150,7 +1199,7 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA DOCUMENTOS
+// ABA DOCUMENTOS (igual)
 // ══════════════════════════════════════════════
 function TabDocumentos({ cfg, setCfg, empresaId }) {
   const [emailRem, setEmailRem] = useState(cfg.signConfig?.email || '')
@@ -1225,7 +1274,7 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA HISTÓRICO
+// ABA HISTÓRICO (igual)
 // ══════════════════════════════════════════════
 function TabHistorico({ cfg }) {
   const [filtroTipo,   setFiltroTipo]   = useState('')
@@ -1286,7 +1335,7 @@ function TabHistorico({ cfg }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA CLIENTES
+// ABA CLIENTES (igual)
 // ══════════════════════════════════════════════
 function TabClientes({ cfg, setCfg, empresaId }) {
   const [busca,  setBusca]  = useState('')
@@ -1396,7 +1445,7 @@ function TabClientes({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA TEMA
+// ABA TEMA (igual)
 // ══════════════════════════════════════════════
 function TabTema({ cfg, setCfg, empresaId }) {
   const [tema, setTema] = useState(cfg.theme || 'dark')
@@ -1485,7 +1534,6 @@ export default function Configuracoes() {
         try { setCfg(JSON.parse(row.value)) } catch {}
       }
 
-      // Aplica tema salvo
       const saved = row?.value ? JSON.parse(row.value) : {}
       if (saved.theme) document.documentElement.setAttribute('data-theme', saved.theme)
       else document.documentElement.setAttribute('data-theme', 'dark')
@@ -1548,16 +1596,12 @@ export default function Configuracoes() {
         input:focus,select:focus{border-color:var(--accent)!important;outline:none}
       `}</style>
 
-      {/* ORBS */}
       <div style={{ position:'fixed',width:500,height:500,background:'var(--accent)',top:-200,right:-150,borderRadius:'50%',filter:'blur(120px)',opacity:.06,pointerEvents:'none',zIndex:0 }} />
       <div style={{ position:'fixed',width:400,height:400,background:'var(--accent2)',bottom:-150,left:-100,borderRadius:'50%',filter:'blur(120px)',opacity:.06,pointerEvents:'none',zIndex:0 }} />
 
-      {/* TOAST */}
       <div id="vx-toast" style={{ position:'fixed',bottom:30,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'rgba(16,185,129,.9)',color:'#fff',padding:'12px 24px',borderRadius:10,fontFamily:'DM Mono, monospace',fontSize:14,zIndex:9999,opacity:0,transition:'opacity .3s, transform .3s',boxShadow:'0 4px 20px rgba(0,0,0,.3)' }} />
 
-      {/* HEADER */}
       <header style={{ position:'relative',zIndex:10,width:'100%',maxWidth:960,margin:'0 auto',padding:'18px 20px 0',display:'flex',alignItems:'center',gap:12 }}>
-        {/* Logo ou nome */}
         {cfg.logob64
           ? <img src={cfg.logob64} alt="Logo" style={{ height:36,objectFit:'contain' }} onError={e => e.target.style.display='none'} />
           : <div style={{ fontFamily:'Syne, sans-serif',fontSize:17,fontWeight:700,letterSpacing:.5 }}>{cfg.company || 'Vivanexa'}</div>
@@ -1578,17 +1622,14 @@ export default function Configuracoes() {
         </div>
       </header>
 
-      {/* CONTEÚDO */}
       <main style={{ position:'relative',zIndex:10,width:'100%',maxWidth:960,margin:'20px auto 60px',padding:'0 20px' }}>
         <div style={{ background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,overflow:'hidden',boxShadow:'var(--shadow)' }}>
 
-          {/* CABEÇALHO */}
           <div style={{ background:'var(--surface2)',borderBottom:'1px solid var(--border)',padding:'16px 24px',display:'flex',alignItems:'center',justifyContent:'space-between' }}>
             <h3 style={{ fontFamily:'Syne, sans-serif',fontSize:16,fontWeight:700,color:'var(--accent)' }}>⚙️ Configurações</h3>
             <div style={{ fontSize:12,color:'var(--muted)' }}>{perfil?.nome && `Olá, ${perfil.nome}`}</div>
           </div>
 
-          {/* ABAS */}
           <div style={{ display:'flex',borderBottom:'1px solid var(--border)',background:'var(--surface)',overflowX:'auto' }}>
             {TABS.map(t => (
               <button key={t.id} onClick={() => setAbaAtiva(t.id)}
@@ -1605,7 +1646,6 @@ export default function Configuracoes() {
             ))}
           </div>
 
-          {/* CONTEÚDO DA ABA */}
           {renderAba()}
         </div>
       </main>
