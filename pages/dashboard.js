@@ -1,961 +1,745 @@
 // pages/dashboard.js
 // ============================================================
 // MELHORIAS APLICADAS:
-// 1. KPIs Consolidados: Soma as metas e realizados de toda a equipe.
-// 2. Histórico de Lançamentos: Modal para ver o histórico diário de KPIs por usuário.
-// 3. Obrigatoriedade de Preenchimento: Bloqueia acesso se KPI do dia anterior não foi preenchido.
-// 4. Melhorias de UI/UX: Layout mais limpo e responsivo.
+// 1. Gráficos de produtos vendidos (adesão + mensalidade por módulo)
+// 2. Menus de navegação visíveis no header (Chat, Config, Sair)
+// 3. Logo exibida no header quando configurada
+// 4. Card "Contratos do mês" com detalhes dos produtos vendidos
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
-import Head from 'next/head'
 
-// ══════════════════════════════════════════════
-// HELPERS
-// ══════════════════════════════════════════════
-function toast(msg, type = 'ok') {
-  const el = document.getElementById('vx-toast')
-  if (!el) return
-  el.textContent = msg
-  el.style.background = type === 'ok' ? 'rgba(16,185,129,.9)' : 'rgba(239,68,68,.9)'
-  el.style.opacity = '1'
-  el.style.transform = 'translateY(0)'
-  setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(20px)' }, 3000)
+// ── Helpers ──────────────────────────────────────────────────
+function fmt(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+function fmtK(v) {
+  if (v >= 1000) return `R$ ${(v / 1000).toFixed(1)}k`
+  return fmt(v)
+}
+function mesAtual() { return new Date().toISOString().slice(0, 7) }
+function diasUteisNoMes(yearMonth) {
+  const [y, m] = yearMonth.split('-').map(Number)
+  const dias = new Date(y, m, 0).getDate()
+  let uteis = 0
+  for (let d = 1; d <= dias; d++) {
+    const dow = new Date(y, m - 1, d).getDay()
+    if (dow !== 0 && dow !== 6) uteis++
+  }
+  return uteis
+}
+function pct(real, meta) {
+  if (!meta || meta <= 0) return 0
+  return Math.min(100, Math.round((real / meta) * 100))
 }
 
-// Calcula dias úteis (segunda a sexta)
-function getBusinessDaysInMonth(year, month) {
-  const date = new Date(year, month - 1, 1);
-  let count = 0;
-  while (date.getMonth() === month - 1) {
-    const day = date.getDay();
-    if (day !== 0 && day !== 6) { // Sunday = 0, Saturday = 6
-      count++;
-    }
-    date.setDate(date.getDate() + 1);
-  }
-  return count;
-}
-
-// Formata data para YYYY-MM-DD
-function formatDate(date) {
-  const d = new Date(date);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-// ══════════════════════════════════════════════
-// COMPONENTE PRINCIPAL DO DASHBOARD
-// ══════════════════════════════════════════════
-export default function Dashboard() {
-  const router = useRouter()
-  const [user, setUser] = useState(null)
-  const [empresaId, setEmpresaId] = useState(null)
-  const [cfg, setCfg] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('metas') // 'metas', 'produtos', 'kpis'
-  const [mesRef, setMesRef] = useState(new Date().toISOString().slice(0, 7)) // YYYY-MM
-  const [kpiLogs, setKpiLogs] = useState([]) // Todos os logs de KPI
-  const [dailyKpiInputs, setDailyKpiInputs] = useState({}) // Inputs do dia para o usuário logado
-  const [savingKpi, setSavingKpi] = useState(false)
-  const [kpiBlockerActive, setKpiBlockerActive] = useState(false) // Estado para o bloqueador de KPI
-  const [showKpiHistoryModal, setShowKpiHistoryModal] = useState(false)
-  const [selectedUserForHistory, setSelectedUserForHistory] = useState(null)
-  const [kpiHistoryData, setKpiHistoryData] = useState([])
-  const [loadingKpiHistory, setLoadingKpiHistory] = useState(false)
-
-  const currentYear = parseInt(mesRef.slice(0, 4))
-  const currentMonth = parseInt(mesRef.slice(5, 7))
-  const businessDays = getBusinessDaysInMonth(currentYear, currentMonth)
-  const today = formatDate(new Date())
-  const yesterday = formatDate(new Date(new Date().setDate(new Date().getDate() - 1)))
-
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true)
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/login')
-        return
-      }
-      setUser(user)
-
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('company_id, role, name')
-        .eq('uuid', user.id)
-        .single()
-
-      if (profileError || !profile?.company_id) {
-        console.error('Erro ao carregar perfil ou company_id não encontrado:', profileError);
-        router.push('/login'); // Redireciona se não encontrar perfil/empresa
-        return;
-      }
-      setEmpresaId(profile.company_id)
-
-      const { data: cfgData, error: cfgError } = await supabase
-        .from('vx_storage')
-        .select('value')
-        .eq('key', `cfg:${profile.company_id}`)
-        .single()
-
-      if (cfgError && cfgError.code !== 'PGRST116') {
-        console.error('Erro ao carregar configurações:', cfgError);
-        setLoading(false);
-        return;
-      }
-
-      const loadedCfg = cfgData ? JSON.parse(cfgData.value) : {
-        company: 'VIVANEXA',
-        slogan: 'Assistente Comercial',
-        kpiTemplates: [],
-        users: [],
-        kpiObrigatorio: false, // Default para a nova configuração
-      }
-      setCfg(loadedCfg)
-
-      // Carregar logs de KPI para a empresa
-      const { data: logs, error: logsError } = await supabase
-        .from('kpi_logs')
-        .select('*')
-        .eq('empresa_id', profile.company_id)
-        .gte('data', `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`)
-        .lte('data', `${currentYear}-${String(currentMonth).padStart(2, '0')}-31`) // Simplificado para o mês inteiro
-        .order('created_at', { ascending: false });
-
-      if (logsError) {
-        console.error('Erro ao carregar logs de KPI:', logsError);
-      } else {
-        setKpiLogs(logs || []);
-      }
-
-      // Verificar obrigatoriedade de KPI
-      if (loadedCfg.kpiObrigatorio) {
-        const { data: lastKpiEntry, error: kpiEntryError } = await supabase
-          .from('kpi_logs')
-          .select('data')
-          .eq('user_id', user.id)
-          .eq('data', yesterday) // Verifica se há algum lançamento para ontem
-          .limit(1);
-
-        if (kpiEntryError) {
-          console.error('Erro ao verificar KPI de ontem:', kpiEntryError);
-        }
-
-        // Se não houver lançamento para ontem E hoje não for o primeiro dia do mês
-        // E o usuário não for admin (admins não são bloqueados)
-        const isFirstDayOfMonth = new Date().getDate() === 1;
-        if (!isFirstDayOfMonth && (!lastKpiEntry || lastKpiEntry.length === 0) && profile.role !== 'admin') {
-          setKpiBlockerActive(true);
-          toast('⚠️ Preencha os KPIs de ontem para continuar!', 'err');
-        }
-      }
-
-      setLoading(false)
-    }
-    loadData()
-  }, [router, mesRef]) // Recarrega se o mês de referência mudar
-
-  useEffect(() => {
-    if (cfg && user && kpiLogs) {
-      // Preencher os inputs diários com os valores de hoje, se existirem
-      const todayLogs = kpiLogs.filter(log => log.user_id === user.id && log.data === today);
-      const initialInputs = {};
-      cfg.kpiTemplates?.forEach(kpi => {
-        const log = todayLogs.find(l => l.kpi_template_id === kpi.id);
-        initialInputs[kpi.id] = log ? log.valor : '';
-      });
-      setDailyKpiInputs(initialInputs);
-    }
-  }, [cfg, user, kpiLogs, today]);
-
-  // ══════════════════════════════════════════════
-  // LÓGICA DE KPIs
-  // ══════════════════════════════════════════════
-  const handleKpiInputChange = (kpiId, value) => {
-    setDailyKpiInputs(prev => ({ ...prev, [kpiId]: value }));
-  };
-
-  const salvarKpiDiario = async () => {
-    if (!user || !empresaId || !cfg?.kpiTemplates) return;
-
-    setSavingKpi(true);
-    const updates = [];
-    for (const kpi of cfg.kpiTemplates) {
-      const valor = parseInt(dailyKpiInputs[kpi.id]) || 0;
-      // Verifica se já existe um log para este KPI e data
-      const existingLog = kpiLogs.find(log =>
-        log.user_id === user.id &&
-        log.kpi_template_id === kpi.id &&
-        log.data === today
-      );
-
-      if (existingLog) {
-        // Atualiza o log existente
-        updates.push(
-          supabase
-            .from('kpi_logs')
-            .update({ valor: valor, updated_at: new Date().toISOString() })
-            .eq('id', existingLog.id)
-        );
-      } else if (valor > 0) {
-        // Insere um novo log se o valor for maior que zero
-        updates.push(
-          supabase.from('kpi_logs').insert({
-            user_id: user.id,
-            empresa_id: empresaId,
-            kpi_template_id: kpi.id,
-            valor: valor,
-            data: today,
-          })
-        );
-      }
-    }
-
-    const results = await Promise.all(updates);
-    const hasError = results.some(r => r.error);
-
-    if (hasError) {
-      toast('Erro ao salvar KPIs diários.', 'err');
-      console.error('Erros ao salvar KPIs:', results.filter(r => r.error));
-    } else {
-      toast('✅ KPIs diários salvos com sucesso!');
-      // Recarregar logs para atualizar o dashboard
-      const { data: newLogs, error: logsError } = await supabase
-        .from('kpi_logs')
-        .select('*')
-        .eq('empresa_id', empresaId)
-        .gte('data', `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`)
-        .lte('data', `${currentYear}-${String(currentMonth).padStart(2, '0')}-31`)
-        .order('created_at', { ascending: false });
-
-      if (!logsError) {
-        setKpiLogs(newLogs || []);
-      }
-      setKpiBlockerActive(false); // Desativa o bloqueador após salvar
-    }
-    setSavingKpi(false);
-  };
-
-  // ══════════════════════════════════════════════
-  // CÁLCULOS DE KPI CONSOLIDADOS E POR USUÁRIO
-  // ══════════════════════════════════════════════
-  const consolidatedKpis = {};
-  cfg?.kpiTemplates?.forEach(kpi => {
-    consolidatedKpis[kpi.id] = {
-      nome: kpi.nome,
-      icone: kpi.icone,
-      unidade: kpi.unidade,
-      metaTotal: kpi.meta * businessDays * (cfg.users?.length || 1), // Meta diária * dias úteis * número de usuários
-      realizadoTotal: 0,
-    };
-  });
-
-  const userKpiData = {};
-  cfg?.users?.forEach(u => {
-    userKpiData[u.id] = {
-      nome: u.nome,
-      kpis: {},
-    };
-    cfg.kpiTemplates?.forEach(kpi => {
-      userKpiData[u.id].kpis[kpi.id] = {
-        nome: kpi.nome,
-        icone: kpi.icone,
-        unidade: kpi.unidade,
-        metaMensal: kpi.meta * businessDays,
-        metaDiaria: kpi.meta,
-        realizadoMensal: 0,
-        realizadoDiario: 0,
-      };
-    });
-  });
-
-  kpiLogs.forEach(log => {
-    if (consolidatedKpis[log.kpi_template_id]) {
-      consolidatedKpis[log.kpi_template_id].realizadoTotal += log.valor;
-    }
-    if (userKpiData[log.user_id] && userKpiData[log.user_id].kpis[log.kpi_template_id]) {
-      userKpiData[log.user_id].kpis[log.kpi_template_id].realizadoMensal += log.valor;
-      if (log.data === today) {
-        userKpiData[log.user_id].kpis[log.kpi_template_id].realizadoDiario += log.valor;
-      }
-    }
-  });
-
-  // ══════════════════════════════════════════════
-  // MODAL DE HISTÓRICO DE KPI
-  // ══════════════════════════════════════════════
-  const loadKpiHistory = async (userId) => {
-    setLoadingKpiHistory(true);
-    const { data, error } = await supabase
-      .from('kpi_logs')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('empresa_id', empresaId)
-      .order('data', { ascending: false });
-
-    if (error) {
-      toast('Erro ao carregar histórico de KPI: ' + error.message, 'err');
-      setKpiHistoryData([]);
-    } else {
-      // Agrupar por data
-      const grouped = data.reduce((acc, log) => {
-        const date = log.data;
-        if (!acc[date]) {
-          acc[date] = [];
-        }
-        acc[date].push(log);
-        return acc;
-      }, {});
-      setKpiHistoryData(Object.entries(grouped).sort(([dateA], [dateB]) => new Date(dateB) - new Date(dateA)));
-    }
-    setLoadingKpiHistory(false);
-    setShowKpiHistoryModal(true);
-  };
-
-  if (loading) {
-    return (
-      <div style={s.loadingContainer}>
-        <div style={s.spinner}></div>
-        <p style={{ marginTop: 15, color: 'var(--muted)' }}>Carregando dashboard...</p>
-      </div>
-    )
-  }
-
-  if (!cfg || !empresaId) {
-    return (
-      <div style={s.loadingContainer}>
-        <p style={{ color: 'var(--danger)' }}>Erro ao carregar configurações ou ID da empresa. Tente novamente.</p>
-      </div>
-    )
-  }
-
+// ── Barra de progresso ────────────────────────────────────────
+function BarraProgresso({ label, real, meta }) {
+  const p = pct(real, meta)
+  const cor = p >= 100 ? 'var(--accent3)' : p >= 70 ? 'var(--accent)' : p >= 40 ? 'var(--warning)' : 'var(--danger)'
   return (
-    <div style={s.container}>
-      <Head>
-        <title>Dashboard de Vendas — {cfg.company || 'VIVANEXA'}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-      </Head>
-      <div style={s.sidebar}>
-        <div style={s.logoContainer}>
-          {cfg.logob64 ? (
-            <img src={cfg.logob64} alt="Logo" style={s.logo} />
-          ) : (
-            <div style={s.appName}>{cfg.company || 'VIVANEXA'}</div>
-          )}
-          <div style={s.appSlogan}>{cfg.slogan || 'Assistente Comercial'}</div>
-        </div>
-        <nav style={s.nav}>
-          <button
-            style={{ ...s.navItem, ...(activeTab === 'metas' ? s.navItemActive : {}) }}
-            onClick={() => setActiveTab('metas')}
-          >
-            🎯 Metas de Vendas
-          </button>
-          <button
-            style={{ ...s.navItem, ...(activeTab === 'produtos' ? s.navItemActive : {}) }}
-            onClick={() => setActiveTab('produtos')}
-          >
-            📦 Produtos Vendidos
-          </button>
-          <button
-            style={{ ...s.navItem, ...(activeTab === 'kpis' ? s.navItemActive : {}) }}
-            onClick={() => setActiveTab('kpis')}
-          >
-            📊 KPIs de Atividade
-          </button>
-        </nav>
-        <button onClick={() => router.push('/configuracoes')} style={s.configBtn}>
-          ⚙️ Configurações
-        </button>
-        <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} style={s.logoutBtn}>
-          Sair
-        </button>
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+        <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{label}</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {fmt(real)} / {fmt(meta)}{' '}
+          <span style={{ color: cor, fontWeight: 700 }}>{p}%</span>
+        </span>
       </div>
-
-      <div style={s.mainContent}>
-        <div style={s.header}>
-          <h1 style={s.title}>Dashboard de Vendas</h1>
-          <div style={s.periodSelector}>
-            <label style={s.label}>Período:</label>
-            <input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} style={s.input} />
-          </div>
-        </div>
-
-        {kpiBlockerActive && (
-          <div style={s.kpiBlockerOverlay}>
-            <div style={s.kpiBlockerBox}>
-              <h3 style={{ ...s.secTitle, color: 'var(--danger)' }}>⚠️ Preenchimento de KPIs Obrigatório!</h3>
-              <p style={{ color: 'var(--muted)', marginBottom: 20 }}>
-                Para ter acesso total ao sistema, por favor, preencha os KPIs referentes ao dia de ontem ({yesterday}).
-              </p>
-              <div style={{ marginBottom: 20 }}>
-                {cfg.kpiTemplates?.map(kpi => (
-                  <div key={kpi.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                    <span style={{ fontSize: 20 }}>{kpi.icone}</span>
-                    <label style={{ ...s.label, marginBottom: 0, flex: 1 }}>{kpi.nome} ({kpi.unidade})</label>
-                    <input
-                      type="number"
-                      style={{ ...s.input, width: 80 }}
-                      value={dailyKpiInputs[kpi.id] || ''}
-                      onChange={(e) => handleKpiInputChange(kpi.id, e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-                ))}
-              </div>
-              <button style={s.saveBtn} onClick={salvarKpiDiario} disabled={savingKpi}>
-                {savingKpi ? '⏳ Salvando...' : '✅ Salvar KPIs de Ontem'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div style={{ ...s.contentArea, filter: kpiBlockerActive ? 'blur(5px)' : 'none', pointerEvents: kpiBlockerActive ? 'none' : 'auto' }}>
-          {activeTab === 'metas' && (
-            <div style={s.sec}>
-              <div style={s.secTitle}>🎯 Metas de Vendas</div>
-              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-                Acompanhe o desempenho de adesão e mensalidade da equipe e individualmente.
-              </p>
-
-              {/* Gráfico de Adesão Consolidado */}
-              <div style={{ marginBottom: 30 }}>
-                <h3 style={{ ...s.secTitle, fontSize: 16, marginBottom: 15 }}>Adesão: Real vs Meta por Vendedor</h3>
-                {cfg.users?.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum usuário cadastrado para exibir metas.</p>}
-                {cfg.users?.map(u => {
-                  const userGoals = cfg.goals?.find(g => g.userId === u.id && g.mes === mesRef) || {};
-                  const metaAdesao = parseFloat(userGoals.metaAdesao || 0);
-                  const metaMensalidade = parseFloat(userGoals.metaMensalidade || 0);
-
-                  // TODO: Implementar cálculo de realizado para adesão/mensalidade
-                  // Por enquanto, valores fictícios ou 0
-                  const realizadoAdesao = 0; // Buscar de contratos fechados
-                  const realizadoMensalidade = 0; // Buscar de contratos fechados
-
-                  const percAdesao = metaAdesao > 0 ? (realizadoAdesao / metaAdesao) * 100 : 0;
-                  const percMensalidade = metaMensalidade > 0 ? (realizadoMensalidade / metaMensalidade) * 100 : 0;
-
-                  return (
-                    <div key={u.id} style={{ marginBottom: 20, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 15 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{u.nome}</div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-                        {u.email} · {u.role || 'Vendedor'}
-                      </div>
-
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 5 }}>Adesão: {fmt(realizadoAdesao)} / {fmt(metaAdesao)}</div>
-                        <div style={s.progressBarContainer}>
-                          <div style={{ ...s.progressBar, width: `${Math.min(100, percAdesao)}%`, background: 'var(--accent3)' }}></div>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 5 }}>Mensalidade: {fmt(realizadoMensalidade)} / {fmt(metaMensalidade)}</div>
-                        <div style={s.progressBarContainer}>
-                          <div style={{ ...s.progressBar, width: `${Math.min(100, percMensalidade)}%`, background: 'var(--accent)' }}></div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 20 }}>
-                <a href="#" onClick={() => router.push('/configuracoes?tab=metas')} style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
-                  Configure metas em Configurações
-                </a>
-              </p>
-            </div>
-          )}
-
-          {activeTab === 'kpis' && (
-            <div style={s.sec}>
-              <div style={s.secTitle}>📊 KPIs de Atividade</div>
-              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
-                Acompanhe os indicadores de atividade da equipe e lance seus próprios KPIs diários.
-              </p>
-
-              {/* KPIs Consolidados – Equipe */}
-              <div style={{ marginBottom: 30 }}>
-                <h3 style={{ ...s.secTitle, fontSize: 16, marginBottom: 15 }}>KPIs Consolidados – Equipe</h3>
-                {Object.values(consolidatedKpis).length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum KPI configurado.</p>}
-                {Object.values(consolidatedKpis).map(kpi => {
-                  const perc = kpi.metaTotal > 0 ? (kpi.realizadoTotal / kpi.metaTotal) * 100 : 0;
-                  return (
-                    <div key={kpi.nome} style={{ marginBottom: 15, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 15 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                        <span style={{ fontSize: 22 }}>{kpi.icone}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{kpi.nome}</div>
-                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                            Realizado: {kpi.realizadoTotal} {kpi.unidade} / Meta: {kpi.metaTotal} {kpi.unidade}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={s.progressBarContainer}>
-                        <div style={{ ...s.progressBar, width: `${Math.min(100, perc)}%`, background: 'var(--accent)' }}></div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* KPIs Individuais do Usuário Logado */}
-              <div style={{ marginBottom: 30 }}>
-                <h3 style={{ ...s.secTitle, fontSize: 16, marginBottom: 15 }}>Seus KPIs Diários ({today})</h3>
-                {cfg.kpiTemplates?.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum KPI configurado para lançamento.</p>}
-                {cfg.kpiTemplates?.map(kpi => (
-                  <div key={kpi.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                    <span style={{ fontSize: 20 }}>{kpi.icone}</span>
-                    <label style={{ ...s.label, marginBottom: 0, flex: 1 }}>{kpi.nome} ({kpi.unidade})</label>
-                    <input
-                      type="number"
-                      style={{ ...s.input, width: 80 }}
-                      value={dailyKpiInputs[kpi.id] || ''}
-                      onChange={(e) => handleKpiInputChange(kpi.id, e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-                ))}
-                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
-                  {businessDays} dias úteis em {mesRef} - Metas mensal = metas diárias x {businessDays}
-                </p>
-                <button style={{ ...s.saveBtn, marginTop: 15 }} onClick={salvarKpiDiario} disabled={savingKpi}>
-                  {savingKpi ? '⏳ Salvando...' : '✅ Salvar KPIs de Hoje'}
-                </button>
-              </div>
-
-              {/* KPIs por Usuário (para administradores ou gerentes) */}
-              {user?.role === 'admin' && ( // Apenas admins podem ver os KPIs de outros usuários
-                <div style={s.sec}>
-                  <h3 style={{ ...s.secTitle, fontSize: 16, marginBottom: 15 }}>KPIs por Usuário</h3>
-                  {Object.values(userKpiData).length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum usuário com KPIs.</p>}
-                  {Object.values(userKpiData).map(userData => (
-                    <div key={userData.nome} style={{ marginBottom: 20, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 15 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14 }}>{userData.nome}</div>
-                        <button onClick={() => loadKpiHistory(Object.keys(userKpiData).find(id => userKpiData[id].nome === userData.nome))}
-                          style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-                          Histórico
-                        </button>
-                      </div>
-                      {Object.values(userData.kpis).map(kpi => {
-                        const percMensal = kpi.metaMensal > 0 ? (kpi.realizadoMensal / kpi.metaMensal) * 100 : 0;
-                        const percDiario = kpi.metaDiaria > 0 ? (kpi.realizadoDiario / kpi.metaDiaria) * 100 : 0;
-                        return (
-                          <div key={kpi.nome} style={{ marginBottom: 10 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
-                              <span style={{ fontSize: 18 }}>{kpi.icone}</span>
-                              <div style={{ flex: 1 }}>{kpi.nome}</div>
-                              <div>Diário: {kpi.realizadoDiario} / {kpi.metaDiaria}</div>
-                              <div style={{ width: 60, textAlign: 'right' }}>{percDiario.toFixed(0)}%</div>
-                            </div>
-                            <div style={s.progressBarContainer}>
-                              <div style={{ ...s.progressBar, width: `${Math.min(100, percDiario)}%`, background: 'var(--accent3)' }}></div>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)', marginTop: 5 }}>
-                              <span style={{ width: 18 }}></span> {/* Espaço para alinhar */}
-                              <div style={{ flex: 1 }}></div>
-                              <div>Mensal: {kpi.realizadoMensal} / {kpi.metaMensal}</div>
-                              <div style={{ width: 60, textAlign: 'right' }}>{percMensal.toFixed(0)}%</div>
-                            </div>
-                            <div style={s.progressBarContainer}>
-                              <div style={{ ...s.progressBar, width: `${Math.min(100, percMensal)}%`, background: 'var(--accent)' }}></div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 20 }}>
-                <a href="#" onClick={() => router.push('/configuracoes?tab=kpis')} style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
-                  Configure KPIs em Configurações
-                </a>
-              </p>
-            </div>
-          )}
-        </div>
+      <div style={{ height: 8, background: 'var(--surface2)', borderRadius: 4, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${p}%`, background: cor, borderRadius: 4, transition: 'width .6s ease' }} />
       </div>
+    </div>
+  )
+}
 
-      <div id="vx-toast" style={s.toast}></div>
-
-      {/* Modal de Histórico de KPI */}
-      {showKpiHistoryModal && (
-        <div className="modal-overlay">
-          <div className="modal-box" style={{ maxWidth: '700px' }}>
-            <div className="modal-header">
-              <h3>Histórico de KPIs de {selectedUserForHistory?.name}</h3>
-              <button className="modal-close" onClick={() => setShowKpiHistoryModal(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              {loadingKpiHistory ? (
-                <div style={s.centro}>
-                  <div style={s.spinner}></div>
-                  <p style={{ marginTop: 15, color: 'var(--muted)' }}>Carregando histórico...</p>
-                </div>
-              ) : (
-                <div>
-                  {kpiHistoryData.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum lançamento de KPI encontrado para este usuário.</p>}
-                  {kpiHistoryData.map(([date, logs]) => (
-                    <div key={date} style={{ marginBottom: 20, padding: 15, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
-                      <h4 style={{ fontSize: 15, color: 'var(--accent)', marginBottom: 10 }}>📅 {new Date(date).toLocaleDateString('pt-BR')}</h4>
-                      {logs.map(log => {
-                        const kpiTemplate = cfg.kpiTemplates?.find(t => t.id === log.kpi_template_id);
-                        return (
-                          <div key={log.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5, fontSize: 14 }}>
-                            <span style={{ fontSize: 18 }}>{kpiTemplate?.icone || '📊'}</span>
-                            <div style={{ flex: 1 }}>{kpiTemplate?.nome || log.kpi_template_id}</div>
-                            <div>{log.valor} {kpiTemplate?.unidade || 'un'}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setShowKpiHistoryModal(false)}>Fechar</button>
-            </div>
-          </div>
+// ── Card KPI ─────────────────────────────────────────────────
+function CardKpi({ icone, nome, realizado, meta, onClick }) {
+  const p   = pct(realizado, meta)
+  const cor = p >= 100 ? 'var(--accent3)' : p >= 60 ? 'var(--accent)' : 'var(--muted)'
+  return (
+    <div onClick={onClick}
+      style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', cursor: onClick ? 'pointer' : 'default', transition: 'border-color .2s' }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(0,212,255,.4)'}
+      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
+      <div style={{ fontSize: 22, marginBottom: 6 }}>{icone}</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4, letterSpacing: '.5px' }}>{nome}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span style={{ fontSize: 26, fontWeight: 800, fontFamily: 'Syne, sans-serif', color: cor }}>{realizado}</span>
+        {meta > 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>/ {meta}</span>}
+      </div>
+      {meta > 0 && (
+        <div style={{ marginTop: 8, height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${p}%`, background: cor, borderRadius: 2, transition: 'width .6s' }} />
         </div>
       )}
     </div>
   )
 }
 
-// ══════════════════════════════════════════════
-// ESTILOS (s)
-// ══════════════════════════════════════════════
-const s = {
-  container: {
-    display: 'flex',
-    minHeight: '100vh',
-    background: 'var(--bg)',
-    color: 'var(--text)',
-    width: '100%',
-  },
-  sidebar: {
-    width: 260,
-    background: 'var(--surface)',
-    borderRight: '1px solid var(--border)',
-    padding: '20px 0',
-    display: 'flex',
-    flexDirection: 'column',
-    flexShrink: 0,
-  },
-  logoContainer: {
-    padding: '0 20px 20px',
-    borderBottom: '1px solid var(--border)',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  logo: {
-    height: 60,
-    maxWidth: '100%',
-    objectFit: 'contain',
-    marginBottom: 8,
-  },
-  appName: {
-    fontFamily: 'Syne, sans-serif',
-    fontSize: 22,
-    fontWeight: 800,
-    color: 'var(--accent)',
-  },
-  appSlogan: {
-    fontSize: 13,
-    color: 'var(--muted)',
-  },
-  nav: {
-    flex: 1,
-    padding: '0 10px',
-  },
-  navItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    width: '100%',
-    padding: '12px 15px',
-    borderRadius: 10,
-    background: 'transparent',
-    border: 'none',
-    color: 'var(--muted)',
-    fontSize: 14,
-    fontFamily: 'DM Mono, monospace',
-    textAlign: 'left',
-    cursor: 'pointer',
-    marginBottom: 5,
-    transition: 'all .2s',
-  },
-  navItemActive: {
-    background: 'rgba(0,212,255,.1)',
-    color: 'var(--accent)',
-    fontWeight: 600,
-  },
-  configBtn: {
-    display: 'block',
-    width: 'calc(100% - 20px)',
-    margin: '20px 10px 0',
-    padding: '12px 15px',
-    borderRadius: 10,
-    background: 'var(--surface2)',
-    border: '1px solid var(--border)',
-    color: 'var(--muted)',
-    fontSize: 13,
-    fontFamily: 'DM Mono, monospace',
-    cursor: 'pointer',
-    textAlign: 'center',
-    transition: 'all .2s',
-  },
-  logoutBtn: {
-    display: 'block',
-    width: 'calc(100% - 20px)',
-    margin: '10px 10px 0',
-    padding: '12px 15px',
-    borderRadius: 10,
-    background: 'rgba(239,68,68,.1)',
-    border: '1px solid rgba(239,68,68,.2)',
-    color: 'var(--danger)',
-    fontSize: 13,
-    fontFamily: 'DM Mono, monospace',
-    cursor: 'pointer',
-    textAlign: 'center',
-    transition: 'all .2s',
-  },
-  mainContent: {
-    flex: 1,
-    padding: '20px 30px',
-    overflowY: 'auto',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 25,
-  },
-  title: {
-    fontFamily: 'Syne, sans-serif',
-    fontSize: 28,
-    fontWeight: 700,
-    color: 'var(--text)',
-  },
-  periodSelector: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-  },
-  input: {
-    padding: '8px 12px',
-    borderRadius: 8,
-    border: '1px solid var(--border)',
-    background: 'var(--surface2)',
-    color: 'var(--text)',
-    fontSize: 14,
-    fontFamily: 'DM Mono, monospace',
-    outline: 'none',
-  },
-  contentArea: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 16,
-    padding: '25px 30px',
-    boxShadow: 'var(--shadow)',
-  },
-  sec: {
-    marginBottom: 30,
-    paddingBottom: 20,
-    borderBottom: '1px solid var(--border)',
-  },
-  secTitle: {
-    fontFamily: 'Syne, sans-serif',
-    fontSize: 18,
-    fontWeight: 700,
-    color: 'var(--accent)',
-    marginBottom: 15,
-  },
-  label: {
-    display: 'block',
-    fontSize: 12,
-    color: 'var(--muted)',
-    marginBottom: 6,
-    letterSpacing: '.5px',
-    textTransform: 'uppercase',
-  },
-  progressBarContainer: {
-    width: '100%',
-    height: 8,
-    background: 'var(--border)',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginTop: 5,
-  },
-  progressBar: {
-    height: '100%',
-    borderRadius: 4,
-    transition: 'width 0.5s ease-in-out',
-  },
-  saveBtn: {
-    display: 'block',
-    width: '100%',
-    padding: '12px 20px',
-    borderRadius: 10,
-    background: 'linear-gradient(135deg,var(--accent3),#059669)',
-    border: 'none',
-    color: '#fff',
-    fontFamily: 'DM Mono, monospace',
-    fontSize: 15,
-    fontWeight: 700,
-    cursor: 'pointer',
-    letterSpacing: .5,
-    transition: 'all .2s',
-  },
-  toast: {
-    position: 'fixed',
-    bottom: 20,
-    right: 20,
-    background: 'rgba(16,185,129,.9)',
-    color: '#fff',
-    padding: '12px 20px',
-    borderRadius: 10,
-    fontSize: 14,
-    fontFamily: 'DM Mono, monospace',
-    opacity: 0,
-    transform: 'translateY(20px)',
-    transition: 'all .3s ease-out',
-    zIndex: 1000,
-  },
-  loadingContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: '100vh',
-    width: '100%',
-    background: 'var(--bg)',
-    color: 'var(--text)',
-  },
-  spinner: {
-    width: 40,
-    height: 40,
-    border: '3px solid var(--border)',
-    borderTop: '3px solid var(--accent)',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-  },
-  // Estilos para o bloqueador de KPI
-  kpiBlockerOverlay: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,.85)',
-    zIndex: 5000,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  kpiBlockerBox: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 16,
-    padding: '28px 32px',
-    boxShadow: 'var(--shadow)',
-    width: '100%',
-    maxWidth: 500,
-    textAlign: 'center',
-  },
-  // Estilos para o modal (copiados de configuracoes.js)
-  'modal-overlay': {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,.75)',
-    zIndex: 6000,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-    overflowY: 'auto',
-  },
-  'modal-box': {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 16,
-    width: '100%',
-    maxWidth: 560, /* Ajuste conforme necessário */
-    boxShadow: 'var(--shadow)',
-    display: 'flex',
-    flexDirection: 'column',
-    maxHeight: '90vh',
-    position: 'relative',
-  },
-  'modal-header': {
-    padding: '20px 24px 0',
-    flexShrink: 0,
-  },
-  'modal-header h3': {
-    fontFamily: 'Syne, sans-serif',
-    fontSize: 16,
-    fontWeight: 700,
-    color: 'var(--accent)',
-  },
-  'modal-close': {
-    position: 'absolute',
-    top: 16,
-    right: 20,
-    background: 'none',
-    border: 'none',
-    color: 'var(--muted)',
-    fontSize: 20,
-    cursor: 'pointer',
-  },
-  'modal-close:hover': {
-    color: 'var(--text)',
-  },
-  'modal-body': {
-    padding: '20px 24px',
-    overflowY: 'auto',
-    flex: 1,
-  },
-  'modal-footer': {
-    padding: '16px 24px',
-    borderTop: '1px solid var(--border)',
-    display: 'flex',
-    gap: 10,
-    justifyContent: 'flex-end',
-    flexShrink: 0,
-  },
-  'btn-cancel': {
-    padding: '10px 18px',
-    borderRadius: 10,
-    background: 'rgba(100,116,139,.12)',
-    border: '1px solid var(--border)',
-    color: 'var(--muted)',
-    fontFamily: 'DM Mono',
-    fontSize: 13,
-    cursor: 'pointer',
-  },
-  'btn-primary': {
-    padding: '10px 22px',
-    borderRadius: 10,
-    background: 'linear-gradient(135deg,var(--accent),#0099bb)',
-    border: 'none',
-    color: '#fff',
-    fontFamily: 'DM Mono',
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: 'pointer',
-    transition: 'all .2s',
-  },
-  'btn-primary:hover': {
-    boxShadow: '0 0 16px rgba(0,212,255,.4)',
-    transform: 'translateY(-1px)',
-  },
+// ── Gráfico de barras SVG ────────────────────────────────────
+function GraficoBarras({ dados, altura = 130, formatarValor }) {
+  if (!dados || dados.length === 0) return (
+    <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--muted)', fontSize: 13 }}>
+      Sem dados para exibir
+    </div>
+  )
+  const maxVal = Math.max(...dados.map(d => d.valor), 1)
+  const larg   = 100 / dados.length
+  const fmtV   = formatarValor || (v => v > 9999 ? `${(v / 1000).toFixed(0)}k` : String(v))
+  return (
+    <svg width="100%" height={altura} style={{ overflow: 'visible' }}>
+      {dados.map((d, i) => {
+        const h = Math.max(4, (d.valor / maxVal) * (altura - 28))
+        const x = i * larg + larg * 0.1
+        const w = larg * 0.8
+        return (
+          <g key={i}>
+            <rect x={`${x}%`} y={altura - 22 - h} width={`${w}%`} height={h}
+              rx="3" fill={d.cor || 'var(--accent)'} opacity={0.85} />
+            <text x={`${x + w / 2}%`} y={altura - 4} textAnchor="middle"
+              style={{ fontSize: 9, fill: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
+              {d.label}
+            </text>
+            {d.valor > 0 && (
+              <text x={`${x + w / 2}%`} y={altura - 26 - h} textAnchor="middle"
+                style={{ fontSize: 9, fill: 'var(--text)', fontFamily: 'DM Mono, monospace' }}>
+                {fmtV(d.valor)}
+              </text>
+            )}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+// ── Gráfico de pizza simples (SVG) ────────────────────────────
+function GraficoPizza({ dados, tamanho = 140 }) {
+  if (!dados || dados.length === 0) return null
+  const total = dados.reduce((a, d) => a + d.valor, 0)
+  if (total === 0) return (
+    <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: 20 }}>Sem dados</div>
+  )
+  const cx = tamanho / 2, cy = tamanho / 2, r = tamanho / 2 - 10
+  let anguloAtual = -Math.PI / 2
+  const fatias = dados.map(d => {
+    const angulo = (d.valor / total) * 2 * Math.PI
+    const x1 = cx + r * Math.cos(anguloAtual)
+    const y1 = cy + r * Math.sin(anguloAtual)
+    anguloAtual += angulo
+    const x2 = cx + r * Math.cos(anguloAtual)
+    const y2 = cy + r * Math.sin(anguloAtual)
+    const grande = angulo > Math.PI ? 1 : 0
+    return { ...d, x1, y1, x2, y2, grande, angulo }
+  })
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+      <svg width={tamanho} height={tamanho} style={{ flexShrink: 0 }}>
+        {fatias.map((f, i) => (
+          f.angulo > 0.01 && (
+            <path key={i}
+              d={`M${cx},${cy} L${f.x1},${f.y1} A${r},${r} 0 ${f.grande} 1 ${f.x2},${f.y2} Z`}
+              fill={f.cor} opacity={0.85} />
+          )
+        ))}
+        <circle cx={cx} cy={cy} r={r * 0.45} fill="var(--surface)" />
+      </svg>
+      <div style={{ flex: 1 }}>
+        {dados.map((d, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 3, background: d.cor, flexShrink: 0 }} />
+            <span style={{ color: 'var(--muted)', flex: 1 }}>{d.label}</span>
+            <span style={{ fontWeight: 700, color: 'var(--text)' }}>{Math.round((d.valor / total) * 100)}%</span>
+            <span style={{ color: 'var(--accent)', fontSize: 11 }}>{fmtK(d.valor)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Últimos docs ─────────────────────────────────────────────
+function UltimosDocs({ docs }) {
+  if (!docs || docs.length === 0) return (
+    <p style={{ color: 'var(--muted)', fontSize: 13, padding: '12px 0' }}>Nenhum documento gerado ainda.</p>
+  )
+  return (
+    <div>
+      {docs.slice(0, 6).map((d, i) => {
+        const isSigned  = d.status === 'signed'
+        const isPending = d.status === 'pending' || d.status === 'sent'
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: i < Math.min(docs.length, 6) - 1 ? '1px solid var(--border)' : 'none' }}>
+            <div style={{ fontSize: 18, flexShrink: 0 }}>{d.type === 'contrato' ? '📝' : '📄'}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {d.cliente || 'Cliente não identificado'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+                {d.type === 'contrato' ? 'Contrato' : 'Proposta'} · {d.criado ? new Date(d.criado).toLocaleDateString('pt-BR') : '—'}
+                {d.adesao > 0 && ` · ${fmtK(d.adesao)}`}
+              </div>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: isSigned ? 'var(--accent3)' : isPending ? 'var(--warning)' : 'var(--muted)', flexShrink: 0 }}>
+              {isSigned ? '✅' : isPending ? '⏳' : '📝'}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Modal lançar KPI ─────────────────────────────────────────
+function ModalKpi({ kpi, userId, onClose, onSave }) {
+  const hoje = new Date().toISOString().slice(0, 10)
+  const [valor, setValor] = useState('')
+  const [data,  setData]  = useState(hoje)
+
+  async function salvar() {
+    if (!valor || isNaN(Number(valor))) return
+    await onSave({ kpiId: kpi.id, valor: Number(valor), data, userId })
+    onClose()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 360, boxShadow: 'var(--shadow)' }}>
+        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 20 }}>
+          {kpi.icone} Lançar {kpi.nome}
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Data</label>
+          <input type="date" value={data} onChange={e => setData(e.target.value)}
+            style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none' }} />
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Quantidade</label>
+          <input type="number" autoFocus min={0} value={valor} onChange={e => setValor(e.target.value)}
+            placeholder="Ex: 15"
+            style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 14, color: 'var(--text)', outline: 'none' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={salvar}
+            style={{ flex: 1, padding: '11px', borderRadius: 10, background: 'linear-gradient(135deg,var(--accent),#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            ✅ Salvar
+          </button>
+          <button onClick={onClose}
+            style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════
+// PÁGINA PRINCIPAL
+// ══════════════════════════════════════════════════════════════
+export default function Dashboard() {
+  const router = useRouter()
+  const [loading,   setLoading]   = useState(true)
+  const [perfil,    setPerfil]    = useState(null)
+  const [empresaId, setEmpresaId] = useState(null)
+  const [cfg,       setCfg]       = useState({})
+  const [mes,       setMes]       = useState(mesAtual())
+  const [kpiModal,  setKpiModal]  = useState(null)
+  const [abaAtiva,  setAbaAtiva]  = useState('geral')
+
+  useEffect(() => {
+    async function init() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { router.push('/'); return }
+
+      const { data: perf } = await supabase.from('perfis').select('*').eq('id', session.user.id).single()
+      setPerfil(perf)
+      const eid = perf?.empresa_id || session.user.id
+      setEmpresaId(eid)
+
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
+      if (row?.value) {
+        try {
+          const saved = JSON.parse(row.value)
+          setCfg(saved)
+          if (saved.theme) document.documentElement.setAttribute('data-theme', saved.theme)
+          else document.documentElement.setAttribute('data-theme', 'dark')
+        } catch {}
+      } else {
+        document.documentElement.setAttribute('data-theme', 'dark')
+      }
+      setLoading(false)
+    }
+    init()
+  }, [])
+
+  async function salvarKpi({ kpiId, valor, data, userId }) {
+    const novoCfg = { ...cfg }
+    if (!novoCfg.kpiLog) novoCfg.kpiLog = []
+    novoCfg.kpiLog.push({ id: Date.now(), userId, date: data, kpiId, realizado: valor })
+    await supabase.from('vx_storage')
+      .upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novoCfg), updated_at: new Date().toISOString() })
+    setCfg(novoCfg)
+  }
+
+  // ── Derivações ─────────────────────────────────
+  const usuarios     = cfg.users        || []
+  const goals        = cfg.goals        || []
+  const kpiTemplates = cfg.kpiTemplates || []
+  const kpiGoals     = cfg.kpiGoals     || {}
+  const kpiLog       = cfg.kpiLog       || []
+  const docHistory   = cfg.docHistory   || []
+
+  const usuarioAtual = usuarios.find(u => u.email === perfil?.email) || usuarios[0]
+
+  // Contratos assinados no mês selecionado
+  const contratosMes = docHistory.filter(d => {
+    if (d.status !== 'signed') return false
+    return (d.criado || '').slice(0, 7) === mes
+  })
+
+  function metasUsuario(userId) {
+    return goals.find(g => g.userId === userId && g.mes === mes) || {}
+  }
+  function realizadoUsuario(userId) {
+    const contratos = contratosMes.filter(d => d.userId === userId || d.consultor === userId)
+    const adesao    = contratos.reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
+    const mensalidade = contratos.reduce((acc, d) => acc + (Number(d.mensalidade) || 0), 0)
+    return { adesao, mensalidade, contratos: contratos.length }
+  }
+
+  const totaisGerais = (() => {
+    const ad  = contratosMes.reduce((a, d) => a + (Number(d.adesao) || 0), 0)
+    const men = contratosMes.reduce((a, d) => a + (Number(d.mensalidade) || 0), 0)
+    return { adesao: ad, mensalidade: men, contratos: contratosMes.length }
+  })()
+
+  const metasTotais = (() => {
+    let ad = 0, men = 0
+    usuarios.forEach(u => {
+      const m = metasUsuario(u.id)
+      ad  += Number(m.metaAdesao || 0)
+      men += Number(m.metaMensalidade || 0)
+    })
+    return { adesao: ad, mensalidade: men }
+  })()
+
+  function kpiRealizadoMes(kpiId, userId, month) {
+    return kpiLog
+      .filter(l => l.kpiId === kpiId && l.userId === userId && l.date.startsWith(month))
+      .reduce((acc, l) => acc + (Number(l.realizado) || 0), 0)
+  }
+  function kpiMetaMes(kpiId, userId, month) {
+    const diaria = kpiGoals[userId]?.[month]?.[kpiId] || 0
+    return diaria * diasUteisNoMes(month)
+  }
+
+  // Gráfico últimos 6 meses — adesão
+  const dadosGrafico6m = (() => {
+    const meses = []
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setMonth(d.getMonth() - i)
+      const m     = d.toISOString().slice(0, 7)
+      const label = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+      const valor = docHistory
+        .filter(d => d.status === 'signed' && (d.criado || '').slice(0, 7) === m)
+        .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
+      meses.push({ label, valor, cor: m === mes ? 'var(--accent)' : 'rgba(0,212,255,.4)' })
+    }
+    return meses
+  })()
+
+  // ── NOVO: Produtos vendidos no mês ─────────────
+  // Soma adesão e mensalidade por módulo nos contratos assinados do mês
+  const produtosVendidos = (() => {
+    const mapa = {}
+    contratosMes.forEach(d => {
+      if (!d.modulos) return
+      d.modulos.forEach(mod => {
+        if (!mapa[mod]) mapa[mod] = { adesao: 0, mensalidade: 0, qtd: 0 }
+        mapa[mod].adesao      += Number(d.adesaoModulos?.[mod] || 0)
+        mapa[mod].mensalidade += Number(d.mensalidadeModulos?.[mod] || 0)
+        mapa[mod].qtd         += 1
+      })
+    })
+    return Object.entries(mapa).map(([nome, v]) => ({ nome, ...v }))
+      .sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
+  })()
+
+  // Cores para módulos
+  const CORES_MOD = ['var(--accent)','var(--accent3)','var(--accent2)','var(--gold)','var(--danger)','var(--warning)','#06b6d4','#8b5cf6']
+
+  const dadosAdesaoPorMod = produtosVendidos.map((p, i) => ({
+    label: p.nome.length > 8 ? p.nome.slice(0, 7) + '…' : p.nome,
+    valor: p.adesao,
+    cor: CORES_MOD[i % CORES_MOD.length]
+  }))
+  const dadosMensalidadePorMod = produtosVendidos.map((p, i) => ({
+    label: p.nome.length > 8 ? p.nome.slice(0, 7) + '…' : p.nome,
+    valor: p.mensalidade,
+    cor: CORES_MOD[i % CORES_MOD.length]
+  }))
+  const dadosPizzaAdesao = produtosVendidos.map((p, i) => ({
+    label: p.nome, valor: p.adesao, cor: CORES_MOD[i % CORES_MOD.length]
+  })).filter(d => d.valor > 0)
+  const dadosPizzaMensal = produtosVendidos.map((p, i) => ({
+    label: p.nome, valor: p.mensalidade, cor: CORES_MOD[i % CORES_MOD.length]
+  })).filter(d => d.valor > 0)
+
+  // Ranking de vendedores
+  const ranking = usuarios.map(u => {
+    const r = realizadoUsuario(u.id)
+    const m = metasUsuario(u.id)
+    return { ...u, adesao: r.adesao, mensalidade: r.mensalidade, contratos: r.contratos, metaAd: Number(m.metaAdesao || 0), metaMen: Number(m.metaMensalidade || 0) }
+  }).sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
+
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
+      Carregando dashboard...
+    </div>
+  )
+
+  const card = (label, val, cor, sub) => (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', boxShadow: 'var(--shadow)' }}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: 8 }}>{label}</div>
+      <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: cor }}>{val}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{sub}</div>}
+    </div>
+  )
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
+        [data-theme="dark"]{
+          --bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;
+          --accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;
+          --text:#e2e8f0;--muted:#64748b;
+          --danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;
+          --shadow:0 4px 24px rgba(0,0,0,.4);
+        }
+        [data-theme="light"]{
+          --bg:#f0f4f8;--surface:#ffffff;--surface2:#f8fafc;--border:#e2e8f0;
+          --accent:#0099bb;--accent2:#7c3aed;--accent3:#059669;
+          --text:#1e293b;--muted:#64748b;
+          --danger:#ef4444;--warning:#d97706;--gold:#b45309;
+          --shadow:0 4px 24px rgba(0,0,0,.1);
+        }
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
+        [data-theme="dark"] body::before{content:'';position:fixed;inset:0;
+          background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);
+          background-size:40px 40px;pointer-events:none;z-index:0}
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+      `}</style>
+
+      <div style={{ position: 'fixed', width: 500, height: 500, background: 'var(--accent)', top: -200, right: -150, borderRadius: '50%', filter: 'blur(120px)', opacity: .05, pointerEvents: 'none', zIndex: 0 }} />
+      <div style={{ position: 'fixed', width: 400, height: 400, background: 'var(--accent2)', bottom: -150, left: -100, borderRadius: '50%', filter: 'blur(120px)', opacity: .05, pointerEvents: 'none', zIndex: 0 }} />
+
+      {kpiModal && <ModalKpi kpi={kpiModal} userId={usuarioAtual?.id} onClose={() => setKpiModal(null)} onSave={salvarKpi} />}
+
+      {/* HEADER COM MENUS */}
+      <header style={{ position: 'sticky', top: 0, zIndex: 100, width: '100%', background: 'rgba(10,15,30,.85)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '12px 20px' }}>
+        <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          {cfg.logob64
+            ? <img src={cfg.logob64} alt={cfg.company} style={{ height: 36, objectFit: 'contain', borderRadius: 6 }} onError={e => e.target.style.display = 'none'} />
+            : <div>
+                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, letterSpacing: .5 }}>{cfg.company || 'Vivanexa'}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>📊 Dashboard de Vendas</div>
+              </div>
+          }
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={() => router.push('/chat')}
+              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
+              💬 Chat
+            </button>
+            <button onClick={() => router.push('/configuracoes')}
+              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
+              ⚙️ Config
+            </button>
+            {perfil?.nome && <span style={{ fontSize: 11, color: 'var(--muted)' }}>👤 <span style={{ color: 'var(--text)' }}>{perfil.nome}</span></span>}
+            <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 9px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
+              Sair
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: 960, margin: '20px auto 60px', padding: '0 20px' }}>
+
+        {/* ABAS + SELETOR MÊS */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[
+              { id: 'geral',    label: '📊 Geral'    },
+              { id: 'produtos', label: '📦 Produtos'  },
+              { id: 'kpis',    label: '🎯 KPIs'      },
+              { id: 'ranking', label: '🏆 Ranking'   },
+              { id: 'historico',label:'🗂️ Histórico' },
+            ].map(t => (
+              <button key={t.id} onClick={() => setAbaAtiva(t.id)}
+                style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${abaAtiva === t.id ? 'var(--accent)' : 'var(--border)'}`, background: abaAtiva === t.id ? 'rgba(0,212,255,.1)' : 'var(--surface2)', color: abaAtiva === t.id ? 'var(--accent)' : 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', fontWeight: abaAtiva === t.id ? 600 : 400 }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Mês:</span>
+            <input type="month" value={mes} onChange={e => setMes(e.target.value)}
+              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none' }} />
+          </div>
+        </div>
+
+        {/* ── ABA GERAL ── */}
+        {abaAtiva === 'geral' && (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              {card('💰 Adesão Total',       fmt(totaisGerais.adesao),                    'var(--accent)',  `Meta: ${fmt(metasTotais.adesao)}`)}
+              {card('📅 Mensalidade Total',  fmt(totaisGerais.mensalidade),               'var(--accent3)', `Meta: ${fmt(metasTotais.mensalidade)}`)}
+              {card('📝 Contratos Fechados', totaisGerais.contratos + ' contrato' + (totaisGerais.contratos !== 1 ? 's' : ''), 'var(--gold)')}
+            </div>
+
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
+              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>🎯 Metas do Mês</div>
+              <BarraProgresso label="Adesão"       real={totaisGerais.adesao}       meta={metasTotais.adesao}       />
+              <BarraProgresso label="Mensalidade"  real={totaisGerais.mensalidade}  meta={metasTotais.mensalidade}  />
+            </div>
+
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
+              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>📈 Adesão — Últimos 6 Meses</div>
+              <GraficoBarras dados={dadosGrafico6m} altura={140} formatarValor={v => fmtK(v)} />
+            </div>
+
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
+              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 12 }}>🗂️ Últimos Documentos</div>
+              <UltimosDocs docs={docHistory.slice().reverse()} />
+            </div>
+          </div>
+        )}
+
+        {/* ── ABA PRODUTOS VENDIDOS (NOVA) ── */}
+        {abaAtiva === 'produtos' && (
+          <div>
+            {produtosVendidos.length === 0 ? (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '40px 24px', textAlign: 'center', boxShadow: 'var(--shadow)' }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>📦</div>
+                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Sem contratos assinados neste mês</div>
+                <p style={{ color: 'var(--muted)', fontSize: 13 }}>Os gráficos aparecem quando contratos forem marcados como "assinado" no histórico.</p>
+              </div>
+            ) : (
+              <>
+                {/* Cards resumo por módulo */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
+                  {produtosVendidos.map((p, i) => (
+                    <div key={p.nome} style={{ background: 'var(--surface)', border: `1px solid ${CORES_MOD[i % CORES_MOD.length]}40`, borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <div style={{ width: 10, height: 10, borderRadius: 3, background: CORES_MOD[i % CORES_MOD.length], flexShrink: 0 }} />
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{p.nome}</div>
+                        <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>{p.qtd}×</div>
+                      </div>
+                      {p.adesao > 0 && (
+                        <div style={{ marginBottom: 4 }}>
+                          <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Adesão</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: CORES_MOD[i % CORES_MOD.length], fontFamily: 'Syne, sans-serif' }}>{fmtK(p.adesao)}</div>
+                        </div>
+                      )}
+                      {p.mensalidade > 0 && (
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Mensalidade</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent3)', fontFamily: 'Syne, sans-serif' }}>{fmtK(p.mensalidade)}</div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+                  {/* Gráfico barras — Adesão por módulo */}
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
+                    <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>💰 Adesão por Módulo</div>
+                    <GraficoBarras dados={dadosAdesaoPorMod} altura={130} formatarValor={v => fmtK(v)} />
+                  </div>
+                  {/* Gráfico barras — Mensalidade por módulo */}
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
+                    <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent3)', marginBottom: 14 }}>📅 Mensalidade por Módulo</div>
+                    <GraficoBarras dados={dadosMensalidadePorMod} altura={130} formatarValor={v => fmtK(v)} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  {dadosPizzaAdesao.length > 0 && (
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
+                      <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>🥧 Distribuição Adesão</div>
+                      <GraficoPizza dados={dadosPizzaAdesao} tamanho={130} />
+                    </div>
+                  )}
+                  {dadosPizzaMensal.length > 0 && (
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
+                      <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent3)', marginBottom: 14 }}>🥧 Distribuição Mensalidade</div>
+                      <GraficoPizza dados={dadosPizzaMensal} tamanho={130} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Tabela detalhada */}
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginTop: 16, boxShadow: 'var(--shadow)' }}>
+                  <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 14 }}>📋 Resumo Detalhado</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        {['Módulo', 'Qtd', 'Adesão Total', 'Mensalidade Total', 'Receita Total'].map(h => (
+                          <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Módulo' ? 'left' : 'right', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {produtosVendidos.map((p, i) => (
+                        <tr key={p.nome} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: 2, background: CORES_MOD[i % CORES_MOD.length], flexShrink: 0 }} />
+                            <span style={{ fontWeight: 600 }}>{p.nome}</span>
+                          </td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--muted)' }}>{p.qtd}×</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>{fmt(p.adesao)}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent3)', fontWeight: 600 }}>{fmt(p.mensalidade)}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(p.adesao + p.mensalidade)}</td>
+                        </tr>
+                      ))}
+                      <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
+                        <td style={{ padding: '10px 12px' }}>TOTAL</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>{produtosVendidos.reduce((a, p) => a + p.qtd, 0)}×</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent)' }}>{fmt(produtosVendidos.reduce((a, p) => a + p.adesao, 0))}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent3)' }}>{fmt(produtosVendidos.reduce((a, p) => a + p.mensalidade, 0))}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(produtosVendidos.reduce((a, p) => a + p.adesao + p.mensalidade, 0))}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 12 }}>
+                    💡 Os dados aparecem quando o contrato salvo inclui o campo <code>modulos</code>, <code>adesaoModulos</code> e <code>mensalidadeModulos</code>.
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── ABA KPIs ── */}
+        {abaAtiva === 'kpis' && (
+          <div>
+            {kpiTemplates.length === 0 ? (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '32px 24px', textAlign: 'center' }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>📊</div>
+                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Nenhum KPI cadastrado</div>
+                <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>Configure seus KPIs em Configurações → KPIs</p>
+                <button onClick={() => router.push('/configuracoes')}
+                  style={{ padding: '10px 20px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+                  ⚙️ Ir para Configurações
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 16 }}>
+                  Clique em um KPI para lançar seu realizado
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+                  {kpiTemplates.map(kpi => {
+                    const uid  = usuarioAtual?.id || ''
+                    const real = kpiRealizadoMes(kpi.id, uid, mes)
+                    const meta = kpiMetaMes(kpi.id, uid, mes)
+                    return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={() => setKpiModal(kpi)} />
+                  })}
+                </div>
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginTop: 20, boxShadow: 'var(--shadow)' }}>
+                  <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>📅 Lançamentos do Mês</div>
+                  {kpiLog.filter(l => l.date.startsWith(mes) && l.userId === usuarioAtual?.id).length === 0
+                    ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum lançamento neste mês.</p>
+                    : kpiLog.filter(l => l.date.startsWith(mes) && l.userId === usuarioAtual?.id).slice().reverse().slice(0, 10).map((l, i) => {
+                        const kpi = kpiTemplates.find(k => k.id === l.kpiId)
+                        return (
+                          <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                            <span>{kpi?.icone || '📊'}</span>
+                            <span style={{ flex: 1, fontSize: 13 }}>{kpi?.nome || 'KPI'}</span>
+                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{new Date(l.date).toLocaleDateString('pt-BR')}</span>
+                            <span style={{ fontWeight: 700, color: 'var(--accent3)', fontSize: 14 }}>+{l.realizado}</span>
+                          </div>
+                        )
+                      })
+                  }
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── ABA RANKING ── */}
+        {abaAtiva === 'ranking' && (
+          <div>
+            {usuarios.length === 0 ? (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '32px 24px', textAlign: 'center' }}>
+                <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum usuário cadastrado. Adicione em Configurações → Usuários.</p>
+              </div>
+            ) : (
+              <div>
+                {ranking.map((u, i) => {
+                  const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`
+                  return (
+                    <div key={u.id} style={{ background: i === 0 ? 'linear-gradient(135deg,rgba(251,191,36,.08),rgba(251,191,36,.02))' : 'var(--surface)', border: `1px solid ${i === 0 ? 'rgba(251,191,36,.3)' : 'var(--border)'}`, borderRadius: 14, padding: '18px 20px', marginBottom: 12, boxShadow: 'var(--shadow)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                        <span style={{ fontSize: 22 }}>{emoji}</span>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 15 }}>{u.nome}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{u.contratos} contrato{u.contratos !== 1 ? 's' : ''}</div>
+                        </div>
+                        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                          <div style={{ fontSize: 16, fontWeight: 800, fontFamily: 'Syne, sans-serif', color: 'var(--accent3)' }}>{fmt(u.adesao + u.mensalidade)}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>total no mês</div>
+                        </div>
+                      </div>
+                      <BarraProgresso label="Adesão"      real={u.adesao}      meta={u.metaAd}  />
+                      <BarraProgresso label="Mensalidade" real={u.mensalidade} meta={u.metaMen} />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── ABA HISTÓRICO ── */}
+        {abaAtiva === 'historico' && (
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>🗂️ Todos os Documentos</div>
+            {docHistory.length === 0 ? (
+              <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum documento gerado ainda.</p>
+            ) : (
+              docHistory.slice().reverse().map((d, i) => {
+                const isSigned  = d.status === 'signed'
+                const isPending = d.status === 'pending' || d.status === 'sent'
+                return (
+                  <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 18 }}>{d.type === 'contrato' ? '📝' : '📄'}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{d.cliente || 'Cliente não identificado'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+                        {d.type === 'contrato' ? 'Contrato' : 'Proposta'} · {d.criado ? new Date(d.criado).toLocaleDateString('pt-BR') : '—'}
+                        {d.adesao > 0 && ` · ${fmt(d.adesao)}`}
+                        {d.modulos?.length > 0 && ` · ${d.modulos.join(', ')}`}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: isSigned ? 'var(--accent3)' : isPending ? 'var(--warning)' : 'var(--muted)' }}>
+                      {isSigned ? '✅ Assinado' : isPending ? '⏳ Pendente' : '📝 Rascunho'}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        )}
+      </main>
+    </>
+  )
 }
