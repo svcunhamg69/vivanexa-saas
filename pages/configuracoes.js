@@ -83,7 +83,7 @@ async function salvarStorage(empresaId, novoCfg) {
 }
 
 // ══════════════════════════════════════════════
-// ABA EMPRESA (com SMTP)
+// ABA EMPRESA (com SMTP e IA)
 // ══════════════════════════════════════════════
 function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [company,      setCompany]      = useState(cfg.company  || '')
@@ -97,6 +97,8 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [smtpUser,     setSmtpUser]     = useState(cfg.smtpUser || '')
   const [smtpPass,     setSmtpPass]     = useState(cfg.smtpPass || '')
   const [emailApiKey,  setEmailApiKey]  = useState(cfg.emailApiKey || '')
+  const [geminiApiKey, setGeminiApiKey] = useState(cfg.geminiApiKey || '')
+  const [groqApiKey,   setGroqApiKey]   = useState(cfg.groqApiKey || '')
   const [saving,       setSaving]       = useState(false)
 
   useEffect(() => {
@@ -111,6 +113,8 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setSmtpUser(cfg.smtpUser || '')
     setSmtpPass(cfg.smtpPass || '')
     setEmailApiKey(cfg.emailApiKey || '')
+    setGeminiApiKey(cfg.geminiApiKey || '')
+    setGroqApiKey(cfg.groqApiKey || '')
   }, [cfg])
 
   function handleLogo(e) {
@@ -130,7 +134,8 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
       ...cfg,
       company, slogan, logob64: logoB64,
       closeHour, closeMessage,
-      emailProvider, smtpHost, smtpPort, smtpUser, smtpPass, emailApiKey
+      emailProvider, smtpHost, smtpPort, smtpUser, smtpPass, emailApiKey,
+      geminiApiKey, groqApiKey
     }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
@@ -182,6 +187,21 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
         <div style={s.field}><label style={s.label}>Senha SMTP</label><input type="password" style={s.input} value={smtpPass} onChange={e => setSmtpPass(e.target.value)} placeholder="senha ou app password" /></div>
         <div style={s.field}><label style={s.label}>API Key (para Brevo/SendGrid)</label><input style={s.input} value={emailApiKey} onChange={e => setEmailApiKey(e.target.value)} placeholder="chave API" /></div>
         <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Nota: Se configurado, os e-mails de assinatura e cópia serão enviados automaticamente via servidor. Caso contrário, será aberto o cliente de e-mail padrão.</p>
+      </div>
+
+      <div style={s.sec}>
+        <div style={s.secTitle}>🤖 Configuração de IA (Análise de Relatórios)</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Insira sua chave de API do Google Gemini (gratuita) ou Groq. A análise será usada na aba "Análise IA" dos relatórios.</p>
+        <div style={s.field}>
+          <label style={s.label}>Chave API Google Gemini</label>
+          <input style={s.input} type="password" value={geminiApiKey} onChange={e => setGeminiApiKey(e.target.value)} placeholder="AIza..." />
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Obtenha em <a href="https://aistudio.google.com/apikey" target="_blank" style={{ color: 'var(--accent)' }}>Google AI Studio</a> (gratuito)</div>
+        </div>
+        <div style={s.field}>
+          <label style={s.label}>Chave API Groq (fallback)</label>
+          <input style={s.input} type="password" value={groqApiKey} onChange={e => setGroqApiKey(e.target.value)} placeholder="gsk_..." />
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Opcional. Se Gemini falhar, usa Groq.</div>
+        </div>
       </div>
 
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar Configurações'}</button>
