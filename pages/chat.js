@@ -11,6 +11,7 @@
 // • Tabela vertical de produtos no contrato
 // • Logo da empresa no contrato
 // • Validação de duplicatas de clientes
+// • Botão Relatórios no header
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -252,40 +253,58 @@ function buildProposal(S,cfg,user){
 </div>`
 }
 
-// ── Build Contrato com Manifesto de Assinatura (suporte a template, produtos verticais) ──
-function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
-  const cd=S.clientData||{},co=S.contactData||{}
-  const today=new Date().toLocaleDateString('pt-BR')
-  const isC=S.closingToday===true
-  const results=isC?S.closingData?.results:S.quoteData?.results
-  const payLabel=payMethod==='pix'?'PIX / Boleto à vista':
-    payMethod?.startsWith('cartao')?`Cartão em até ${payMethod.replace('cartao','').replace('x','×')} sem juros`:
-    payMethod?.startsWith('boleto')?`Boleto ${payMethod.replace('boleto','').replace('x','×')}×`:payMethod
+// ── Build Contrato com Manifesto de Assinatura (suporte a template, produtos verticais, variáveis corretas) ──
+function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token) {
+  const cd = S.clientData || {}
+  const co = S.contactData || {}
+  const today = new Date().toLocaleDateString('pt-BR')
+  const now = new Date().toLocaleString('pt-BR')
+  const isC = S.closingToday === true
+  const results = isC ? S.closingData?.results : S.quoteData?.results
 
-  // Gerar tabela de produtos em formato vertical (um abaixo do outro)
-  const produtosVertical = (results||[]).map(r => {
-    const adS = (r.isTributos||r.isEP) ? '—' : fmt(isC?r.ad:(r.adD||0))
-    const menS = fmt(isC?r.men:(r.menD||r.men||0))
-    return `
-    <div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px">
-      <div style="font-weight:600;margin-bottom:6px">${r.name}${r.plan?`<span style="font-size:11px;color:#64748b;margin-left:6px">(Plano ${getPlanLabel(r.plan,cfg.plans)})</span>`:''}</div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px">
-        <span>Adesão:</span><span style="font-weight:600">${adS}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px">
-        <span>Mensalidade:</span><span style="font-weight:600;color:#00d4ff">${menS}</span>
-      </div>
-      <div style="font-size:11px;color:#64748b;margin-top:6px">CNPJs: ${S.cnpjs||'—'}</div>
-    </div>`
-  }).join('')
+  const payLabel =
+    payMethod === 'pix'
+      ? 'PIX / Boleto à vista'
+      : payMethod?.startsWith('cartao')
+        ? `Cartão em até ${payMethod.replace('cartao', '').replace('x', '×')} sem juros`
+        : payMethod?.startsWith('boleto')
+          ? `Boleto ${payMethod.replace('boleto', '').replace('x', '×')}×`
+          : payMethod
 
-  const sec=(n,t)=>`<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
-  const row=(l,v)=>`<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v||'—'}</span></div>`
-  const endStr=[co.logradouro||cd.logradouro,co.bairro||cd.bairro,co.cidade||cd.municipio,co.uf||cd.uf].filter(Boolean).join(', ')
+  // Gera lista vertical de produtos
+  const produtosVertical = (results || [])
+    .map(r => {
+      const adS = r.isTributos || r.isEP ? '—' : fmt(isC ? r.ad : r.adD || 0)
+      const menS = fmt(isC ? r.men : r.menD || r.men || 0)
+      const planoNome = r.plan ? getPlanLabel(r.plan, cfg.plans) : ''
+      return `
+      <div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px">
+        <div style="font-weight:600;margin-bottom:6px">${r.name}${planoNome ? `<span style="font-size:11px;color:#64748b;margin-left:6px">(Plano ${planoNome})</span>` : ''}</div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px">
+          <span>Adesão:</span><span style="font-weight:600">${adS}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px">
+          <span>Mensalidade:</span><span style="font-weight:600;color:#00d4ff">${menS}</span>
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:6px">CNPJs: ${S.cnpjs || '—'}</div>
+      </div>`
+    })
+    .join('')
 
-  // ── Manifesto de assinatura ──
-  const docId=token||generateToken()
-  const manifesto=`
+  // Funções auxiliares
+  const sec = (n, t) =>
+    `<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
+
+  const row = (l, v) =>
+    `<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v || '—'}</span></div>`
+
+  const endStr = [co.logradouro || cd.logradouro, co.bairro || cd.bairro, co.cidade || cd.municipio, co.uf || cd.uf]
+    .filter(Boolean)
+    .join(', ')
+
+  // ── Manifesto de assinatura (preenchido dinamicamente) ──
+  const docId = token || generateToken()
+  const manifesto = `
   <div style="margin-top:40px;border:2px solid #10b981;border-radius:12px;padding:24px;background:#f0fdf4">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
       <div style="font-size:24px">✅</div>
@@ -297,17 +316,17 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
         <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DO CONTRATANTE (CLIENTE)</div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-client-name">${co.contato||cd.fantasia||cd.nome||'Aguardando'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> <span id="manifest-client-cpf">${co.cpfContato||'—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-client-email">${co.email||cd.email||'—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-client-date">Aguardando assinatura</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-client-name">${co.contato || cd.fantasia || cd.nome || 'Aguardando'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> <span id="manifest-client-cpf">${co.cpfContato || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-client-email">${co.email || cd.email || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-client-date">${S.signDoc?.signedAt || 'Aguardando assinatura'}</span></div>
         <div style="font-size:11px;color:#6b7280;margin-top:6px;padding-top:6px;border-top:1px solid #d1fae5"><strong>Token:</strong> ${docId}</div>
       </div>
       <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
         <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DA CONTRATADA (CONSULTOR)</div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-consult-name">${user?.nome||'—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-consult-date">Aguardando assinatura</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> ${user?.email||'—'}</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-consult-name">${user?.nome || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-consult-date">${S.signDoc?.consultantSignedAt || 'Aguardando assinatura'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> ${user?.email || '—'}</div>
       </div>
     </div>
     <div style="margin-top:16px;font-size:11px;color:#6b7280;line-height:1.6">
@@ -320,101 +339,139 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   let template = cfg.contratoTemplate || ''
   if (template) {
     const vars = {
-      '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
-      '{{razao}}': co.razao||cd.nome||'',
-      '{{cnpj}}': fmtDoc(S.doc||''),
-      '{{contato}}': co.contato||'',
-      '{{email}}': co.email||cd.email||'',
-      '{{telefone}}': co.telefone||cd.telefone||'',
+      '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
+      '{{razao}}': co.razao || cd.nome || '',
+      '{{cnpj}}': fmtDoc(S.doc || ''),
+      '{{contato}}': co.contato || '',
+      '{{email}}': co.email || cd.email || '',
+      '{{telefone}}': co.telefone || cd.telefone || '',
       '{{endereco}}': endStr,
-      '{{regime}}': co.regime||'',
-      '{{plano}}': S.plan?getPlanLabel(S.plan,cfg.plans):'—',
-      '{{cnpjs_qty}}': S.cnpjs||'0',
+      '{{regime}}': co.regime || '',
+      '{{plano}}': S.plan ? getPlanLabel(S.plan, cfg.plans) : '—',
+      '{{cnpjs_qty}}': S.cnpjs || '0',
       '{{total_adesao}}': fmt(tAd),
       '{{total_mensalidade}}': fmt(tMen),
       '{{condicao_pagamento}}': payLabel,
-      '{{vencimento_adesao}}': dateAd||'—',
-      '{{vencimento_mensal}}': dateMen||'—',
+      '{{vencimento_adesao}}': dateAd || '—',
+      '{{vencimento_mensal}}': dateMen || '—',
+      '{{data_hora}}': now,
       '{{data_hoje}}': today,
-      '{{consultor_nome}}': user?.nome||'',
-      '{{company}}': cfg.company||'Vivanexa',
+      '{{consultor_nome}}': user?.nome || '',
+      '{{company}}': cfg.company || 'Vivanexa',
       '{{logo}}': cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">` : '',
       '{{produtos_tabela}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
-      '{{produtos_lista}}': `<div style="margin:16px 0">${produtosVertical}</div>`
+      '{{produtos_lista}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
+      '{{nome_financeiro}}': co.rfinNome || '',
+      '{{email_financeiro}}': co.rfinEmail || '',
+      '{{telefone_financeiro}}': co.rfinTel || '',
+      '{{nome_implementacao}}': co.rimpNome || '',
+      '{{email_implementacao}}': co.rimpEmail || '',
+      '{{telefone_implementacao}}': co.rimpTel || '',
     }
     for (const [k, v] of Object.entries(vars)) {
       template = template.replace(new RegExp(k, 'g'), v)
     }
-    // Adiciona o manifesto no final (se não estiver no template)
+    // Se o manifesto não estiver no template, adiciona no final
     if (!template.includes('MANIFESTO DE ASSINATURAS')) {
       template += manifesto
     }
     return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">${template}</div>`
   }
 
-  // Template padrão
-  return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
-  <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:28px 44px;display:flex;align-items:center;gap:20px">
-    ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain">`:'<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">'+cfg.company+'</div>'}
-    <div><h1 style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">Termo de Pedido e Registro de Software</h1>
-    <p style="font-size:12px;color:#64748b">Seja bem-vindo ao ${cfg.company||'Vivanexa'}, é um prazer tê-lo como cliente.</p></div>
-  </div>
-  <div style="padding:28px 44px">
-    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px 20px;margin-bottom:20px;border-left:4px solid #00d4ff">
-      <p style="font-size:13px;color:#0c4a6e;margin-bottom:6px">Segue abaixo os termos do pedido registrado com nosso time de vendas.</p>
-      <p style="font-size:13px;color:#0c4a6e">Confira os dados com atenção e caso esteja tudo correto, basta <strong>ASSINAR</strong> para darmos seguimento ao treinamento e implantação.</p>
-    </div>
-    ${sec('1','CONTRATADA')}
-    <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-      ${row('Nome',cfg.company||'VIVANEXA')}${row('E-mail',cfg.emailEmpresa||'contato@vivanexa.com.br')}${row('Responsável',user?.nome||'—')}
-    </div>
-    ${sec('2','CONTRATANTE')}
-    <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-      ${row('Razão Social',co.razao||cd.nome||'')}${row('CNPJ',fmtDoc(S.doc||''))}${row('Endereço',endStr||'—')}
-      ${row('E-mail',co.email||cd.email||'—')}${row('Fone',co.telefone||cd.telefone||'—')}
-      ${row('Contratante',co.contato||'—')}${row('CPF',co.cpfContato||'—')}${row('Regime Tributário',co.regime||'—')}
-    </div>
-    ${sec('3','RESPONSÁVEL PELA IMPLEMENTAÇÃO')}
-    <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-      ${row('Nome',co.rimpNome||'—')}${row('E-mail',co.rimpEmail||'—')}${row('Telefone',co.rimpTel||'—')}
-    </div>
-    ${sec('4','RESPONSÁVEL PELO FINANCEIRO')}
-    <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-      ${row('Nome',co.rfinNome||'—')}${row('E-mail',co.rfinEmail||'—')}${row('Telefone',co.rfinTel||'—')}
-    </div>
-    ${sec('5','PLANO CONTRATADO E VALORES')}
-    ${row('Validade','12 meses')}
-    <div style="margin:16px 0">
-      ${produtosVertical}
-    </div>
-    <div style="background:#f8fafc;border-radius:8px;padding:12px 16px;margin-bottom:16px">
-      ${row('Forma de Pagamento',payLabel)}${tAd>0?row('Vencimento Adesão',dateAd||'—'):''}${row('Vencimento 1ª Mensalidade',dateMen||'—')}
-      <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #e2e8f0;margin-top:8px"><span style="font-weight:600">Total Adesão</span><span style="font-weight:700">${fmt(tAd)}</span></div>
-      <div style="display:flex;justify-content:space-between"><span style="font-weight:600">Total Mensalidade</span><span style="font-weight:700;color:#00d4ff">${fmt(tMen)}</span></div>
-    </div>
-    <p style="font-size:12px;color:#475569;margin:8px 0">Nossa equipe entrará em contato <strong>em até 72 horas</strong> após a assinatura. Atendimento: 9h às 18h (Brasília).</p>
-    <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:12px;color:#78350f">
-      Dando o aceite, você concorda com os Termos e Condições de Uso e Política de Privacidade em <strong>www.vivanexa.com.br/termos</strong>.
-    </div>
-    <div style="border-top:2px solid #e2e8f0;padding-top:24px;margin-top:24px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px">
-        <div style="text-align:center">
-          <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
-          <div style="font-weight:600;font-size:13px">${cfg.company||'Vivanexa'}</div>
-          <div style="font-size:11px;color:#64748b">CONTRATADA</div>
-          <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade||cd.municipio||''} · ${today}</div>
-        </div>
-        <div style="text-align:center">
-          <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
-          <div style="font-weight:600;font-size:13px">${co.razao||cd.nome||'Cliente'}</div>
-          <div style="font-size:11px;color:#64748b">CONTRATANTE</div>
-          <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade||cd.municipio||''} · ${today}</div>
-        </div>
+  // Template padrão (usado se nenhum template foi carregado)
+  return `
+  <div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
+    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:28px 44px;display:flex;align-items:center;gap:20px">
+      ${cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain">` : '<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">' + cfg.company + '</div>'}
+      <div>
+        <h1 style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">Termo de Pedido e Registro de Software</h1>
+        <p style="font-size:12px;color:#64748b">Seja bem-vindo ao ${cfg.company || 'Vivanexa'}, é um prazer tê-lo como cliente.</p>
       </div>
     </div>
-    ${manifesto}
-  </div>
-</div>`
+    <div style="padding:28px 44px">
+      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px 20px;margin-bottom:20px;border-left:4px solid #00d4ff">
+        <p style="font-size:13px;color:#0c4a6e;margin-bottom:6px">Segue abaixo os termos do pedido registrado com nosso time de vendas.</p>
+        <p style="font-size:13px;color:#0c4a6e">Confira os dados com atenção e caso esteja tudo correto, basta <strong>ASSINAR</strong> para darmos seguimento ao treinamento e implantação.</p>
+      </div>
+
+      ${sec('1', 'CONTRATADA')}
+      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
+        ${row('Nome', cfg.company || 'VIVANEXA')}
+        ${row('E-mail', cfg.emailEmpresa || 'contato@vivanexa.com.br')}
+        ${row('Responsável', user?.nome || '—')}
+      </div>
+
+      ${sec('2', 'CONTRATANTE')}
+      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
+        ${row('Razão Social', co.razao || cd.nome || '')}
+        ${row('CNPJ', fmtDoc(S.doc || ''))}
+        ${row('Endereço', endStr || '—')}
+        ${row('E-mail', co.email || cd.email || '—')}
+        ${row('Fone', co.telefone || cd.telefone || '—')}
+        ${row('Contratante', co.contato || '—')}
+        ${row('CPF', co.cpfContato || '—')}
+        ${row('Regime Tributário', co.regime || '—')}
+      </div>
+
+      ${sec('3', 'RESPONSÁVEL PELA IMPLEMENTAÇÃO')}
+      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
+        ${row('Nome', co.rimpNome || '—')}
+        ${row('E-mail', co.rimpEmail || '—')}
+        ${row('Telefone', co.rimpTel || '—')}
+      </div>
+
+      ${sec('4', 'RESPONSÁVEL PELO FINANCEIRO')}
+      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
+        ${row('Nome', co.rfinNome || '—')}
+        ${row('E-mail', co.rfinEmail || '—')}
+        ${row('Telefone', co.rfinTel || '—')}
+      </div>
+
+      ${sec('5', 'PLANO CONTRATADO E VALORES')}
+      ${row('Validade', '12 meses')}
+      <div style="margin:16px 0">
+        ${produtosVertical}
+      </div>
+      <div style="background:#f8fafc;border-radius:8px;padding:12px 16px;margin-bottom:16px">
+        ${row('Forma de Pagamento', payLabel)}
+        ${tAd > 0 ? row('Vencimento Adesão', dateAd || '—') : ''}
+        ${row('Vencimento 1ª Mensalidade', dateMen || '—')}
+        <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #e2e8f0;margin-top:8px">
+          <span style="font-weight:600">Total Adesão</span>
+          <span style="font-weight:700">${fmt(tAd)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="font-weight:600">Total Mensalidade</span>
+          <span style="font-weight:700;color:#00d4ff">${fmt(tMen)}</span>
+        </div>
+      </div>
+
+      <p style="font-size:12px;color:#475569;margin:8px 0">Nossa equipe entrará em contato <strong>em até 72 horas</strong> após a assinatura. Atendimento: 9h às 18h (Brasília).</p>
+
+      <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:12px;color:#78350f">
+        Dando o aceite, você concorda com os Termos e Condições de Uso e Política de Privacidade em <strong>www.vivanexa.com.br/termos</strong>.
+      </div>
+
+      <div style="border-top:2px solid #e2e8f0;padding-top:24px;margin-top:24px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px">
+          <div style="text-align:center">
+            <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
+            <div style="font-weight:600;font-size:13px">${cfg.company || 'Vivanexa'}</div>
+            <div style="font-size:11px;color:#64748b">CONTRATADA</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade || cd.municipio || ''} · ${today}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
+            <div style="font-weight:600;font-size:13px">${co.razao || cd.nome || 'Cliente'}</div>
+            <div style="font-size:11px;color:#64748b">CONTRATANTE</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade || cd.municipio || ''} · ${today}</div>
+          </div>
+        </div>
+      </div>
+
+      ${manifesto}
+    </div>
+  </div>`
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1129,7 +1186,7 @@ export default function Chat(){
     <div className="orb orb1"/><div className="orb orb2"/>
     {renderPainel()}
 
-    {/* HEADER COM LOGO CLICÁVEL */}
+    {/* HEADER COM LOGO CLICÁVEL E BOTÃO RELATÓRIOS */}
     <header>
       <div className="header-logo" style={{cursor:'pointer'}} onClick={() => router.push('/chat')}>
         {cfg.logob64?<img src={cfg.logob64} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
@@ -1139,6 +1196,7 @@ export default function Chat(){
       </div>
       <div className="status-dot">online</div>
       <nav style={{display:'flex',gap:4,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
+        <button onClick={() => router.push('/reports')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>📈 Relatórios</button>
         {[{id:'documentos',label:'📄 Documentos'},{id:'historico',label:'🗂️ Histórico'},{id:'assinaturas',label:'✍️ Assinaturas'}].map(({id,label})=>(
           <button key={id} onClick={()=>abrirPainel(id)} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace',transition:'all .15s'}}
             onMouseEnter={e=>{e.currentTarget.style.color='var(--accent)';e.currentTarget.style.borderColor='rgba(0,212,255,.3)'}}
