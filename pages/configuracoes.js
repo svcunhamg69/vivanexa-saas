@@ -1132,7 +1132,7 @@ export default function Configuracoes() {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/'); return }
-      const { data: perf } = await supabase.from('perfis').select('*').eq('id', session.user.id).maybeSingle()
+      const { data: perf } = await supabase.from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
       setPerfil(perf)
       const eid = perf?.empresa_id || session.user.id
       setEmpresaId(eid)
