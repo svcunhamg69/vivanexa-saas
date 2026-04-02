@@ -1,6 +1,6 @@
 // pages/reports.js
 // ============================================================
-// Relatórios Comerciais
+// Relatórios Comerciais - VERSÃO CORRIGIDA
 // ============================================================
 
 import { useState, useEffect } from 'react';
@@ -11,11 +11,6 @@ import { supabase } from '../lib/supabase';
 // ── Helpers ──────────────────────────────────────────────────
 function fmt(v) {
   return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-
-function fmtK(v) {
-  if (v >= 1000) return `R$ ${(v / 1000).toFixed(1)}k`;
-  return fmt(v);
 }
 
 function mesAtual() {
@@ -33,7 +28,7 @@ function diasUteisNoMes(yearMonth) {
   return uteis;
 }
 
-// ── Componente de tabela de KPIs por usuário ─────────────────
+// ── Componente de tabela de KPIs ──────────────────────────────
 function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
   const diasUteis = diasUteisNoMes(mesRef);
 
@@ -44,8 +39,7 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
       const realizado = logs.filter(l => l.kpiId === kpi.id).reduce((s, l) => s + (l.realizado || 0), 0);
       const metaDiaria = userGoals[kpi.id] || 0;
       const metaMensal = metaDiaria * diasUteis;
-      const progresso = metaMensal > 0 ? Math.min(100, (realizado / metaMensal) * 100) : 0;
-      return { kpi, realizado, metaDiaria, metaMensal, progresso };
+      return { kpi, realizado, metaMensal };
     });
     return { user, kpiData };
   });
@@ -71,18 +65,16 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
               {uk.kpiData.map(kd => {
                 const metaMensal = kd.metaMensal;
                 const realizado = kd.realizado;
-                const progresso = kd.progresso;
-                const cor = progresso >= 100 ? 'var(--accent3)' : progresso >= 70 ? 'var(--accent)' : progresso >= 40 ? 'var(--warning)' : 'var(--muted)';
                 return (
                   <td key={kd.kpi.id} style={{ textAlign: 'center', padding: '8px 6px' }}>
-                    <div style={{ fontWeight: 600, color: cor }}>{realizado}</div>
+                    <div style={{ fontWeight: 600 }}>{realizado}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                      {metaMensal > 0 ? `${metaMensal} (${Math.round(progresso)}%)` : '—'}
+                      {metaMensal > 0 ? `${metaMensal}` : '—'}
                     </div>
                   </td>
                 );
               })}
-            </tr>
+            </table>
           ))}
         </tbody>
       </table>
@@ -90,7 +82,7 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
   );
 }
 
-// ── Componente de gráfico de produtos vendidos ───────────────
+// ── Componente de produtos vendidos ──────────────────────────
 function ProdutosChart({ contratosMes }) {
   const produtos = {};
   contratosMes.forEach(c => {
@@ -132,7 +124,7 @@ function ProdutosChart({ contratosMes }) {
               <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(p.adesao)}</td>
               <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(p.mensalidade)}</td>
               <td style={{ textAlign: 'right', padding: '8px 6px', fontWeight: 600 }}>{fmt(p.adesao + p.mensalidade)}</td>
-            </tr>
+            </table>
           ))}
         </tbody>
         <tfoot style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
@@ -152,52 +144,47 @@ function ProdutosChart({ contratosMes }) {
 // ── Componente de análise IA ─────────────────────────────────
 function AnaliseIA({ data, empresaId }) {
   const [analysis, setAnalysis] = useState('');
-  const [loadingAI, setLoadingAI] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function handleGenerate() {
-    setLoadingAI(true);
+    setLoading(true);
     setError('');
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data,
-          contexto: 'Dados comerciais da empresa',
-          empresaId,
-        }),
+        body: JSON.stringify({ data, empresaId }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Erro na API');
+      if (!res.ok) throw new Error(json.error);
       setAnalysis(json.analysis);
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoadingAI(false);
+      setLoading(false);
     }
   }
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <button
-          onClick={handleGenerate}
-          disabled={loadingAI}
-          style={{
-            padding: '10px 20px',
-            borderRadius: 8,
-            background: 'linear-gradient(135deg,var(--accent),#0099bb)',
-            border: 'none',
-            color: '#fff',
-            fontFamily: 'DM Mono, monospace',
-            fontWeight: 600,
-            cursor: loadingAI ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {loadingAI ? 'Analisando...' : '🤖 Gerar Análise com IA'}
-        </button>
-      </div>
+      <button
+        onClick={handleGenerate}
+        disabled={loading}
+        style={{
+          padding: '10px 20px',
+          borderRadius: 8,
+          background: 'linear-gradient(135deg,var(--accent),#0099bb)',
+          border: 'none',
+          color: '#fff',
+          fontFamily: 'DM Mono, monospace',
+          fontWeight: 600,
+          cursor: loading ? 'not-allowed' : 'pointer',
+          marginBottom: 16,
+        }}
+      >
+        {loading ? 'Analisando...' : '🤖 Gerar Análise com IA'}
+      </button>
       {error && <p style={{ color: 'var(--danger)', marginBottom: 12 }}>⚠️ {error}</p>}
       {analysis && (
         <div
@@ -207,16 +194,12 @@ function AnaliseIA({ data, empresaId }) {
             borderRadius: 12,
             padding: '16px 20px',
             whiteSpace: 'pre-wrap',
-            fontFamily: 'Inter, sans-serif',
             fontSize: 14,
             lineHeight: 1.6,
-            color: 'var(--text)',
           }}
         >
           {analysis.split('\n').map((line, i) => (
-            <p key={i} style={{ marginBottom: i < analysis.split('\n').length - 1 ? 8 : 0 }}>
-              {line}
-            </p>
+            <p key={i} style={{ marginBottom: 8 }}>{line}</p>
           ))}
         </div>
       )}
@@ -256,8 +239,7 @@ export default function Reports() {
         .single();
       if (row?.value) {
         try {
-          const saved = JSON.parse(row.value);
-          setCfg(saved);
+          setCfg(JSON.parse(row.value));
         } catch (e) { console.error(e); }
       }
       setLoading(false);
@@ -266,19 +248,11 @@ export default function Reports() {
   }, []);
 
   if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>
-        Carregando relatórios...
-      </div>
-    );
+    return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Carregando...</div>;
   }
 
   if (!cfg) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>
-        Configurações não carregadas.
-      </div>
-    );
+    return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Configurações não carregadas.</div>;
   }
 
   const docHistory = cfg.docHistory || [];
@@ -303,120 +277,61 @@ export default function Reports() {
       };
     }),
     kpis: kpiTemplates.map(k => {
-      const totalRealizado = kpiLog.filter(l => l.kpiId === k.id && l.date.startsWith(mesRef)).reduce((s, l) => s + (l.realizado || 0), 0);
-      return { nome: k.nome, total_realizado: totalRealizado };
+      const total = kpiLog.filter(l => l.kpiId === k.id && l.date.startsWith(mesRef)).reduce((s, l) => s + (l.realizado || 0), 0);
+      return { nome: k.nome, total_realizado: total };
     }),
   };
 
-  const ranking = usuarios.map(u => {
-    const realiz = contratosMes.filter(c => c.userId === u.id || c.consultor === u.id);
-    const adesao = realiz.reduce((s, c) => s + (Number(c.adesao) || 0), 0);
-    const mensalidade = realiz.reduce((s, c) => s + (Number(c.mensalidade) || 0), 0);
-    return { ...u, adesao, mensalidade, contratos: realiz.length };
-  }).sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade));
-
   return (
     <>
-      <Head>
-        <title>{cfg.company || 'Vivanexa'} – Relatórios</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-      </Head>
+      <Head><title>{cfg.company || 'Vivanexa'} – Relatórios</title></Head>
       <style>{`
-        :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;--shadow:0 4px 24px rgba(0,0,0,.4);}
+        :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--shadow:0 4px 24px rgba(0,0,0,.4);}
         *{box-sizing:border-box;margin:0;padding:0}
         body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
-        body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
-        .orb{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;opacity:.1}
-        .orb1{width:500px;height:500px;background:var(--accent);top:-200px;right:-150px}
-        .orb2{width:400px;height:400px;background:var(--accent2);bottom:-150px;left:-100px}
-        header{position:sticky;top:0;z-index:100;width:100%;max-width:960px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(10,15,30,.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
-        .header-logo{display:flex;align-items:center;gap:8px;cursor:pointer}
-        .status-dot{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent3)}
-        .status-dot::before{content:'';width:7px;height:7px;background:var(--accent3);border-radius:50%;animation:pulse 2s infinite}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-        .logout-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:5px 9px;border-radius:8px;font-family:'DM Mono',monospace}
-        .logout-btn:hover{color:var(--danger)}
         .container{max-width:960px;margin:20px auto;padding:0 20px}
         .tabs{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap}
-        .tab-btn{padding:8px 16px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all .2s}
+        .tab-btn{padding:8px 16px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:12px;cursor:pointer}
         .tab-btn.active{background:rgba(0,212,255,.12);border-color:rgba(0,212,255,.35);color:var(--accent);font-weight:600}
-        .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 24px;box-shadow:var(--shadow);margin-bottom:20px}
+        .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 24px;margin-bottom:20px}
         .card-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--accent);margin-bottom:16px}
-        .flex-between{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-        .date-picker{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text)}
+        .flex-between{display:flex;justify-content:space-between;align-items:center}
+        .date-picker{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;color:var(--text)}
       `}</style>
-      <div className="orb orb1" /><div className="orb orb2" />
-
-      <header>
-        <div className="header-logo" onClick={() => router.push('/chat')}>
-          {cfg.logob64 ? (
-            <img src={cfg.logob64} alt={cfg.company} style={{ height: 36, objectFit: 'contain', borderRadius: 6 }} />
-          ) : (
-            <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 16, fontWeight: 700 }}>{cfg.company || 'Vivanexa'}</div>
-          )}
-        </div>
-        <div className="status-dot">online</div>
-        <nav style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto' }}>
-          <button onClick={() => router.push('/chat')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8 }}>💬 Chat</button>
-          <button onClick={() => router.push('/dashboard')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8 }}>📊 Dashboard</button>
-          <button onClick={() => router.push('/configuracoes')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8 }}>⚙️ Config</button>
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>👤 {perfil?.nome || 'Usuário'}</span>
-          <button className="logout-btn" onClick={async () => { await supabase.auth.signOut(); router.push('/'); }}>Sair</button>
-        </nav>
-      </header>
-
       <div className="container">
         <div className="tabs">
-          {[
-            { id: 'produtos', label: '📦 Contratos/Produtos' },
-            { id: 'kpis', label: '📊 KPIs por Usuário' },
-            { id: 'ia', label: '🤖 Análise IA' },
-          ].map(t => (
-            <button key={t.id} className={`tab-btn ${aba === t.id ? 'active' : ''}`} onClick={() => setAba(t.id)}>
-              {t.label}
-            </button>
-          ))}
+          <button className={`tab-btn ${aba === 'produtos' ? 'active' : ''}`} onClick={() => setAba('produtos')}>📦 Contratos/Produtos</button>
+          <button className={`tab-btn ${aba === 'kpis' ? 'active' : ''}`} onClick={() => setAba('kpis')}>📊 KPIs por Usuário</button>
+          <button className={`tab-btn ${aba === 'ia' ? 'active' : ''}`} onClick={() => setAba('ia')}>🤖 Análise IA</button>
         </div>
 
         {(aba === 'produtos' || aba === 'kpis') && (
           <div className="flex-between" style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, color: 'var(--muted)' }}>Período:</label>
+            <label>Período:</label>
             <input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} className="date-picker" />
           </div>
         )}
 
         {aba === 'produtos' && (
           <div className="card">
-            <div className="card-title">📈 Produtos Vendidos – {new Date(mesRef + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
+            <div className="card-title">📈 Produtos Vendidos</div>
             <ProdutosChart contratosMes={contratosMes} />
             <div style={{ marginTop: 24 }}>
               <div className="card-title">🏆 Ranking de Vendedores</div>
-              {ranking.length === 0 ? (
-                <p style={{ color: 'var(--muted)' }}>Nenhum vendedor com vendas no período.</p>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid var(--border)' }}>
-                      <th style={{ textAlign: 'left', padding: '8px 6px' }}>Vendedor</th>
-                      <th style={{ textAlign: 'center', padding: '8px 6px' }}>Contratos</th>
-                      <th style={{ textAlign: 'right', padding: '8px 6px' }}>Adesão</th>
-                      <th style={{ textAlign: 'right', padding: '8px 6px' }}>Mensalidade</th>
-                      <th style={{ textAlign: 'right', padding: '8px 6px' }}>Total</th>
-                    </tr>
-                  </thead>
+              {contratosMes.length === 0 ? <p>Nenhum contrato assinado.</p> : (
+                <table style={{ width: '100%' }}>
+                  <thead><tr><th>Vendedor</th><th>Contratos</th><th>Adesão</th><th>Mensalidade</th><th>Total</th></tr></thead>
                   <tbody>
-                    {ranking.map((v, i) => (
-                      <tr key={v.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '8px 6px', fontWeight: 600 }}>
-                          {i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : ''}{v.nome}
-                        </td>
-                        <td style={{ textAlign: 'center', padding: '8px 6px' }}>{v.contratos}</td>
-                        <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(v.adesao)}</td>
-                        <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(v.mensalidade)}</td>
-                        <td style={{ textAlign: 'right', padding: '8px 6px', fontWeight: 600 }}>{fmt(v.adesao + v.mensalidade)}</td>
-                      </tr>
-                    ))}
+                    {usuarios.map(u => {
+                      const vendas = contratosMes.filter(c => c.userId === u.id || c.consultor === u.id);
+                      const adesao = vendas.reduce((s, c) => s + (Number(c.adesao) || 0), 0);
+                      const mensal = vendas.reduce((s, c) => s + (Number(c.mensalidade) || 0), 0);
+                      return (
+                        <tr key={u.id}>
+                          <td>{u.nome}</td><td>{vendas.length}</td><td>{fmt(adesao)}</td><td>{fmt(mensal)}</td><td>{fmt(adesao + mensal)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -426,10 +341,8 @@ export default function Reports() {
 
         {aba === 'kpis' && (
           <div className="card">
-            <div className="card-title">🎯 KPIs por Usuário – {new Date(mesRef + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
-            {kpiTemplates.length === 0 ? (
-              <p style={{ color: 'var(--muted)' }}>Nenhum KPI configurado. Acesse Configurações → KPIs.</p>
-            ) : (
+            <div className="card-title">🎯 KPIs por Usuário</div>
+            {kpiTemplates.length === 0 ? <p>Nenhum KPI configurado.</p> : (
               <KpiTable kpiTemplates={kpiTemplates} users={usuarios} kpiLog={kpiLog} goals={goals} mesRef={mesRef} />
             )}
           </div>
@@ -439,7 +352,7 @@ export default function Reports() {
           <div className="card">
             <div className="card-title">🤖 Análise Inteligente (IA)</div>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-              Envie os dados de vendas e KPIs para análise com IA. A IA sugerirá um plano de ação concreto baseado nos resultados.
+              Envie os dados de vendas e KPIs para análise com IA. A IA sugerirá um plano de ação concreto.
             </p>
             <AnaliseIA data={dadosIA} empresaId={empresaId} />
           </div>
