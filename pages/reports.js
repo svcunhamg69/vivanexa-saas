@@ -73,7 +73,7 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
                 <span style={{ fontSize: 10 }}>realizado / meta mensal</span>
               </th>
             ))}
-          </tr>
+          <tr>
         </thead>
         <tbody>
           {userKpis.map(uk => (
@@ -133,7 +133,7 @@ function ProdutosChart({ contratosMes }) {
             <th style={{ textAlign: 'right', padding: '8px 6px' }}>Adesão Total</th>
             <th style={{ textAlign: 'right', padding: '8px 6px' }}>Mensalidade Total</th>
             <th style={{ textAlign: 'right', padding: '8px 6px' }}>Receita Total</th>
-           </tr>
+          </tr>
         </thead>
         <tbody>
           {lista.map(p => (
@@ -143,7 +143,7 @@ function ProdutosChart({ contratosMes }) {
               <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(p.adesao)}</td>
               <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(p.mensalidade)}</td>
               <td style={{ textAlign: 'right', padding: '8px 6px', fontWeight: 600 }}>{fmt(p.adesao + p.mensalidade)}</td>
-             </tr>
+            </tr>
           ))}
         </tbody>
         <tfoot style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
@@ -160,8 +160,8 @@ function ProdutosChart({ contratosMes }) {
   );
 }
 
-// ── Componente de análise IA ─────────────────────────────────
-function AnaliseIA({ data, loading, onGenerate }) {
+// ── Componente de análise IA (com chaves do cfg) ─────────────────────────────────
+function AnaliseIA({ data, cfg }) {
   const [analysis, setAnalysis] = useState('');
   const [loadingAI, setLoadingAI] = useState(false);
   const [error, setError] = useState('');
@@ -173,7 +173,12 @@ function AnaliseIA({ data, loading, onGenerate }) {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data, contexto: 'Dados comerciais da empresa' }),
+        body: JSON.stringify({
+          data,
+          contexto: 'Dados comerciais da empresa',
+          geminiApiKey: cfg.geminiApiKey,
+          groqApiKey: cfg.groqApiKey,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Erro na API');
@@ -414,7 +419,7 @@ export default function Reports() {
                       <th style={{ textAlign: 'right', padding: '8px 6px' }}>Adesão</th>
                       <th style={{ textAlign: 'right', padding: '8px 6px' }}>Mensalidade</th>
                       <th style={{ textAlign: 'right', padding: '8px 6px' }}>Total</th>
-                     </tr>
+                    </tr>
                   </thead>
                   <tbody>
                     {ranking.map((v, i) => (
@@ -426,10 +431,10 @@ export default function Reports() {
                         <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(v.adesao)}</td>
                         <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(v.mensalidade)}</td>
                         <td style={{ textAlign: 'right', padding: '8px 6px', fontWeight: 600 }}>{fmt(v.adesao + v.mensalidade)}</td>
-                       </tr>
+                      </tr>
                     ))}
                   </tbody>
-                 </table>
+                </table>
               )}
             </div>
           </div>
@@ -448,11 +453,11 @@ export default function Reports() {
 
         {aba === 'ia' && (
           <div className="card">
-            <div className="card-title">🤖 Análise Inteligente (Claude)</div>
+            <div className="card-title">🤖 Análise Inteligente (IA)</div>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
               Envie os dados de vendas e KPIs para análise com IA. A IA sugerirá um plano de ação concreto baseado nos resultados.
             </p>
-            <AnaliseIA data={dadosIA} />
+            <AnaliseIA data={dadosIA} cfg={cfg} />
           </div>
         )}
       </div>
