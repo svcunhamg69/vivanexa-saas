@@ -49,7 +49,7 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
                 {k.nome}<br /><span style={{ fontSize: 10 }}>realizado / meta mensal</span>
               </th>
             ))}
-          </tr>
+          <tr>
         </thead>
         <tbody>
           {userKpis.map(uk => (
@@ -121,7 +121,7 @@ function ProdutosChart({ contratosMes }) {
             <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.adesao, 0))}</td>
             <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.mensalidade, 0))}</td>
             <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.adesao + p.mensalidade, 0))}</td>
-           </tr>
+          </tr>
         </tfoot>
       </table>
     </div>
@@ -206,31 +206,42 @@ export default function Reports() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push('/'); return; }
 
-      // Usar diretamente o user.id como empresaId (fallback)
-      const userId = session.user.id;
-      setEmpresaId(userId);
+      // Busca ou cria perfil automaticamente
+      let { data: perfil } = await supabase
+        .from('perfis')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
 
-      // Tentar carregar configuração da empresa usando o userId como chave (temporário)
+      if (!perfil) {
+        const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário';
+        const { data: novoPerfil } = await supabase
+          .from('perfis')
+          .insert({
+            user_id: session.user.id,
+            nome: nome,
+            email: session.user.email,
+            empresa_id: session.user.id,
+            perfil: 'admin'
+          })
+          .select()
+          .single();
+        perfil = novoPerfil;
+      }
+
+      const eid = perfil?.empresa_id || session.user.id;
+      setEmpresaId(eid);
+
       const { data: row } = await supabase
         .from('vx_storage')
         .select('value')
-        .eq('key', `cfg:${userId}`)
-        .maybeSingle();
+        .eq('key', `cfg:${eid}`)
+        .single();
 
       if (row?.value) {
         setCfg(JSON.parse(row.value));
       } else {
-        // Se não existir, cria uma configuração padrão
-        const defaultCfg = {
-          company: 'Vivanexa',
-          slogan: 'Assistente Comercial',
-          docHistory: [],
-          users: [],
-          kpiTemplates: [],
-          kpiLog: [],
-          goals: [],
-        };
-        setCfg(defaultCfg);
+        setCfg({ company: 'Vivanexa', docHistory: [], users: [], kpiTemplates: [], kpiLog: [], goals: [] });
       }
       setLoading(false);
     }
