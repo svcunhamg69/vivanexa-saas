@@ -2,10 +2,11 @@
 // ============================================================
 // MELHORIAS APLICADAS:
 // 1. Gráficos de produtos vendidos (adesão + mensalidade por módulo)
-// 2. Menus de navegação visíveis no header (Chat, Config, Sair)
+// 2. Menus de navegação visíveis no header (Chat, Config, Sair, Relatórios)
 // 3. Logo exibida no header quando configurada
 // 4. Card "Contratos do mês" com detalhes dos produtos vendidos
 // 5. Header clicável para voltar ao chat
+// 6. Botão Relatórios adicionado
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -441,7 +442,7 @@ export default function Dashboard() {
 
       {kpiModal && <ModalKpi kpi={kpiModal} userId={usuarioAtual?.id} onClose={() => setKpiModal(null)} onSave={salvarKpi} />}
 
-      {/* HEADER COM MENUS E LOGO CLICÁVEL */}
+      {/* HEADER COM MENUS E LOGO CLICÁVEL E BOTÃO RELATÓRIOS */}
       <header style={{ position: 'sticky', top: 0, zIndex: 100, width: '100%', background: 'rgba(10,15,30,.85)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '12px 20px' }}>
         <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ cursor: 'pointer' }} onClick={() => router.push('/chat')}>
@@ -457,6 +458,10 @@ export default function Dashboard() {
             <button onClick={() => router.push('/chat')}
               style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
               💬 Chat
+            </button>
+            <button onClick={() => router.push('/reports')}
+              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
+              📈 Relatórios
             </button>
             <button onClick={() => router.push('/configuracoes')}
               style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
