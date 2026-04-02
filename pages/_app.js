@@ -38,7 +38,7 @@ function MyApp({ Component, pageProps }) {
   useEffect(() => {
     if (!session) return;
     const loadCfg = async () => {
-      // Busca ou cria perfil automaticamente
+      // Busca ou cria perfil automaticamente (corrigido: user_id)
       let { data: perfil, error } = await supabase
         .from('perfis')
         .select('*')
