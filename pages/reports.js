@@ -49,7 +49,7 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
                 {k.nome}<br /><span style={{ fontSize: 10 }}>realizado / meta mensal</span>
               </th>
             ))}
-          <tr>
+          </tr>
         </thead>
         <tbody>
           {userKpis.map(uk => (
