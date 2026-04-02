@@ -7,11 +7,7 @@ import { supabase } from '../lib/supabase';
 function fmt(v) {
   return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
-
-function mesAtual() {
-  return new Date().toISOString().slice(0, 7);
-}
-
+function mesAtual() { return new Date().toISOString().slice(0, 7); }
 function diasUteisNoMes(yearMonth) {
   const [y, m] = yearMonth.split('-').map(Number);
   const dias = new Date(y, m, 0).getDate();
@@ -37,7 +33,6 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
     });
     return { user, kpiData };
   });
-
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
@@ -56,13 +51,13 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
             <tr key={uk.user.id} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={{ padding: '8px 6px', fontWeight: 600 }}>{uk.user.nome}</td>
               {uk.kpiData.map(kd => {
-                const progresso = kd.progresso;
-                const cor = progresso >= 100 ? 'var(--accent3)' : progresso >= 70 ? 'var(--accent)' : progresso >= 40 ? 'var(--warning)' : 'var(--muted)';
+                const p = kd.progresso;
+                const cor = p >= 100 ? 'var(--accent3)' : p >= 70 ? 'var(--accent)' : p >= 40 ? 'var(--warning)' : 'var(--muted)';
                 return (
                   <td key={kd.kpi.id} style={{ textAlign: 'center', padding: '8px 6px' }}>
                     <div style={{ fontWeight: 600, color: cor }}>{kd.realizado}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                      {kd.metaMensal > 0 ? `${kd.metaMensal} (${Math.round(progresso)}%)` : '—'}
+                      {kd.metaMensal > 0 ? `${kd.metaMensal} (${Math.round(p)}%)` : '—'}
                     </div>
                   </td>
                 );
@@ -87,11 +82,9 @@ function ProdutosChart({ contratosMes }) {
       });
     }
   });
-
-  const lista = Object.entries(produtos).map(([nome, dados]) => ({ nome, ...dados })).sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade));
-
+  const lista = Object.entries(produtos).map(([nome, dados]) => ({ nome, ...dados }))
+    .sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade));
   if (lista.length === 0) return <p style={{ color: 'var(--muted)', padding: 20, textAlign: 'center' }}>Nenhum contrato assinado no período.</p>;
-
   return (
     <div>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -116,7 +109,8 @@ function ProdutosChart({ contratosMes }) {
           ))}
         </tbody>
         <tfoot style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
-          <tr><td style={{ padding: '8px 6px' }}>TOTAL</td>
+          <tr>
+            <td style={{ padding: '8px 6px' }}>TOTAL</td>
             <td style={{ textAlign: 'center', padding: '8px 6px' }}>{lista.reduce((s, p) => s + p.count, 0)}</td>
             <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.adesao, 0))}</td>
             <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.mensalidade, 0))}</td>
@@ -134,20 +128,22 @@ function AnaliseIA({ data, empresaId, cfgIA }) {
   const [error, setError] = useState('');
 
   async function handleGenerate() {
-    setLoading(true);
-    setError('');
-    setAnalysis('');
+    setLoading(true); setError(''); setAnalysis('');
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data, empresaId, geminiKey: cfgIA?.geminiApiKey || '', groqKey: cfgIA?.groqApiKey || '' }),
+        body: JSON.stringify({
+          data, empresaId,
+          geminiKey: cfgIA?.geminiApiKey || '',
+          groqKey: cfgIA?.groqApiKey || '',
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Erro na API');
       setAnalysis(json.analysis);
-    } catch (err) {
-      setError(err.message);
+    } catch (e) {
+      setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -155,38 +151,23 @@ function AnaliseIA({ data, empresaId, cfgIA }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <button
-          onClick={handleGenerate}
-          disabled={loading}
-          style={{
-            padding: '10px 20px',
-            borderRadius: 8,
-            background: 'linear-gradient(135deg,var(--accent),#0099bb)',
-            border: 'none',
-            color: '#fff',
-            fontFamily: 'DM Mono, monospace',
-            fontWeight: 600,
-            cursor: loading ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {loading ? 'Analisando...' : '🤖 Gerar Análise com IA'}
-        </button>
-      </div>
-      {error && <p style={{ color: 'var(--danger)', marginBottom: 12, whiteSpace: 'pre-wrap' }}>⚠️ {error}</p>}
+      {!cfgIA?.geminiApiKey && !cfgIA?.groqApiKey && (
+        <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.3)', borderRadius: 8, fontSize: 12, color: 'var(--warning)', marginBottom: 12 }}>
+          ⚠️ Configure sua chave de API em <strong>Configurações → Empresa</strong> (Google Gemini ou Groq).
+        </div>
+      )}
+      <button onClick={handleGenerate} disabled={loading}
+        style={{ padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,var(--accent),#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 16 }}>
+        {loading ? '⏳ Analisando...' : '🤖 Gerar Análise com IA'}
+      </button>
+      {error && (
+        <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 8, fontSize: 13, color: 'var(--danger)', marginBottom: 12, whiteSpace: 'pre-wrap' }}>
+          ❌ {error}
+        </div>
+      )}
       {analysis && (
-        <div style={{
-          background: 'var(--surface2)',
-          border: '1px solid var(--border)',
-          borderRadius: 12,
-          padding: '16px 20px',
-          whiteSpace: 'pre-wrap',
-          fontFamily: 'Inter, sans-serif',
-          fontSize: 14,
-          lineHeight: 1.6,
-          color: 'var(--text)',
-        }}>
-          {analysis.split('\n').map((line, i) => <p key={i} style={{ marginBottom: 8 }}>{line}</p>)}
+        <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 20, fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap', color: 'var(--text)' }}>
+          {analysis}
         </div>
       )}
     </div>
@@ -206,38 +187,20 @@ export default function Reports() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push('/'); return; }
 
-      // Busca ou cria perfil automaticamente
-      let { data: perfil } = await supabase
-        .from('perfis')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .maybeSingle();
-
+      let { data: perfil } = await supabase.from('perfis').select('*').eq('user_id', session.user.id).maybeSingle();
       if (!perfil) {
         const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário';
-        const { data: novoPerfil } = await supabase
-          .from('perfis')
-          .insert({
-            user_id: session.user.id,
-            nome: nome,
-            email: session.user.email,
-            empresa_id: session.user.id,
-            perfil: 'admin'
-          })
-          .select()
-          .single();
+        const { data: novoPerfil } = await supabase.from('perfis').insert({
+          user_id: session.user.id, nome, email: session.user.email,
+          empresa_id: session.user.id, perfil: 'admin',
+        }).select().single();
         perfil = novoPerfil;
       }
 
       const eid = perfil?.empresa_id || session.user.id;
       setEmpresaId(eid);
 
-      const { data: row } = await supabase
-        .from('vx_storage')
-        .select('value')
-        .eq('key', `cfg:${eid}`)
-        .single();
-
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single();
       if (row?.value) {
         setCfg(JSON.parse(row.value));
       } else {
@@ -252,7 +215,10 @@ export default function Reports() {
   if (!cfg) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>Configurações não carregadas.</div>;
 
   const docHistory = cfg.docHistory || [];
-  const contratosMes = docHistory.filter(d => d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === mesRef);
+  // FIX: aceita criado, dateISO ou date
+  const contratosMes = docHistory.filter(d =>
+    d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === mesRef
+  );
   const usuarios = cfg.users || [];
   const kpiTemplates = cfg.kpiTemplates || [];
   const kpiLog = cfg.kpiLog || [];
@@ -264,14 +230,14 @@ export default function Reports() {
     total_adesao: contratosMes.reduce((s, c) => s + (Number(c.adesao) || 0), 0),
     total_mensalidade: contratosMes.reduce((s, c) => s + (Number(c.mensalidade) || 0), 0),
     usuarios: usuarios.map(u => {
-      const realiz = contratosMes.filter(c => c.userId === u.id || c.consultor === u.id);
+      const realiz = contratosMes.filter(c => c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email);
       return { nome: u.nome, contratos: realiz.length, adesao: realiz.reduce((s, c) => s + (Number(c.adesao) || 0), 0), mensalidade: realiz.reduce((s, c) => s + (Number(c.mensalidade) || 0), 0) };
     }),
     kpis: kpiTemplates.map(k => ({ nome: k.nome, total_realizado: kpiLog.filter(l => l.kpiId === k.id && l.date.startsWith(mesRef)).reduce((s, l) => s + (l.realizado || 0), 0) })),
   };
 
   const ranking = usuarios.map(u => {
-    const realiz = contratosMes.filter(c => c.userId === u.id || c.consultor === u.id);
+    const realiz = contratosMes.filter(c => c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email);
     return { ...u, adesao: realiz.reduce((s, c) => s + (Number(c.adesao) || 0), 0), mensalidade: realiz.reduce((s, c) => s + (Number(c.mensalidade) || 0), 0), contratos: realiz.length };
   }).sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade));
 
@@ -326,10 +292,26 @@ export default function Reports() {
             <div style={{ marginTop: 24 }}>
               <div className="card-title">🏆 Ranking de Vendedores</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead><tr style={{ borderBottom: '2px solid var(--border)' }}><th style={{ textAlign: 'left', padding: '8px 6px' }}>Vendedor</th><th style={{ textAlign: 'center' }}>Contratos</th><th style={{ textAlign: 'right' }}>Adesão</th><th style={{ textAlign: 'right' }}>Mensalidade</th><th style={{ textAlign: 'right' }}>Total</th></tr></thead>
-                <tbody>{ranking.map((v, i) => (
-                  <tr key={v.id} style={{ borderBottom: '1px solid var(--border)' }}><td style={{ padding: '8px 6px', fontWeight: 600 }}>{i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : ''}{v.nome}</td><td style={{ textAlign: 'center' }}>{v.contratos}</td><td style={{ textAlign: 'right' }}>{fmt(v.adesao)}</td><td style={{ textAlign: 'right' }}>{fmt(v.mensalidade)}</td><td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(v.adesao + v.mensalidade)}</td></tr>
-                ))}</tbody>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 6px' }}>Vendedor</th>
+                    <th style={{ textAlign: 'center' }}>Contratos</th>
+                    <th style={{ textAlign: 'right' }}>Adesão</th>
+                    <th style={{ textAlign: 'right' }}>Mensalidade</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ranking.map((v, i) => (
+                    <tr key={v.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '8px 6px', fontWeight: 600 }}>{i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : `${i+1}. `}{v.nome}</td>
+                      <td style={{ textAlign: 'center' }}>{v.contratos}</td>
+                      <td style={{ textAlign: 'right' }}>{fmt(v.adesao)}</td>
+                      <td style={{ textAlign: 'right' }}>{fmt(v.mensalidade)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(v.adesao + v.mensalidade)}</td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
           </div>
@@ -337,7 +319,10 @@ export default function Reports() {
         {aba === 'kpis' && (
           <div className="card">
             <div className="card-title">🎯 KPIs por Usuário – {new Date(mesRef + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
-            {kpiTemplates.length === 0 ? <p>Nenhum KPI configurado. Acesse Configurações → KPIs.</p> : <KpiTable kpiTemplates={kpiTemplates} users={usuarios} kpiLog={kpiLog} goals={goals} mesRef={mesRef} />}
+            {kpiTemplates.length === 0
+              ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum KPI configurado. Acesse Configurações → KPIs.</p>
+              : <KpiTable kpiTemplates={kpiTemplates} users={usuarios} kpiLog={kpiLog} goals={goals} mesRef={mesRef} />
+            }
           </div>
         )}
         {aba === 'ia' && (
