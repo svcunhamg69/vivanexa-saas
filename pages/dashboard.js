@@ -312,6 +312,7 @@ export default function Dashboard() {
   }
 
   // ── Derivações ─────────────────────────────────
+  const isAdmin      = perfil?.perfil === 'admin'
   const usuarios     = cfg.users        || []
   const goals        = cfg.goals        || []
   const kpiTemplates = cfg.kpiTemplates || []
@@ -324,7 +325,8 @@ export default function Dashboard() {
   // Contratos assinados no mês selecionado
   const contratosMes = docHistory.filter(d => {
     if (d.status !== 'signed') return false
-    return (d.criado || '').slice(0, 7) === mes
+    const dt = (d.criado || d.dateISO || d.date || '')
+    return dt.slice(0, 7) === mes
   })
 
   function metasUsuario(userId) {
@@ -338,9 +340,12 @@ export default function Dashboard() {
   }
 
   const totaisGerais = (() => {
-    const ad  = contratosMes.reduce((a, d) => a + (Number(d.adesao) || 0), 0)
-    const men = contratosMes.reduce((a, d) => a + (Number(d.mensalidade) || 0), 0)
-    return { adesao: ad, mensalidade: men, contratos: contratosMes.length }
+    const docs = isAdmin ? contratosMes : contratosMes.filter(d =>
+      d.userId === usuarioAtual?.id || d.consultor === usuarioAtual?.nome || d.consultorEmail === perfil?.email
+    )
+    const ad  = docs.reduce((a, d) => a + (Number(d.adesao) || 0), 0)
+    const men = docs.reduce((a, d) => a + (Number(d.mensalidade) || 0), 0)
+    return { adesao: ad, mensalidade: men, contratos: docs.length }
   })()
 
   const metasTotais = (() => {
@@ -371,7 +376,7 @@ export default function Dashboard() {
       const m     = d.toISOString().slice(0, 7)
       const label = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
       const valor = docHistory
-        .filter(d => d.status === 'signed' && (d.criado || '').slice(0, 7) === m)
+        .filter(d => d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m)
         .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
       meses.push({ label, valor, cor: m === mes ? 'var(--accent)' : 'rgba(0,212,255,.4)' })
     }
@@ -510,7 +515,6 @@ export default function Dashboard() {
               { id: 'produtos', label: '📦 Produtos'  },
               { id: 'kpis',    label: '🎯 KPIs'      },
               { id: 'ranking', label: '🏆 Ranking'   },
-              { id: 'historico',label:'🗂️ Histórico' },
             ].map(t => (
               <button key={t.id} onClick={() => setAbaAtiva(t.id)}
                 style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${abaAtiva === t.id ? 'var(--accent)' : 'var(--border)'}`, background: abaAtiva === t.id ? 'rgba(0,212,255,.1)' : 'var(--surface2)', color: abaAtiva === t.id ? 'var(--accent)' : 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', fontWeight: abaAtiva === t.id ? 600 : 400 }}>
@@ -674,14 +678,32 @@ export default function Dashboard() {
                 <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 16 }}>
                   Clique em um KPI para lançar seu realizado
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-                  {kpiTemplates.map(kpi => {
-                    const uid  = usuarioAtual?.id || ''
-                    const real = kpiRealizadoMes(kpi.id, uid, mes)
-                    const meta = kpiMetaMes(kpi.id, uid, mes)
-                    return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={() => setKpiModal(kpi)} />
-                  })}
-                </div>
+                {/* Admin: todos os usuários; Usuário: apenas o próprio */}
+                {isAdmin && usuarios.length > 0 ? (
+                  usuarios.map(u => (
+                    <div key={u.id} style={{ marginBottom: 24 }}>
+                      <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--muted)', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
+                        👤 {u.nome}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+                        {kpiTemplates.map(kpi => {
+                          const real = kpiRealizadoMes(kpi.id, u.id, mes)
+                          const meta = kpiMetaMes(kpi.id, u.id, mes)
+                          return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={null} />
+                        })}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+                    {kpiTemplates.map(kpi => {
+                      const uid  = usuarioAtual?.id || ''
+                      const real = kpiRealizadoMes(kpi.id, uid, mes)
+                      const meta = kpiMetaMes(kpi.id, uid, mes)
+                      return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={() => setKpiModal(kpi)} />
+                    })}
+                  </div>
+                )}
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginTop: 20, boxShadow: 'var(--shadow)' }}>
                   <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>📅 Lançamentos do Mês</div>
                   {kpiLog.filter(l => l.date.startsWith(mes) && l.userId === usuarioAtual?.id).length === 0
