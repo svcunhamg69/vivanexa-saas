@@ -128,7 +128,7 @@ function ProdutosChart({ contratosMes }) {
   );
 }
 
-function AnaliseIA({ data, empresaId }) {
+function AnaliseIA({ data, empresaId, cfgIA }) {
   const [analysis, setAnalysis] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -141,7 +141,7 @@ function AnaliseIA({ data, empresaId }) {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data, empresaId }),
+        body: JSON.stringify({ data, empresaId, geminiKey: cfgIA?.geminiApiKey || '', groqKey: cfgIA?.groqApiKey || '' }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Erro na API');
@@ -252,7 +252,7 @@ export default function Reports() {
   if (!cfg) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>Configurações não carregadas.</div>;
 
   const docHistory = cfg.docHistory || [];
-  const contratosMes = docHistory.filter(d => d.status === 'signed' && (d.criado || '').slice(0, 7) === mesRef);
+  const contratosMes = docHistory.filter(d => d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === mesRef);
   const usuarios = cfg.users || [];
   const kpiTemplates = cfg.kpiTemplates || [];
   const kpiLog = cfg.kpiLog || [];
@@ -344,7 +344,7 @@ export default function Reports() {
           <div className="card">
             <div className="card-title">🤖 Análise Inteligente (IA)</div>
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>Envie os dados de vendas e KPIs para análise com IA. A IA sugerirá um plano de ação concreto baseado nos resultados.</p>
-            <AnaliseIA data={dadosIA} empresaId={empresaId} />
+            <AnaliseIA data={dadosIA} empresaId={empresaId} cfgIA={cfg} />
           </div>
         )}
       </div>
