@@ -1,13 +1,14 @@
 // pages/configuracoes.js
 // ============================================================
-// VERSÃO COMPLETA CORRIGIDA
-// • Aba Usuários completa
-// • Aba Vouchers completa
-// • Aba Histórico com visualização de documentos
-// • Aba Clientes com validação de duplicatas
-// • Aba Produtos com edição de módulos e toggle de botões
-// • Aba Empresa com SMTP e oferta de fechamento
+// VERSÃO CORRIGIDA
+// • Mover SMTP para aba Empresa
+// • Validação de duplicatas em Clientes
+// • Toggle de botões em Produtos funcionando
 // • Header clicável
+// • Edição de nomes de módulos
+// • Histórico com visualização de documentos
+// • Abas Usuários e Vouchers completas
+// • Botão Relatórios no header
 // ============================================================
 
 import { useState, useEffect } from 'react'
@@ -86,7 +87,7 @@ async function salvarStorage(empresaId, novoCfg) {
 }
 
 // ══════════════════════════════════════════════
-// ABA EMPRESA (com SMTP e oferta de fechamento)
+// ABA EMPRESA (com SMTP)
 // ══════════════════════════════════════════════
 function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [company,      setCompany]      = useState(cfg.company  || '')
@@ -193,7 +194,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA METAS (metas de vendas)
+// ABA METAS
 // ══════════════════════════════════════════════
 function TabMetas({ cfg, setCfg, empresaId }) {
   const mes = new Date().toISOString().slice(0, 7)
@@ -242,7 +243,7 @@ function TabMetas({ cfg, setCfg, empresaId }) {
     <div style={s.body}>
       <div style={s.sec}>
         <div style={s.secTitle}>Metas de Vendas por Usuário</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>Defina metas mensais de adesão e mensalidade para cada vendedor.</p>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>Defina metas mensais de adesão e mensalidade para cada vendedor.</p>
         <div style={{ marginBottom: 16 }}><label style={s.label}>Mês de Referência</label><input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} style={s.input} /></div>
         {usuarios.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum usuário cadastrado. Cadastre na aba Usuários.</p>}
         {usuarios.map(u => (
@@ -386,7 +387,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA USUÁRIOS (completa)
+// ABA USUÁRIOS — COM PERMISSÕES + PERFIS
 // ══════════════════════════════════════════════
 function TabUsuarios({ cfg, setCfg, empresaId }) {
   const [users,   setUsers]   = useState(cfg.users || [])
@@ -430,7 +431,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
     <div style={s.body}>
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {[['lista','👥 Usuários'],['perfis','🔐 Tipos de Perfil']].map(([id, label]) => (
-          <button key={id} onClick={() => setAbaU(id)} style={{ padding: '8px 16px', borderRadius: 9, fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', background: abaU === id ? 'rgba(0,212,255,.12)' : 'var(--surface2)', border: `1px solid ${abaU === id ? 'rgba(0,212,255,.35)' : 'var(--border)'}`, color: abaU === id ? 'var(--accent)' : 'var(--muted)' }}>{label}</button>
+          <button key={id} onClick={() => setAbaU(id)} style={{ padding: '8px 16px', borderRadius: 9, fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', background: abaU === id ? 'rgba(0,212,255,.12)' : 'var(--surface2)', border: `1px solid ${abaU === id ? 'rgba(0,212,255,.35)' : 'var(--border)'}`, color: abaU === id ? 'var(--accent)' : 'var(--muted)', fontWeight: abaU === id ? 600 : 400 }}>{label}</button>
         ))}
       </div>
 
@@ -445,11 +446,11 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{nomePerfilLabel(u.perfilId || u.perfil)}</span></div>
                 {u.permissoes && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{u.permissoes.length} permissões</div>}
               </div>
-              <button onClick={() => editUser(u)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)' }}>✏️</button>
-              <button onClick={() => removeUser(u.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)' }}>🗑</button>
+              <button onClick={() => editUser(u)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>✏️</button>
+              <button onClick={() => removeUser(u.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>🗑</button>
             </div>
           ))}
-          <button onClick={() => setForm(emptyForm)} style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', marginTop: 8 }}>+ Novo Usuário</button>
+          <button onClick={() => setForm(emptyForm)} style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>+ Novo Usuário</button>
 
           {form && (
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
@@ -472,7 +473,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
                   {PERMISSOES_DISPONIVEIS.map(p => {
                     const ativo = (form.permissoes || []).includes(p.id)
                     return (
-                      <div key={p.id} onClick={() => togglePermissao(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: ativo ? 'rgba(0,212,255,.08)' : 'var(--surface)', border: `1px solid ${ativo ? 'rgba(0,212,255,.3)' : 'var(--border)'}`, cursor: 'pointer', fontSize: 12, color: ativo ? 'var(--text)' : 'var(--muted)' }}>
+                      <div key={p.id} onClick={() => togglePermissao(p.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: ativo ? 'rgba(0,212,255,.08)' : 'var(--surface)', border: `1px solid ${ativo ? 'rgba(0,212,255,.3)' : 'var(--border)'}`, cursor: 'pointer', fontSize: 12, color: ativo ? 'var(--text)' : 'var(--muted)', transition: 'all .15s' }}>
                         <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${ativo ? 'var(--accent)' : 'var(--border)'}`, background: ativo ? 'var(--accent)' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{ativo && <span style={{ color: '#fff', fontSize: 10 }}>✓</span>}</div>
                         {p.label}
                       </div>
@@ -482,7 +483,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
                 <button style={s.saveBtn} onClick={salvarUser} disabled={saving}>{saving ? '⏳...' : '✅ Salvar Usuário'}</button>
-                <button onClick={() => setForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)' }}>Cancelar</button>
+                <button onClick={() => setForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
               </div>
             </div>
           )}
@@ -492,15 +493,15 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
       {abaU === 'perfis' && (
         <div style={s.sec}>
           <div style={s.secTitle}>Tipos de Perfil de Acesso</div>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>Crie perfis personalizados. Os perfis fixos (Admin e Vendedor) não podem ser removidos.</p>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>Crie perfis personalizados. Os perfis fixos (Admin e Vendedor) não podem ser removidos.</p>
           {perfis.map(p => (
             <div key={p.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 14, color: p.fixo ? 'var(--accent)' : 'var(--text)' }}>{p.fixo ? '🔒 ' : ''}{p.nome}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{p.permissoes.length} permissões</div></div>
-              <button onClick={() => setPerfilForm({ ...p })} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)' }}>✏️</button>
-              {!p.fixo && <button onClick={() => removerPerfil(p.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)' }}>🗑</button>}
+              <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 14, color: p.fixo ? 'var(--accent)' : 'var(--text)' }}>{p.fixo ? '🔒 ' : ''}{p.nome}</div><div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{p.permissoes.length} permissões</div></div>
+              <button onClick={() => setPerfilForm({ ...p })} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>✏️</button>
+              {!p.fixo && <button onClick={() => removerPerfil(p.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>🗑</button>}
             </div>
           ))}
-          <button onClick={addPerfil} style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', marginTop: 8 }}>+ Novo Perfil</button>
+          <button onClick={addPerfil} style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>+ Novo Perfil</button>
 
           {perfilForm && (
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 16 }}>
@@ -520,7 +521,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
                 <button style={s.saveBtn} onClick={salvarPerfil}>✅ Salvar Perfil</button>
-                <button onClick={() => setPerfilForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)' }}>Cancelar</button>
+                <button onClick={() => setPerfilForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
               </div>
             </div>
           )}
@@ -531,7 +532,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA PRODUTOS (completa)
+// ABA PRODUTOS – com toggle de botões funcionando
 // ══════════════════════════════════════════════
 function TabProdutos({ cfg, setCfg, empresaId }) {
   const [planos,  setPlanos]  = useState(cfg.plans   || PLANOS_PADRAO)
@@ -590,7 +591,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
     <div style={s.body}>
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {[['planos','📋 Planos'],['precos','💲 Preços'],['modulos','📦 Módulos']].map(([id, label]) => (
-          <button key={id} onClick={() => setAbaP(id)} style={{ padding: '8px 16px', borderRadius: 9, fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', background: abaP === id ? 'rgba(0,212,255,.12)' : 'var(--surface2)', border: `1px solid ${abaP === id ? 'rgba(0,212,255,.35)' : 'var(--border)'}`, color: abaP === id ? 'var(--accent)' : 'var(--muted)' }}>{label}</button>
+          <button key={id} onClick={() => setAbaP(id)} style={{ padding: '8px 16px', borderRadius: 9, fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', background: abaP === id ? 'rgba(0,212,255,.12)' : 'var(--surface2)', border: `1px solid ${abaP === id ? 'rgba(0,212,255,.35)' : 'var(--border)'}`, color: abaP === id ? 'var(--accent)' : 'var(--muted)', fontWeight: abaP === id ? 600 : 400 }}>{label}</button>
         ))}
       </div>
 
@@ -599,7 +600,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={s.secTitle}>Planos Disponíveis</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: 'var(--surface2)' }}><th style={{ padding: '10px 12px' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th></tr></thead>
+              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th> </tr></thead>
               <tbody>
                 {planos.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -607,7 +608,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
                     <td style={{ padding: '8px 12px' }}><input type="number" style={{ ...s.input, width: 90 }} value={p.maxCnpjs} onChange={e => updatePlano(p.id, 'maxCnpjs', Number(e.target.value))} /></td>
                     <td style={{ padding: '8px 12px' }}><input type="number" style={{ ...s.input, width: 90 }} value={p.usuarios} onChange={e => updatePlano(p.id, 'usuarios', Number(e.target.value))} /></td>
                     <td><button onClick={() => removePlano(p.id)} style={{ padding: '6px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--danger)' }}>🗑</button></td>
-                  </tr>
+                  </td>
                 ))}
               </tbody>
             </table>
@@ -622,8 +623,8 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={s.secTitle}>Tabela de Preços</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead><tr style={{ background: 'var(--surface2)' }}><th style={{ padding: '10px 12px' }}>Módulo</th>{planos.map(p => <th key={p.id} colSpan={2} style={{ padding: '10px 12px', textAlign: 'center' }}>{p.nome}</th>)}</tr>
-               <tr><td style={{ padding: '6px 12px' }}></td>{planos.map(p => <><td style={{ padding: '6px 8px', textAlign: 'center' }}>Adesão</td><td style={{ padding: '6px 8px', textAlign: 'center' }}>Mensal</td></>)}</tr></thead>
+              <thead><tr style={{ background: 'var(--surface2)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Módulo</th>{planos.map(p => <th key={p.id} colSpan={2} style={{ padding: '10px 12px', textAlign: 'center' }}>{p.nome}</th>)}</tr>
+              <tr><td style={{ padding: '6px 12px' }}></td>{planos.map(p => <><td style={{ padding: '6px 8px', textAlign: 'center' }}>Adesão</td><td style={{ padding: '6px 8px', textAlign: 'center' }}>Mensal</td></>)}</td></thead>
               <tbody>
                 {modulos.map(mod => (
                   <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -683,7 +684,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA DESCONTOS (completa)
+// ABA DESCONTOS
 // ══════════════════════════════════════════════
 function TabDescontos({ cfg, setCfg, empresaId }) {
   const [discMode, setDiscMode] = useState(cfg.discMode    || 'screen')
@@ -735,7 +736,7 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA VOUCHERS (completa)
+// ABA VOUCHERS
 // ══════════════════════════════════════════════
 function TabVouchers({ cfg, setCfg, empresaId }) {
   const [prefixo,  setPrefixo]  = useState('PROMO')
@@ -788,13 +789,13 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
           <div style={s.field}><label style={s.label}>% Mensalidade</label><input type="number" style={s.input} min={0} max={100} value={vdm} onChange={e => setVdm(e.target.value)} /></div>
           <div style={s.field}><label style={s.label}>Data comemorativa</label><input style={s.input} value={vdate} onChange={e => setVdate(e.target.value)} placeholder="Ex: Natal 2025" /></div>
         </div>
-        <button onClick={gerarVoucher} style={{ padding: '10px 18px', borderRadius: 9, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', marginTop: 8 }}>🎫 Gerar Voucher</button>
+        <button onClick={gerarVoucher} style={{ padding: '10px 18px', borderRadius: 9, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 8 }}>🎫 Gerar Voucher</button>
         {ultimo && (
           <div style={{ marginTop: 14, padding: 16, background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.25)', borderRadius: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, letterSpacing: 1, textTransform: 'uppercase' }}>Voucher gerado!</div>
             <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent3)', letterSpacing: 4, fontFamily: 'DM Mono, monospace', marginBottom: 8 }}>{ultimo.codigo}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>Adesão: {ultimo.pctAdesao}% · Mensal: {ultimo.pctMensalidade}%{ultimo.comemoracao && ` · ${ultimo.comemoracao}`}</div>
-            <button onClick={() => imprimirVoucher(ultimo)} style={{ padding: '9px 18px', borderRadius: 9, background: 'linear-gradient(135deg,#0f172a,#1e3a5f)', border: '1px solid rgba(0,212,255,.3)', color: '#00d4ff' }}>🖨 Imprimir PDF</button>
+            <button onClick={() => imprimirVoucher(ultimo)} style={{ padding: '9px 18px', borderRadius: 9, background: 'linear-gradient(135deg,#0f172a,#1e3a5f)', border: '1px solid rgba(0,212,255,.3)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>🖨 Imprimir PDF</button>
           </div>
         )}
       </div>
@@ -804,8 +805,8 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
         {vouchers.map(v => (
           <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
             <div style={{ flex: 1 }}><div style={{ fontWeight: 700, color: 'var(--accent)', fontFamily: 'DM Mono, monospace', letterSpacing: 2, fontSize: 15 }}>{v.codigo}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>Adesão {v.pctAdesao}% · Mensal {v.pctMensalidade}%{v.comemoracao && ` · ${v.comemoracao}`} · {v.criado && new Date(v.criado).toLocaleDateString('pt-BR')}</div></div>
-            <button onClick={() => imprimirVoucher(v)} style={{ padding: '6px 12px', borderRadius: 7, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', whiteSpace: 'nowrap' }}>🖨 PDF</button>
-            <button onClick={() => removerVoucher(v.id)} style={{ padding: '6px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)' }}>🗑</button>
+            <button onClick={() => imprimirVoucher(v)} style={{ padding: '6px 12px', borderRadius: 7, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, whiteSpace: 'nowrap' }}>🖨 PDF</button>
+            <button onClick={() => removerVoucher(v.id)} style={{ padding: '6px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer' }}>🗑</button>
           </div>
         ))}
       </div>
@@ -921,63 +922,23 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA HISTÓRICO (com visualização de documentos)
+// ABA HISTÓRICO (com visualização)
 // ══════════════════════════════════════════════
 function TabHistorico({ cfg }) {
   const [filtroTipo,   setFiltroTipo]   = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
   const [busca,        setBusca]        = useState('')
-  const [modalDoc,     setModalDoc]     = useState(null) // { html, title }
-  const [loadingDoc,   setLoadingDoc]   = useState(false)
-
   const docs = (cfg.docHistory || []).filter(d => {
     if (filtroTipo   && d.type !== filtroTipo)   return false
     if (filtroStatus && d.status !== filtroStatus) return false
     if (busca && !d.clientName?.toLowerCase().includes(busca.toLowerCase())) return false
     return true
   })
-
-  async function verDocumento(doc) {
-    setLoadingDoc(true)
-    setModalDoc({ title: `${doc.type === 'contrato' ? '📝 Contrato' : '📄 Proposta'} – ${doc.clientName}`, html: '' })
-    try {
-      const { data: r } = await supabase.from('vx_storage').select('value').eq('key', `doc:${doc.signToken}`).single()
-      if (r?.value) {
-        const d = JSON.parse(r.value)
-        setModalDoc({ title: `${doc.type === 'contrato' ? '📝 Contrato' : '📄 Proposta'} – ${doc.clientName}`, html: d.html || '<p>Sem conteúdo HTML.</p>' })
-      } else {
-        setModalDoc(prev => ({ ...prev, html: '<p style="color:#64748b">Documento não encontrado.</p>' }))
-      }
-    } catch (e) {
-      setModalDoc(prev => ({ ...prev, html: '<p style="color:#ef4444">Erro ao carregar documento.</p>' }))
-    } finally {
-      setLoadingDoc(false)
-    }
-  }
-
   function statusLabel(st) {
     if (st === 'signed')  return { txt: '✅ Assinado', cor: 'var(--accent3)' }
     if (st === 'pending') return { txt: '⏳ Pendente', cor: 'var(--warning)' }
     return { txt: '📝 Rascunho', cor: 'var(--muted)' }
   }
-
-  function openPrint(html, title) {
-    const win = window.open('', '_blank', 'width=900,height=700')
-    if (!win) { alert('Permita popups.'); return }
-    win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${title}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
-      <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}body{margin:0;background:#fff}
-      .tb{display:flex;gap:10px;padding:14px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
-      .tb button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none}
-      .bp{background:#0f172a;color:#fff}.bc{background:#e2e8f0;color:#475569}
-      @media print{.tb{display:none!important}}</style>
-      </head><body>
-      <div class="tb"><button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="bc" onclick="window.close()">✕ Fechar</button></div>
-      ${html}</body></html>`)
-    win.document.close()
-    win.focus()
-  }
-
   return (
     <div style={s.body}>
       <div style={s.sec}>
@@ -987,45 +948,22 @@ function TabHistorico({ cfg }) {
           <select style={s.input} value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}><option value="">Todos</option><option value="pending">Pendente</option><option value="signed">Assinado</option><option value="draft">Rascunho</option></select>
           <input style={{ ...s.input, flex: 1, minWidth: 160 }} placeholder="Buscar por cliente..." value={busca} onChange={e => setBusca(e.target.value)} />
         </div>
-        {docs.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum documento encontrado.</p>}
+        {docs.length === 0 && <p style={{ color: 'var(--muted)' }}>Nenhum documento encontrado.</p>}
         {docs.map((d, i) => {
           const sl = statusLabel(d.status)
           return (
             <div key={i} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{d.clientName || 'Cliente'}</div>
                 <div style={{ fontSize: 12, color: sl.cor, fontWeight: 600 }}>{sl.txt}</div>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
                 {d.type === 'contrato' ? '📝 Contrato' : '📄 Proposta'} · {d.date}
-                {d.signedBy && <span style={{ marginLeft: 8 }}>✅ Cliente: {d.signedBy}</span>}
-                {d.consultantSignedBy && <span style={{ marginLeft: 8 }}>✅ Consultor: {d.consultantSignedBy}</span>}
               </div>
-              <button onClick={() => verDocumento(d)} style={{ padding: '4px 12px', borderRadius: 6, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontSize: 12, cursor: 'pointer' }}>
-                👁️ Ver documento
-              </button>
             </div>
           )
         })}
       </div>
-
-      {modalDoc && (
-        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, width: '100%', maxWidth: 860, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>{modalDoc.title}</h3>
-              <button onClick={() => setModalDoc(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', background: '#fff' }}>
-              {loadingDoc ? <p style={{ textAlign: 'center', color: 'var(--muted)' }}>⏳ Carregando...</p> : <div dangerouslySetInnerHTML={{ __html: modalDoc.html }} />}
-            </div>
-            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setModalDoc(null)} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)' }}>Fechar</button>
-              <button onClick={() => openPrint(modalDoc.html, modalDoc.title)} style={{ padding: '8px 16px', borderRadius: 8, background: 'linear-gradient(135deg,var(--accent),#0099bb)', border: 'none', color: '#fff' }}>🖨 Imprimir</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1078,7 +1016,7 @@ function TabClientes({ cfg, setCfg, empresaId }) {
           <input style={{ ...s.input, flex: 1 }} placeholder="CNPJ, CPF ou nome..." value={busca} onChange={e => setBusca(e.target.value)} />
           <button onClick={() => setForm(emptyClient)} style={{ padding: '10px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', whiteSpace: 'nowrap' }}>+ Novo Cliente</button>
         </div>
-        {filtrados.length === 0 && !form && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum cliente encontrado.</p>}
+        {filtrados.length === 0 && !form && <p style={{ color: 'var(--muted)' }}>Nenhum cliente encontrado.</p>}
         {filtrados.map(c => (
           <div key={c.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ flex: 1 }}>
@@ -1138,7 +1076,7 @@ function TabTema({ cfg, setCfg, empresaId }) {
         <div style={s.secTitle}>Aparência</div>
         {[['dark','🌙 Tema Escuro','Fundo escuro'],['light','☀️ Tema Claro','Fundo branco']].map(([t,title,sub]) => (
           <div key={t} style={temaStyle(t)} onClick={() => aplicarTema(t)}>
-            <div><div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div><div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{sub}</div></div>
+            <div><div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{sub}</div></div>
             <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${tema === t ? 'var(--accent)' : 'var(--border)'}`, background: tema === t ? 'var(--accent)' : 'transparent' }} />
           </div>
         ))}
@@ -1228,12 +1166,17 @@ export default function Configuracoes() {
       <div style={{ position:'fixed',width:400,height:400,background:'var(--accent2)',bottom:-150,left:-100,borderRadius:'50%',filter:'blur(120px)',opacity:.06,pointerEvents:'none',zIndex:0 }} />
       <div id="vx-toast" style={{ position:'fixed',bottom:30,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'rgba(16,185,129,.9)',color:'#fff',padding:'12px 24px',borderRadius:10,fontFamily:'DM Mono, monospace',fontSize:14,zIndex:9999,opacity:0,transition:'opacity .3s, transform .3s',boxShadow:'0 4px 20px rgba(0,0,0,.3)' }} />
       <header style={{ position:'relative',zIndex:10,width:'100%',maxWidth:960,margin:'0 auto',padding:'18px 20px 0',display:'flex',alignItems:'center',gap:12 }}>
+        {/* Logo clicável */}
         <div style={{ cursor:'pointer' }} onClick={() => router.push('/chat')}>
-          {cfg.logob64 ? <img src={cfg.logob64} alt="Logo" style={{ height:36,objectFit:'contain' }} onError={e => e.target.style.display='none'} /> : <div style={{ fontFamily:'Syne, sans-serif',fontSize:17,fontWeight:700,letterSpacing:.5 }}>{cfg.company || 'Vivanexa'}</div>}
+          {cfg.logob64
+            ? <img src={cfg.logob64} alt="Logo" style={{ height:36,objectFit:'contain' }} onError={e => e.target.style.display='none'} />
+            : <div style={{ fontFamily:'Syne, sans-serif',fontSize:17,fontWeight:700,letterSpacing:.5 }}>{cfg.company || 'Vivanexa'}</div>
+          }
         </div>
         <div style={{ marginLeft:'auto',display:'flex',gap:8,alignItems:'center' }}>
           <button onClick={() => router.push('/chat')} style={{ background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono, monospace',letterSpacing:.3 }}>💬 Chat</button>
           <button onClick={() => router.push('/dashboard')} style={{ background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono, monospace',letterSpacing:.3 }}>📊 Dashboard</button>
+          <button onClick={() => router.push('/reports')} style={{ background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono, monospace',letterSpacing:.3 }}>📈 Relatórios</button>
           <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} style={{ background:'none',border:'none',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 9px',borderRadius:8,fontFamily:'DM Mono, monospace' }}>Sair</button>
         </div>
       </header>
