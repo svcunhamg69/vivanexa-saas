@@ -8,6 +8,9 @@
 // • Limpar mensagens ao iniciar nova consulta
 // • Header clicável (logo e nome levam para /chat)
 // • Suporte a templates de proposta/contrato via configurações
+// • Tabela vertical de produtos no contrato
+// • Logo da empresa no contrato
+// • Validação de duplicatas de clientes
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -170,7 +173,7 @@ function buildProposal(S,cfg,user){
   const results=isC?S.closingData?.results:S.quoteData?.results
   const rows=(results||[]).map(r=>{
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:r.adD)
-    return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}</td><td style="padding:10px 14px;text-align:center">${adS}</td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}</td>`
+    return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}<\/td><td style="padding:10px 14px;text-align:center">${adS}<\/td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}<\/td>`
   }).join('')
   const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
@@ -194,7 +197,7 @@ function buildProposal(S,cfg,user){
       '{{data_hoje}}': today,
       '{{consultor_nome}}': user?.nome||'',
       '{{company}}': cfg.company||'Vivanexa',
-      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th></tr></thead><tbody>${rows}</tbody></table>`
+      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th><\/tr><\/thead><tbody>${rows}<\/tbody><\/table>`
     }
     for (const [k, v] of Object.entries(vars)) {
       template = template.replace(new RegExp(k, 'g'), v)
@@ -225,9 +228,9 @@ function buildProposal(S,cfg,user){
     </div>
     <div style="margin-bottom:26px">${sec('Módulos Contratados')}
       <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Módulo</th><th style="padding:10px 14px;text-align:center;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Adesão</th><th style="padding:10px 14px;text-align:center;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Mensalidade</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+        <thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Módulo</th><th style="padding:10px 14px;text-align:center;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Adesão</th><th style="padding:10px 14px;text-align:center;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Mensalidade</th><\/tr><\/thead>
+        <tbody>${rows}<\/tbody>
+      <\/table>
       <div style="background:#f8fafc;border-radius:10px;padding:16px 20px;margin-top:14px">
         <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px"><span style="color:#64748b">Total Adesão</span><span style="font-weight:600;color:#0f172a">${fmt(tAd)}</span></div>
         <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:16px"><span style="font-weight:600;color:#0f172a">Total Mensalidade</span><span style="font-weight:700;color:#00d4ff">${fmt(tMen)}</span></div>
@@ -249,7 +252,7 @@ function buildProposal(S,cfg,user){
 </div>`
 }
 
-// ── Build Contrato com Manifesto de Assinatura (suporte a template) ──
+// ── Build Contrato com Manifesto de Assinatura (suporte a template, produtos verticais) ──
 function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   const cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
@@ -258,10 +261,24 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   const payLabel=payMethod==='pix'?'PIX / Boleto à vista':
     payMethod?.startsWith('cartao')?`Cartão em até ${payMethod.replace('cartao','').replace('x','×')} sem juros`:
     payMethod?.startsWith('boleto')?`Boleto ${payMethod.replace('boleto','').replace('x','×')}×`:payMethod
-  const tableRows=(results||[]).map(r=>{
-    const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:(r.adD||0))
-    return`<td style="padding:8px 12px;border:1px solid #e2e8f0">${r.name}${r.plan?`<br><span style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</span>`:''}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${adS}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${S.cnpjs||'—'}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;text-align:center">${fmt(isC?r.men:(r.menD||r.men||0))}</td>`
+
+  // Gerar tabela de produtos em formato vertical (um abaixo do outro)
+  const produtosVertical = (results||[]).map(r => {
+    const adS = (r.isTributos||r.isEP) ? '—' : fmt(isC?r.ad:(r.adD||0))
+    const menS = fmt(isC?r.men:(r.menD||r.men||0))
+    return `
+    <div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px">
+      <div style="font-weight:600;margin-bottom:6px">${r.name}${r.plan?`<span style="font-size:11px;color:#64748b;margin-left:6px">(Plano ${getPlanLabel(r.plan,cfg.plans)})</span>`:''}</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px">
+        <span>Adesão:</span><span style="font-weight:600">${adS}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px">
+        <span>Mensalidade:</span><span style="font-weight:600;color:#00d4ff">${menS}</span>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">CNPJs: ${S.cnpjs||'—'}</div>
+    </div>`
   }).join('')
+
   const sec=(n,t)=>`<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
   const row=(l,v)=>`<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v||'—'}</span></div>`
   const endStr=[co.logradouro||cd.logradouro,co.bairro||cd.bairro,co.cidade||cd.municipio,co.uf||cd.uf].filter(Boolean).join(', ')
@@ -321,7 +338,9 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
       '{{data_hoje}}': today,
       '{{consultor_nome}}': user?.nome||'',
       '{{company}}': cfg.company||'Vivanexa',
-      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0"><thead><tr style="background:#0f172a;color:#fff"><th>Produto</th><th>Adesão</th><th>Qtd. CNPJs</th><th>Mensalidade</th></tr></thead><tbody>${tableRows}</tbody></table>`
+      '{{logo}}': cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">` : '',
+      '{{produtos_tabela}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
+      '{{produtos_lista}}': `<div style="margin:16px 0">${produtosVertical}</div>`
     }
     for (const [k, v] of Object.entries(vars)) {
       template = template.replace(new RegExp(k, 'g'), v)
@@ -336,7 +355,7 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
   // Template padrão
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
   <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:28px 44px;display:flex;align-items:center;gap:20px">
-    ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain">`:''}
+    ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain">`:'<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">'+cfg.company+'</div>'}
     <div><h1 style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">Termo de Pedido e Registro de Software</h1>
     <p style="font-size:12px;color:#64748b">Seja bem-vindo ao ${cfg.company||'Vivanexa'}, é um prazer tê-lo como cliente.</p></div>
   </div>
@@ -365,10 +384,9 @@ function buildContract(S,cfg,user,tAd,tMen,dateAd,dateMen,payMethod,token){
     </div>
     ${sec('5','PLANO CONTRATADO E VALORES')}
     ${row('Validade','12 meses')}
-    <table style="width:100%;border-collapse:collapse;font-size:13px;margin:12px 0">
-      <thead><tr style="background:#0f172a;color:#fff"><th style="padding:10px 12px;text-align:left;border:1px solid #334155">Produto</th><th style="padding:10px 12px;text-align:center;border:1px solid #334155">Adesão</th><th style="padding:10px 12px;text-align:center;border:1px solid #334155">Qtd. CNPJs</th><th style="padding:10px 12px;text-align:center;border:1px solid #334155">Mensalidade</th></tr></thead>
-      <tbody>${tableRows}</tbody>
-    </table>
+    <div style="margin:16px 0">
+      ${produtosVertical}
+    </div>
     <div style="background:#f8fafc;border-radius:8px;padding:12px 16px;margin-bottom:16px">
       ${row('Forma de Pagamento',payLabel)}${tAd>0?row('Vencimento Adesão',dateAd||'—'):''}${row('Vencimento 1ª Mensalidade',dateMen||'—')}
       <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #e2e8f0;margin-top:8px"><span style="font-weight:600">Total Adesão</span><span style="font-weight:700">${fmt(tAd)}</span></div>
@@ -517,7 +535,7 @@ export default function Chat(){
     }catch{}
   }
 
-  // ── Salvar doc + cliente ──────────────────────
+  // ── Salvar doc + cliente (com validação de duplicatas) ──────────
   async function saveToHistory(type,clientName,html,extra={}){
     const id='doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)
     const token=extra.token||generateToken()
@@ -527,21 +545,41 @@ export default function Chat(){
       consultor:userProfile?.nome||'',consultorEmail:userProfile?.email||'',empresaId:empresaId||'',...extra}
     try{await supabase.from('vx_storage').upsert({key:`doc:${token}`,value:JSON.stringify({...entry,html}),updated_at:new Date().toISOString()})}catch(e){console.warn(e)}
 
-    // Salvar cliente com histórico de documentos
+    // Salvar cliente com histórico de documentos e evitar duplicatas
     const c=cfgRef.current
     const docSnap=S.doc||''
     if(docSnap){
       const clients=c.clients||[]
-      const idx=clients.findIndex(cl=>cl.doc===docSnap)
       const co=S.contactData||{},cd=S.clientData||{}
-      const clientRec={
-        doc:docSnap,nome:co.razao||co.empresa||cd.nome||cd.fantasia||clientName,
-        fantasia:co.empresa||cd.fantasia||'',email:co.email||cd.email||'',
-        telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',
+      const novoCliente = {
+        doc:docSnap,
+        nome:co.razao||co.empresa||cd.nome||cd.fantasia||clientName,
+        fantasia:co.empresa||cd.fantasia||'',
+        email:co.email||cd.email||'',
+        telefone:co.telefone||cd.telefone||'',
+        cidade:co.cidade||cd.municipio||'',
+        uf:co.uf||cd.uf||'',
         ultimoContato:new Date().toISOString(),
-        documentos:[...((idx>=0?clients[idx].documentos:[])||[]),{id,type,date:entry.date,status:'draft',token}]
+        documentos:[{id,type,date:entry.date,status:'draft',token}]
       }
-      if(idx>=0)clients[idx]=clientRec; else clients.push(clientRec)
+      // Verificar se já existe cliente com mesmo CNPJ/CPF ou e-mail
+      const existe = clients.some(cl => cl.doc === docSnap || (cl.email && cl.email === novoCliente.email))
+      if(!existe){
+        clients.push(novoCliente)
+      } else {
+        // Atualiza o cliente existente
+        const idx = clients.findIndex(cl => cl.doc === docSnap || (cl.email && cl.email === novoCliente.email))
+        if(idx !== -1){
+          if(!clients[idx].documentos) clients[idx].documentos = []
+          clients[idx].documentos.push({id,type,date:entry.date,status:'draft',token})
+          clients[idx].ultimoContato = new Date().toISOString()
+          clients[idx].nome = novoCliente.nome
+          clients[idx].fantasia = novoCliente.fantasia
+          clients[idx].email = novoCliente.email
+          clients[idx].telefone = novoCliente.telefone
+          clients[idx].cidade = novoCliente.cidade
+        }
+      }
     }
 
     // Atualiza cfg
@@ -555,15 +593,33 @@ export default function Chat(){
       const docSnap2=S.doc||''
       if(docSnap2){
         const co=S.contactData||{},cd=S.clientData||{}
-        const idx=cfgData.clients.findIndex(cl=>cl.doc===docSnap2)
-        const clientRec={
-          doc:docSnap2,nome:co.razao||co.empresa||cd.nome||cd.fantasia||clientName,
-          fantasia:co.empresa||cd.fantasia||'',email:co.email||cd.email||'',
-          telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',
+        const novoCliente = {
+          doc:docSnap2,
+          nome:co.razao||co.empresa||cd.nome||cd.fantasia||clientName,
+          fantasia:co.empresa||cd.fantasia||'',
+          email:co.email||cd.email||'',
+          telefone:co.telefone||cd.telefone||'',
+          cidade:co.cidade||cd.municipio||'',
+          uf:co.uf||cd.uf||'',
           ultimoContato:new Date().toISOString(),
-          documentos:[...((idx>=0?cfgData.clients[idx].documentos:[])||[]),{id,type,date:entry.date,status:'draft',token}]
+          documentos:[{id,type,date:entry.date,status:'draft',token}]
         }
-        if(idx>=0)cfgData.clients[idx]=clientRec; else cfgData.clients.push(clientRec)
+        const existe = cfgData.clients.some(cl => cl.doc === docSnap2 || (cl.email && cl.email === novoCliente.email))
+        if(!existe){
+          cfgData.clients.push(novoCliente)
+        } else {
+          const idx = cfgData.clients.findIndex(cl => cl.doc === docSnap2 || (cl.email && cl.email === novoCliente.email))
+          if(idx !== -1){
+            if(!cfgData.clients[idx].documentos) cfgData.clients[idx].documentos = []
+            cfgData.clients[idx].documentos.push({id,type,date:entry.date,status:'draft',token})
+            cfgData.clients[idx].ultimoContato = new Date().toISOString()
+            cfgData.clients[idx].nome = novoCliente.nome
+            cfgData.clients[idx].fantasia = novoCliente.fantasia
+            cfgData.clients[idx].email = novoCliente.email
+            cfgData.clients[idx].telefone = novoCliente.telefone
+            cfgData.clients[idx].cidade = novoCliente.cidade
+          }
+        }
       }
       await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(cfgData),updated_at:new Date().toISOString()})
       cfgRef.current=cfgData;setCfg(cfgData)
@@ -999,6 +1055,70 @@ export default function Chat(){
     )
   }
 
+  // Renderizar botões de módulos quando habilitados
+  const renderModulosButtons = () => {
+    if (!cfg.modChips) return null
+    if (S.stage !== 'await_modules') return null
+    const mods = cfg.modulos || ALL_MODS
+    return (
+      <div style={{ marginTop: 8, marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {mods.map(mod => {
+          const sel = selectedMods.includes(mod)
+          return (
+            <button
+              key={mod}
+              onClick={() => setSelectedMods(prev => sel ? prev.filter(m => m !== mod) : [...prev, mod])}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 8,
+                background: sel ? 'rgba(0,212,255,.2)' : 'var(--surface2)',
+                border: `1px solid ${sel ? 'var(--accent)' : 'var(--border)'}`,
+                color: sel ? 'var(--accent)' : 'var(--muted)',
+                cursor: 'pointer',
+                fontFamily: 'DM Mono, monospace',
+                fontSize: 12,
+                transition: 'all .15s'
+              }}
+            >
+              {mod}
+            </button>
+          )
+        })}
+        <button
+          onClick={confirmarMods}
+          style={{
+            padding: '8px 14px',
+            borderRadius: 8,
+            background: 'linear-gradient(135deg,var(--accent3),#059669)',
+            border: 'none',
+            color: '#fff',
+            cursor: 'pointer',
+            fontFamily: 'DM Mono, monospace',
+            fontSize: 12,
+            fontWeight: 600
+          }}
+        >
+          ✅ Confirmar módulos
+        </button>
+        <button
+          onClick={() => { setAwaitingMods(false); addBot('Quais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)') }}
+          style={{
+            padding: '8px 14px',
+            borderRadius: 8,
+            background: 'rgba(100,116,139,.12)',
+            border: '1px solid var(--border)',
+            color: 'var(--muted)',
+            cursor: 'pointer',
+            fontFamily: 'DM Mono, monospace',
+            fontSize: 12
+          }}
+        >
+          Digitar
+        </button>
+      </div>
+    )
+  }
+
   return(<>
     <Head>
       <title>{cfg.company} – Assistente Comercial</title>
@@ -1046,36 +1166,7 @@ export default function Chat(){
       </div>
 
       {/* MÓDULOS CLICÁVEIS */}
-      {awaitingMods&&(
-        <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'16px 20px',marginBottom:8}}>
-          <div style={{fontSize:12,color:'var(--muted)',marginBottom:12,letterSpacing:.5}}>Selecione os módulos:</div>
-          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
-            {ALL_MODS.map(m=>{
-              const sel=selectedMods.includes(m)
-              return(
-                <button key={m} onClick={()=>setSelectedMods(p=>sel?p.filter(x=>x!==m):[...p,m])}
-                  style={{padding:'8px 16px',borderRadius:20,fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',transition:'all .15s',
-                    background:sel?'rgba(0,212,255,.15)':'var(--surface2)',
-                    border:`1.5px solid ${sel?'var(--accent)':'var(--border)'}`,
-                    color:sel?'var(--accent)':'var(--muted)',fontWeight:sel?700:400}}>
-                  {m}
-                </button>
-              )
-            })}
-          </div>
-          {selectedMods.length>0&&<div style={{fontSize:12,color:'var(--accent3)',marginBottom:10}}>✅ Selecionados: {selectedMods.join(' · ')}</div>}
-          <div style={{display:'flex',gap:8}}>
-            <button onClick={confirmarMods} disabled={selectedMods.length===0}
-              style={{padding:'10px 22px',borderRadius:10,background:selectedMods.length>0?'linear-gradient(135deg,var(--accent),#0099bb)':'var(--surface2)',border:'none',color:selectedMods.length>0?'#fff':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:selectedMods.length>0?'pointer':'not-allowed',transition:'all .2s'}}>
-              ✅ Confirmar módulos
-            </button>
-            <button onClick={()=>{setAwaitingMods(false);addBot('Quais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)')}}
-              style={{padding:'10px 16px',borderRadius:10,background:'rgba(100,116,139,.12)',border:'1px solid var(--border)',color:'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>
-              Digitar
-            </button>
-          </div>
-        </div>
-      )}
+      {renderModulosButtons()}
 
       <div id="inputArea">
         <textarea id="userInput" placeholder="Digite CPF, CNPJ, módulos..." value={input}
