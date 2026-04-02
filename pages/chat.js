@@ -254,7 +254,7 @@ function buildProposal(S,cfg,user){
 }
 
 // ── Build Contrato com Manifesto de Assinatura (suporte a template, produtos verticais, variáveis corretas) ──
-function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token) {
+function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token, signedData) {
   const cd = S.clientData || {}
   const co = S.contactData || {}
   const today = new Date().toLocaleDateString('pt-BR')
@@ -316,17 +316,17 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
         <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DO CONTRATANTE (CLIENTE)</div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-client-name">${co.contato || cd.fantasia || cd.nome || 'Aguardando'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> <span id="manifest-client-cpf">${co.cpfContato || '—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-client-email">${co.email || cd.email || '—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-client-date">${S.signDoc?.signedAt || 'Aguardando assinatura'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-client-name">${signedData?.signedBy || co.contato || cd.fantasia || cd.nome || 'Aguardando'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> <span id="manifest-client-cpf">${signedData?.signCPF || co.cpfContato || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-client-email">${signedData?.clientEmail || co.email || cd.email || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-client-date">${signedData?.signedAt || 'Aguardando assinatura'}</span></div>
         <div style="font-size:11px;color:#6b7280;margin-top:6px;padding-top:6px;border-top:1px solid #d1fae5"><strong>Token:</strong> ${docId}</div>
       </div>
       <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
         <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DA CONTRATADA (CONSULTOR)</div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-consult-name">${user?.nome || '—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-consult-date">${S.signDoc?.consultantSignedAt || 'Aguardando assinatura'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> ${user?.email || '—'}</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-consult-name">${signedData?.consultantSignedBy || user?.nome || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-consult-date">${signedData?.consultantSignedAt || 'Aguardando assinatura'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> ${signedData?.consultantEmail || user?.email || '—'}</div>
       </div>
     </div>
     <div style="margin-top:16px;font-size:11px;color:#6b7280;line-height:1.6">
@@ -596,9 +596,14 @@ export default function Chat(){
   async function saveToHistory(type,clientName,html,extra={}){
     const id='doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)
     const token=extra.token||generateToken()
-    const entry={id,type,clientName,date:new Date().toLocaleString('pt-BR'),dateISO:new Date().toISOString(),
+    const _now=new Date()
+    const entry={id,type,clientName,
+      cliente:extra.clientName||(S?.contactData?.razao||S?.clientData?.nome||clientName||''),
+      date:_now.toLocaleString('pt-BR'),dateISO:_now.toISOString(),criado:_now.toISOString(),
       status:'draft',signToken:token,signedAt:null,signedBy:null,signCPF:null,signIP:null,
       consultantSignedAt:null,consultantSignedBy:null,
+      adesao:extra.tAd||0,mensalidade:extra.tMen||0,
+      userId:userProfile?.id||'',
       consultor:userProfile?.nome||'',consultorEmail:userProfile?.email||'',empresaId:empresaId||'',...extra}
     try{await supabase.from('vx_storage').upsert({key:`doc:${token}`,value:JSON.stringify({...entry,html}),updated_at:new Date().toISOString()})}catch(e){console.warn(e)}
 
@@ -791,11 +796,18 @@ export default function Chat(){
         const url=buildSignUrl(docData)
         const clientE=docData.clientEmail||docData.signEmail||''
         const consultorE=docData.consultorEmail||docData.consultantEmail||userProfile?.email||''
-        const dest=[clientE,consultorE].filter(Boolean).join(',')
-        if(dest&&confirm(`✅ Contrato totalmente assinado!\n\nDeseja enviar uma cópia para:\nCliente: ${clientE}\nConsultor: ${consultorE}\n\nClique OK para abrir o e-mail.`)){
-          const subj=encodeURIComponent(`✅ ${tipo} – ${cfgRef.current.company||'Vivanexa'} – Assinado`)
-          const body=encodeURIComponent(`${tipo} assinado por ambas as partes.\n\nCliente: ${docData.signedBy} (${docData.signedAt})\nConsultor: ${docData.consultantSignedBy} (${docData.consultantSignedAt})\n\nAcesse: ${url}`)
-          window.open(`mailto:${dest}?subject=${subj}&body=${body}`,'_blank')
+        const dest=[clientE,consultorE].filter(Boolean)
+        if(dest.length>0){
+          const htmlEmail=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#0f172a;padding:24px;text-align:center"><h1 style="color:#00d4ff;font-size:20px;margin:0">${cfgRef.current.company||'Vivanexa'}</h1></div><div style="padding:24px;background:#f8fafc"><h2 style="color:#065f46">✅ ${tipo} Assinado por Ambas as Partes</h2><p>O documento foi assinado com sucesso.</p><table style="width:100%;border-collapse:collapse;margin:16px 0"><tr style="background:#e2e8f0"><th style="padding:8px;text-align:left">Parte</th><th style="padding:8px;text-align:left">Nome</th><th style="padding:8px;text-align:left">Data/Hora</th></tr><tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">Cliente (Contratante)</td><td style="padding:8px;border-bottom:1px solid #e2e8f0">${docData.signedBy||'—'}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0">${docData.signedAt||'—'}</td></tr><tr><td style="padding:8px">Consultor (Contratada)</td><td style="padding:8px">${docData.consultantSignedBy||'—'}</td><td style="padding:8px">${docData.consultantSignedAt||'—'}</td></tr></table><p><a href="${url}" style="display:inline-block;background:#00d4ff;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Visualizar Documento Assinado</a></p></div></div>`
+          try{
+            await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({to:dest.join(','),subject:`✅ ${tipo} – ${cfgRef.current.company||'Vivanexa'} – Assinado`,html:htmlEmail,
+                config:{smtpHost:cfgRef.current.smtpHost||'',smtpPort:Number(cfgRef.current.smtpPort||587),smtpUser:cfgRef.current.smtpUser||'',smtpPass:cfgRef.current.smtpPass||''}})
+            })
+          }catch(emailErr){console.warn('Email send error:',emailErr)}
+          addBot(`✅ Contrato totalmente assinado! E-mail enviado para: ${dest.join(', ')}`)
+        } else {
+          addBot(`✅ Contrato totalmente assinado!`)
         }
       }else{
         addBot(signFormSide==='consultant'?`✅ Assinatura do consultor registrada!`:`✅ Assinatura do cliente registrada!`)
