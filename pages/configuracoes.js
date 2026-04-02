@@ -276,14 +276,14 @@ function TabMetas({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA KPIs (com metas diárias por usuário)
+// ABA KPIs (CORRIGIDA)
 // ══════════════════════════════════════════════
 function TabKpis({ cfg, setCfg, empresaId }) {
-  const [kpis,        setKpis]        = useState(cfg.kpiTemplates || [])
+  const [kpis, setKpis] = useState(cfg.kpiTemplates || [])
   const [kpiRequired, setKpiRequired] = useState(cfg.kpiRequired || false)
-  const [dailyGoals,  setDailyGoals]  = useState(cfg.kpiDailyGoals || {})
-  const [mesRef,      setMesRef]      = useState(new Date().toISOString().slice(0, 7))
-  const [saving,      setSaving]      = useState(false)
+  const [dailyGoals, setDailyGoals] = useState(cfg.kpiDailyGoals || {})
+  const [mesRef, setMesRef] = useState(new Date().toISOString().slice(0, 7))
+  const [saving, setSaving] = useState(false)
   const [iconPickerId, setIconPickerId] = useState(null)
   const usuarios = cfg.users || []
 
@@ -292,7 +292,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
     const dias = new Date(y, m, 0).getDate()
     let uteis = 0
     for (let d = 1; d <= dias; d++) {
-      const dow = new Date(y, m-1, d).getDay()
+      const dow = new Date(y, m - 1, d).getDay()
       if (dow !== 0 && dow !== 6) uteis++
     }
     return uteis
@@ -300,10 +300,25 @@ function TabKpis({ cfg, setCfg, empresaId }) {
 
   const diasUteis = diasUteisNoMes(mesRef)
 
-  function addKpi() { setKpis(prev => [...prev, { id: Date.now(), nome: '', icone: '📊', unidade: 'un' }]) }
-  function updateKpi(id, campo, val) { setKpis(prev => prev.map(k => k.id === id ? { ...k, [campo]: val } : k)) }
-  function removeKpi(id) { setKpis(prev => prev.filter(k => k.id !== id)); if (iconPickerId === id) setIconPickerId(null) }
-  function updateDailyGoal(userId, kpiId, val) { setDailyGoals(prev => ({ ...prev, [userId]: { ...(prev[userId] || {}), [kpiId]: Number(val) || 0 } })) }
+  function addKpi() {
+    setKpis(prev => [...prev, { id: Date.now(), nome: '', icone: '📊', unidade: 'un' }])
+  }
+
+  function updateKpi(id, campo, val) {
+    setKpis(prev => prev.map(k => k.id === id ? { ...k, [campo]: val } : k))
+  }
+
+  function removeKpi(id) {
+    setKpis(prev => prev.filter(k => k.id !== id))
+    if (iconPickerId === id) setIconPickerId(null)
+  }
+
+  function updateDailyGoal(userId, kpiId, val) {
+    setDailyGoals(prev => ({
+      ...prev,
+      [userId]: { ...(prev[userId] || {}), [kpiId]: Number(val) || 0 }
+    }))
+  }
 
   async function salvar() {
     setSaving(true)
@@ -320,6 +335,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
       <div style={s.sec}>
         <div style={s.secTitle}>📊 Indicadores de Atividade (KPIs)</div>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>Configure os KPIs que os vendedores irão acompanhar diariamente.</p>
+
         {kpis.map(k => (
           <div key={k.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: iconPickerId === k.id ? 12 : 0 }}>
@@ -328,10 +344,14 @@ function TabKpis({ cfg, setCfg, empresaId }) {
               </div>
               <input style={{ ...s.input, flex: 1 }} value={k.nome} onChange={e => updateKpi(k.id, 'nome', e.target.value)} placeholder="Nome do KPI" />
               <select style={{ ...s.input, width: 72 }} value={k.unidade || 'un'} onChange={e => updateKpi(k.id, 'unidade', e.target.value)}>
-                <option value="un">un</option><option value="R$">R$</option><option value="%">%</option><option value="h">h</option>
+                <option value="un">un</option>
+                <option value="R$">R$</option>
+                <option value="%">%</option>
+                <option value="h">h</option>
               </select>
               <button onClick={() => removeKpi(k.id)} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--danger)' }}>🗑</button>
             </div>
+
             {iconPickerId === k.id && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 0 2px' }}>
                 {KPI_ICONS.map(ic => (
@@ -341,6 +361,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
             )}
           </div>
         ))}
+
         <button onClick={addKpi} style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontSize: 13, marginTop: 8 }}>➕ Adicionar KPI</button>
       </div>
 
@@ -348,35 +369,64 @@ function TabKpis({ cfg, setCfg, empresaId }) {
         <div style={s.secTitle}>🎯 Metas Diárias por Usuário</div>
         <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <label style={s.label}>Mês de Referência</label>
-          <div style={{ display: 'flex', gap: 8 }}><input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} style={s.input} /><span style={{ padding: '8px 12px', background: 'var(--surface2)', borderRadius: 8, fontSize: 12 }}>{diasUteis} dias úteis</span></div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} style={s.input} />
+            <span style={{ padding: '8px 12px', background: 'var(--surface2)', borderRadius: 8, fontSize: 12 }}>{diasUteis} dias úteis</span>
+          </div>
         </div>
-        {kpis.length === 0 ? <p style={{ color: 'var(--muted)' }}>Nenhum KPI cadastrado.</p> : (
+
+        {kpis.length === 0 ? (
+          <p style={{ color: 'var(--muted)' }}>Nenhum KPI cadastrado.</p>
+        ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 300 }}>
-              <thead><tr style={{ borderBottom: '2px solid var(--border)' }}><th style={{ textAlign: 'left', padding: '10px 6px' }}>Usuário</th>{kpis.map(k => <th key={k.id} style={{ textAlign: 'center', padding: '10px 6px' }}>{k.nome}<br/><span style={{ fontSize: 10 }}>meta/dia</span></th>)}</tr></thead>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                  <th style={{ textAlign: 'left', padding: '10px 6px' }}>Usuário</th>
+                  {kpis.map(k => (
+                    <th key={k.id} style={{ textAlign: 'center', padding: '10px 6px' }}>
+                      {k.nome}<br />
+                      <span style={{ fontSize: 10 }}>meta/dia</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
-                {usuarios.length === 0 ? <tr><td colSpan={kpis.length+1} style={{ padding: '20px', textAlign: 'center' }}>Nenhum usuário cadastrado.</td></tr> :
+                {usuarios.length === 0 ? (
+                  <tr>
+                    <td colSpan={kpis.length + 1} style={{ padding: '20px', textAlign: 'center' }}>
+                      Nenhum usuário cadastrado.
+                    </td>
+                  </tr>
+                ) : (
                   usuarios.map(u => (
                     <tr key={u.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '10px 6px', fontWeight: 600, position: 'sticky', left: 0, background: 'var(--surface)' }}>{u.nome}</td>
+                      <td style={{ padding: '10px 6px', fontWeight: 600, position: 'sticky', left: 0, background: 'var(--surface)' }}>
+                        {u.nome}
+                      </td>
                       {kpis.map(k => {
                         const val = dailyGoals[u.id]?.[k.id] || 0
                         const metaMensal = val * diasUteis
                         return (
                           <td key={k.id} style={{ padding: '8px 6px', textAlign: 'center' }}>
-                            <input type="number" min={0} value={val} onChange={e => updateDailyGoal(u.id, k.id, e.target.value)} style={{ ...s.input, width: '80px', textAlign: 'center', marginBottom: '4px' }} />
+                            <input
+                              type="number"
+                              min={0}
+                              value={val}
+                              onChange={e => updateDailyGoal(u.id, k.id, e.target.value)}
+                              style={{ ...s.input, width: '80px', textAlign: 'center', marginBottom: '4px' }}
+                            />
                             <div style={{ fontSize: 10, color: 'var(--accent)' }}>meta mensal: {metaMensal}</div>
                           </td>
                         )
                       })}
-                    </td>
+                    </tr>
                   ))
-                }
+                )}
               </tbody>
             </table>
           </div>
         )}
-        <button style={s.saveBtn} onClick={salvar} disabled={saving} className="mt-4">✅ Salvar Metas de KPI</button>
       </div>
 
       <div style={s.sec}>
@@ -389,7 +439,10 @@ function TabKpis({ cfg, setCfg, empresaId }) {
         </div>
         <p style={{ fontSize: 12, color: 'var(--muted)' }}>Se ativado, os usuários serão redirecionados para uma tela de lançamento de KPIs sempre que não tiverem preenchido o dia anterior.</p>
       </div>
-      <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar KPIs'}</button>
+
+      <button style={s.saveBtn} onClick={salvar} disabled={saving}>
+        {saving ? '⏳ Salvando...' : '✅ Salvar KPIs'}
+      </button>
     </div>
   )
 }
