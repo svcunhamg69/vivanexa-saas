@@ -18,11 +18,6 @@ function fmtK(v) {
   return fmt(v);
 }
 
-function formatDate(dateStr) {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('pt-BR');
-}
-
 function mesAtual() {
   return new Date().toISOString().slice(0, 7);
 }
@@ -38,16 +33,10 @@ function diasUteisNoMes(yearMonth) {
   return uteis;
 }
 
-function pct(real, meta) {
-  if (!meta || meta <= 0) return 0;
-  return Math.min(100, Math.round((real / meta) * 100));
-}
-
 // ── Componente de tabela de KPIs por usuário ─────────────────
 function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
   const diasUteis = diasUteisNoMes(mesRef);
 
-  // Para cada usuário, para cada KPI, calcula total realizado no mês e meta mensal
   const userKpis = users.map(user => {
     const logs = kpiLog.filter(l => l.userId === user.id && l.date.startsWith(mesRef));
     const userGoals = (goals || []).find(g => g.userId === user.id && g.mes === mesRef) || {};
@@ -73,7 +62,7 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
                 <span style={{ fontSize: 10 }}>realizado / meta mensal</span>
               </th>
             ))}
-          <tr>
+          </tr>
         </thead>
         <tbody>
           {userKpis.map(uk => (
@@ -93,7 +82,7 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
                   </td>
                 );
               })}
-             </tr>
+            </tr>
           ))}
         </tbody>
       </table>
@@ -160,8 +149,8 @@ function ProdutosChart({ contratosMes }) {
   );
 }
 
-// ── Componente de análise IA (com chaves do cfg) ─────────────────────────────────
-function AnaliseIA({ data, cfg }) {
+// ── Componente de análise IA ─────────────────────────────────
+function AnaliseIA({ data, empresaId }) {
   const [analysis, setAnalysis] = useState('');
   const [loadingAI, setLoadingAI] = useState(false);
   const [error, setError] = useState('');
@@ -176,8 +165,7 @@ function AnaliseIA({ data, cfg }) {
         body: JSON.stringify({
           data,
           contexto: 'Dados comerciais da empresa',
-          geminiApiKey: cfg.geminiApiKey,
-          groqApiKey: cfg.groqApiKey,
+          empresaId,
         }),
       });
       const json = await res.json();
@@ -300,7 +288,6 @@ export default function Reports() {
   const kpiLog = cfg.kpiLog || [];
   const goals = cfg.goals || [];
 
-  // Dados para análise IA
   const dadosIA = {
     periodo: mesRef,
     total_contratos: contratosMes.length,
@@ -321,7 +308,6 @@ export default function Reports() {
     }),
   };
 
-  // Ranking de vendedores
   const ranking = usuarios.map(u => {
     const realiz = contratosMes.filter(c => c.userId === u.id || c.consultor === u.id);
     const adesao = realiz.reduce((s, c) => s + (Number(c.adesao) || 0), 0);
@@ -393,7 +379,6 @@ export default function Reports() {
           ))}
         </div>
 
-        {/* Controles de período (apenas para abas que precisam) */}
         {(aba === 'produtos' || aba === 'kpis') && (
           <div className="flex-between" style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, color: 'var(--muted)' }}>Período:</label>
@@ -405,7 +390,6 @@ export default function Reports() {
           <div className="card">
             <div className="card-title">📈 Produtos Vendidos – {new Date(mesRef + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
             <ProdutosChart contratosMes={contratosMes} />
-
             <div style={{ marginTop: 24 }}>
               <div className="card-title">🏆 Ranking de Vendedores</div>
               {ranking.length === 0 ? (
@@ -457,7 +441,7 @@ export default function Reports() {
             <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
               Envie os dados de vendas e KPIs para análise com IA. A IA sugerirá um plano de ação concreto baseado nos resultados.
             </p>
-            <AnaliseIA data={dadosIA} cfg={cfg} />
+            <AnaliseIA data={dadosIA} empresaId={empresaId} />
           </div>
         )}
       </div>
