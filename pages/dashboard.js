@@ -1,15 +1,12 @@
 // pages/dashboard.js
 // ============================================================
-// MELHORIAS APLICADAS:
-// 1. Gráficos de produtos vendidos (adesão + mensalidade por módulo)
-// 2. Menus de navegação visíveis no header (Chat, Config, Sair, Relatórios)
-// 3. Logo exibida no header quando configurada
-// 4. Card "Contratos do mês" com detalhes dos produtos vendidos
-// 5. Header clicável para voltar ao chat
-// 6. Botão Relatórios adicionado
+// DASHBOARD COMPLETO
+// • Autenticação corrigida (user_id em vez de id)
+// • Criação automática de perfil
+// • Header clicável + botão Relatórios
 // ============================================================
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
@@ -257,12 +254,39 @@ export default function Dashboard() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/'); return }
 
-      const { data: perf } = await supabase.from('perfis').select('*').eq('id', session.user.id).single()
+      // Busca ou cria perfil automaticamente (corrigido: user_id)
+      let { data: perf } = await supabase
+        .from('perfis')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .maybeSingle()
+
+      if (!perf) {
+        const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário'
+        const { data: novoPerfil } = await supabase
+          .from('perfis')
+          .insert({
+            user_id: session.user.id,
+            nome: nome,
+            email: session.user.email,
+            empresa_id: session.user.id,
+            perfil: 'admin'
+          })
+          .select()
+          .single()
+        perf = novoPerfil
+      }
+
       setPerfil(perf)
       const eid = perf?.empresa_id || session.user.id
       setEmpresaId(eid)
 
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
+      const { data: row } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `cfg:${eid}`)
+        .single()
+
       if (row?.value) {
         try {
           const saved = JSON.parse(row.value)
@@ -442,7 +466,7 @@ export default function Dashboard() {
 
       {kpiModal && <ModalKpi kpi={kpiModal} userId={usuarioAtual?.id} onClose={() => setKpiModal(null)} onSave={salvarKpi} />}
 
-      {/* HEADER COM MENUS E LOGO CLICÁVEL E BOTÃO RELATÓRIOS */}
+      {/* HEADER COM MENUS, LOGO CLICÁVEL E BOTÃO RELATÓRIOS */}
       <header style={{ position: 'sticky', top: 0, zIndex: 100, width: '100%', background: 'rgba(10,15,30,.85)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '12px 20px' }}>
         <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ cursor: 'pointer' }} onClick={() => router.push('/chat')}>
