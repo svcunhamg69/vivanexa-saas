@@ -215,7 +215,7 @@ export default function Reports() {
         .from('vx_storage')
         .select('value')
         .eq('key', `cfg:${userId}`)
-        .single();
+        .maybeSingle();
 
       if (row?.value) {
         setCfg(JSON.parse(row.value));
