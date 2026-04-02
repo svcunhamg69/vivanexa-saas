@@ -38,17 +38,36 @@ function MyApp({ Component, pageProps }) {
   useEffect(() => {
     if (!session) return;
     const loadCfg = async () => {
-      const { data: profile } = await supabase
+      // Busca ou cria perfil automaticamente
+      let { data: perfil, error } = await supabase
         .from('perfis')
-        .select('empresa_id')
-        .eq('id', session.user.id)
-        .single();
-      const empresaId = profile?.empresa_id || session.user.id;
+        .select('*')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+
+      if (!perfil) {
+        const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário';
+        const { data: novoPerfil } = await supabase
+          .from('perfis')
+          .insert({
+            user_id: session.user.id,
+            nome: nome,
+            email: session.user.email,
+            empresa_id: session.user.id,
+            perfil: 'admin'
+          })
+          .select()
+          .single();
+        perfil = novoPerfil;
+      }
+
+      const empresaId = perfil?.empresa_id || session.user.id;
       const { data: row } = await supabase
         .from('vx_storage')
         .select('value')
         .eq('key', `cfg:${empresaId}`)
         .single();
+
       if (row?.value) {
         const loaded = JSON.parse(row.value);
         setCfg(loaded);
@@ -98,7 +117,7 @@ function MyApp({ Component, pageProps }) {
     const userId = session.user.id;
     const hasYesterdayLog = logs.some(l => l.userId === userId && l.date === ontemStr);
     if (!hasYesterdayLog) {
-      return null; // Aguardando redirecionamento
+      return null;
     }
   }
 
