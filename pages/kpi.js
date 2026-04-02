@@ -13,7 +13,6 @@ export default function KpiPage() {
   const [saving, setSaving] = useState(false)
   const [kpis, setKpis] = useState([])
   const [valores, setValores] = useState({})
-  // Se dateParam existir, usa ele, senão usa hoje
   const [data, setData] = useState(dateParam || new Date().toISOString().slice(0,10))
   const [error, setError] = useState('')
 
@@ -24,11 +23,30 @@ export default function KpiPage() {
         router.push('/')
         return
       }
-      const { data: profile } = await supabase
+
+      // Busca ou cria perfil automaticamente (corrigido: user_id)
+      let { data: profile } = await supabase
         .from('perfis')
         .select('*')
-        .eq('id', session.user.id)
-        .single()
+        .eq('user_id', session.user.id)
+        .maybeSingle()
+
+      if (!profile) {
+        const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário'
+        const { data: novoPerfil } = await supabase
+          .from('perfis')
+          .insert({
+            user_id: session.user.id,
+            nome: nome,
+            email: session.user.email,
+            empresa_id: session.user.id,
+            perfil: 'admin'
+          })
+          .select()
+          .single()
+        profile = novoPerfil
+      }
+
       const eid = profile?.empresa_id || session.user.id
       setEmpresaId(eid)
       setUser({ ...session.user, ...profile })
@@ -42,7 +60,6 @@ export default function KpiPage() {
         const loaded = JSON.parse(cfgRow.value)
         setCfg(loaded)
         setKpis(loaded.kpiTemplates || [])
-        // Pré-carregar valores já lançados no dia
         const log = loaded.kpiLog || []
         const dia = data
         const existing = log.filter(l => l.userId === session.user.id && l.date === dia)
@@ -61,7 +78,6 @@ export default function KpiPage() {
     setError('')
 
     try {
-      // Buscar cfg atualizado
       const { data: cfgRow } = await supabase
         .from('vx_storage')
         .select('value')
@@ -70,12 +86,10 @@ export default function KpiPage() {
       let currentCfg = cfgRow?.value ? JSON.parse(cfgRow.value) : cfg || {}
       if (!currentCfg.kpiLog) currentCfg.kpiLog = []
 
-      // Remover lançamentos do mesmo usuário e data para não duplicar
       currentCfg.kpiLog = currentCfg.kpiLog.filter(l =>
         !(l.userId === user.id && l.date === data)
       )
 
-      // Adicionar novos
       for (const k of kpis) {
         const val = valores[k.id]
         if (val !== undefined && val !== '') {
@@ -89,14 +103,12 @@ export default function KpiPage() {
         }
       }
 
-      // Salvar
       await supabase.from('vx_storage').upsert({
         key: `cfg:${empresaId}`,
         value: JSON.stringify(currentCfg),
         updated_at: new Date().toISOString()
       })
 
-      // Redirecionar com reload total para garantir que o config seja recarregado
       const redirectTo = typeof redirect === 'string' ? redirect : '/chat'
       window.location.href = redirectTo
     } catch (err) {
