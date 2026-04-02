@@ -276,7 +276,7 @@ function TabMetas({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA KPIs (CORRIGIDA)
+// ABA KPIs (VERSÃO CORRIGIDA - SEM ERRO DE JSX)
 // ══════════════════════════════════════════════
 function TabKpis({ cfg, setCfg, empresaId }) {
   const [kpis, setKpis] = useState(cfg.kpiTemplates || [])
@@ -340,29 +340,59 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           <div key={k.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: iconPickerId === k.id ? 12 : 0 }}>
               <div style={{ position: 'relative' }}>
-                <button onClick={() => setIconPickerId(iconPickerId === k.id ? null : k.id)} style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 22, cursor: 'pointer' }}>{k.icone}</button>
+                <button 
+                  onClick={() => setIconPickerId(iconPickerId === k.id ? null : k.id)} 
+                  style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 22, cursor: 'pointer' }}
+                >
+                  {k.icone}
+                </button>
               </div>
-              <input style={{ ...s.input, flex: 1 }} value={k.nome} onChange={e => updateKpi(k.id, 'nome', e.target.value)} placeholder="Nome do KPI" />
-              <select style={{ ...s.input, width: 72 }} value={k.unidade || 'un'} onChange={e => updateKpi(k.id, 'unidade', e.target.value)}>
+              <input 
+                style={{ ...s.input, flex: 1 }} 
+                value={k.nome} 
+                onChange={e => updateKpi(k.id, 'nome', e.target.value)} 
+                placeholder="Nome do KPI" 
+              />
+              <select 
+                style={{ ...s.input, width: 72 }} 
+                value={k.unidade || 'un'} 
+                onChange={e => updateKpi(k.id, 'unidade', e.target.value)}
+              >
                 <option value="un">un</option>
                 <option value="R$">R$</option>
                 <option value="%">%</option>
                 <option value="h">h</option>
               </select>
-              <button onClick={() => removeKpi(k.id)} style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--danger)' }}>🗑</button>
+              <button 
+                onClick={() => removeKpi(k.id)} 
+                style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--danger)' }}
+              >
+                🗑
+              </button>
             </div>
 
             {iconPickerId === k.id && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 0 2px' }}>
                 {KPI_ICONS.map(ic => (
-                  <button key={ic} onClick={() => { updateKpi(k.id, 'icone', ic); setIconPickerId(null) }} style={{ width: 36, height: 36, borderRadius: 8, background: k.icone === ic ? 'rgba(0,212,255,.15)' : 'var(--surface)', border: `1px solid ${k.icone === ic ? 'var(--accent)' : 'var(--border)'}`, fontSize: 18 }}>{ic}</button>
+                  <button 
+                    key={ic} 
+                    onClick={() => { updateKpi(k.id, 'icone', ic); setIconPickerId(null) }} 
+                    style={{ width: 36, height: 36, borderRadius: 8, background: k.icone === ic ? 'rgba(0,212,255,.15)' : 'var(--surface)', border: `1px solid ${k.icone === ic ? 'var(--accent)' : 'var(--border)'}`, fontSize: 18 }}
+                  >
+                    {ic}
+                  </button>
                 ))}
               </div>
             )}
           </div>
         ))}
 
-        <button onClick={addKpi} style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontSize: 13, marginTop: 8 }}>➕ Adicionar KPI</button>
+        <button 
+          onClick={addKpi} 
+          style={{ padding: '9px 16px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontSize: 13, marginTop: 8 }}
+        >
+          ➕ Adicionar KPI
+        </button>
       </div>
 
       <div style={s.sec}>
@@ -370,8 +400,15 @@ function TabKpis({ cfg, setCfg, empresaId }) {
         <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <label style={s.label}>Mês de Referência</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} style={s.input} />
-            <span style={{ padding: '8px 12px', background: 'var(--surface2)', borderRadius: 8, fontSize: 12 }}>{diasUteis} dias úteis</span>
+            <input 
+              type="month" 
+              value={mesRef} 
+              onChange={e => setMesRef(e.target.value)} 
+              style={s.input} 
+            />
+            <span style={{ padding: '8px 12px', background: 'var(--surface2)', borderRadius: 8, fontSize: 12 }}>
+              {diasUteis} dias úteis
+            </span>
           </div>
         </div>
 
@@ -416,7 +453,9 @@ function TabKpis({ cfg, setCfg, empresaId }) {
                               onChange={e => updateDailyGoal(u.id, k.id, e.target.value)}
                               style={{ ...s.input, width: '80px', textAlign: 'center', marginBottom: '4px' }}
                             />
-                            <div style={{ fontSize: 10, color: 'var(--accent)' }}>meta mensal: {metaMensal}</div>
+                            <div style={{ fontSize: 10, color: 'var(--accent)' }}>
+                              meta mensal: {metaMensal}
+                            </div>
                           </td>
                         )
                       })}
@@ -432,12 +471,19 @@ function TabKpis({ cfg, setCfg, empresaId }) {
       <div style={s.sec}>
         <div style={s.secTitle}>🔐 Obrigatoriedade de KPIs</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-          <div onClick={() => setKpiRequired(!kpiRequired)} style={{ width: 40, height: 20, borderRadius: 10, background: kpiRequired ? 'var(--accent3)' : 'rgba(100,116,139,.3)', cursor: 'pointer', position: 'relative' }}>
+          <div 
+            onClick={() => setKpiRequired(!kpiRequired)} 
+            style={{ width: 40, height: 20, borderRadius: 10, background: kpiRequired ? 'var(--accent3)' : 'rgba(100,116,139,.3)', cursor: 'pointer', position: 'relative' }}
+          >
             <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#fff', position: 'absolute', top: 2, left: kpiRequired ? 22 : 2, transition: 'left .2s' }} />
           </div>
-          <span style={{ fontSize: 13 }}>{kpiRequired ? '✅ Exigir preenchimento diário de KPIs' : '⭕ Não exigir preenchimento diário'}</span>
+          <span style={{ fontSize: 13 }}>
+            {kpiRequired ? '✅ Exigir preenchimento diário de KPIs' : '⭕ Não exigir preenchimento diário'}
+          </span>
         </div>
-        <p style={{ fontSize: 12, color: 'var(--muted)' }}>Se ativado, os usuários serão redirecionados para uma tela de lançamento de KPIs sempre que não tiverem preenchido o dia anterior.</p>
+        <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+          Se ativado, os usuários serão redirecionados para uma tela de lançamento de KPIs sempre que não tiverem preenchido o dia anterior.
+        </p>
       </div>
 
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>
