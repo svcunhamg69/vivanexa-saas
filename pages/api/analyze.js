@@ -2,7 +2,7 @@
 import { supabase } from '../../lib/supabase';
 
 export default async function handler(req, res) {
-  // Permitir apenas POST
+  // Apenas POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
   }
@@ -13,15 +13,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Dados não fornecidos' });
   }
 
-  // 1. Tenta pegar a chave do Gemini das variáveis de ambiente
+  // 1. Tenta pegar chaves das variáveis de ambiente
   let geminiKey = process.env.GEMINI_API_KEY;
   let groqKey = process.env.GROQ_API_KEY;
 
-  console.log('🔍 Verificando chaves...');
-  console.log('Gemini key existe?', !!geminiKey);
-  console.log('Groq key existe?', !!groqKey);
-
-  // 2. Se não encontrou nas variáveis de ambiente, busca no Supabase
+  // 2. Se não encontrou, busca no Supabase
   if ((!geminiKey || !geminiKey.startsWith('AIza')) && empresaId) {
     try {
       const { data: cfgRow, error } = await supabase
@@ -38,21 +34,20 @@ export default async function handler(req, res) {
         if (cfg.groqApiKey) {
           groqKey = cfg.groqApiKey;
         }
-        console.log('✅ Chaves carregadas do Supabase');
       }
     } catch (err) {
       console.error('Erro ao buscar chaves do Supabase:', err);
     }
   }
 
-  // 3. Se não tem nenhuma chave, retorna erro amigável
+  // 3. Se ainda não tem chave, retorna erro amigável
   if (!geminiKey && !groqKey) {
     return res.status(400).json({
       error: '❌ Nenhuma chave de API encontrada!\n\n✅ Solução:\n1. Adicione GEMINI_API_KEY no arquivo .env.local\n2. Ou configure na aba Empresa → Configuração de IA\n3. Depois reinicie o servidor (npm run dev)'
     });
   }
 
-  // 4. Monta o prompt para a IA
+  // 4. Monta o prompt
   const prompt = `
 Você é um consultor de negócios especializado em vendas de software SaaS. Analise os dados abaixo e forneça um plano de ação.
 
@@ -68,11 +63,14 @@ Responda no seguinte formato:
 Seja direto e prático. Use português claro.
 `;
 
-  // 5. Tenta usar o Google Gemini
+  // 5. Tenta Gemini (com a URL corrigida: v1beta)
   if (geminiKey && geminiKey.startsWith('AIza')) {
     try {
-      console.log('🔄 Tentando Gemini...');
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+      // 🔥 CORREÇÃO AQUI: v1 → v1beta
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+      console.log('🔄 Chamando Gemini com URL:', url);
+
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -81,24 +79,18 @@ Seja direto e prático. Use português claro.
       });
 
       const result = await response.json();
-      console.log('Gemini resposta status:', response.status);
 
       if (response.ok && result.candidates?.[0]?.content?.parts?.[0]?.text) {
         const analysis = result.candidates[0].content.parts[0].text;
         return res.status(200).json({ analysis, provider: 'gemini' });
       } else {
         console.error('Gemini erro:', result);
-        // Se Gemini falhar, tenta Groq
-        if (groqKey) {
-          return await usarGroq(prompt, groqKey, res);
-        }
+        if (groqKey) return await usarGroq(prompt, groqKey, res);
         return res.status(500).json({ error: 'Erro na API Gemini: ' + JSON.stringify(result) });
       }
     } catch (err) {
       console.error('Gemini exception:', err);
-      if (groqKey) {
-        return await usarGroq(prompt, groqKey, res);
-      }
+      if (groqKey) return await usarGroq(prompt, groqKey, res);
       return res.status(500).json({ error: err.message });
     }
   }
@@ -111,9 +103,9 @@ Seja direto e prático. Use português claro.
   return res.status(400).json({ error: 'Chave Gemini inválida. Verifique se começa com AIza' });
 }
 
+// Função auxiliar para Groq
 async function usarGroq(prompt, apiKey, res) {
   try {
-    console.log('🔄 Tentando Groq...');
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -128,7 +120,6 @@ async function usarGroq(prompt, apiKey, res) {
     });
 
     const result = await response.json();
-    console.log('Groq resposta status:', response.status);
 
     if (response.ok && result.choices?.[0]?.message?.content) {
       return res.status(200).json({ analysis: result.choices[0].message.content, provider: 'groq' });
