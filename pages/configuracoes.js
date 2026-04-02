@@ -370,7 +370,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
                         )
                       })}
                     </td>
-                  )
+                  ))
                 }
               </tbody>
             </table>
