@@ -1,12 +1,4 @@
 // pages/configuracoes.js
-// ============================================================
-// VERSÃO CORRIGIDA
-// • Importações corretas (useState, useEffect, useRef)
-// • TabDocumentos totalmente funcional
-// • Todas as abas completas (Usuários, Vouchers, etc.)
-// • Botão Relatórios no header
-// ============================================================
-
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
@@ -377,7 +369,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
                           </td>
                         )
                       })}
-                    </tr>
+                    </td>
                   ))
                 }
               </tbody>
@@ -616,7 +608,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={s.secTitle}>Planos Disponíveis</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th>  </tr></thead>
+              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th> <tr></thead>
               <tbody>
                 {planos.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -640,7 +632,8 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead><tr style={{ background: 'var(--surface2)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Módulo</th>{planos.map(p => <th key={p.id} colSpan={2} style={{ padding: '10px 12px', textAlign: 'center' }}>{p.nome}</th>)}</tr>
-               <tr><td style={{ padding: '6px 12px' }}></td>{planos.map(p => <><td style={{ padding: '6px 8px', textAlign: 'center' }}>Adesão</td><td style={{ padding: '6px 8px', textAlign: 'center' }}>Mensal</td></>)}</tr></thead>
+                <tr><td style={{ padding: '6px 12px' }}></td>{planos.map(p => <><td style={{ padding: '6px 8px', textAlign: 'center' }}>Adesão</td><td style={{ padding: '6px 8px', textAlign: 'center' }}>Mensal</td></>)}</tr>
+              </thead>
               <tbody>
                 {modulos.map(mod => (
                   <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -1132,17 +1125,55 @@ export default function Configuracoes() {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/'); return }
-      const { data: perf } = await supabase.from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
+
+      // 👇 BUSCA OU CRIA O PERFIL AUTOMATICAMENTE
+      let { data: perf, error } = await supabase
+        .from('perfis')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .maybeSingle()
+
+      // Se não existe, cria agora
+      if (!perf) {
+        const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário'
+        const { data: novoPerfil, error: insertError } = await supabase
+          .from('perfis')
+          .insert({
+            user_id: session.user.id,
+            nome: nome,
+            email: session.user.email,
+            empresa_id: session.user.id,
+            perfil: 'admin'
+          })
+          .select()
+          .single()
+
+        if (insertError) {
+          console.error('Erro ao criar perfil:', insertError)
+          perf = { empresa_id: session.user.id, nome }
+        } else {
+          perf = novoPerfil
+        }
+      }
+
       setPerfil(perf)
       const eid = perf?.empresa_id || session.user.id
       setEmpresaId(eid)
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).maybeSingle()
+
+      const { data: row } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `cfg:${eid}`)
+        .single()
+
       if (row?.value) {
         try { setCfg(JSON.parse(row.value)) } catch {}
       }
+
       const saved = row?.value ? JSON.parse(row.value) : {}
       if (saved.theme) document.documentElement.setAttribute('data-theme', saved.theme)
       else document.documentElement.setAttribute('data-theme', 'dark')
+
       setLoading(false)
     }
     init()
