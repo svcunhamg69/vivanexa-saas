@@ -1,7 +1,6 @@
 // pages/api/analyze.js
 // ============================================================
 // API para análise de dados com Google Gemini (e fallback Groq)
-// As chaves são lidas das variáveis de ambiente
 // ============================================================
 
 export default async function handler(req, res) {
@@ -14,23 +13,47 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Dados não fornecidos' });
   }
 
-  // Buscar as chaves da empresa no Supabase
-  const supabase = (await import('../../lib/supabase')).supabase;
-  let geminiApiKey = process.env.GEMINI_API_KEY;
-  let groqApiKey = process.env.GROQ_API_KEY;
+  // Buscar as chaves diretamente do Supabase
+  let geminiApiKey = null;
+  let groqApiKey = null;
 
-  // Se não tiver variáveis de ambiente, tenta buscar da configuração da empresa
-  if (!geminiApiKey && empresaId) {
-    const { data: cfgRow } = await supabase
-      .from('vx_storage')
-      .select('value')
-      .eq('key', `cfg:${empresaId}`)
-      .single();
-    if (cfgRow?.value) {
-      const cfg = JSON.parse(cfgRow.value);
-      geminiApiKey = cfg.geminiApiKey;
-      groqApiKey = cfg.groqApiKey;
+  if (empresaId) {
+    try {
+      // Importar Supabase
+      const { supabase } = await import('../../lib/supabase');
+      
+      // Buscar configuração da empresa
+      const { data: cfgRow, error } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `cfg:${empresaId}`)
+        .single();
+
+      if (error) {
+        console.error('Erro ao buscar configuração:', error);
+      } else if (cfgRow?.value) {
+        const cfg = JSON.parse(cfgRow.value);
+        geminiApiKey = cfg.geminiApiKey;
+        groqApiKey = cfg.groqApiKey;
+      }
+    } catch (err) {
+      console.error('Erro ao carregar configuração:', err);
     }
+  }
+
+  // Se não encontrou no banco, tenta variáveis de ambiente
+  if (!geminiApiKey && process.env.GEMINI_API_KEY) {
+    geminiApiKey = process.env.GEMINI_API_KEY;
+  }
+  if (!groqApiKey && process.env.GROQ_API_KEY) {
+    groqApiKey = process.env.GROQ_API_KEY;
+  }
+
+  // Verificar se alguma chave foi encontrada
+  if (!geminiApiKey && !groqApiKey) {
+    return res.status(400).json({ 
+      error: 'Nenhuma chave de API configurada. Configure em Configurações → Empresa (seção "Configuração de IA") ou defina as variáveis de ambiente GEMINI_API_KEY ou GROQ_API_KEY.' 
+    });
   }
 
   const prompt = `
@@ -67,7 +90,7 @@ Seja prático e direto. Use linguagem profissional.
       } else {
         console.error('Gemini error:', result);
         if (groqApiKey) return handleGroq(prompt, groqApiKey, res);
-        return res.status(500).json({ error: 'Erro na resposta da API Gemini' });
+        return res.status(500).json({ error: 'Erro na resposta da API Gemini: ' + JSON.stringify(result) });
       }
     } catch (err) {
       console.error('Gemini fetch error:', err);
@@ -76,11 +99,12 @@ Seja prático e direto. Use linguagem profissional.
     }
   }
 
+  // Fallback para Groq
   if (groqApiKey) {
     return handleGroq(prompt, groqApiKey, res);
   }
 
-  return res.status(400).json({ error: 'Nenhuma chave de API configurada. Configure em Configurações → Empresa ou defina as variáveis de ambiente.' });
+  return res.status(400).json({ error: 'Chave Gemini inválida ou não configurada.' });
 }
 
 async function handleGroq(prompt, apiKey, res) {
@@ -102,7 +126,7 @@ async function handleGroq(prompt, apiKey, res) {
       return res.status(200).json({ analysis: result.choices[0].message.content, provider: 'groq' });
     } else {
       console.error('Groq error:', result);
-      return res.status(500).json({ error: 'Erro na resposta da API Groq' });
+      return res.status(500).json({ error: 'Erro na resposta da API Groq: ' + JSON.stringify(result) });
     }
   } catch (err) {
     console.error('Groq fetch error:', err);
