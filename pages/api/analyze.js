@@ -24,7 +24,7 @@ export default async function handler(req, res) {
           .from('vx_storage')
           .select('value')
           .eq('key', `cfg:${empresaId}`)
-          .single();
+          .maybeSingle();
 
         if (cfgRow?.value) {
           const cfg = JSON.parse(cfgRow.value);
