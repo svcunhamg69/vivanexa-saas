@@ -1,3 +1,6 @@
+console.log('GEMINI KEY:', process.env.GEMINI_API_KEY ? 'OK' : 'ERRO');
+console.log('GROQ KEY:', process.env.GROQ_API_KEY ? 'OK' : 'ERRO');
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
