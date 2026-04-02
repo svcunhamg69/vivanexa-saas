@@ -23,10 +23,8 @@ function diasUteisNoMes(yearMonth) {
   return uteis;
 }
 
-// Tabela de KPIs por usuário
 function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
   const diasUteis = diasUteisNoMes(mesRef);
-
   const userKpis = users.map(user => {
     const logs = kpiLog.filter(l => l.userId === user.id && l.date.startsWith(mesRef));
     const userGoals = (goals || []).find(g => g.userId === user.id && g.mes === mesRef) || {};
@@ -48,8 +46,7 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
             <th style={{ textAlign: 'left', padding: '10px 6px' }}>Usuário</th>
             {kpiTemplates.map(k => (
               <th key={k.id} style={{ textAlign: 'center', padding: '10px 6px' }}>
-                {k.nome}<br />
-                <span style={{ fontSize: 10 }}>realizado / meta mensal</span>
+                {k.nome}<br /><span style={{ fontSize: 10 }}>realizado / meta mensal</span>
               </th>
             ))}
           </tr>
@@ -78,7 +75,6 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
   );
 }
 
-// Gráfico de produtos vendidos
 function ProdutosChart({ contratosMes }) {
   const produtos = {};
   contratosMes.forEach(c => {
@@ -92,13 +88,9 @@ function ProdutosChart({ contratosMes }) {
     }
   });
 
-  const lista = Object.entries(produtos)
-    .map(([nome, dados]) => ({ nome, ...dados }))
-    .sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade));
+  const lista = Object.entries(produtos).map(([nome, dados]) => ({ nome, ...dados })).sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade));
 
-  if (lista.length === 0) {
-    return <p style={{ color: 'var(--muted)', padding: 20, textAlign: 'center' }}>Nenhum contrato assinado no período.</p>;
-  }
+  if (lista.length === 0) return <p style={{ color: 'var(--muted)', padding: 20, textAlign: 'center' }}>Nenhum contrato assinado no período.</p>;
 
   return (
     <div>
@@ -124,20 +116,18 @@ function ProdutosChart({ contratosMes }) {
           ))}
         </tbody>
         <tfoot style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
-          <tr>
-            <td style={{ padding: '8px 6px' }}>TOTAL</td>
+          <tr><td style={{ padding: '8px 6px' }}>TOTAL</td>
             <td style={{ textAlign: 'center', padding: '8px 6px' }}>{lista.reduce((s, p) => s + p.count, 0)}</td>
             <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.adesao, 0))}</td>
             <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.mensalidade, 0))}</td>
             <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.adesao + p.mensalidade, 0))}</td>
-          </tr>
+           </tr>
         </tfoot>
       </table>
     </div>
   );
 }
 
-// Componente de análise IA
 function AnaliseIA({ data, empresaId }) {
   const [analysis, setAnalysis] = useState('');
   const [loading, setLoading] = useState(false);
@@ -196,9 +186,7 @@ function AnaliseIA({ data, empresaId }) {
           lineHeight: 1.6,
           color: 'var(--text)',
         }}>
-          {analysis.split('\n').map((line, i) => (
-            <p key={i} style={{ marginBottom: 8 }}>{line}</p>
-          ))}
+          {analysis.split('\n').map((line, i) => <p key={i} style={{ marginBottom: 8 }}>{line}</p>)}
         </div>
       )}
     </div>
@@ -209,7 +197,6 @@ export default function Reports() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [cfg, setCfg] = useState(null);
-  const [perfil, setPerfil] = useState(null);
   const [empresaId, setEmpresaId] = useState(null);
   const [aba, setAba] = useState('produtos');
   const [mesRef, setMesRef] = useState(mesAtual());
@@ -218,12 +205,33 @@ export default function Reports() {
     async function load() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push('/'); return; }
-      const { data: profile } = await supabase.from('perfis').select('*').eq('id', session.user.id).single();
-      setPerfil(profile);
-      const eid = profile?.empresa_id || session.user.id;
-      setEmpresaId(eid);
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single();
-      if (row?.value) setCfg(JSON.parse(row.value));
+
+      // Usar diretamente o user.id como empresaId (fallback)
+      const userId = session.user.id;
+      setEmpresaId(userId);
+
+      // Tentar carregar configuração da empresa usando o userId como chave (temporário)
+      const { data: row } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `cfg:${userId}`)
+        .single();
+
+      if (row?.value) {
+        setCfg(JSON.parse(row.value));
+      } else {
+        // Se não existir, cria uma configuração padrão
+        const defaultCfg = {
+          company: 'Vivanexa',
+          slogan: 'Assistente Comercial',
+          docHistory: [],
+          users: [],
+          kpiTemplates: [],
+          kpiLog: [],
+          goals: [],
+        };
+        setCfg(defaultCfg);
+      }
       setLoading(false);
     }
     load();
