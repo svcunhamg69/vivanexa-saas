@@ -1,69 +1,143 @@
 // pages/api/analyze.js
-// ============================================================
-// API para análise com Google Gemini (gratuito)
-// ============================================================
+import { supabase } from '../../lib/supabase';
 
 export default async function handler(req, res) {
-  // Apenas aceita requisições POST
+  // Permitir apenas POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' });
   }
 
-  // Pega os dados enviados pelo frontend
-  const { data, contexto } = req.body;
-  
+  const { data, contexto, empresaId } = req.body;
+
   if (!data) {
     return res.status(400).json({ error: 'Dados não fornecidos' });
   }
 
-  // Pega a chave da API do arquivo .env.local
-  const geminiApiKey = process.env.GEMINI_API_KEY;
+  // 1. Tenta pegar a chave do Gemini das variáveis de ambiente
+  let geminiKey = process.env.GEMINI_API_KEY;
+  let groqKey = process.env.GROQ_API_KEY;
 
-  // Se não tem chave, retorna erro
-  if (!geminiApiKey) {
-    return res.status(400).json({ 
-      error: '❌ Chave do Google Gemini não encontrada.\n\n🔧 Solução: Adicione GEMINI_API_KEY no arquivo .env.local' 
+  console.log('🔍 Verificando chaves...');
+  console.log('Gemini key existe?', !!geminiKey);
+  console.log('Groq key existe?', !!groqKey);
+
+  // 2. Se não encontrou nas variáveis de ambiente, busca no Supabase
+  if ((!geminiKey || !geminiKey.startsWith('AIza')) && empresaId) {
+    try {
+      const { data: cfgRow, error } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `cfg:${empresaId}`)
+        .single();
+
+      if (!error && cfgRow?.value) {
+        const cfg = JSON.parse(cfgRow.value);
+        if (cfg.geminiApiKey && cfg.geminiApiKey.startsWith('AIza')) {
+          geminiKey = cfg.geminiApiKey;
+        }
+        if (cfg.groqApiKey) {
+          groqKey = cfg.groqApiKey;
+        }
+        console.log('✅ Chaves carregadas do Supabase');
+      }
+    } catch (err) {
+      console.error('Erro ao buscar chaves do Supabase:', err);
+    }
+  }
+
+  // 3. Se não tem nenhuma chave, retorna erro amigável
+  if (!geminiKey && !groqKey) {
+    return res.status(400).json({
+      error: '❌ Nenhuma chave de API encontrada!\n\n✅ Solução:\n1. Adicione GEMINI_API_KEY no arquivo .env.local\n2. Ou configure na aba Empresa → Configuração de IA\n3. Depois reinicie o servidor (npm run dev)'
     });
   }
 
-  // Monta o texto que será enviado para o Gemini
+  // 4. Monta o prompt para a IA
   const prompt = `
-Você é um consultor de negócios especializado em vendas de software SaaS. Analise os dados abaixo e forneça um plano de ação concreto.
+Você é um consultor de negócios especializado em vendas de software SaaS. Analise os dados abaixo e forneça um plano de ação.
 
 DADOS:
 ${JSON.stringify(data, null, 2)}
 
-Com base nesses dados, responda com:
-1. Resumo executivo
-2. Pontos importantes
-3. Problemas encontrados
-4. Sugestões de ação (mínimo 3)
+Responda no seguinte formato:
+1. RESUMO EXECUTIVO: (2-3 linhas)
+2. PONTOS IMPORTANTES: (liste os principais destaques)
+3. PROBLEMAS ENCONTRADOS: (liste pontos de atenção)
+4. SUGESTÕES DE AÇÃO: (mínimo 3 sugestões práticas)
 
-Seja prático, direto e use linguagem profissional.
+Seja direto e prático. Use português claro.
 `;
 
+  // 5. Tenta usar o Google Gemini
+  if (geminiKey && geminiKey.startsWith('AIza')) {
+    try {
+      console.log('🔄 Tentando Gemini...');
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      });
+
+      const result = await response.json();
+      console.log('Gemini resposta status:', response.status);
+
+      if (response.ok && result.candidates?.[0]?.content?.parts?.[0]?.text) {
+        const analysis = result.candidates[0].content.parts[0].text;
+        return res.status(200).json({ analysis, provider: 'gemini' });
+      } else {
+        console.error('Gemini erro:', result);
+        // Se Gemini falhar, tenta Groq
+        if (groqKey) {
+          return await usarGroq(prompt, groqKey, res);
+        }
+        return res.status(500).json({ error: 'Erro na API Gemini: ' + JSON.stringify(result) });
+      }
+    } catch (err) {
+      console.error('Gemini exception:', err);
+      if (groqKey) {
+        return await usarGroq(prompt, groqKey, res);
+      }
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // 6. Fallback para Groq
+  if (groqKey) {
+    return await usarGroq(prompt, groqKey, res);
+  }
+
+  return res.status(400).json({ error: 'Chave Gemini inválida. Verifique se começa com AIza' });
+}
+
+async function usarGroq(prompt, apiKey, res) {
   try {
-    // Chama a API do Google Gemini
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
+    console.log('🔄 Tentando Groq...');
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        model: 'llama3-70b-8192',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
       }),
     });
 
     const result = await response.json();
+    console.log('Groq resposta status:', response.status);
 
-    // Verifica se a resposta veio corretamente
-    if (result.candidates && result.candidates[0]?.content?.parts[0]?.text) {
-      const analysis = result.candidates[0].content.parts[0].text;
-      return res.status(200).json({ analysis, provider: 'gemini' });
+    if (response.ok && result.choices?.[0]?.message?.content) {
+      return res.status(200).json({ analysis: result.choices[0].message.content, provider: 'groq' });
     } else {
-      console.error('Erro do Gemini:', result);
-      return res.status(500).json({ error: 'Erro ao gerar análise. Tente novamente.' });
+      console.error('Groq erro:', result);
+      return res.status(500).json({ error: 'Erro na API Groq' });
     }
   } catch (err) {
-    console.error('Erro na requisição:', err);
-    return res.status(500).json({ error: 'Erro de conexão com a API. Tente novamente.' });
+    console.error('Groq exception:', err);
+    return res.status(500).json({ error: err.message });
   }
 }
