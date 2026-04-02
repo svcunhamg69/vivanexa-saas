@@ -1,17 +1,13 @@
 // pages/configuracoes.js
 // ============================================================
-// VERSÃO COMPLETA E CORRIGIDA
-// • Todas as abas implementadas (Usuários e Vouchers completos)
+// VERSÃO CORRIGIDA
+// • Importações corretas (useState, useEffect, useRef)
+// • TabDocumentos totalmente funcional
+// • Todas as abas completas (Usuários, Vouchers, etc.)
 // • Botão Relatórios no header
-// • SMTP na aba Empresa
-// • Validação de duplicatas em Clientes
-// • Toggle de botões em Produtos funcionando
-// • Header clicável
-// • Edição de nomes de módulos
-// • Histórico com visualização de documentos
 // ============================================================
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
@@ -345,7 +341,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
         {kpis.length === 0 ? <p style={{ color: 'var(--muted)' }}>Nenhum KPI cadastrado.</p> : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 300 }}>
-              <thead><tr style={{ borderBottom: '2px solid var(--border)' }}><th style={{ textAlign: 'left', padding: '10px 6px' }}>Usuário</th>{kpis.map(k => <th key={k.id} style={{ textAlign: 'center', padding: '10px 6px' }}>{k.nome}<br/><span style={{ fontSize: 10 }}>meta/dia</span></th>)}</td></thead>
+              <thead><tr style={{ borderBottom: '2px solid var(--border)' }}><th style={{ textAlign: 'left', padding: '10px 6px' }}>Usuário</th>{kpis.map(k => <th key={k.id} style={{ textAlign: 'center', padding: '10px 6px' }}>{k.nome}<br/><span style={{ fontSize: 10 }}>meta/dia</span></th>)}</tr></thead>
               <tbody>
                 {usuarios.length === 0 ? <tr><td colSpan={kpis.length+1} style={{ padding: '20px', textAlign: 'center' }}>Nenhum usuário cadastrado.</td></tr> :
                   usuarios.map(u => (
@@ -361,7 +357,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
                           </td>
                         )
                       })}
-                    </td>
+                    </tr>
                   ))
                 }
               </tbody>
@@ -387,17 +383,14 @@ function TabKpis({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA USUÁRIOS — COM PERMISSÕES + PERFIS (código completo)
+// ABA USUÁRIOS — COM PERMISSÕES + PERFIS
 // ══════════════════════════════════════════════
 function TabUsuarios({ cfg, setCfg, empresaId }) {
   const [users,   setUsers]   = useState(cfg.users || [])
   const [form,    setForm]    = useState(null)
   const [saving,  setSaving]  = useState(false)
   const [abaU,    setAbaU]    = useState('lista')
-  const [perfis,  setPerfis]  = useState(cfg.perfisTipos || [
-    { id: 'admin', nome: 'Administrador', permissoes: PERMISSOES_ADMIN, fixo: true },
-    { id: 'user',  nome: 'Vendedor',      permissoes: PERMISSOES_USER,  fixo: true },
-  ])
+  const [perfis,  setPerfis]  = useState(cfg.perfisTipos || [{ id: 'admin', nome: 'Administrador', permissoes: PERMISSOES_ADMIN, fixo: true }, { id: 'user', nome: 'Vendedor', permissoes: PERMISSOES_USER, fixo: true }])
   const [perfilForm, setPerfilForm] = useState(null)
   const emptyForm = { nome: '', usuario: '', email: '', telefone: '', senha: '', perfilId: 'user', permissoes: PERMISSOES_USER }
 
@@ -603,7 +596,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={s.secTitle}>Planos Disponíveis</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th> </td></thead>
+              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th>  </tr></thead>
               <tbody>
                 {planos.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -626,7 +619,8 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={s.secTitle}>Tabela de Preços</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead><tr style={{ background: 'var(--surface2)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Módulo</th>{planos.map(p => <th key={p.id} colSpan={2} style={{ padding: '10px 12px', textAlign: 'center' }}>{p.nome}</th>)}</thead>
+              <thead><tr style={{ background: 'var(--surface2)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Módulo</th>{planos.map(p => <th key={p.id} colSpan={2} style={{ padding: '10px 12px', textAlign: 'center' }}>{p.nome}</th>)}</tr>
+               <tr><td style={{ padding: '6px 12px' }}></td>{planos.map(p => <><td style={{ padding: '6px 8px', textAlign: 'center' }}>Adesão</td><td style={{ padding: '6px 8px', textAlign: 'center' }}>Mensal</td></>)}</tr></thead>
               <tbody>
                 {modulos.map(mod => (
                   <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -636,7 +630,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
                       return (
                         <>
                           <td style={{ padding: '6px 8px', borderLeft: '1px solid var(--border)' }}><input type="number" style={{ ...s.input, width: 80, textAlign: 'right' }} value={vals[0]} onChange={e => updatePreco(mod, p.id, 0, e.target.value)} /></td>
-                          <td style={{ padding: '6px 8px' }}><input type="number" style={{ ...s.input, width: 80, textAlign: 'right' }} value={vals[1]} onChange={e => updatePreco(mod, p.id, 1, e.target.value)} /></td>
+                          <td><input type="number" style={{ ...s.input, width: 80, textAlign: 'right' }} value={vals[1]} onChange={e => updatePreco(mod, p.id, 1, e.target.value)} /></td>
                         </>
                       )
                     })}
@@ -738,7 +732,7 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA VOUCHERS (código completo)
+// ABA VOUCHERS
 // ══════════════════════════════════════════════
 function TabVouchers({ cfg, setCfg, empresaId }) {
   const [prefixo,  setPrefixo]  = useState('PROMO')
@@ -817,7 +811,7 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA DOCUMENTOS (sem SMTP)
+// ABA DOCUMENTOS (com upload de arquivos e edição)
 // ══════════════════════════════════════════════
 function TabDocumentos({ cfg, setCfg, empresaId }) {
   const [emailRem,   setEmailRem]   = useState(cfg.signConfig?.email || '')
