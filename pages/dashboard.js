@@ -155,7 +155,7 @@ function GraficoBarras({ dados, altura = 130, formatarValor }) {
   )
 }
 
-// ── Modal lançar KPI ── (igual ao original)
+// ── Modal lançar KPI ─────────────────────────────────────────
 function ModalKpi({ kpi, userId, onClose, onSave }) {
   const hoje = new Date().toISOString().slice(0, 10)
   const [valor, setValor] = useState('')
@@ -289,7 +289,7 @@ export default function Dashboard() {
     return goals.find(g => g.userId === uid && g.mes === mes) || {}
   }
 
-  // Contratos totalmente assinados (status signed + ambas assinaturas)
+  // Contratos totalmente assinados
   const fullySignedDocs = (docHistory || []).filter(d => d && d.status === 'signed' && d.signedAt && d.consultantSignedAt)
 
   const realizedMap = {}
@@ -324,7 +324,7 @@ export default function Dashboard() {
     return { adesao: ad, mensalidade: men }
   })()
 
-  // Gráfico de adesão (12 meses) e mensalidade (12 meses)
+  // Gráfico de adesão e mensalidade (12 meses)
   const dadosGrafico12m = (tipo) => {
     const meses = []
     for (let i = 11; i >= 0; i--) {
@@ -347,7 +347,7 @@ export default function Dashboard() {
     return dt.slice(0, 7) === mes
   })
 
-  // Função para verificar se usuário deixou de lançar KPI do dia útil anterior
+  // Verifica se usuário deixou de lançar KPI do dia útil anterior
   function ultimoDiaUtilAnterior() {
     const d = new Date()
     d.setDate(d.getDate() - 1)
@@ -597,10 +597,12 @@ export default function Dashboard() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                        {['Módulo', 'Qtd', 'Adesão Total', 'Mensalidade Total', 'Receita Total'].map(h => (
-                          <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Módulo' ? 'left' : 'right', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
-                        ))}
-                      </table>
+                        <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Módulo</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Qtd</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Adesão Total</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Mensalidade Total</th>
+                        <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Receita Total</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {produtosVendidos.map((p, i) => (
@@ -742,7 +744,7 @@ export default function Dashboard() {
   )
 }
 
-// ✅ CORREÇÃO PRINCIPAL: Força SSR e evita erro de pré-renderização estática no build
+// ✅ Força SSR e evita erro de pré-renderização estática no build
 export async function getServerSideProps() {
   return { props: {} }
 }
