@@ -373,7 +373,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
 
   return `
   <div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
-    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:28px 44px;display:flex;align-items:center;gap:20px">
+    <div style="background:linear-gradient(135deg,#0f172a,#1e293b;padding:28px 44px;display:flex;align-items:center;gap:20px">
       ${cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain">` : '<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">' + cfg.company + '</div>'}
       <div>
         <h1 style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">Termo de Pedido e Registro de Software</h1>
@@ -383,7 +383,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
     <div style="padding:28px 44px">
       <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px 20px;margin-bottom:20px;border-left:4px solid #00d4ff">
         <p style="font-size:13px;color:#0c4a6e;margin-bottom:6px">Segue abaixo os termos do pedido registrado com nosso time de vendas.</p>
-        <p style="font-size:13px;color:#0c4a6e">Confira os dados com atenção e caso esteja tudo correto, basta <strong>ASSINAR</strong> para darmos seguimento ao treinamento e implantação.</p>
+        <p style="font-size:13px;color:#0c4a6e">Confira os dados abaixo com atenção e caso esteja tudo correto, basta <strong>ASSINAR</strong> para darmos seguimento ao treinamento e implantação.</p>
       </div>
 
       ${sec('1', 'CONTRATADA')}
