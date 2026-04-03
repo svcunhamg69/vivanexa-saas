@@ -13,6 +13,7 @@ export default function KpiPage() {
   const [saving, setSaving] = useState(false)
   const [kpis, setKpis] = useState([])
   const [valores, setValores] = useState({})
+  // Usar dateParam como valor inicial para 'data' e garantir que seja uma string no formato YYYY-MM-DD
   const [data, setData] = useState(dateParam || new Date().toISOString().slice(0,10))
   const [error, setError] = useState('')
 
@@ -60,7 +61,8 @@ export default function KpiPage() {
         setCfg(loaded)
         setKpis(loaded.kpiTemplates || [])
         const log = loaded.kpiLog || []
-        const dia = dateParam || new Date().toISOString().slice(0,10) // Usar dateParam para consistência
+        // Usar a data do estado 'data' para filtrar os logs
+        const dia = data
         const existing = log.filter(l => l.userId === session.user.id && l.date === dia)
         const map = {}
         existing.forEach(l => { map[l.kpiId] = l.realizado })
@@ -69,7 +71,7 @@ export default function KpiPage() {
       setLoading(false)
     }
     load()
-  }, [dateParam, router]) // Adicionar dateParam e router como dependências
+  }, [dateParam, data, router]) // Adicionado 'dateParam', 'data' e 'router' às dependências
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -85,17 +87,16 @@ export default function KpiPage() {
       let currentCfg = cfgRow?.value ? JSON.parse(cfgRow.value) : cfg || {}
       if (!currentCfg.kpiLog) currentCfg.kpiLog = []
 
-      // Filtra logs existentes para a data e usuário atual
+      // Remove logs existentes para o usuário e data atual antes de adicionar os novos
       currentCfg.kpiLog = currentCfg.kpiLog.filter(l =>
         !(l.userId === user.id && l.date === data)
       )
 
-      // Adiciona os novos logs
       for (const k of kpis) {
         const val = valores[k.id]
         if (val !== undefined && val !== '') {
           currentCfg.kpiLog.push({
-            id: Date.now() + Math.random(), // ID único para cada lançamento
+            id: Date.now() + Math.random(), // ID único para cada log
             userId: user.id,
             date: data,
             kpiId: k.id,
@@ -104,18 +105,19 @@ export default function KpiPage() {
         }
       }
 
-      // Atualiza o objeto cfg no estado local para refletir as mudanças
-      setCfg(currentCfg);
-
       await supabase.from('vx_storage').upsert({
         key: `cfg:${empresaId}`,
         value: JSON.stringify(currentCfg),
         updated_at: new Date().toISOString()
       })
 
-      // Redireciona para a página de origem ou para /chat
+      // Atualiza o estado local de cfg para que o _app.js possa reagir
+      setCfg(currentCfg);
+
+      // Redireciona usando router.push para melhor integração com Next.js
       const redirectTo = typeof redirect === 'string' && redirect.startsWith('/') ? redirect : '/chat'
-      router.push(redirectTo) // Usar router.push para navegação Next.js
+      router.push(redirectTo)
+
     } catch (err) {
       console.error(err)
       setError('Erro ao salvar. Tente novamente.')
