@@ -10,7 +10,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Método não permitido' })
   }
 
-  const { to, subject, html, text, from, config } = req.body
+  // Adicionado 'attachments' ao desestruturar o corpo da requisição
+  const { to, subject, html, text, from, config, attachments } = req.body
 
   if (!to || !subject) {
     return res.status(400).json({ error: 'Destinatário e assunto são obrigatórios' })
@@ -35,6 +36,7 @@ export default async function handler(req, res) {
         subject,
         text: text || html?.replace(/<[^>]*>/g, ''),
         html,
+        attachments: attachments || [], // Adiciona os anexos aqui
       })
       return res.status(200).json({ success: true })
     }
