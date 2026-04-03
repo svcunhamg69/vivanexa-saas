@@ -105,6 +105,9 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [emailApiKey,  setEmailApiKey]  = useState(cfg.emailApiKey  || '')
   const [geminiApiKey, setGeminiApiKey] = useState(cfg.geminiApiKey || '')
   const [groqApiKey,   setGroqApiKey]   = useState(cfg.groqApiKey   || '')
+  const [signEmail,    setSignEmail]    = useState(cfg.signConfig?.email || '')
+  const [signWpp,      setSignWpp]      = useState(cfg.signConfig?.wpp   || '')
+  const [signUrl,      setSignUrl]      = useState(cfg.signConfig?.url   || '')
   const [saving,       setSaving]       = useState(false)
 
   useEffect(() => {
@@ -121,6 +124,9 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setEmailApiKey(cfg.emailApiKey || '')
     setGeminiApiKey(cfg.geminiApiKey || '')
     setGroqApiKey(cfg.groqApiKey || '')
+    setSignEmail(cfg.signConfig?.email || '')
+    setSignWpp(cfg.signConfig?.wpp || '')
+    setSignUrl(cfg.signConfig?.url || '')
   }, [cfg])
 
   function handleLogo(e) {
@@ -139,7 +145,8 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
       company, slogan, logob64: logoB64,
       closingHour: Number(closingHour), closingText,
       emailProvider, smtpHost, smtpPort, smtpUser, smtpPass, emailApiKey,
-      geminiApiKey, groqApiKey
+      geminiApiKey, groqApiKey,
+      signConfig: { email: signEmail, wpp: signWpp, url: signUrl }
     }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
@@ -226,6 +233,16 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
           <input style={s.input} type="password" value={groqApiKey} onChange={e => setGroqApiKey(e.target.value)} placeholder="gsk_..." />
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Opcional. Se Gemini falhar, usa Groq.</div>
         </div>
+      </div>
+
+      <div style={s.sec}>
+        <div style={s.secTitle}>✍️ Assinatura Eletrônica</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>Configure os dados para envio de documentos e links de assinatura.</p>
+        <div style={s.row2}>
+          <div style={s.field}><label style={s.label}>E-mail remetente</label><input type="email" style={s.input} value={signEmail} onChange={e => setSignEmail(e.target.value)} placeholder="noreply@vivanexa.com.br" /></div>
+          <div style={s.field}><label style={s.label}>WhatsApp da empresa</label><input style={s.input} value={signWpp} onChange={e => setSignWpp(e.target.value)} placeholder="5531984059125" /></div>
+        </div>
+        <div style={s.field}><label style={s.label}>URL base do sistema (para links de assinatura)</label><input style={s.input} value={signUrl} onChange={e => setSignUrl(e.target.value)} placeholder="https://seusite.com" /></div>
       </div>
 
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar Configurações'}</button>
@@ -691,16 +708,23 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
 // ABA DESCONTOS
 // ══════════════════════════════════════════════
 function TabDescontos({ cfg, setCfg, empresaId }) {
-  const [regras, setRegras] = useState(cfg.discountRules || [])
-  const [saving, setSaving] = useState(false)
-
-  function addRegra() { setRegras(prev => [...prev, { id: Date.now(), nome: '', pctAdesao: 0, pctMensalidade: 0, condicao: '' }]) }
-  function updateRegra(id, campo, val) { setRegras(prev => prev.map(r => r.id === id ? { ...r, [campo]: val } : r)) }
-  function removeRegra(id) { setRegras(prev => prev.filter(r => r.id !== id)) }
+  // Modo: 'screen' = desconto em tela automático | 'voucher' = só com voucher
+  const [discMode,     setDiscMode]     = useState(cfg.discMode     || 'screen')
+  const [discAdPct,    setDiscAdPct]    = useState(Number(cfg.discAdPct)    ?? 50)
+  const [discMenPct,   setDiscMenPct]   = useState(Number(cfg.discMenPct)   ?? 0)
+  const [discClosePct, setDiscClosePct] = useState(Number(cfg.discClosePct) ?? 40)
+  const [saving,       setSaving]       = useState(false)
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, discountRules: regras }
+    // Salva com as chaves que o chat.js consome diretamente
+    const novoCfg = {
+      ...cfg,
+      discMode,
+      discAdPct:    Number(discAdPct),
+      discMenPct:   Number(discMenPct),
+      discClosePct: Number(discClosePct),
+    }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -708,29 +732,66 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
     toast('✅ Descontos salvos!')
   }
 
+  const toggle=(val,set,on,off)=>()=>{ set(prev=>prev===on?off:on); }
+
   return (
     <div style={s.body}>
       <div style={s.sec}>
-        <div style={s.secTitle}>🏷️ Regras de Desconto</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>Configure descontos que podem ser aplicados nas propostas.</p>
-        {regras.map(r => {
-          if (!r) return null
-          return (
-            <div key={r.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
-              <div style={s.row2}>
-                <div style={s.field}><label style={s.label}>Nome do Desconto</label><input style={s.input} value={r.nome} onChange={e => updateRegra(r.id, 'nome', e.target.value)} placeholder="Ex: Desconto Parceiro" /></div>
-                <div style={s.field}><label style={s.label}>Condição</label><input style={s.input} value={r.condicao} onChange={e => updateRegra(r.id, 'condicao', e.target.value)} placeholder="Ex: Acima de 50 CNPJs" /></div>
-              </div>
-              <div style={s.row2}>
-                <div style={s.field}><label style={s.label}>% Desconto Adesão</label><input type="number" min={0} max={100} style={s.input} value={r.pctAdesao} onChange={e => updateRegra(r.id, 'pctAdesao', e.target.value)} /></div>
-                <div style={s.field}><label style={s.label}>% Desconto Mensalidade</label><input type="number" min={0} max={100} style={s.input} value={r.pctMensalidade} onChange={e => updateRegra(r.id, 'pctMensalidade', e.target.value)} /></div>
-              </div>
-              <button onClick={() => removeRegra(r.id)} style={{ padding: '5px 12px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer', fontSize: 12 }}>🗑 Remover</button>
-            </div>
-          )
-        })}
-        <button onClick={addRegra} style={{ padding: '10px 18px', borderRadius: 9, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>+ Adicionar Desconto</button>
+        <div style={s.secTitle}>🏷️ Modo de Desconto</div>
+
+        {/* Toggle: Desconto em Tela */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 0', borderBottom:'1px solid var(--border)' }}>
+          <div>
+            <div style={{ fontWeight:600, color:'var(--text)', fontSize:14 }}>Desconto em Tela</div>
+            <div style={{ fontSize:12, color:'var(--muted)', marginTop:3 }}>Mostra desconto após o preço cheio automaticamente</div>
+          </div>
+          <div onClick={()=>setDiscMode(discMode==='screen'?'voucher':'screen')}
+            style={{ width:48,height:26,borderRadius:13,background:discMode==='screen'?'var(--accent3)':'var(--border)',cursor:'pointer',position:'relative',transition:'background .2s',flexShrink:0 }}>
+            <div style={{ position:'absolute',top:3,left:discMode==='screen'?24:3,width:20,height:20,borderRadius:10,background:'#fff',transition:'left .2s' }}/>
+          </div>
+        </div>
+
+        {/* Toggle: Somente via Voucher */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 0', borderBottom:'1px solid var(--border)' }}>
+          <div>
+            <div style={{ fontWeight:600, color:'var(--text)', fontSize:14 }}>Somente via Voucher</div>
+            <div style={{ fontSize:12, color:'var(--muted)', marginTop:3 }}>Desconto só é aplicado com código de voucher válido</div>
+          </div>
+          <div onClick={()=>setDiscMode(discMode==='voucher'?'screen':'voucher')}
+            style={{ width:48,height:26,borderRadius:13,background:discMode==='voucher'?'var(--accent3)':'var(--border)',cursor:'pointer',position:'relative',transition:'background .2s',flexShrink:0 }}>
+            <div style={{ position:'absolute',top:3,left:discMode==='voucher'?24:3,width:20,height:20,borderRadius:10,background:'#fff',transition:'left .2s' }}/>
+          </div>
+        </div>
       </div>
+
+      <div style={s.sec}>
+        <div style={s.secTitle}>📊 Percentuais de Desconto</div>
+        <div style={{ fontSize:13, color:'var(--muted)', marginBottom:14, lineHeight:1.6 }}>
+          Estes percentuais são aplicados automaticamente no chat quando o modo <strong style={{color:'var(--accent)'}}>Desconto em Tela</strong> está ativo.
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+          <div style={s.field}>
+            <label style={s.label}>% Adesão (tela)</label>
+            <input type="number" min={0} max={100} style={s.input} value={discAdPct} onChange={e=>setDiscAdPct(e.target.value)} />
+            <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Desconto na adesão exibido em tela</div>
+          </div>
+          <div style={s.field}>
+            <label style={s.label}>% Mensalidade (tela)</label>
+            <input type="number" min={0} max={100} style={s.input} value={discMenPct} onChange={e=>setDiscMenPct(e.target.value)} />
+            <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Desconto na mensalidade em tela</div>
+          </div>
+          <div style={s.field}>
+            <label style={s.label}>% Adesão (fechamento)</label>
+            <input type="number" min={0} max={100} style={s.input} value={discClosePct} onChange={e=>setDiscClosePct(e.target.value)} />
+            <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Desconto exclusivo para fechar no dia</div>
+          </div>
+        </div>
+
+        <div style={{ marginTop:16, padding:'12px 16px', background:'rgba(0,212,255,.06)', border:'1px solid rgba(0,212,255,.2)', borderRadius:8, fontSize:12, color:'var(--accent)' }}>
+          💡 <strong>Como funciona:</strong> O chat primeiro exibe o preço cheio (adesão ×2, mensalidade +20%). Depois mostra o desconto de tela configurado acima. Por último oferece o desconto de fechamento exclusivo para fechar no dia.
+        </div>
+      </div>
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar Descontos'}</button>
     </div>
   )
@@ -867,7 +928,6 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     setSaving(true)
     const novoCfg = {
       ...cfg,
-      signConfig:   { email: emailRem, wpp, url: urlBase },
       docTemplates: { proposta: propostaTemplate, contrato: contratoTemplate }
     }
     const { error } = await salvarStorage(empresaId, novoCfg)
@@ -928,16 +988,53 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
       </div>
 
       <div style={s.sec}>
-        <div style={s.secTitle}>Configurações de Assinatura Eletrônica</div>
-        <div style={s.row2}>
-          <div style={s.field}><label style={s.label}>E-mail remetente</label><input type="email" style={s.input} value={emailRem} onChange={e => setEmailRem(e.target.value)} placeholder="noreply@vivanexa.com.br" /></div>
-          <div style={s.field}><label style={s.label}>WhatsApp da empresa</label><input style={s.input} value={wpp} onChange={e => setWpp(e.target.value)} placeholder="5569984059125" /></div>
+        <div style={s.secTitle}>🤖 Prompt para Geração de Documentos com IA</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
+          Copie este prompt, cole em qualquer IA (ChatGPT, Claude, Gemini etc.) junto com o documento do cliente e as variáveis do sistema. A IA gerará um HTML pronto para colar nos modelos acima.
+        </p>
+        <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, position: 'relative' }}>
+          <pre style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, lineHeight: 1.7, fontFamily: 'monospace' }}>{`Você é um especialista em documentos comerciais. Com base nos dados do cliente e variáveis abaixo, crie um HTML completo e profissional para uma [PROPOSTA / CONTRATO] comercial.
+
+VARIÁVEIS DISPONÍVEIS (use exatamente como estão):
+{{empresa}} - Nome fantasia do cliente
+{{razao}} - Razão social
+{{cnpj}} - CNPJ formatado
+{{contato}} - Nome do contato
+{{email}} - E-mail
+{{telefone}} - Telefone
+{{endereco}} - Endereço completo
+{{plano}} - Plano contratado
+{{cnpjs_qty}} - Quantidade de CNPJs
+{{total_adesao}} - Valor total de adesão
+{{total_mensal}} - Valor total mensalidade
+{{data_hora}} - Data atual
+{{vencimento_adesao}} - Vencimento da adesão
+{{vencimento_mensal}} - Vencimento da mensalidade
+{{condicao_pagamento}} - Condição de pagamento
+{{consultor_nome}} - Nome do consultor
+{{company}} - Empresa contratante (Vivanexa)
+{{produtos_tabela}} - Tabela HTML dos produtos (inserir como está)
+{{logo}} - Logo em base64 (inserir como: <img src="{{logo}}" ...>)
+
+INSTRUÇÕES:
+- Crie um HTML completo com CSS inline (sem arquivos externos)
+- Use cores profissionais: fundo branco, texto escuro, destaques em azul
+- Inclua cabeçalho com logo e nome da empresa, dados do cliente, tabela de produtos e rodapé
+- Mantenha as variáveis {{...}} exatamente como estão — elas serão substituídas pelo sistema
+- O resultado deve ser apenas o HTML, sem explicações adicionais`}</pre>
+          <button
+            onClick={() => {
+              const txt = document.querySelector('[data-prompt-copy]')?.innerText || ''
+              navigator.clipboard?.writeText(document.querySelector('pre')?.innerText || '').then(() => toast('✅ Prompt copiado!'))
+            }}
+            style={{ position:'absolute', top:10, right:10, padding:'6px 12px', borderRadius:7, background:'rgba(0,212,255,.15)', border:'1px solid rgba(0,212,255,.3)', color:'var(--accent)', fontFamily:'DM Mono, monospace', fontSize:12, cursor:'pointer' }}
+          >📋 Copiar</button>
         </div>
-        <div style={s.field}><label style={s.label}>URL base do sistema (para links de assinatura)</label><input style={s.input} value={urlBase} onChange={e => setUrlBase(e.target.value)} placeholder="https://seusite.com" /></div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-          <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳...' : '✅ Salvar'}</button>
-          <button onClick={testarConexao} disabled={testando} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>{testando ? '⏳...' : '🔌 Testar Conexão'}</button>
-        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+        <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳...' : '✅ Salvar'}</button>
+        <button onClick={testarConexao} disabled={testando} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>{testando ? '⏳...' : '🔌 Testar Conexão'}</button>
       </div>
     </div>
   )
