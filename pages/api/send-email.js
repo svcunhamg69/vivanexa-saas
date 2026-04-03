@@ -1,8 +1,4 @@
 // pages/api/send-email.js
-// ============================================================
-// API para envio de e-mails usando SMTP ou APIs externas
-// ============================================================
-
 import nodemailer from 'nodemailer'
 
 export default async function handler(req, res) {
@@ -13,7 +9,7 @@ export default async function handler(req, res) {
   const { to, subject, html, text, from, config } = req.body
 
   if (!to || !subject) {
-    return res.status(400).json({ error: 'Destinatário e assunto são obrigatórios' })
+    return res.status(400). json({ error: 'Destinatário e assunto são obrigatórios' })
   }
 
   try {
