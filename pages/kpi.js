@@ -16,8 +16,8 @@ export default function KpiPage() {
   const [data, setData] = useState(dateParam || new Date().toISOString().slice(0,10))
   const [error, setError] = useState('')
 
-  // Função para carregar dados, memoizada com useCallback
   const loadData = useCallback(async () => {
+    setLoading(true)
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) {
       router.push('/')
@@ -50,30 +50,35 @@ export default function KpiPage() {
     setEmpresaId(eid)
     setUser({ ...session.user, ...profile })
 
-    const { data: cfgRow } = await supabase
+    const { data: cfgRow, error: cfgError } = await supabase
       .from('vx_storage')
       .select('value')
       .eq('key', `cfg:${eid}`)
       .single()
-    if (cfgRow?.value) {
-      const loaded = JSON.parse(cfgRow.value)
-      setCfg(loaded)
-      setKpis(loaded.kpiTemplates || [])
-      const log = loaded.kpiLog || []
-      const dia = dateParam || new Date().toISOString().slice(0,10) // Usa dateParam ou data atual
-      const existing = log.filter(l => l.userId === session.user.id && l.date === dia)
-      const map = {}
-      existing.forEach(l => { map[l.kpiId] = l.realizado })
-      setValores(map)
-    } else {
-      setCfg({}); // Inicializa cfg como objeto vazio se não houver
+
+    if (cfgError && cfgError.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error("Erro ao carregar configuração:", cfgError);
+      setError("Erro ao carregar configurações. Tente novamente.");
+      setLoading(false);
+      return;
     }
-    setLoading(false)
-  }, [router, dateParam]); // Dependências para o useCallback
+
+    let loadedCfg = cfgRow?.value ? JSON.parse(cfgRow.value) : {};
+    setCfg(loadedCfg);
+    setKpis(loadedCfg.kpiTemplates || []);
+
+    const log = loadedCfg.kpiLog || [];
+    const dia = dateParam || new Date().toISOString().slice(0,10); // Usa dateParam ou data atual
+    const existing = log.filter(l => l.userId === session.user.id && l.date === dia);
+    const map = {};
+    existing.forEach(l => { map[l.kpiId] = l.realizado; });
+    setValores(map);
+    setLoading(false);
+  }, [router, dateParam]); // Adicionado dateParam como dependência
 
   useEffect(() => {
     loadData();
-  }, [loadData]); // Chama loadData quando o componente monta ou loadData muda
+  }, [loadData]); // Depende de loadData
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -81,6 +86,7 @@ export default function KpiPage() {
     setError('')
 
     try {
+      // Recarrega a configuração mais recente antes de salvar para evitar sobrescrever
       const { data: cfgRow } = await supabase
         .from('vx_storage')
         .select('value')
@@ -94,7 +100,7 @@ export default function KpiPage() {
         !(l.userId === user.id && l.date === data)
       )
 
-      // Adiciona os novos logs
+      // Adiciona os novos valores de KPI
       for (const k of kpis) {
         const val = valores[k.id]
         if (val !== undefined && val !== '') {
@@ -108,20 +114,23 @@ export default function KpiPage() {
         }
       }
 
-      // Salva a configuração atualizada no Supabase
-      await supabase.from('vx_storage').upsert({
+      // Salva a configuração atualizada
+      const { error: upsertError } = await supabase.from('vx_storage').upsert({
         key: `cfg:${empresaId}`,
         value: JSON.stringify(currentCfg),
         updated_at: new Date().toISOString()
-      }, { onConflict: 'key' }) // Garante que o upsert atualize se a chave já existe
+      }, { onConflict: 'key' }) // Garante que atualiza se a chave já existe
 
-      // Redireciona usando router.push
+      if (upsertError) {
+        throw new Error(upsertError.message);
+      }
+
+      // Redireciona para a página de origem ou para /chat
       const redirectTo = typeof redirect === 'string' ? decodeURIComponent(redirect) : '/chat'
-      router.push(redirectTo)
-
+      router.push(redirectTo) // Usa router.push para navegação no Next.js
     } catch (err) {
-      console.error('Erro ao salvar KPI:', err)
-      setError('Erro ao salvar. Tente novamente.')
+      console.error("Erro ao salvar KPI:", err)
+      setError('Erro ao salvar. Tente novamente: ' + err.message)
     } finally {
       setSaving(false)
     }
@@ -131,6 +140,7 @@ export default function KpiPage() {
     return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>Carregando...</div>
   }
 
+  // Se não há KPIs configurados na `cfg` carregada, exibe a mensagem
   if (!kpis.length) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)', flexDirection: 'column', gap: 16 }}>
