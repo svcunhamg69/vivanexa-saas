@@ -5,17 +5,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data, empresaId } = req.body;
+    const { data, empresaId, geminiKey, groqKey } = req.body;
 
     if (!data) {
       return res.status(400).json({ error: 'Dados não enviados' });
     }
 
     // Tenta chaves do ambiente primeiro, depois do cfg salvo na requisição
-    const geminiKey = process.env.GEMINI_API_KEY || req.body.geminiKey || '';
-    const groqKey   = process.env.GROQ_API_KEY   || req.body.groqKey   || '';
+    const geminiKeyFinal = process.env.GEMINI_API_KEY || geminiKey || '';
+    const groqKeyFinal   = process.env.GROQ_API_KEY   || groqKey   || '';
 
-    if (!geminiKey && !groqKey) {
+    if (!geminiKeyFinal && !groqKeyFinal) {
       return res.status(400).json({
         error: '❌ Nenhuma chave de API configurada.\n\n✅ Acesse Configurações → Empresa e insira sua chave do Google Gemini (gratuita) ou Groq.'
       });
@@ -36,9 +36,9 @@ Responda em português no formato:
 `;
 
     // Tenta Gemini
-    if (geminiKey && geminiKey.startsWith('AIza')) {
+    if (geminiKeyFinal && geminiKeyFinal.startsWith('AIza')) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKeyFinal}`;
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -55,11 +55,11 @@ Responda em português no formato:
     }
 
     // Fallback Groq
-    if (groqKey) {
+    if (groqKeyFinal) {
       try {
         const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
-          headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+          headers: { 'Authorization': `Bearer ${groqKeyFinal}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: 'llama3-70b-8192',
             messages: [{ role: 'user', content: prompt }],
