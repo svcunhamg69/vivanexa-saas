@@ -3,8 +3,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { supabase } from '../lib/supabase';
+import { fmt, planLabel, prodName, getNextDates } from '../lib/pricing';
 
-function fmt(v) {
+function fmtCurrency(v) {
   return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 function mesAtual() { return new Date().toISOString().slice(0, 7); }
@@ -18,9 +19,51 @@ function diasUteisNoMes(yearMonth) {
   }
   return uteis;
 }
+function dateToMonth(dateStr) {
+  if (!dateStr) return '';
+  if (dateStr.includes('/')) {
+    const parts = dateStr.split('/');
+    if (parts.length >= 3) {
+      const year = parts[2].split(',')[0].trim();
+      const month = parts[1].padStart(2, '0');
+      return `${year}-${month}`;
+    }
+  }
+  try { const d = new Date(dateStr); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; } catch (e) { return ''; }
+}
+function entryBelongsTo(h, userId, users) {
+  if (h.consultantId && h.consultantId === userId) return true;
+  if (h.consultantSignedBy) {
+    const u = users.find(u2 => (u2.id || u2.username) === userId);
+    if (u && (u.name === h.consultantSignedBy || u.username === h.consultantSignedBy)) return true;
+  }
+  if (h.consultant) {
+    const u = users.find(u2 => (u2.id || u2.username) === userId);
+    if (u && (u.name === h.consultant || u.username === h.consultant)) return true;
+  }
+  return false;
+}
+function entryInMonth(h, month) {
+  if (h.dateISO) return h.dateISO.slice(0, 7) === month;
+  const signDate = h.signedAt || h.consultantSignedAt || h.date;
+  return dateToMonth(signDate) === month;
+}
+function computeRealized(userId, month, users, docHistory) {
+  const history = docHistory || [];
+  let adReal = 0, menReal = 0, contracts = 0;
+  for (const h of history) {
+    if (h.type !== 'contrato') continue;
+    if (!entryInMonth(h, month)) continue;
+    if (!entryBelongsTo(h, userId, users)) continue;
+    adReal += (h.tAd || 0);
+    menReal += (h.tMen || 0);
+    contracts++;
+  }
+  return { adReal, menReal, contracts };
+}
 
-function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
-  const diasUteis = diasUteisNoMes(mesRef);
+function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef, productNames }) {
+  const diasUteis = diasUteisNoMesh(mesRef);
   const userKpis = users.map(user => {
     const logs = kpiLog.filter(l => l.userId === user.id && l.date.startsWith(mesRef));
     const userGoals = (goals || []).find(g => g.userId === user.id && g.mes === mesRef) || {};
@@ -44,7 +87,7 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
                 {k.nome}<br /><span style={{ fontSize: 10 }}>realizado / meta mensal</span>
               </th>
             ))}
-          </tr>
+           </tr>
         </thead>
         <tbody>
           {userKpis.map(uk => (
@@ -57,7 +100,11 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
                   <td key={kd.kpi.id} style={{ textAlign: 'center', padding: '8px 6px' }}>
                     <div style={{ fontWeight: 600, color: cor }}>{kd.realizado}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                      {kd.metaMensal > 0 ? `${kd.metaMensal} (${Math.round(p)}%)` : '—'}
+                      {kd.metaMensal > 0 ? `${fmtCurrency(kd.metaMensal)} (${Math.round(p)}%)` : '—'}
+                    </div>
+                    {/* Barra de progresso */}
+                    <div style={{ marginTop: 4, height: 4, background: 'var(--surface2)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${p}%`, height: '100%', background: cor, borderRadius: 2 }} />
                     </div>
                   </td>
                 );
@@ -70,15 +117,16 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
   );
 }
 
-function ProdutosChart({ contratosMes }) {
+function ProdutosChart({ contratosMes, productNames }) {
   const produtos = {};
   contratosMes.forEach(c => {
     if (c.modulos) {
       c.modulos.forEach(mod => {
-        if (!produtos[mod]) produtos[mod] = { count: 0, adesao: 0, mensalidade: 0 };
-        produtos[mod].count++;
-        produtos[mod].adesao += Number(c.adesaoModulos?.[mod] || 0);
-        produtos[mod].mensalidade += Number(c.mensalidadeModulos?.[mod] || 0);
+        const nomeMod = prodName(mod, productNames);
+        if (!produtos[nomeMod]) produtos[nomeMod] = { count: 0, adesao: 0, mensalidade: 0 };
+        produtos[nomeMod].count++;
+        produtos[nomeMod].adesao += Number(c.adesaoModulos?.[mod] || 0);
+        produtos[nomeMod].mensalidade += Number(c.mensalidadeModulos?.[mod] || 0);
       });
     }
   });
@@ -102,9 +150,9 @@ function ProdutosChart({ contratosMes }) {
             <tr key={p.nome} style={{ borderBottom: '1px solid var(--border)' }}>
               <td style={{ padding: '8px 6px', fontWeight: 600 }}>{p.nome}</td>
               <td style={{ textAlign: 'center', padding: '8px 6px' }}>{p.count}</td>
-              <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(p.adesao)}</td>
-              <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(p.mensalidade)}</td>
-              <td style={{ textAlign: 'right', padding: '8px 6px', fontWeight: 600 }}>{fmt(p.adesao + p.mensalidade)}</td>
+              <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmtCurrency(p.adesao)}</td>
+              <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmtCurrency(p.mensalidade)}</td>
+              <td style={{ textAlign: 'right', padding: '8px 6px', fontWeight: 600 }}>{fmtCurrency(p.adesao + p.mensalidade)}</td>
             </tr>
           ))}
         </tbody>
@@ -112,9 +160,9 @@ function ProdutosChart({ contratosMes }) {
           <tr>
             <td style={{ padding: '8px 6px' }}>TOTAL</td>
             <td style={{ textAlign: 'center', padding: '8px 6px' }}>{lista.reduce((s, p) => s + p.count, 0)}</td>
-            <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.adesao, 0))}</td>
-            <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.mensalidade, 0))}</td>
-            <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmt(lista.reduce((s, p) => s + p.adesao + p.mensalidade, 0))}</td>
+            <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmtCurrency(lista.reduce((s, p) => s + p.adesao, 0))}</td>
+            <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmtCurrency(lista.reduce((s, p) => s + p.mensalidade, 0))}</td>
+            <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmtCurrency(lista.reduce((s, p) => s + p.adesao + p.mensalidade, 0))}</td>
           </tr>
         </tfoot>
       </table>
@@ -179,6 +227,7 @@ export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [cfg, setCfg] = useState(null);
   const [empresaId, setEmpresaId] = useState(null);
+  const [perfil, setPerfil] = useState(null);
   const [aba, setAba] = useState('produtos');
   const [mesRef, setMesRef] = useState(mesAtual());
 
@@ -187,17 +236,17 @@ export default function Reports() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push('/'); return; }
 
-      let { data: perfil } = await supabase.from('perfis').select('*').eq('user_id', session.user.id).maybeSingle();
-      if (!perfil) {
+      let { data: perfilData } = await supabase.from('perfis').select('*').eq('user_id', session.user.id).maybeSingle();
+      if (!perfilData) {
         const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário';
         const { data: novoPerfil } = await supabase.from('perfis').insert({
           user_id: session.user.id, nome, email: session.user.email,
           empresa_id: session.user.id, perfil: 'admin',
         }).select().single();
-        perfil = novoPerfil;
+        perfilData = novoPerfil;
       }
-
-      const eid = perfil?.empresa_id || session.user.id;
+      setPerfil(perfilData);
+      const eid = perfilData?.empresa_id || session.user.id;
       setEmpresaId(eid);
 
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single();
@@ -214,31 +263,59 @@ export default function Reports() {
   if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>Carregando...</div>;
   if (!cfg) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>Configurações não carregadas.</div>;
 
+  const isAdmin = perfil?.perfil === 'admin';
   const docHistory = cfg.docHistory || [];
-  // FIX: aceita criado, dateISO ou date
+  const usuarios = cfg.users || [];
+  const userId = perfil?.id || '';
+
+  // Filtrar contratos assinados no mês
   const contratosMes = docHistory.filter(d =>
     d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === mesRef
   );
-  const usuarios = cfg.users || [];
+
+  // Se não for admin, filtrar apenas contratos do usuário
+  const contratosFiltrados = isAdmin ? contratosMes : contratosMes.filter(d => {
+    if (d.userId === userId) return true;
+    if (d.consultorId === userId) return true;
+    if (d.consultor === perfil?.nome) return true;
+    if (d.consultorEmail === perfil?.email) return true;
+    return false;
+  });
+
   const kpiTemplates = cfg.kpiTemplates || [];
   const kpiLog = cfg.kpiLog || [];
   const goals = cfg.goals || [];
 
+  // Dados para IA (apenas os filtrados)
   const dadosIA = {
     periodo: mesRef,
-    total_contratos: contratosMes.length,
-    total_adesao: contratosMes.reduce((s, c) => s + (Number(c.adesao) || 0), 0),
-    total_mensalidade: contratosMes.reduce((s, c) => s + (Number(c.mensalidade) || 0), 0),
+    total_contratos: contratosFiltrados.length,
+    total_adesao: contratosFiltrados.reduce((s, c) => s + (Number(c.tAd || c.adesao) || 0), 0),
+    total_mensalidade: contratosFiltrados.reduce((s, c) => s + (Number(c.tMen || c.mensalidade) || 0), 0),
     usuarios: usuarios.map(u => {
-      const realiz = contratosMes.filter(c => c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email);
-      return { nome: u.nome, contratos: realiz.length, adesao: realiz.reduce((s, c) => s + (Number(c.adesao) || 0), 0), mensalidade: realiz.reduce((s, c) => s + (Number(c.mensalidade) || 0), 0) };
+      const realiz = contratosFiltrados.filter(c => c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email);
+      return {
+        nome: u.nome,
+        contratos: realiz.length,
+        adesao: realiz.reduce((s, c) => s + (Number(c.tAd || c.adesao) || 0), 0),
+        mensalidade: realiz.reduce((s, c) => s + (Number(c.tMen || c.mensalidade) || 0), 0)
+      };
     }),
-    kpis: kpiTemplates.map(k => ({ nome: k.nome, total_realizado: kpiLog.filter(l => l.kpiId === k.id && l.date.startsWith(mesRef)).reduce((s, l) => s + (l.realizado || 0), 0) })),
+    kpis: kpiTemplates.map(k => ({
+      nome: k.nome,
+      total_realizado: kpiLog.filter(l => l.kpiId === k.id && l.date.startsWith(mesRef)).reduce((s, l) => s + (l.realizado || 0), 0)
+    })),
   };
 
+  // Ranking baseado nos contratos filtrados
   const ranking = usuarios.map(u => {
-    const realiz = contratosMes.filter(c => c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email);
-    return { ...u, adesao: realiz.reduce((s, c) => s + (Number(c.adesao) || 0), 0), mensalidade: realiz.reduce((s, c) => s + (Number(c.mensalidade) || 0), 0), contratos: realiz.length };
+    const realiz = contratosFiltrados.filter(c => c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email);
+    return {
+      ...u,
+      adesao: realiz.reduce((s, c) => s + (Number(c.tAd || c.adesao) || 0), 0),
+      mensalidade: realiz.reduce((s, c) => s + (Number(c.tMen || c.mensalidade) || 0), 0),
+      contratos: realiz.length
+    };
   }).sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade));
 
   return (
@@ -264,7 +341,7 @@ export default function Reports() {
       <div className="orb orb1"/><div className="orb orb2"/>
       <header>
         <div className="header-logo" onClick={() => router.push('/chat')}>
-          {cfg.logob64 ? <img src={cfg.logob64} alt={cfg.company} style={{ height: 36 }} /> : <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 16, fontWeight: 700 }}>{cfg.company || 'Vivanexa'}</div>}
+          {cfg.logob64 ? <img src={`data:image/png;base64,${cfg.logob64}`} alt={cfg.company} style={{ height: 36 }} /> : <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 16, fontWeight: 700 }}>{cfg.company || 'Vivanexa'}</div>}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <button onClick={() => router.push('/chat')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8 }}>💬 Chat</button>
@@ -288,7 +365,7 @@ export default function Reports() {
         {aba === 'produtos' && (
           <div className="card">
             <div className="card-title">📈 Produtos Vendidos – {new Date(mesRef + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
-            <ProdutosChart contratosMes={contratosMes} />
+            <ProdutosChart contratosMes={contratosFiltrados} productNames={cfg.productNames || {}} />
             <div style={{ marginTop: 24 }}>
               <div className="card-title">🏆 Ranking de Vendedores</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -306,9 +383,9 @@ export default function Reports() {
                     <tr key={v.id} style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={{ padding: '8px 6px', fontWeight: 600 }}>{i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : `${i+1}. `}{v.nome}</td>
                       <td style={{ textAlign: 'center' }}>{v.contratos}</td>
-                      <td style={{ textAlign: 'right' }}>{fmt(v.adesao)}</td>
-                      <td style={{ textAlign: 'right' }}>{fmt(v.mensalidade)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(v.adesao + v.mensalidade)}</td>
+                      <td style={{ textAlign: 'right' }}>{fmtCurrency(v.adesao)}</td>
+                      <td style={{ textAlign: 'right' }}>{fmtCurrency(v.mensalidade)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtCurrency(v.adesao + v.mensalidade)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -321,7 +398,7 @@ export default function Reports() {
             <div className="card-title">🎯 KPIs por Usuário – {new Date(mesRef + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
             {kpiTemplates.length === 0
               ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum KPI configurado. Acesse Configurações → KPIs.</p>
-              : <KpiTable kpiTemplates={kpiTemplates} users={usuarios} kpiLog={kpiLog} goals={goals} mesRef={mesRef} />
+              : <KpiTable kpiTemplates={kpiTemplates} users={usuarios} kpiLog={kpiLog} goals={goals} mesRef={mesRef} productNames={cfg.productNames || {}} />
             }
           </div>
         )}
