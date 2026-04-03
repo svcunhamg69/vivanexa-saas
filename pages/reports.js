@@ -32,85 +32,86 @@ function dateToMonth(dateStr) {
   try { const d = new Date(dateStr); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; } catch (e) { return ''; }
 }
 function entryBelongsTo(h, userId, users) {
+  if (!h || !userId) return false;
   if (h.consultantId && h.consultantId === userId) return true;
   if (h.consultantSignedBy) {
-    const u = users.find(u2 => (u2.id || u2.username) === userId);
+    const u = (users || []).find(u2 => (u2.id || u2.username) === userId);
     if (u && (u.name === h.consultantSignedBy || u.username === h.consultantSignedBy)) return true;
   }
   if (h.consultant) {
-    const u = users.find(u2 => (u2.id || u2.username) === userId);
+    const u = (users || []).find(u2 => (u2.id || u2.username) === userId);
     if (u && (u.name === h.consultant || u.username === h.consultant)) return true;
   }
   return false;
 }
 function entryInMonth(h, month) {
+  if (!h) return false;
   if (h.dateISO) return h.dateISO.slice(0, 7) === month;
   const signDate = h.signedAt || h.consultantSignedAt || h.date;
   return dateToMonth(signDate) === month;
 }
-function computeRealized(userId, month, users, docHistory) {
-  const history = docHistory || [];
-  let adReal = 0, menReal = 0, contracts = 0;
-  for (const h of history) {
-    if (h.type !== 'contrato') continue;
-    if (!entryInMonth(h, month)) continue;
-    if (!entryBelongsTo(h, userId, users)) continue;
-    adReal += (h.tAd || 0);
-    menReal += (h.tMen || 0);
-    contracts++;
-  }
-  return { adReal, menReal, contracts };
-}
 
-function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef, productNames }) {
-  const diasUteis = diasUteisNoMesh(mesRef);
-  const userKpis = users.map(user => {
-    const logs = kpiLog.filter(l => l.userId === user.id && l.date.startsWith(mesRef));
-    const userGoals = (goals || []).find(g => g.userId === user.id && g.mes === mesRef) || {};
-    const kpiData = kpiTemplates.map(kpi => {
-      const realizado = logs.filter(l => l.kpiId === kpi.id).reduce((s, l) => s + (l.realizado || 0), 0);
+function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef }) {
+  const diasUteis = diasUteisNoMes(mesRef);
+  const safeUsers = users || [];
+  const safeKpis = kpiTemplates || [];
+  const safeLog = kpiLog || [];
+  const safeGoals = goals || [];
+
+  const userKpis = safeUsers.map(user => {
+    if (!user) return null;
+    const uid = user.id || user.username || '';
+    const logs = safeLog.filter(l => l && l.userId === uid && l.date && l.date.startsWith(mesRef));
+    const userGoals = safeGoals.find(g => g && g.userId === uid && g.mes === mesRef) || {};
+    const kpiData = safeKpis.map(kpi => {
+      if (!kpi) return null;
+      const realizado = logs.filter(l => l.kpiId === kpi.id).reduce((s, l) => s + (Number(l.realizado) || 0), 0);
       const metaDiaria = userGoals[kpi.id] || 0;
       const metaMensal = metaDiaria * diasUteis;
       const progresso = metaMensal > 0 ? Math.min(100, (realizado / metaMensal) * 100) : 0;
       return { kpi, realizado, metaMensal, progresso };
-    });
+    }).filter(Boolean);
     return { user, kpiData };
-  });
+  }).filter(Boolean);
+
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
         <thead>
           <tr style={{ borderBottom: '2px solid var(--border)' }}>
             <th style={{ textAlign: 'left', padding: '10px 6px' }}>Usuário</th>
-            {kpiTemplates.map(k => (
+            {safeKpis.map(k => k && (
               <th key={k.id} style={{ textAlign: 'center', padding: '10px 6px' }}>
                 {k.nome}<br /><span style={{ fontSize: 10 }}>realizado / meta mensal</span>
               </th>
             ))}
-           </tr>
+          </tr>
         </thead>
         <tbody>
-          {userKpis.map(uk => (
-            <tr key={uk.user.id} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={{ padding: '8px 6px', fontWeight: 600 }}>{uk.user.nome}</td>
-              {uk.kpiData.map(kd => {
-                const p = kd.progresso;
-                const cor = p >= 100 ? 'var(--accent3)' : p >= 70 ? 'var(--accent)' : p >= 40 ? 'var(--warning)' : 'var(--muted)';
-                return (
-                  <td key={kd.kpi.id} style={{ textAlign: 'center', padding: '8px 6px' }}>
-                    <div style={{ fontWeight: 600, color: cor }}>{kd.realizado}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                      {kd.metaMensal > 0 ? `${fmtCurrency(kd.metaMensal)} (${Math.round(p)}%)` : '—'}
-                    </div>
-                    {/* Barra de progresso */}
-                    <div style={{ marginTop: 4, height: 4, background: 'var(--surface2)', borderRadius: 2, overflow: 'hidden' }}>
-                      <div style={{ width: `${p}%`, height: '100%', background: cor, borderRadius: 2 }} />
-                    </div>
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {userKpis.map(uk => {
+            if (!uk) return null;
+            return (
+              <tr key={uk.user.id || uk.user.username} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: '8px 6px', fontWeight: 600 }}>{uk.user.nome}</td>
+                {uk.kpiData.map(kd => {
+                  if (!kd) return null;
+                  const p = kd.progresso;
+                  const cor = p >= 100 ? 'var(--accent3)' : p >= 70 ? 'var(--accent)' : p >= 40 ? 'var(--warning)' : 'var(--muted)';
+                  return (
+                    <td key={kd.kpi.id} style={{ textAlign: 'center', padding: '8px 6px' }}>
+                      <div style={{ fontWeight: 600, color: cor }}>{kd.realizado}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {kd.metaMensal > 0 ? `${kd.metaMensal} (${Math.round(p)}%)` : '—'}
+                      </div>
+                      <div style={{ marginTop: 4, height: 4, background: 'var(--surface2)', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ width: `${p}%`, height: '100%', background: cor, borderRadius: 2 }} />
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -118,17 +119,20 @@ function KpiTable({ kpiTemplates, users, kpiLog, goals, mesRef, productNames }) 
 }
 
 function ProdutosChart({ contratosMes, productNames }) {
+  const safeProdName = (mod) => {
+    try { return (prodName && prodName(mod, productNames)) || mod; } catch { return mod; }
+  };
   const produtos = {};
-  contratosMes.forEach(c => {
-    if (c.modulos) {
-      c.modulos.forEach(mod => {
-        const nomeMod = prodName(mod, productNames);
-        if (!produtos[nomeMod]) produtos[nomeMod] = { count: 0, adesao: 0, mensalidade: 0 };
-        produtos[nomeMod].count++;
-        produtos[nomeMod].adesao += Number(c.adesaoModulos?.[mod] || 0);
-        produtos[nomeMod].mensalidade += Number(c.mensalidadeModulos?.[mod] || 0);
-      });
-    }
+  (contratosMes || []).forEach(c => {
+    if (!c || !c.modulos) return;
+    c.modulos.forEach(mod => {
+      if (!mod) return;
+      const nomeMod = safeProdName(mod);
+      if (!produtos[nomeMod]) produtos[nomeMod] = { count: 0, adesao: 0, mensalidade: 0 };
+      produtos[nomeMod].count++;
+      produtos[nomeMod].adesao += Number(c.adesaoModulos?.[mod] || 0);
+      produtos[nomeMod].mensalidade += Number(c.mensalidadeModulos?.[mod] || 0);
+    });
   });
   const lista = Object.entries(produtos).map(([nome, dados]) => ({ nome, ...dados }))
     .sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade));
@@ -251,7 +255,7 @@ export default function Reports() {
 
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single();
       if (row?.value) {
-        setCfg(JSON.parse(row.value));
+        try { setCfg(JSON.parse(row.value)); } catch { setCfg({}); }
       } else {
         setCfg({ company: 'Vivanexa', docHistory: [], users: [], kpiTemplates: [], kpiLog: [], goals: [] });
       }
@@ -268,13 +272,12 @@ export default function Reports() {
   const usuarios = cfg.users || [];
   const userId = perfil?.id || '';
 
-  // Filtrar contratos assinados no mês
   const contratosMes = docHistory.filter(d =>
-    d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === mesRef
+    d && d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === mesRef
   );
 
-  // Se não for admin, filtrar apenas contratos do usuário
   const contratosFiltrados = isAdmin ? contratosMes : contratosMes.filter(d => {
+    if (!d) return false;
     if (d.userId === userId) return true;
     if (d.consultorId === userId) return true;
     if (d.consultor === perfil?.nome) return true;
@@ -286,14 +289,13 @@ export default function Reports() {
   const kpiLog = cfg.kpiLog || [];
   const goals = cfg.goals || [];
 
-  // Dados para IA (apenas os filtrados)
   const dadosIA = {
     periodo: mesRef,
     total_contratos: contratosFiltrados.length,
     total_adesao: contratosFiltrados.reduce((s, c) => s + (Number(c.tAd || c.adesao) || 0), 0),
     total_mensalidade: contratosFiltrados.reduce((s, c) => s + (Number(c.tMen || c.mensalidade) || 0), 0),
-    usuarios: usuarios.map(u => {
-      const realiz = contratosFiltrados.filter(c => c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email);
+    usuarios: usuarios.filter(Boolean).map(u => {
+      const realiz = contratosFiltrados.filter(c => c && (c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email));
       return {
         nome: u.nome,
         contratos: realiz.length,
@@ -301,15 +303,14 @@ export default function Reports() {
         mensalidade: realiz.reduce((s, c) => s + (Number(c.tMen || c.mensalidade) || 0), 0)
       };
     }),
-    kpis: kpiTemplates.map(k => ({
+    kpis: kpiTemplates.filter(Boolean).map(k => ({
       nome: k.nome,
-      total_realizado: kpiLog.filter(l => l.kpiId === k.id && l.date.startsWith(mesRef)).reduce((s, l) => s + (l.realizado || 0), 0)
+      total_realizado: kpiLog.filter(l => l && l.kpiId === k.id && l.date && l.date.startsWith(mesRef)).reduce((s, l) => s + (Number(l.realizado) || 0), 0)
     })),
   };
 
-  // Ranking baseado nos contratos filtrados
-  const ranking = usuarios.map(u => {
-    const realiz = contratosFiltrados.filter(c => c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email);
+  const ranking = usuarios.filter(Boolean).map(u => {
+    const realiz = contratosFiltrados.filter(c => c && (c.userId === u.id || c.consultor === u.id || c.consultorEmail === u.email));
     return {
       ...u,
       adesao: realiz.reduce((s, c) => s + (Number(c.tAd || c.adesao) || 0), 0),
@@ -322,6 +323,7 @@ export default function Reports() {
     <>
       <Head><title>{cfg.company || 'Vivanexa'} – Relatórios</title></Head>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
         :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--text:#e2e8f0;--muted:#64748b;--accent3:#10b981;--danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;}
         *{margin:0;padding:0;box-sizing:border-box;}
         body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);}
@@ -332,39 +334,45 @@ export default function Reports() {
         .header-logo{display:flex;align-items:center;gap:8px;cursor:pointer;}
         .container{max-width:960px;margin:20px auto;padding:0 20px;}
         .tabs{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap;}
-        .tab-btn{padding:8px 16px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:12px;cursor:pointer;}
+        .tab-btn{padding:8px 16px;border-radius:9px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:12px;cursor:pointer;font-family:'DM Mono',monospace;}
         .tab-btn.active{background:rgba(0,212,255,.12);border-color:rgba(0,212,255,.35);color:var(--accent);font-weight:600;}
         .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 24px;margin-bottom:20px;}
         .card-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--accent);margin-bottom:16px;}
-        .date-picker{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;color:var(--text);}
+        .date-picker{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;color:var(--text);font-family:'DM Mono',monospace;}
       `}</style>
       <div className="orb orb1"/><div className="orb orb2"/>
       <header>
         <div className="header-logo" onClick={() => router.push('/chat')}>
-          {cfg.logob64 ? <img src={`data:image/png;base64,${cfg.logob64}`} alt={cfg.company} style={{ height: 36 }} /> : <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 16, fontWeight: 700 }}>{cfg.company || 'Vivanexa'}</div>}
+          {cfg.logob64
+            ? <img src={`data:image/png;base64,${cfg.logob64}`} alt={cfg.company} style={{ height: 36 }} />
+            : <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 16, fontWeight: 700 }}>{cfg.company || 'Vivanexa'}</div>
+          }
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          <button onClick={() => router.push('/chat')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8 }}>💬 Chat</button>
-          <button onClick={() => router.push('/dashboard')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8 }}>📊 Dashboard</button>
-          <button onClick={() => router.push('/configuracoes')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8 }}>⚙️ Config</button>
-          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 9px', borderRadius: 8 }}>Sair</button>
+          <button onClick={() => router.push('/chat')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono,monospace' }}>💬 Chat</button>
+          <button onClick={() => router.push('/dashboard')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono,monospace' }}>📊 Dashboard</button>
+          <button onClick={() => router.push('/configuracoes')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono,monospace' }}>⚙️ Config</button>
+          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 9px', borderRadius: 8, fontFamily: 'DM Mono,monospace' }}>Sair</button>
         </div>
       </header>
+
       <div className="container">
         <div className="tabs">
           {[{ id: 'produtos', label: '📦 Contratos/Produtos' }, { id: 'kpis', label: '📊 KPIs por Usuário' }, { id: 'ia', label: '🤖 Análise IA' }].map(t => (
             <button key={t.id} className={`tab-btn ${aba === t.id ? 'active' : ''}`} onClick={() => setAba(t.id)}>{t.label}</button>
           ))}
         </div>
+
         {(aba === 'produtos' || aba === 'kpis') && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <label style={{ fontSize: 12 }}>Período:</label>
+            <label style={{ fontSize: 12, color: 'var(--muted)' }}>Período:</label>
             <input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} className="date-picker" />
           </div>
         )}
+
         {aba === 'produtos' && (
           <div className="card">
-            <div className="card-title">📈 Produtos Vendidos – {new Date(mesRef + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
+            <div className="card-title">📈 Produtos Vendidos – {new Date(mesRef + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
             <ProdutosChart contratosMes={contratosFiltrados} productNames={cfg.productNames || {}} />
             <div style={{ marginTop: 24 }}>
               <div className="card-title">🏆 Ranking de Vendedores</div>
@@ -372,44 +380,54 @@ export default function Reports() {
                 <thead>
                   <tr style={{ borderBottom: '2px solid var(--border)' }}>
                     <th style={{ textAlign: 'left', padding: '8px 6px' }}>Vendedor</th>
-                    <th style={{ textAlign: 'center' }}>Contratos</th>
-                    <th style={{ textAlign: 'right' }}>Adesão</th>
-                    <th style={{ textAlign: 'right' }}>Mensalidade</th>
-                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th style={{ textAlign: 'center', padding: '8px 6px' }}>Contratos</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Adesão</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Mensalidade</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px' }}>Total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {ranking.map((v, i) => (
-                    <tr key={v.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '8px 6px', fontWeight: 600 }}>{i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : `${i+1}. `}{v.nome}</td>
-                      <td style={{ textAlign: 'center' }}>{v.contratos}</td>
-                      <td style={{ textAlign: 'right' }}>{fmtCurrency(v.adesao)}</td>
-                      <td style={{ textAlign: 'right' }}>{fmtCurrency(v.mensalidade)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtCurrency(v.adesao + v.mensalidade)}</td>
-                    </tr>
-                  ))}
+                  {ranking.map((v, i) => {
+                    if (!v) return null;
+                    return (
+                      <tr key={v.id || v.username || i} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px 6px', fontWeight: 600 }}>{i === 0 ? '🥇 ' : i === 1 ? '🥈 ' : i === 2 ? '🥉 ' : `${i+1}. `}{v.nome}</td>
+                        <td style={{ textAlign: 'center', padding: '8px 6px' }}>{v.contratos}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmtCurrency(v.adesao)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px' }}>{fmtCurrency(v.mensalidade)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 6px', fontWeight: 600 }}>{fmtCurrency(v.adesao + v.mensalidade)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
         )}
+
         {aba === 'kpis' && (
           <div className="card">
-            <div className="card-title">🎯 KPIs por Usuário – {new Date(mesRef + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
+            <div className="card-title">🎯 KPIs por Usuário – {new Date(mesRef + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</div>
             {kpiTemplates.length === 0
               ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum KPI configurado. Acesse Configurações → KPIs.</p>
-              : <KpiTable kpiTemplates={kpiTemplates} users={usuarios} kpiLog={kpiLog} goals={goals} mesRef={mesRef} productNames={cfg.productNames || {}} />
+              : <KpiTable kpiTemplates={kpiTemplates} users={usuarios} kpiLog={kpiLog} goals={goals} mesRef={mesRef} />
             }
           </div>
         )}
+
         {aba === 'ia' && (
           <div className="card">
             <div className="card-title">🤖 Análise Inteligente (IA)</div>
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>Envie os dados de vendas e KPIs para análise com IA. A IA sugerirá um plano de ação concreto baseado nos resultados.</p>
+            <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>Envie os dados de vendas e KPIs para análise com IA.</p>
             <AnaliseIA data={dadosIA} empresaId={empresaId} cfgIA={cfg} />
           </div>
         )}
       </div>
     </>
   );
+}
+
+// ✅ Força SSR — evita erro de pré-renderização estática no build
+export async function getServerSideProps() {
+  return { props: {} };
 }
