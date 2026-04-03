@@ -23,7 +23,7 @@ export default async function handler(req, res) {
       const transporter = nodemailer.createTransport({
         host: config.smtpHost,
         port: config.smtpPort || 587,
-        secure: config.smtpPort === 465,
+        secure: config.smtpPort === 465, // true para 465, false para outros (como 587)
         auth: {
           user: config.smtpUser,
           pass: config.smtpPass,
