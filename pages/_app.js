@@ -71,7 +71,6 @@ function MyApp({ Component, pageProps }) {
         const loaded = JSON.parse(row.value);
         setCfg(loaded);
       } else {
-        // Se não houver cfg, inicializa com um objeto vazio para evitar null
         setCfg({});
       }
       setCheckingKpi(false);
@@ -79,8 +78,17 @@ function MyApp({ Component, pageProps }) {
     loadCfg();
   }, [session]);
 
-  // REMOVIDO: O useEffect que verificava e redirecionava para o KPI.
-  // Isso desativa a obrigatoriedade de preenchimento do KPI.
+  // Verificação de KPI obrigatório (reativada)
+  useEffect(() => {
+    if (!session || !cfg || checkingKpi) return;
+    const hoje = new Date().toISOString().slice(0, 10);
+    const precisaKpi = cfg.kpiRequired === true &&
+      !(cfg.kpiLog || []).some(l => l.userId === session.user.id && l.date === hoje);
+    if (precisaKpi && !kpiExemptPages.includes(router.pathname)) {
+      router.push(`/kpi?redirect=${encodeURIComponent(router.asPath)}`);
+    }
+    setCheckingKpi(false);
+  }, [session, cfg, router.pathname, checkingKpi]);
 
   if (isPublicPage || (!session && !isPublicPage)) {
     return <Component {...pageProps} />;
@@ -89,9 +97,6 @@ function MyApp({ Component, pageProps }) {
   if (checkingKpi) {
     return <p style={{ background: '#0a0f1e', color: '#fff', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Carregando...</p>;
   }
-
-  // REMOVIDO: A condição que renderizava null se o KPI não estivesse preenchido.
-  // Agora, a página de KPI só será acessada se o usuário navegar para ela.
 
   return <Component {...pageProps} />;
 }
