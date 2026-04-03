@@ -80,6 +80,17 @@ function MyApp({ Component, pageProps }) {
         }
 
         const diaVerificar = ultimoDiaUtilAnterior();
+
+        // ✅ Verifica se acabou de salvar este mesmo dia (sessionStorage)
+        const justSaved = sessionStorage.getItem('kpi_just_saved');
+        if (justSaved === diaVerificar) {
+          // Remove a flag para não interferir em futuras verificações
+          sessionStorage.removeItem('kpi_just_saved');
+          setKpiOk(true);
+          setCheckingKpi(false);
+          return;
+        }
+
         const jaPreencheu = (cfg.kpiLog || []).some(
           l => l.userId === session.user.id && l.date === diaVerificar
         );
@@ -94,6 +105,7 @@ function MyApp({ Component, pageProps }) {
         setCheckingKpi(false);
 
       } catch (err) {
+        console.error('Erro na verificação de KPI:', err);
         // Em erro, libera para não travar o usuário
         setKpiOk(true);
         setCheckingKpi(false);
