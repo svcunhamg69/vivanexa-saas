@@ -14,17 +14,16 @@ function ultimoDiaUtilAnterior() {
 }
 
 function MyApp({ Component, pageProps }) {
-  const [session,     setSession]     = useState(null);
+  const [session, setSession] = useState(null);
   const [checkingKpi, setCheckingKpi] = useState(true);
-  const [kpiOk,       setKpiOk]       = useState(false);
   const router = useRouter();
   const verificacaoFeita = useRef(false);
 
-  const publicPages    = ['/', '/sign/[token]'];
-  const isPublicPage   = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
-  const kpiExemptPages = ['/kpi'];
+  const publicPages = ['/', '/sign/[token]'];
+  const isPublicPage = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
+  // ✅ Adicionadas todas as páginas que NÃO devem ser bloqueadas pela exigência de KPI
+  const kpiExemptPages = ['/kpi', '/configuracoes', '/dashboard', '/reports'];
 
-  // ── Auth listener ────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -43,7 +42,6 @@ function MyApp({ Component, pageProps }) {
     return () => { authListener.subscription.unsubscribe(); };
   }, [router]);
 
-  // ── Verifica KPI buscando DIRETAMENTE do banco (uma única vez por sessão) ──
   useEffect(() => {
     if (!session) { setCheckingKpi(false); return; }
     if (isPublicPage) { setCheckingKpi(false); return; }
@@ -66,7 +64,6 @@ function MyApp({ Component, pageProps }) {
 
         const empresaId = perfil?.empresa_id || session.user.id;
 
-        // Busca cfg FRESCO direto do banco
         const { data: row } = await supabase
           .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single();
 
@@ -74,19 +71,15 @@ function MyApp({ Component, pageProps }) {
         const kpiTemplates = cfg.kpiTemplates || [];
 
         if (!cfg.kpiRequired || kpiTemplates.length === 0) {
-          setKpiOk(true);
           setCheckingKpi(false);
           return;
         }
 
         const diaVerificar = ultimoDiaUtilAnterior();
 
-        // ✅ Verifica se acabou de salvar este mesmo dia (sessionStorage)
         const justSaved = sessionStorage.getItem('kpi_just_saved');
         if (justSaved === diaVerificar) {
-          // Remove a flag para não interferir em futuras verificações
           sessionStorage.removeItem('kpi_just_saved');
-          setKpiOk(true);
           setCheckingKpi(false);
           return;
         }
@@ -96,31 +89,25 @@ function MyApp({ Component, pageProps }) {
         );
 
         if (!jaPreencheu) {
-          router.replace(`/kpi?redirect=${encodeURIComponent('/chat')}&date=${diaVerificar}`);
-          // Não seta checkingKpi(false) aqui — mantém tela de loading até redirecionar
-          return;
+          // ✅ Só redireciona se a rota atual NÃO for exempt
+          if (!kpiExemptPages.includes(router.pathname)) {
+            router.replace(`/kpi?redirect=${encodeURIComponent(router.asPath)}&date=${diaVerificar}`);
+            return;
+          }
         }
 
-        setKpiOk(true);
         setCheckingKpi(false);
-
       } catch (err) {
         console.error('Erro na verificação de KPI:', err);
-        // Em erro, libera para não travar o usuário
-        setKpiOk(true);
         setCheckingKpi(false);
       }
     };
 
     verificar();
-  }, [session]); // ✅ Só roda quando a session muda — NÃO re-executa a cada rota
-
-  // ── Renderização ─────────────────────────────────────────────────────────
+  }, [session, router.pathname]);
 
   if (isPublicPage) return <Component {...pageProps} />;
-  if (!session)     return <Component {...pageProps} />;
-
-  // Página /kpi: sempre renderiza, sem bloqueio
+  if (!session) return <Component {...pageProps} />;
   if (kpiExemptPages.includes(router.pathname)) return <Component {...pageProps} />;
 
   if (checkingKpi) {
