@@ -12,7 +12,7 @@ function MyApp({ Component, pageProps }) {
 
   const publicPages = ['/', '/sign/[token]'];
   const isPublicPage = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
-  const kpiExemptPages = ['/kpi'];
+  const kpiExemptPages = ['/kpi']; // A página /kpi não deve ser verificada para o log de KPI
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -78,6 +78,7 @@ function MyApp({ Component, pageProps }) {
   }, [session]);
 
   useEffect(() => {
+    // Esta lógica agora é a única responsável por redirecionar para /kpi
     if (!session || checkingKpi || isPublicPage || kpiExemptPages.includes(router.pathname)) return;
     if (!cfg || !cfg.kpiRequired) return;
 
@@ -90,36 +91,29 @@ function MyApp({ Component, pageProps }) {
     const userId = session.user.id;
     const hasYesterdayLog = logs.some(l => l.userId === userId && l.date === ontemStr);
 
-    if (!hasYesterdayLog && !kpiExemptPages.includes(router.pathname)) {
+    if (!hasYesterdayLog) {
       const currentPath = router.asPath;
       router.push(`/kpi?redirect=${encodeURIComponent(currentPath)}&date=${ontemStr}`);
     }
-  }, [session, cfg, checkingKpi, router.pathname]);
+  }, [session, cfg, checkingKpi, router.pathname, isPublicPage, kpiExemptPages, router.asPath]); // Adicionado router.asPath às dependências
 
+  // Se for uma página pública ou o usuário não estiver logado e não for uma página pública, renderiza normalmente
   if (isPublicPage || (!session && !isPublicPage)) {
     return <Component {...pageProps} />;
   }
 
+  // Enquanto estiver verificando o KPI, mostra "Carregando..."
   if (checkingKpi) {
     return <p style={{ background: '#0a0f1e', color: '#fff', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Carregando...</p>;
   }
 
+  // Se a página atual for /kpi, renderiza ela normalmente (ela é isenta da verificação de KPI)
   if (router.pathname === '/kpi') {
     return <Component {...pageProps} />;
   }
 
-  if (cfg && cfg.kpiRequired) {
-    const hoje = new Date();
-    const ontem = new Date(hoje);
-    ontem.setDate(hoje.getDate() - 1);
-    const ontemStr = ontem.toISOString().slice(0,10);
-    const logs = cfg.kpiLog || [];
-    const userId = session.user.id;
-    const hasYesterdayLog = logs.some(l => l.userId === userId && l.date === ontemStr);
-    if (!hasYesterdayLog) {
-      return null;
-    }
-  }
+  // Removido o bloco que retornava `null` e travava a aplicação.
+  // A lógica de redirecionamento agora está apenas no `useEffect` acima.
 
   return <Component {...pageProps} />;
 }
