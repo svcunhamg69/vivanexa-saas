@@ -86,729 +86,753 @@ function calcFull(mods,plan,ifPlan,cnpjs,notas,cfg){
   }
   return{results:res,tAd,tMen,tAdD:tAd,tMenD:tMen}
 }
-function calcDisc(mods,plan,ifPlan,cnpjs,notas,cfg,vo){
-  const adPct=vo?vo.discAdPct:(cfg.discAdPct||50),menPct=vo?vo.discMenPct:(cfg.discMenPct||0)
+function calcDisc(mods,plan,ifPlan,cnpjs,notas,cfg){
   const res=[];let tAd=0,tMen=0,tAdD=0,tMenD=0
+  const discAd=cfg.discAdPct/100,discMen=cfg.discMenPct/100
   for(const mod of mods){
-    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*2,men=mB*1.2,adD=ad*(1-adPct/100),menD=men*(1-menPct/100);res.push({name:pn('IF',cfg),ad,men,adD,menD,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD;continue}
+    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*2,men=mB*1.2,adD=aB,menD=mB;res.push({name:pn('IF',cfg),ad,men,adD,menD,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD;continue}
     if(mod==='Tributos'){const m=calcTrib(notas);res.push({name:pn('Tributos',cfg),ad:0,men:m,adD:0,menD:m,isTributos:true,notas});tMen+=m;tMenD+=m;continue}
-    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg),men=mB*1.2,menD=men*(1-menPct/100);res.push({name:pn('EP',cfg),ad:0,men,adD:0,menD,isEP:true,plan:ep});tMen+=men;tMenD+=menD;continue}
+    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg),men=mB*1.2,menD=mB;res.push({name:pn('EP',cfg),ad:0,men,adD:0,menD,isEP:true,plan:ep});tMen+=men;tMenD+=menD;continue}
     const[aB,mB]=getPrice(mod,plan,cfg);let ad=aB>0?Math.max(aB*2,1000):0,men=mB*1.2
     if(mod==='XML')men=Math.max(men,175);if(mod==='Gestão Fiscal')men=Math.max(men,200)
-    const adD=aB>0?ad*(1-adPct/100):0,menD=men*(1-menPct/100)
+    const adD=aB>0?aB:0,menD=mB
     res.push({name:mod,ad,men,adD,menD,plan});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD
   }
-  return{results:res,tAd,tMen,tAdD,tMenD}
+  res.forEach(r=>{
+    if(!r.isTributos&&!r.isEP){r.ad=r.ad*(1-discAd);r.adD=r.adD*(1-discAd)}
+    if(!r.isTributos&&!r.isEP&&!r.isIF){r.men=r.men*(1-discMen);r.menD=r.menD*(1-discMen)}
+  })
+  return{results:res,tAd:tAd*(1-discAd),tMen:tMen*(1-discMen),tAdD:tAdD*(1-discAd),tMenD:tMenD*(1-discMen)}
 }
-function calcClose(mods,plan,ifPlan,cnpjs,notas,cfg,vo){
-  const adPct=vo?vo.discAdPct:(cfg.discClosePct||40),menPct=vo?vo.discMenPct:(cfg.discMenPct||0)
-  const res=[];let tAd=0,tMen=0,tAdD=0,tMenD=0
+function calcClosing(mods,plan,ifPlan,cnpjs,notas,cfg){
+  const res=[];let tAd=0,tMen=0
+  const cp=cfg.discClosePct/100
   for(const mod of mods){
-    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*2,men=mB*1.2,adD=ad*(1-adPct/100),menD=men*(1-menPct/100);res.push({name:pn('IF',cfg),ad,men,adD,menD,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD;continue}
-    if(mod==='Tributos'){const m=calcTrib(notas);res.push({name:pn('Tributos',cfg),ad:0,men:m,adD:0,menD:m,isTributos:true,notas});tMen+=m;tMenD+=m;continue}
-    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg),men=mB*1.2,menD=men*(1-menPct/100);res.push({name:pn('EP',cfg),ad:0,men,adD:0,menD,isEP:true,plan:ep});tMen+=men;tMenD+=menD;continue}
-    const[aB,mB]=getPrice(mod,plan,cfg);let ad=aB>0?Math.max(aB*2,1000):0,men=mB*1.2
-    if(mod==='XML')men=Math.max(men,175);if(mod==='Gestão Fiscal')men=Math.max(men,200)
-    const adD=aB>0?ad*(1-adPct/100):0,menD=men*(1-menPct/100)
-    res.push({name:mod,ad,men,adD,menD,plan});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD
+    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*(1-cp);res.push({name:pn('IF',cfg),ad,men:mB,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=mB;continue}
+    if(mod==='Tributos'){const m=calcTrib(notas);res.push({name:pn('Tributos',cfg),ad:0,men:m,isTributos:true});tMen+=m;continue}
+    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg);res.push({name:pn('EP',cfg),ad:0,men:mB,isEP:true,plan:ep});tMen+=mB;continue}
+    const[aB]=getPrice(mod,plan,cfg);const ad=aB>0?Math.max(aB*(1-cp),0):0
+    let men=0
+    if(mod==='BIA')men=0.85*(cnpjs||0)
+    else if(mod==='CND')men=0.40*(cnpjs||0)
+    else if(mod==='Gestão Fiscal')men=Math.max(2.00*(cnpjs||0),200)
+    else if(mod==='XML')men=Math.max(1.75*(cnpjs||0),175)
+    res.push({name:mod,ad,men,plan});tAd+=ad;tMen+=men
   }
-  return{results:res,tAd,tMen,tAdD,tMenD}
+  return{results:res,tAd,tMen}
 }
 
-// ── Componente Principal ─────────────────────────────────────
+// ── Componente principal ─────────────────────────────────────
 export default function Chat() {
+  const router = useRouter()
+  const [session, setSession] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [cfg, setCfg] = useState(null)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [session, setSession] = useState(null)
-  const [cfg, setCfg] = useState(null)
-  const [showConfig, setShowConfig] = useState(false)
+  const [isTyping, setIsTyping] = useState(false)
+  const [showConfigModal, setShowConfigModal] = useState(false)
   const [showClientModal, setShowClientModal] = useState(false)
-  const [showEditClientModal, setShowEditClientModal] = useState(false)
-  const [showSignModal, setShowSignModal] = useState(false)
-  const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [showEditTemplateModal, setShowEditTemplateModal] = useState(false)
-  const [currentTemplateType, setCurrentTemplateType] = useState(null)
-  const [currentTemplateContent, setCurrentTemplateContent] = useState('')
-  const [selectedClient, setSelectedClient] = useState(null)
-  const [newClientData, setNewClientData] = useState({
-    cpf_cnpj: '', nome_fantasia: '', razao_social: '',
-    contato_nome: '', email: '', telefone: '',
-    cep: '', endereco: '', bairro: '', cidade: '', estado: '',
-    resp_impl_nome: '', resp_impl_email: '', resp_impl_telefone: '',
-    resp_fin_nome: '', resp_fin_email: '', resp_fin_telefone: '',
-    cpf_contato_principal: '', regime_tributario: ''
-  })
-  const [paymentCondition, setPaymentCondition] = useState('vista')
-  const [adesaoDueDate, setAdesaoDueDate] = useState('')
-  const [otherAdesaoDueDate, setOtherAdesaoDueDate] = useState('')
-  const [mensalidadeDueDate, setMensalidadeDueDate] = useState('5')
-  const [otherMensalidadeDueDate, setOtherMensalidadeDueDate] = useState('')
-  const [userSignature, setUserSignature] = useState(null)
-  const [showDrawSignatureModal, setShowDrawSignatureModal] = useState(false)
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [signatureCanvas, setSignatureCanvas] = useState(null)
-  const [signatureCtx, setSignatureCtx] = useState(null)
-  const [lastPos, setLastPos] = useState({ x: 0, y: 0 })
-  const [showCRMModal, setShowCRMModal] = useState(false)
-  const [crmData, setCrmData] = useState('')
-  const [showEditUserModal, setShowEditUserModal] = useState(false)
-  const [editingUser, setEditingUser] = useState(null)
-  const [editUserSignature, setEditUserSignature] = useState(null)
-  const [showAddProductModal, setShowAddProductModal] = useState(false)
-  const [newProductData, setNewProductData] = useState({
-    name: '', internal_key: '', prices: {}, no_adesao: false, basic_pro_top_only: false
-  })
   const [showAddPlanModal, setShowAddPlanModal] = useState(false)
-  const [newPlanData, setNewPlanData] = useState({
-    id: '', name: '', maxCnpjs: 0, users: 1, unlimited: false
-  })
   const [showAdminPanel, setShowAdminPanel] = useState(false)
+  const [showReportsModal, setShowReportsModal] = useState(false)
   const [adminPassword, setAdminPassword] = useState('')
   const [adminError, setAdminError] = useState('')
-  const [showReportsModal, setShowReportsModal] = useState(false)
+  const [currentClient, setCurrentClient] = useState(null)
+  const [currentClientIndex, setCurrentClientIndex] = useState(-1)
+  const [newClientData, setNewClientData] = useState({
+    cpfCnpj: '', nomeFantasia: '', razaoSocial: '', contatoNome: '',
+    email: '', telefone: '', cep: '', endereco: '', bairro: '',
+    cidade: '', estado: '', implNome: '', implEmail: '', implTelefone: '',
+    finanNome: '', finanEmail: '', finanTelefone: '', cpfContato: '',
+    regimeTributario: ''
+  })
+  const [clientSearchTerm, setClientSearchTerm] = useState('')
+  const [filteredClients, setFilteredClients] = useState([])
+  const [showSignatureModal, setShowSignatureModal] = useState(false)
+  const [signatureData, setSignatureData] = useState({
+    fullName: '', cpf: '', email: '', agreed: false
+  })
+  const [signaturePadOpen, setSignaturePadOpen] = useState(false)
+  const [drawnSignature, setDrawnSignature] = useState(null)
+  const [showEditUserModal, setShowEditUserModal] = useState(false)
+  const [currentUserToEdit, setCurrentUserToEdit] = useState(null)
+  const [showEditProductModal, setShowEditProductModal] = useState(false)
+  const [currentProductToEdit, setCurrentProductToEdit] = useState(null)
+  const [showEditDocTemplateModal, setShowEditDocTemplateModal] = useState(false)
+  const [currentDocTemplateType, setCurrentDocTemplateType] = useState(null)
+  const [docTemplateContent, setDocTemplateContent] = useState('')
+  const [showConfigContractModal, setShowConfigContractModal] = useState(false)
+  const [contractPayment, setContractPayment] = useState({
+    adesaoCondition: 'vista',
+    adesaoDueDate: '',
+    mensalidadeDueDate: '',
+    otherAdesaoDate: '',
+    otherMensalidadeDate: ''
+  })
+  const [showAddProductModal, setShowAddProductModal] = useState(false)
+  const [newProductData, setNewProductData] = useState({
+    name: '', internalKey: '', noAdesao: false, basicProTopOnly: false, prices: {}
+  })
+  const [showAddUserModal, setShowAddUserModal] = useState(false)
+  const [newUserData, setNewUserData] = useState({
+    nome: '', email: '', telefone: '', perfil: 'padrao', senha: '', assinatura: null
+  })
+  const [showAddKpiModal, setShowAddKpiModal] = useState(false)
+  const [newKpiData, setNewKpiData] = useState({ name: '', id: '' })
+  const [showAddVoucherModal, setShowAddVoucherModal] = useState(false)
+  const [newVoucherData, setNewVoucherData] = useState({
+    prefix: '', adPct: 0, menPct: 0, commemorativeDate: ''
+  })
+  const [showAddPriceModal, setShowAddPriceModal] = useState(false)
+  const [currentProductForPrice, setCurrentProductForPrice] = useState(null)
+  const [newPriceData, setNewPriceData] = useState({ planId: '', adesao: '', mensalidade: '' })
+  const [showAddPlanPriceModal, setShowAddPlanPriceModal] = useState(false)
+  const [newPlanData, setNewPlanData] = useState({ id: '', name: '', maxCnpjs: '', users: '', unlimitedUsers: false })
 
   const messagesEndRef = useRef(null)
-  const router = useRouter()
+  const inputRef = useRef(null)
 
   // ── Efeitos e Carregamento Inicial ──────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
+      if (!session) {
+        router.push('/')
+      } else {
+        loadConfig(session.user.id)
+      }
     })
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (!session) router.push('/')
-    })
-    return () => authListener.subscription.unsubscribe()
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session)
+        if (event === 'SIGNED_OUT') {
+          router.push('/')
+        } else if (event === 'SIGNED_IN' && router.pathname === '/') {
+          router.push('/chat')
+        }
+      }
+    )
+
+    return () => {
+      authListener.subscription.unsubscribe()
+    }
   }, [router])
 
   useEffect(() => {
-    if (!session) return
-    const loadCfg = async () => {
-      const { data: perfil } = await supabase
-        .from('perfis')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .maybeSingle()
-
-      const empresaId = perfil?.empresa_id || session.user.id
-      const { data: row } = await supabase
-        .from('vx_storage')
-        .select('value')
-        .eq('key', `cfg:${empresaId}`)
-        .single()
-
-      if (row?.value) {
-        setCfg(JSON.parse(row.value))
-      } else {
-        setCfg(DEFAULT_CFG)
-      }
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-    loadCfg()
-  }, [session])
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ── Funções de Manipulação de Estado e UI ───────────────────
-  const handleInputChange = (e) => setInput(e.target.value)
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [isTyping])
 
-  const handleSendMessage = async (e) => {
+  useEffect(() => {
+    if (cfg && cfg.clients) {
+      const term = clientSearchTerm.toLowerCase()
+      setFilteredClients(
+        cfg.clients.filter(
+          (c) =>
+            c.nomeFantasia.toLowerCase().includes(term) ||
+            c.razaoSocial.toLowerCase().includes(term) ||
+            c.cpfCnpj.includes(clean(term))
+        )
+      )
+    }
+  }, [clientSearchTerm, cfg])
+
+  const loadConfig = async (userId) => {
+    setLoading(true)
+    let { data: perfil, error: perfilError } = await supabase
+      .from('perfis')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (perfilError || !perfil) {
+      const nome = session?.user?.user_metadata?.name || session?.user?.email?.split('@')[0] || 'Usuário'
+      const { data: novoPerfil } = await supabase
+        .from('perfis')
+        .insert({
+          user_id: userId,
+          nome: nome,
+          email: session?.user?.email,
+          empresa_id: userId,
+          perfil: 'admin'
+        })
+        .select()
+        .single()
+      perfil = novoPerfil
+    }
+
+    const empresaId = perfil?.empresa_id || userId
+    const { data: row } = await supabase
+      .from('vx_storage')
+      .select('value')
+      .eq('key', `cfg:${empresaId}`)
+      .single()
+
+    if (row?.value) {
+      const loadedCfg = JSON.parse(row.value)
+      // Garante que as propriedades essenciais existam
+      loadedCfg.docHistory = loadedCfg.docHistory || []
+      loadedCfg.clients = loadedCfg.clients || []
+      loadedCfg.users = loadedCfg.users || []
+      loadedCfg.kpiTemplates = loadedCfg.kpiTemplates || []
+      loadedCfg.kpiLog = loadedCfg.kpiLog || []
+      loadedCfg.goals = loadedCfg.goals || []
+      loadedCfg.vouchers = loadedCfg.vouchers || []
+      loadedCfg.plans = loadedCfg.plans || DEFAULT_CFG.plans
+      loadedCfg.prices = loadedCfg.prices || DEFAULT_CFG.prices
+      loadedCfg.productNames = loadedCfg.productNames || DEFAULT_CFG.productNames
+      setCfg(loadedCfg)
+    } else {
+      // Se não houver config, cria uma nova com padrões
+      const initialCfg = {
+        ...DEFAULT_CFG,
+        company: perfil?.empresa_nome || DEFAULT_CFG.company,
+        users: [{
+          id: userId,
+          nome: perfil?.nome || 'Consultor Padrão',
+          email: perfil?.email || session?.user?.email,
+          perfil: perfil?.perfil || 'admin',
+          assinatura: perfil?.assinatura || null,
+          telefone: perfil?.telefone || ''
+        }]
+      }
+      setCfg(initialCfg)
+      await saveConfig(initialCfg, empresaId) // Salva a config inicial
+    }
+    setLoading(false)
+  }
+
+  const saveConfig = async (newCfg, empresaId = cfg.empresa_id || session.user.id) => {
+    await supabase
+      .from('vx_storage')
+      .upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(newCfg) }, { onConflict: 'key' })
+    setCfg(newCfg)
+  }
+
+  // ── Funções de Chat e IA ────────────────────────────────────
+  const sendMessage = async (e) => {
     e.preventDefault()
-    if (!input.trim() || loading) return
+    if (!input.trim()) return
 
     const userMessage = { role: 'user', content: input }
     setMessages((prev) => [...prev, userMessage])
     setInput('')
-    setLoading(true)
+    setIsTyping(true)
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: input, cfg, session }),
+        body: JSON.stringify({
+          messages: [...messages, userMessage],
+          cfg: cfg,
+          userId: session.user.id,
+          empresaId: cfg.empresa_id || session.user.id
+        }),
       })
-      const data = await response.json()
 
-      if (data.error) {
-        setMessages((prev) => [...prev, { role: 'assistant', content: `Erro: ${data.error}` }])
-      } else {
-        setMessages((prev) => [...prev, { role: 'assistant', content: data.response }])
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Erro ao comunicar com a IA')
       }
+
+      const data = await response.json()
+      setMessages((prev) => [...prev, { role: 'assistant', content: data.response }])
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error)
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Desculpe, houve um erro ao processar sua solicitação.' }])
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: `❌ Erro: ${error.message}. Por favor, tente novamente.` },
+      ])
     } finally {
-      setLoading(false)
+      setIsTyping(false)
     }
   }
 
-  const handleChipClick = (content) => {
-    setInput(content)
-    // handleSendMessage({ preventDefault: () => {} }) // Não envia automaticamente, apenas preenche
+  const handleChipClick = (text) => {
+    setInput(text)
+    // Não envia automaticamente, apenas preenche o input
   }
 
-  const handleClearChat = () => {
-    setMessages([])
-    setInput('')
+  // ── Funções de Configuração ─────────────────────────────────
+  const handleSaveCompanyConfig = async () => {
+    const updatedCfg = { ...cfg, company: cfg.company, slogan: cfg.slogan, logob64: cfg.logob64 }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
   }
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/')
+  const handleSaveKpiConfig = async () => {
+    const updatedCfg = { ...cfg, kpiTemplates: cfg.kpiTemplates, kpiRequired: cfg.kpiRequired }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
   }
 
-  const handleSaveCfg = async (newCfg) => {
-    if (!session) return
-    const { data: perfil } = await supabase
-      .from('perfis')
-      .select('empresa_id')
-      .eq('user_id', session.user.id)
-      .maybeSingle()
-    const empresaId = perfil?.empresa_id || session.user.id
+  const handleSaveUsersConfig = async () => {
+    const updatedCfg = { ...cfg, users: cfg.users }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
+  }
 
-    const { error } = await supabase
-      .from('vx_storage')
-      .upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(newCfg) }, { onConflict: 'key' })
+  const handleSaveProductsConfig = async () => {
+    const updatedCfg = { ...cfg, prices: cfg.prices, productNames: cfg.productNames, plans: cfg.plans }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
+  }
 
-    if (error) {
-      console.error('Erro ao salvar configuração:', error)
-      alert('Erro ao salvar configuração.')
+  const handleSaveDiscountConfig = async () => {
+    const updatedCfg = { ...cfg, discMode: cfg.discMode, discAdPct: cfg.discAdPct, discMenPct: cfg.discMenPct, discClosePct: cfg.discClosePct, unlimitedStrategy: cfg.unlimitedStrategy }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
+  }
+
+  const handleSaveVouchersConfig = async () => {
+    const updatedCfg = { ...cfg, vouchers: cfg.vouchers }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
+  }
+
+  const handleSaveDocTemplatesConfig = async () => {
+    const updatedCfg = { ...cfg, proposalTemplate: cfg.proposalTemplate, contractTemplate: cfg.contractTemplate }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
+  }
+
+  const handleSaveSignatureConfig = async () => {
+    const updatedCfg = { ...cfg, emailRemetente: cfg.emailRemetente, whatsappEmpresa: cfg.whatsappEmpresa, baseUrl: cfg.baseUrl }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
+  }
+
+  const handleSaveClientsConfig = async () => {
+    const updatedCfg = { ...cfg, clients: cfg.clients }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
+  }
+
+  const handleSaveThemeConfig = async () => {
+    const updatedCfg = { ...cfg, theme: cfg.theme }
+    await saveConfig(updatedCfg)
+    setShowConfigModal(false)
+  }
+
+  const handleAddKpi = async () => {
+    if (!newKpiData.name.trim()) return
+    const newId = newKpiData.name.toLowerCase().replace(/\s/g, '-')
+    const updatedKpiTemplates = [...(cfg.kpiTemplates || []), { id: newId, name: newKpiData.name }]
+    const updatedCfg = { ...cfg, kpiTemplates: updatedKpiTemplates }
+    await saveConfig(updatedCfg)
+    setNewKpiData({ name: '', id: '' })
+    setShowAddKpiModal(false)
+  }
+
+  const handleAddVoucher = async () => {
+    if (!newVoucherData.prefix.trim()) return
+    const newVoucher = {
+      id: generateToken(),
+      prefix: newVoucherData.prefix,
+      adPct: Number(newVoucherData.adPct),
+      menPct: Number(newVoucherData.menPct),
+      commemorativeDate: newVoucherData.commemorativeDate,
+      active: true
+    }
+    const updatedVouchers = [...(cfg.vouchers || []), newVoucher]
+    const updatedCfg = { ...cfg, vouchers: updatedVouchers }
+    await saveConfig(updatedCfg)
+    setNewVoucherData({ prefix: '', adPct: 0, menPct: 0, commemorativeDate: '' })
+    setShowAddVoucherModal(false)
+  }
+
+  const handleAddProduct = async () => {
+    if (!newProductData.name.trim()) return
+    const newInternalKey = newProductData.name.toLowerCase().replace(/\s/g, '-')
+    const updatedPrices = { ...cfg.prices }
+    updatedPrices[newProductData.name] = {} // Inicializa com objeto vazio para preços
+
+    const updatedProductNames = { ...cfg.productNames, [newProductData.name]: newProductData.name }
+
+    const updatedCfg = {
+      ...cfg,
+      prices: updatedPrices,
+      productNames: updatedProductNames,
+      // Adiciona o produto à lista de produtos se você tiver uma
+      // Por enquanto, ele é implicitamente adicionado via `prices` e `productNames`
+    }
+    await saveConfig(updatedCfg)
+    setNewProductData({ name: '', internalKey: '', noAdesao: false, basicProTopOnly: false, prices: {} })
+    setShowAddProductModal(false)
+  }
+
+  const handleAddPriceToProduct = async () => {
+    if (!currentProductForPrice || !newPriceData.planId || !newPriceData.adesao || !newPriceData.mensalidade) return
+
+    const updatedPrices = { ...cfg.prices }
+    if (!updatedPrices[currentProductForPrice]) {
+      updatedPrices[currentProductForPrice] = {}
+    }
+    updatedPrices[currentProductForPrice][newPriceData.planId] = [
+      Number(newPriceData.adesao),
+      Number(newPriceData.mensalidade)
+    ]
+
+    const updatedCfg = { ...cfg, prices: updatedPrices }
+    await saveConfig(updatedCfg)
+    setNewPriceData({ planId: '', adesao: '', mensalidade: '' })
+    setShowAddPriceModal(false)
+  }
+
+  const handleAddPlan = async () => {
+    if (!newPlanData.id.trim() || !newPlanData.name.trim() || !newPlanData.maxCnpjs) return
+
+    const newPlan = {
+      id: newPlanData.id,
+      name: newPlanData.name,
+      maxCnpjs: Number(newPlanData.maxCnpjs),
+      users: newPlanData.unlimitedUsers ? 999 : Number(newPlanData.users),
+      unlimitedUsers: newPlanData.unlimitedUsers
+    }
+
+    const updatedPlans = [...(cfg.plans || []), newPlan]
+    const updatedCfg = { ...cfg, plans: updatedPlans }
+    await saveConfig(updatedCfg)
+    setNewPlanData({ id: '', name: '', maxCnpjs: '', users: '', unlimitedUsers: false })
+    setShowAddPlanModal(false)
+  }
+
+  const handleAddUser = async () => {
+    if (!newUserData.nome.trim() || !newUserData.email.trim() || !newUserData.senha.trim()) return
+
+    const newUser = {
+      id: generateToken(), // ID temporário para usuários locais
+      nome: newUserData.nome,
+      email: newUserData.email,
+      telefone: newUserData.telefone,
+      perfil: newUserData.perfil,
+      assinatura: newUserData.assinatura,
+      // Senha não é armazenada diretamente no cfg, apenas para fins de cadastro inicial
+    }
+
+    const updatedUsers = [...(cfg.users || []), newUser]
+    const updatedCfg = { ...cfg, users: updatedUsers }
+    await saveConfig(updatedCfg)
+    setNewUserData({ nome: '', email: '', telefone: '', perfil: 'padrao', senha: '', assinatura: null })
+    setShowAddUserModal(false)
+  }
+
+  const handleEditUser = async () => {
+    if (!currentUserToEdit) return
+
+    const updatedUsers = cfg.users.map(u =>
+      u.id === currentUserToEdit.id ? currentUserToEdit : u
+    )
+    const updatedCfg = { ...cfg, users: updatedUsers }
+    await saveConfig(updatedCfg)
+    setShowEditUserModal(false)
+    setCurrentUserToEdit(null)
+  }
+
+  const handleEditProduct = async () => {
+    if (!currentProductToEdit) return
+
+    const updatedProductNames = { ...cfg.productNames, [currentProductToEdit.originalName]: currentProductToEdit.name }
+    if (currentProductToEdit.originalName !== currentProductToEdit.name) {
+      // Se o nome mudou, remove o antigo e adiciona o novo no prices
+      const newPrices = { ...cfg.prices }
+      newPrices[currentProductToEdit.name] = newPrices[currentProductToEdit.originalName]
+      delete newPrices[currentProductToEdit.originalName]
+      const updatedCfg = { ...cfg, productNames: updatedProductNames, prices: newPrices }
+      await saveConfig(updatedCfg)
     } else {
-      setCfg(newCfg)
-      alert('Configuração salva com sucesso!')
-      setShowConfig(false)
+      const updatedCfg = { ...cfg, productNames: updatedProductNames }
+      await saveConfig(updatedCfg)
+    }
+    setShowEditProductModal(false)
+    setCurrentProductToEdit(null)
+  }
+
+  const handleSaveDocTemplate = async () => {
+    const updatedCfg = { ...cfg }
+    if (currentDocTemplateType === 'proposal') {
+      updatedCfg.proposalTemplate = docTemplateContent
+    } else if (currentDocTemplateType === 'contract') {
+      updatedCfg.contractTemplate = docTemplateContent
+    }
+    await saveConfig(updatedCfg)
+    setShowEditDocTemplateModal(false)
+    setDocTemplateContent('')
+    setCurrentDocTemplateType(null)
+  }
+
+  const handleUseDefaultDocTemplate = async () => {
+    const updatedCfg = { ...cfg }
+    if (currentDocTemplateType === 'proposal') {
+      delete updatedCfg.proposalTemplate
+    } else if (currentDocTemplateType === 'contract') {
+      delete updatedCfg.contractTemplate
+    }
+    await saveConfig(updatedCfg)
+    setShowEditDocTemplateModal(false)
+    setDocTemplateContent('')
+    setCurrentDocTemplateType(null)
+  }
+
+  const handleAdminLogin = async () => {
+    if (adminPassword === process.env.NEXT_PUBLIC_ADMIN_PASSWORD) {
+      setAdminError('')
+      // A senha está correta, agora o painel de admin é exibido
+      // Não precisamos setar adminPassword para null aqui, pois ele é usado para controlar a exibição
+    } else {
+      setAdminError('Senha incorreta!')
     }
   }
 
-  const handleClientChange = (e) => {
-    const { name, value } = e.target
-    setNewClientData(prev => ({ ...prev, [name]: value }))
-  }
-
+  // ── Funções de Cliente ──────────────────────────────────────
   const handleSaveClient = async () => {
-    if (!session) return
-    const { data: perfil } = await supabase
-      .from('perfis')
-      .select('empresa_id')
-      .eq('user_id', session.user.id)
-      .maybeSingle()
-    const empresaId = perfil?.empresa_id || session.user.id
-
-    const clientToSave = { ...newClientData, cpf_cnpj: clean(newClientData.cpf_cnpj) }
-
-    if (!clientToSave.cpf_cnpj || !clientToSave.nome_fantasia) {
+    if (!newClientData.cpfCnpj.trim() || !newClientData.nomeFantasia.trim()) {
       alert('CPF/CNPJ e Nome Fantasia são obrigatórios.')
       return
     }
 
+    const cleanedCpfCnpj = clean(newClientData.cpfCnpj)
+
     // Validação de duplicidade
-    const existingClient = cfg.clients.find(c => clean(c.cpf_cnpj) === clientToSave.cpf_cnpj)
-    if (existingClient && (!selectedClient || existingClient.id !== selectedClient.id)) {
+    const isDuplicate = cfg.clients.some(
+      (c, idx) =>
+        idx !== currentClientIndex && clean(c.cpfCnpj) === cleanedCpfCnpj
+    )
+    if (isDuplicate) {
       alert('Já existe um cliente com este CPF/CNPJ.')
       return
     }
 
+    const clientToSave = {
+      ...newClientData,
+      cpfCnpj: cleanedCpfCnpj,
+      id: currentClient ? currentClient.id : generateToken(), // Mantém ID se editando, gera novo se adicionando
+      criado: currentClient ? currentClient.criado : new Date().toISOString(),
+      atualizado: new Date().toISOString(),
+    }
+
     let updatedClients
-    if (selectedClient) {
-      updatedClients = cfg.clients.map(c => c.id === selectedClient.id ? { ...clientToSave, id: selectedClient.id } : c)
+    if (currentClient) {
+      // Editando cliente existente
+      updatedClients = cfg.clients.map((c, idx) =>
+        idx === currentClientIndex ? clientToSave : c
+      )
     } else {
-      updatedClients = [...cfg.clients, { ...clientToSave, id: generateToken() }]
+      // Adicionando novo cliente
+      updatedClients = [...(cfg.clients || []), clientToSave]
     }
 
-    const newCfg = { ...cfg, clients: updatedClients }
-    await handleSaveCfg(newCfg)
+    const updatedCfg = { ...cfg, clients: updatedClients }
+    await saveConfig(updatedCfg)
     setShowClientModal(false)
-    setShowEditClientModal(false)
-    setSelectedClient(null)
+    setCurrentClient(null)
+    setCurrentClientIndex(-1)
     setNewClientData({
-      cpf_cnpj: '', nome_fantasia: '', razao_social: '',
-      contato_nome: '', email: '', telefone: '',
-      cep: '', endereco: '', bairro: '', cidade: '', estado: '',
-      resp_impl_nome: '', resp_impl_email: '', resp_impl_telefone: '',
-      resp_fin_nome: '', resp_fin_email: '', resp_fin_telefone: '',
-      cpf_contato_principal: '', regime_tributario: ''
+      cpfCnpj: '', nomeFantasia: '', razaoSocial: '', contatoNome: '',
+      email: '', telefone: '', cep: '', endereco: '', bairro: '',
+      cidade: '', estado: '', implNome: '', implEmail: '', implTelefone: '',
+      finanNome: '', finanEmail: '', finanTelefone: '', cpfContato: '',
+      regimeTributario: ''
     })
   }
 
-  const handleEditClient = (client) => {
-    setSelectedClient(client)
+  const handleEditClient = (client, index) => {
+    setCurrentClient(client)
+    setCurrentClientIndex(index)
     setNewClientData(client)
-    setShowEditClientModal(true)
+    setShowClientModal(true)
   }
 
-  const handleDeleteClient = async (clientId) => {
-    if (!confirm('Tem certeza que deseja excluir este cliente?')) return
-    const updatedClients = cfg.clients.filter(c => c.id !== clientId)
-    const newCfg = { ...cfg, clients: updatedClients }
-    await handleSaveCfg(newCfg)
-  }
-
-  const handleOpenSignModal = (doc) => {
-    setSelectedClient(cfg.clients.find(c => c.id === doc.clientId))
-    setMessages((prev) => [...prev, { role: 'assistant', content: `Gerando link de assinatura para o documento ${doc.id}...` }])
-    router.push(`/sign/${doc.id}`)
-  }
-
-  const handlePaymentConditionChange = (e) => setPaymentCondition(e.target.value)
-  const handleAdesaoDueDateChange = (e) => setAdesaoDueDate(e.target.value)
-  const handleOtherAdesaoDueDateChange = (e) => setOtherAdesaoDueDate(e.target.value)
-  const handleMensalidadeDueDateChange = (e) => setMensalidadeDueDate(e.target.value)
-  const handleOtherMensalidadeDueDateChange = (e) => setOtherMensalidadeDueDate(e.target.value)
-
-  const handleGenerateContract = async (doc) => {
-    if (!adesaoDueDate) {
-      alert('Por favor, selecione a data de vencimento da adesão.')
-      return
-    }
-
-    const docToUpdate = {
-      ...doc,
-      paymentCondition,
-      adesaoDueDate: adesaoDueDate === 'other' ? otherAdesaoDueDate : adesaoDueDate,
-      mensalidadeDueDate: mensalidadeDueDate === 'other' ? otherMensalidadeDueDate : mensalidadeDueDate,
-      status: 'Aguardando assinatura'
-    }
-
-    const updatedDocs = cfg.documents.map(d => d.id === doc.id ? docToUpdate : d)
-    const newCfg = { ...cfg, documents: updatedDocs }
-    await handleSaveCfg(newCfg)
-    setShowPaymentModal(false)
-    setMessages((prev) => [...prev, { role: 'assistant', content: `Contrato ${doc.id} configurado para assinatura. Compartilhe o link: ${window.location.origin}/sign/${doc.id}` }])
-  }
-
-  const handleOpenEditTemplate = (type) => {
-    setCurrentTemplateType(type)
-    setCurrentTemplateContent(cfg[type] || '')
-    setShowEditTemplateModal(true)
-  }
-
-  const handleSaveTemplate = async () => {
-    const newCfg = { ...cfg, [currentTemplateType]: currentTemplateContent }
-    await handleSaveCfg(newCfg)
-    setShowEditTemplateModal(false)
-  }
-
-  const handleUseDefaultTemplate = async () => {
-    const newCfg = { ...cfg, [currentTemplateType]: '' }
-    await handleSaveCfg(newCfg)
-    setCurrentTemplateContent('')
-    alert('Modelo padrão restaurado.')
-  }
-
-  const handleOpenCRMModal = (doc) => {
-    const client = cfg.clients.find(c => c.id === doc.clientId)
-    if (!client) {
-      alert('Cliente não encontrado para este documento.')
-      return
-    }
-    const crmText = `
-Nome Fantasia: ${client.nome_fantasia}
-Razão Social: ${client.razao_social}
-CPF/CNPJ: ${fmtDoc(client.cpf_cnpj)}
-Contato Principal: ${client.contato_nome}
-E-mail: ${client.email}
-Telefone: ${client.telefone}
-CEP: ${client.cep}
-Endereço: ${client.endereco}, ${client.bairro}, ${client.cidade} - ${client.estado}
-Responsável Implantação: ${client.resp_impl_nome} (${client.resp_impl_email} / ${client.resp_impl_telefone})
-Responsável Financeiro: ${client.resp_fin_nome} (${client.resp_fin_email} / ${client.resp_fin_telefone})
-Regime Tributário: ${client.regime_tributario}
-
-Detalhes do Contrato:
-Tipo: ${doc.type === 'proposal' ? 'Proposta' : 'Contrato'}
-ID: ${doc.id}
-Data: ${new Date(doc.date).toLocaleDateString()}
-Módulos: ${doc.mods.map(m => pn(m, cfg)).join(', ')}
-CNPJs: ${doc.cnpjs}
-Notas: ${doc.notas || 'N/A'}
-Plano: ${getPlanLabel(doc.plan, cfg.plans)}
-Plano IF: ${doc.ifPlan ? getPlanLabel(doc.ifPlan, cfg.plans) : 'N/A'}
-Adesão: ${fmt(doc.tAdD)}
-Mensalidade: ${fmt(doc.tMenD)}
-Condição de Pagamento Adesão: ${doc.paymentCondition}
-Vencimento Adesão: ${doc.adesaoDueDate}
-Vencimento Mensalidade: ${doc.mensalidadeDueDate}
-Status: ${doc.status}
-    `
-    setCrmData(crmText)
-    setShowCRMModal(true)
-  }
-
-  const handleCopyCRMData = () => {
-    navigator.clipboard.writeText(crmData)
-    alert('Dados copiados para a área de transferência!')
-  }
-
-  const handleOpenEditUser = (user) => {
-    setEditingUser(user)
-    setEditUserSignature(user.signature_img || null)
-    setShowEditUserModal(true)
-  }
-
-  const handleSaveUser = async () => {
-    if (!editingUser) return
-
-    const { data, error } = await supabase
-      .from('perfis')
-      .update({
-        nome: editingUser.nome,
-        email: editingUser.email,
-        telefone: editingUser.telefone,
-        perfil: editingUser.perfil,
-        signature_img: editUserSignature,
-        // Não atualiza a senha aqui, pois é um campo sensível e deve ser tratado separadamente
-      })
-      .eq('user_id', editingUser.user_id)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Erro ao salvar usuário:', error)
-      alert('Erro ao salvar usuário.')
-    } else {
-      alert('Usuário atualizado com sucesso!')
-      setShowEditUserModal(false)
-      // Recarregar a lista de usuários ou atualizar o estado local
-      // Para simplificar, vamos apenas fechar o modal.
-    }
-  }
-
-  const handleAddProduct = async () => {
-    if (!newProductData.name || !newProductData.internal_key) {
-      alert('Nome e ID/Chave interna do produto são obrigatórios.')
-      return
-    }
-
-    const newCfg = { ...cfg }
-    if (!newCfg.products) newCfg.products = []
-    newCfg.products.push({ ...newProductData, id: generateToken() })
-
-    // Adicionar preços padrão para o novo produto
-    if (!newCfg.prices[newProductData.internal_key]) {
-      newCfg.prices[newProductData.internal_key] = {}
-      cfg.plans.forEach(plan => {
-        newCfg.prices[newProductData.internal_key][plan.id] = [0, 0]
-      })
-    }
-
-    await handleSaveCfg(newCfg)
-    setShowAddProductModal(false)
-    setNewProductData({
-      name: '', internal_key: '', prices: {}, no_adesao: false, basic_pro_top_only: false
+  const handleNewClient = () => {
+    setCurrentClient(null)
+    setCurrentClientIndex(-1)
+    setNewClientData({
+      cpfCnpj: '', nomeFantasia: '', razaoSocial: '', contatoNome: '',
+      email: '', telefone: '', cep: '', endereco: '', bairro: '',
+      cidade: '', estado: '', implNome: '', implEmail: '', implTelefone: '',
+      finanNome: '', finanEmail: '', finanTelefone: '', cpfContato: '',
+      regimeTributario: ''
     })
+    setShowClientModal(true)
   }
 
-  const handleAddPlan = async () => {
-    if (!newPlanData.id || !newPlanData.name || newPlanData.maxCnpjs <= 0) {
-      alert('ID, Nome e Máximo de CNPJs são obrigatórios e devem ser válidos.')
-      return
-    }
-
-    const newCfg = { ...cfg }
-    if (!newCfg.plans) newCfg.plans = []
-    newCfg.plans.push({ ...newPlanData })
-
-    // Adicionar preços padrão para o novo plano em todos os produtos existentes
-    for (const productKey in newCfg.prices) {
-      if (newCfg.prices.hasOwnProperty(productKey)) {
-        newCfg.prices[productKey][newPlanData.id] = [0, 0]
-      }
-    }
-
-    await handleSaveCfg(newCfg)
-    setShowAddPlanModal(false)
-    setNewPlanData({
-      id: '', name: '', maxCnpjs: 0, users: 1, unlimited: false
-    })
-  }
-
-  const handleUpdateProductPrice = (productKey, planId, type, value) => {
-    const newCfg = { ...cfg }
-    if (!newCfg.prices[productKey]) newCfg.prices[productKey] = {}
-    if (!newCfg.prices[productKey][planId]) newCfg.prices[productKey][planId] = [0, 0]
-
-    const priceArray = [...newCfg.prices[productKey][planId]]
-    if (type === 'adesao') {
-      priceArray[0] = parseFloat(value) || 0
-    } else {
-      priceArray[1] = parseFloat(value) || 0
-    }
-    newCfg.prices[productKey][planId] = priceArray
-    setCfg(newCfg) // Atualiza o estado local para refletir a mudança imediatamente
-  }
-
-  const handleResetPrices = async () => {
-    if (!confirm('Tem certeza que deseja restaurar os preços padrão? Isso apagará todos os preços personalizados.')) return
-    const newCfg = { ...cfg, prices: DEFAULT_CFG.prices }
-    await handleSaveCfg(newCfg)
-  }
-
-  const handleAdminLogin = async () => {
-    if (adminPassword === 'vivanexa123') { // Senha fixa para acesso master
-      setShowAdminPanel(true)
-      setAdminError('')
-    } else {
-      setAdminError('Senha incorreta.')
-    }
-  }
-
-  // ── Funções de Assinatura ───────────────────────────────────
-  const initSignatureCanvas = (canvas) => {
-    if (canvas) {
-      setSignatureCanvas(canvas)
-      const ctx = canvas.getContext('2d')
-      ctx.lineWidth = 2
-      ctx.lineCap = 'round'
-      ctx.strokeStyle = '#000'
-      setSignatureCtx(ctx)
-    }
-  }
-
-  const startDrawing = ({ nativeEvent }) => {
-    setIsDrawing(true)
-    const { offsetX, offsetY } = nativeEvent
-    signatureCtx.beginPath()
-    signatureCtx.moveTo(offsetX, offsetY)
-    setLastPos({ x: offsetX, y: offsetY })
-  }
-
-  const draw = ({ nativeEvent }) => {
-    if (!isDrawing) return
-    const { offsetX, offsetY } = nativeEvent
-    signatureCtx.lineTo(offsetX, offsetY)
-    signatureCtx.stroke()
-    setLastPos({ x: offsetX, y: offsetY })
-  }
-
-  const stopDrawing = () => {
-    setIsDrawing(false)
-    signatureCtx.closePath()
-  }
-
-  const clearSignature = () => {
-    if (signatureCtx && signatureCanvas) {
-      signatureCtx.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height)
-      setUserSignature(null)
-      setEditUserSignature(null)
-    }
-  }
-
-  const saveSignature = () => {
-    if (signatureCanvas) {
-      const dataUrl = signatureCanvas.toDataURL('image/png')
-      if (showEditUserModal) {
-        setEditUserSignature(dataUrl)
-      } else {
-        setUserSignature(dataUrl)
-      }
-      setShowDrawSignatureModal(false)
-    }
-  }
-
-  // ── Geração de Documentos (Proposta/Contrato) ────────────────
-  const buildContract = (doc, client, consultantSignature = null, clientSignature = null) => {
-    const companyLogo = cfg.companyLogo || '' // Assumindo que a logo está em cfg.companyLogo
-    const companyName = cfg.company || DEFAULT_CFG.company
-    const companySlogan = cfg.slogan || DEFAULT_CFG.slogan
-    const contractTemplate = cfg.contractTemplate || '' // Conteúdo do template de contrato
-    const proposalTemplate = cfg.proposalTemplate || '' // Conteúdo do template de proposta
-
-    const isContract = doc.type === 'contract'
-    const templateContent = isContract ? contractTemplate : proposalTemplate
-
-    const productsTable = doc.results.map(item => `
-      <tr>
-        <td>${item.name}</td>
-        <td>${getPlanLabel(item.plan, cfg.plans)}</td>
-        <td>${fmt(item.adD)}</td>
-        <td>${fmt(item.menD)}</td>
-      </tr>
-    `).join('')
-
+  // ── Funções de Documentos (Proposta/Contrato) ────────────────
+  const buildContract = (quote, client, consultor, signToken, signManifest = {}) => {
     const today = new Date().toLocaleDateString('pt-BR')
+    const companyLogo = cfg.logob64 ? `<img src="${cfg.logob64}" alt="${cfg.company}" style="max-height: 60px; margin-bottom: 20px;" />` : ''
+    const companyName = cfg.company || 'VIVANEXA'
+    const companySlogan = cfg.slogan || 'Assistente Comercial de Preços'
+    const contractTemplate = cfg.contractTemplate || `
+      <p>Prezado(a) ${client.contatoNome || client.nomeFantasia},</p>
+      <p>A ${companyName}, com sede em [ENDEREÇO DA EMPRESA], inscrita no CNPJ sob o nº [CNPJ DA EMPRESA], doravante denominada "CONTRATADA", e ${client.razaoSocial || client.nomeFantasia}, inscrita no CPF/CNPJ sob o nº ${fmtDoc(client.cpfCnpj)}, com sede em ${client.endereco}, ${client.bairro}, ${client.cidade} - ${client.estado}, CEP ${client.cep}, doravante denominada "CONTRATANTE", têm entre si, justo e contratado o presente instrumento, mediante as cláusulas e condições seguintes:</p>
+      <p><strong>CLÁUSULA PRIMEIRA – DO OBJETO</strong></p>
+      <p>O presente contrato tem por objeto a prestação de serviços de software e consultoria, conforme os módulos e planos detalhados abaixo:</p>
+      <!-- TABELA DE PRODUTOS -->
+      <p><strong>CLÁUSULA SEGUNDA – DOS VALORES E FORMA DE PAGAMENTO</strong></p>
+      <p>Pela prestação dos serviços, a CONTRATANTE pagará à CONTRATADA os valores de Adesão e Mensalidade, conforme detalhado na tabela acima.</p>
+      <p><strong>Adesão:</strong> ${fmt(quote.tAd)}</p>
+      <p><strong>Mensalidade:</strong> ${fmt(quote.tMen)}</p>
+      <p><strong>Condição de Pagamento da Adesão:</strong> ${contractPayment.adesaoCondition === 'vista' ? 'À vista' : contractPayment.adesaoCondition === 'cartao' ? 'Cartão de Crédito' : 'Boleto Parcelado'}</p>
+      ${contractPayment.adesaoDueDate ? `<p><strong>Vencimento da Adesão:</strong> ${contractPayment.adesaoDueDate}</p>` : ''}
+      ${contractPayment.mensalidadeDueDate ? `<p><strong>Vencimento da Mensalidade:</strong> ${contractPayment.mensalidadeDueDate}</p>` : ''}
+      <p><strong>CLÁUSULA TERCEIRA – DA VIGÊNCIA</strong></p>
+      <p>O presente contrato terá vigência de 12 (doze) meses, renováveis automaticamente por iguais períodos, salvo manifestação em contrário de qualquer das partes, com antecedência mínima de 30 (trinta) dias do término do período.</p>
+      <p><strong>CLÁUSULA QUARTA – DO FORO</strong></p>
+      <p>Fica eleito o foro da comarca de [CIDADE/ESTADO DA EMPRESA] para dirimir quaisquer dúvidas ou litígios decorrentes do presente contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja.</p>
+      <p>E, por estarem assim justos e contratados, as partes assinam o presente instrumento em 2 (duas) vias de igual teor e forma, na presença das duas testemunhas abaixo.</p>
+      <p>Data: ${today}</p>
+      <!-- ASSINATURAS -->
+      <!-- MANIFESTO DE ASSINATURA -->
+    `
 
-    // Formatação das assinaturas
-    const consultantSignatureHtml = consultantSignature ? `
-      <div style="text-align: center; margin-top: 40px;">
-        <img src="${consultantSignature}" alt="Assinatura do Consultor" style="max-width: 200px; height: auto; border-bottom: 1px solid #000; padding-bottom: 5px;">
-        <p style="margin-top: 5px; font-size: 14px;">${session?.user?.user_metadata?.name || 'Consultor Vivanexa'}</p>
-        <p style="font-size: 12px;">CPF: ${session?.user?.user_metadata?.cpf || 'Não informado'}</p>
-        <p style="font-size: 12px;">E-mail: ${session?.user?.email || 'Não informado'}</p>
-      </div>
-    ` : `
-      <div style="text-align: center; margin-top: 40px;">
-        <div style="width: 200px; height: 100px; border-bottom: 1px solid #000; margin: 0 auto;"></div>
-        <p style="margin-top: 5px; font-size: 14px;">${session?.user?.user_metadata?.name || 'Consultor Vivanexa'}</p>
-        <p style="font-size: 12px;">CPF: ${session?.user?.user_metadata?.cpf || 'Não informado'}</p>
-        <p style="font-size: 12px;">E-mail: ${session?.user?.email || 'Não informado'}</p>
-      </div>
-    `;
+    const productsTable = `
+      <table style="width:100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 20px;">
+        <thead>
+          <tr style="background-color: #f2f2f2;">
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Módulo</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Adesão</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: right;">Mensalidade</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Plano</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${quote.results.map(p => `
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 8px;">${p.name}</td>
+              <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${fmt(p.ad)}</td>
+              <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${fmt(p.men)}</td>
+              <td style="border: 1px solid #ddd; padding: 8px;">${getPlanLabel(p.plan, cfg.plans)}</td>
+            </tr>
+          `).join('')}
+          <tr style="background-color: #f2f2f2; font-weight: bold;">
+            <td style="border: 1px solid #ddd; padding: 8px;">Total</td>
+            <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${fmt(quote.tAd)}</td>
+            <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">${fmt(quote.tMen)}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;"></td>
+          </tr>
+        </tbody>
+      </table>
+    `
 
-    const clientSignatureHtml = clientSignature ? `
-      <div style="text-align: center; margin-top: 40px;">
-        <img src="${clientSignature}" alt="Assinatura do Cliente" style="max-width: 200px; height: auto; border-bottom: 1px solid #000; padding-bottom: 5px;">
-        <p style="margin-top: 5px; font-size: 14px;">${client.contato_nome || client.nome_fantasia}</p>
-        <p style="font-size: 12px;">CPF/CNPJ: ${fmtDoc(client.cpf_cnpj)}</p>
-        <p style="font-size: 12px;">E-mail: ${client.email}</p>
+    let signaturesHtml = `
+      <div style="margin-top: 50px; display: flex; justify-content: space-around; flex-wrap: wrap;">
+        <div style="text-align: center; margin: 20px;">
+          ${consultor?.assinatura ? `<img src="${consultor.assinatura}" alt="Assinatura do Consultor" style="max-width: 200px; height: auto; border-bottom: 1px solid #000; padding-bottom: 5px;" />` : '<div style="width: 200px; height: 1px; background-color: #000; margin: 0 auto 5px auto;"></div>'}
+          <p style="margin-top: 5px; font-size: 14px;">${consultor?.nome || 'Consultor'}</p>
+          <p style="font-size: 12px;">${consultor?.email || ''}</p>
+          <p style="font-size: 12px;">${companyName}</p>
+        </div>
+        <div style="text-align: center; margin: 20px;">
+          ${signManifest.clientSignature ? `<img src="${signManifest.clientSignature}" alt="Assinatura do Cliente" style="max-width: 200px; height: auto; border-bottom: 1px solid #000; padding-bottom: 5px;" />` : '<div style="width: 200px; height: 1px; background-color: #000; margin: 0 auto 5px auto;"></div>'}
+          <p style="margin-top: 5px; font-size: 14px;">${signManifest.clientFullName || client.contatoNome || client.nomeFantasia}</p>
+          <p style="font-size: 12px;">${signManifest.clientCpf ? fmtDoc(signManifest.clientCpf) : fmtDoc(client.cpfContato || client.cpfCnpj)}</p>
+          <p style="font-size: 12px;">${signManifest.clientEmail || client.email}</p>
+          <p style="font-size: 12px;">${client.razaoSocial || client.nomeFantasia}</p>
+        </div>
       </div>
-    ` : `
-      <div style="text-align: center; margin-top: 40px;">
-        <div style="width: 200px; height: 100px; border-bottom: 1px solid #000; margin: 0 auto;"></div>
-        <p style="margin-top: 5px; font-size: 14px;">${client.contato_nome || client.nome_fantasia}</p>
-        <p style="font-size: 12px;">CPF/CNPJ: ${fmtDoc(client.cpf_cnpj)}</p>
-        <p style="font-size: 12px;">E-mail: ${client.email}</p>
+      <div style="margin-top: 30px; text-align: center; font-size: 12px; color: #555;">
+        <p>Testemunha 1: _________________________</p>
+        <p>Testemunha 2: _________________________</p>
       </div>
-    `;
+    `
 
-    const signaturesSection = `
-      <div style="display: flex; justify-content: space-around; margin-top: 80px; page-break-before: always;">
-        ${consultantSignatureHtml}
-        ${clientSignatureHtml}
-      </div>
-      <p style="text-align: center; margin-top: 20px; font-size: 10px; color: #666;">
-        Documento assinado eletronicamente em ${today}.
-        Detalhes da assinatura: IP, data e hora registrados.
-      </p>
-    `;
+    let manifestoHtml = ''
+    if (signManifest.consultorSignedAt || signManifest.clientSignedAt) {
+      manifestoHtml = `
+        <div style="margin-top: 50px; border-top: 1px solid #eee; padding-top: 20px; font-size: 10px; color: #777;">
+          <p><strong>Manifesto de Assinatura Eletrônica</strong></p>
+          <p>Este documento foi assinado eletronicamente conforme Lei nº 14.063/2020.</p>
+          ${signManifest.consultorSignedAt ? `
+            <p><strong>Consultor:</strong> ${signManifest.consultorFullName} (CPF: ${fmtDoc(signManifest.consultorCpf)}, E-mail: ${signManifest.consultorEmail})</p>
+            <p>Assinado em: ${new Date(signManifest.consultorSignedAt).toLocaleString('pt-BR')} (IP: ${signManifest.consultorIp})</p>
+          ` : ''}
+          ${signManifest.clientSignedAt ? `
+            <p><strong>Cliente:</strong> ${signManifest.clientFullName} (CPF: ${fmtDoc(signManifest.clientCpf)}, E-mail: ${signManifest.clientEmail})</p>
+            <p>Assinado em: ${new Date(signManifest.clientSignedAt).toLocaleString('pt-BR')} (IP: ${signManifest.clientIp})</p>
+          ` : ''}
+          <p>Token de Verificação: <strong>${signToken}</strong></p>
+        </div>
+      `
+    }
 
-    // Substituições no template
-    let html = `
+    let finalHtml = contractTemplate
+      .replace('<!-- TABELA DE PRODUTOS -->', productsTable)
+      .replace('<!-- ASSINATURAS -->', signaturesHtml)
+      .replace('<!-- MANIFESTO DE ASSINATURA -->', manifestoHtml)
+
+    // Substituições adicionais para placeholders comuns
+    finalHtml = finalHtml.replace(/|
+$
+ENDEREÇO DA EMPRESA
+$
+|/g, cfg.companyAddress || 'Não configurado')
+    finalHtml = finalHtml.replace(/|
+$
+CNPJ DA EMPRESA
+$
+|/g, cfg.companyCnpj || 'Não configurado')
+    finalHtml.replace(/|
+$
+CIDADE\/ESTADO DA EMPRESA
+$
+|/g, cfg.companyCityState || 'Não configurado')
+
+    return `
       <!DOCTYPE html>
       <html lang="pt-BR">
       <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>${isContract ? 'Contrato' : 'Proposta'} Comercial - ${companyName}</title>
+          <title>Contrato de Prestação de Serviços - ${client.nomeFantasia}</title>
           <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 20px; }
-              .container { max-width: 800px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 40px; }
               .header { text-align: center; margin-bottom: 30px; }
-              .header img { max-width: 150px; margin-bottom: 10px; }
-              .header h1 { margin: 0; color: #0056b3; }
-              .header p { margin: 5px 0 0; font-size: 1.1em; color: #555; }
-              h2 { color: #0056b3; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 30px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+              .header img { max-width: 150px; }
+              h1, h2, h3 { color: #0056b3; }
+              table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 20px; }
+              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
               th { background-color: #f2f2f2; }
-              .total { font-weight: bold; }
-              .footer { text-align: center; margin-top: 50px; font-size: 0.9em; color: #777; }
-              .signature-area { margin-top: 60px; padding-top: 20px; border-top: 1px dashed #ccc; text-align: center; }
-              .signature-line { display: inline-block; width: 250px; border-bottom: 1px solid #000; margin: 0 40px; padding-bottom: 5px; }
-              .signature-name { margin-top: 5px; font-size: 0.9em; }
-              .page-break { page-break-before: always; }
+              .signature-block { margin-top: 50px; display: flex; justify-content: space-around; flex-wrap: wrap; }
+              .signature-item { text-align: center; margin: 20px; }
+              .signature-line { width: 200px; height: 1px; background-color: #000; margin: 0 auto 5px auto; }
+              .signature-image { max-width: 200px; height: auto; border-bottom: 1px solid #000; padding-bottom: 5px; }
+              .manifesto { margin-top: 50px; border-top: 1px solid #eee; padding-top: 20px; font-size: 10px; color: #777; }
           </style>
       </head>
       <body>
-          <div class="container">
-              <div class="header">
-                  ${companyLogo ? `<img src="${companyLogo}" alt="${companyName} Logo">` : ''}
-                  <h1>${companyName}</h1>
-                  <p>${companySlogan}</p>
-                  <h2>${isContract ? 'CONTRATO DE PRESTAÇÃO DE SERVIÇOS' : 'PROPOSTA COMERCIAL'}</h2>
-              </div>
-
-              ${templateContent || `
-              <p>Prezado(a) ${client.contato_nome || client.nome_fantasia},</p>
-              <p>Apresentamos a seguir a proposta de serviços da ${companyName}, desenvolvida para atender às necessidades de sua empresa.</p>
-              `}
-
-              <h2>Dados do Cliente</h2>
-              <p><strong>Nome Fantasia:</strong> ${client.nome_fantasia}</p>
-              <p><strong>Razão Social:</strong> ${client.razao_social}</p>
-              <p><strong>CPF/CNPJ:</strong> ${fmtDoc(client.cpf_cnpj)}</p>
-              <p><strong>Contato Principal:</strong> ${client.contato_nome}</p>
-              <p><strong>E-mail:</strong> ${client.email}</p>
-              <p><strong>Telefone:</strong> ${client.telefone}</p>
-              <p><strong>Endereço:</strong> ${client.endereco}, ${client.bairro}, ${client.cidade} - ${client.estado} - CEP: ${client.cep}</p>
-              <p><strong>Regime Tributário:</strong> ${client.regime_tributario}</p>
-
-              <h2>Serviços Contratados</h2>
-              <table>
-                  <thead>
-                      <tr>
-                          <th>Módulo</th>
-                          <th>Plano</th>
-                          <th>Adesão</th>
-                          <th>Mensalidade</th>
-                      </tr>
-                  </thead>
-                  <tbody>
-                      ${productsTable}
-                  </tbody>
-                  <tfoot>
-                      <tr class="total">
-                          <td colspan="2">Total</td>
-                          <td>${fmt(doc.tAdD)}</td>
-                          <td>${fmt(doc.tMenD)}</td>
-                      </tr>
-                  </tfoot>
-              </table>
-
-              <h2>Condições de Pagamento</h2>
-              <p><strong>Adesão:</strong> ${doc.paymentCondition === 'vista' ? 'Pagamento à vista' : doc.paymentCondition}</p>
-              <p><strong>Vencimento da Adesão:</strong> ${doc.adesaoDueDate}</p>
-              <p><strong>Vencimento da Mensalidade:</strong> Dia ${doc.mensalidadeDueDate} de cada mês.</p>
-
-              ${isContract ? `
-                <h2>Cláusulas Contratuais</h2>
-                <p>Aqui seriam inseridas as cláusulas padrão do contrato. Exemplo: Prazo de 12 meses, renovação automática, rescisão, confidencialidade, foro, etc.</p>
-                <p>Para detalhes completos, consulte o documento anexo ou o termo de serviço em nosso site.</p>
-              ` : `
-                <h2>Validade da Proposta</h2>
-                <p>Esta proposta é válida por 15 dias a partir da data de emissão.</p>
-              `}
-
-              <p style="margin-top: 30px;">Atenciosamente,</p>
-              <p><strong>${companyName}</strong></p>
-
-              ${signaturesSection}
-
-              <div class="footer">
-                  <p>${companyName} - ${companySlogan}</p>
-                  <p>Gerado em ${today}</p>
-              </div>
+          <div class="header">
+              ${companyLogo}
+              <h1>${companyName}</h1>
+              <p>${companySlogan}</p>
           </div>
+          ${finalHtml}
       </body>
       </html>
-    `;
-
-    // Substituições adicionais para o template personalizado
-    html = html.replace(/{{CLIENT_NAME}}/g, client.contato_nome || client.nome_fantasia)
-               .replace(/{{COMPANY_NAME}}/g, companyName)
-               .replace(/{{CONTRACT_ID}}/g, doc.id)
-               .replace(/{{TODAY_DATE}}/g, today)
-               .replace(/{{TOTAL_ADESAO}}/g, fmt(doc.tAdD))
-               .replace(/{{TOTAL_MENSALIDADE}}/g, fmt(doc.tMenD))
-               .replace(/{{PAYMENT_CONDITION}}/g, doc.paymentCondition === 'vista' ? 'Pagamento à vista' : doc.paymentCondition)
-               .replace(/{{ADESAO_DUE_DATE}}/g, doc.adesaoDueDate)
-               .replace(/{{MENSALIDADE_DUE_DATE}}/g, doc.mensalidadeDueDate)
-               .replace(/{{CONSULTANT_NAME}}/g, session?.user?.user_metadata?.name || 'Consultor Vivanexa')
-               .replace(/{{CONSULTANT_EMAIL}}/g, session?.user?.email || 'Não informado')
-               .replace(/{{CLIENT_CNPJ}}/g, fmtDoc(client.cpf_cnpj))
-               .replace(/{{CLIENT_EMAIL}}/g, client.email);
-
-    return html;
+    `
   }
 
-  // Nova função para gerar PDF e enviar e-mail
-  const generatePdfAndSendEmail = async (doc, client, consultantSignature, clientSignature) => {
-    setLoading(true);
+  const generatePdfAndSendEmail = async (docId, contractHtml, clientEmail, clientName, consultorEmail, consultorName, config) => {
     try {
-      const signedContractHtml = buildContract(doc, client, consultantSignature, clientSignature);
-
       // 1. Gerar PDF
       const pdfResponse = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ htmlContent: signedContractHtml }),
+        body: JSON.stringify({ htmlContent: contractHtml }),
       });
 
       if (!pdfResponse.ok) {
         const errorData = await pdfResponse.json();
-        throw new Error(`Erro ao gerar PDF: ${errorData.error}`);
+        throw new Error(errorData.error || 'Falha ao gerar PDF.');
       }
 
       const pdfBlob = await pdfResponse.blob();
@@ -817,28 +841,32 @@ Status: ${doc.status}
       reader.onloadend = async () => {
         const base64Pdf = reader.result.split(',')[1]; // Extrai o base64
 
-        // 2. Enviar e-mail com o PDF anexado
-        const emailConfig = cfg.emailConfig || {}; // Assumindo que as configs de email estão em cfg.emailConfig
-        const emailSubject = `Contrato Assinado - ${cfg.company || DEFAULT_CFG.company} - ${client.nome_fantasia}`;
+        // 2. Enviar E-mail com anexo
+        const emailSubject = `Contrato Assinado - ${clientName} - ${config.company}`;
         const emailBody = `
-          <p>Prezado(a) ${client.contato_nome || client.nome_fantasia},</p>
-          <p>Seu contrato com a ${cfg.company || DEFAULT_CFG.company} foi assinado por ambas as partes e está anexado a este e-mail.</p>
-          <p>Agradecemos a confiança!</p>
+          <p>Prezado(a) ${clientName},</p>
+          <p>Seu contrato com a ${config.company} foi assinado por ambas as partes e está anexado a este e-mail.</p>
+          <p>Em caso de dúvidas, entre em contato com seu consultor ${consultorName} (${consultorEmail}).</p>
           <p>Atenciosamente,</p>
-          <p>${cfg.company || DEFAULT_CFG.company}</p>
+          <p>${config.company}</p>
         `;
 
-        const sendEmailResponse = await fetch('/api/send-email', {
+        const emailResponse = await fetch('/api/send-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            to: client.email,
+            to: clientEmail,
             subject: emailSubject,
             html: emailBody,
-            from: emailConfig.smtpUser || 'noreply@vivanexa.com', // Remetente padrão ou configurado
-            config: emailConfig,
+            from: config.emailRemetente || 'noreply@vivanexa.com', // Usar e-mail configurado
+            config: {
+              smtpHost: config.smtpHost,
+              smtpPort: config.smtpPort,
+              smtpUser: config.smtpUser,
+              smtpPass: config.smtpPass,
+            },
             attachments: [{
-              filename: `contrato_${doc.id}.pdf`,
+              filename: `contrato_${clientName.replace(/\s/g, '_')}.pdf`,
               content: base64Pdf,
               encoding: 'base64',
               contentType: 'application/pdf'
@@ -846,260 +874,612 @@ Status: ${doc.status}
           }),
         });
 
-        if (!sendEmailResponse.ok) {
-          const errorData = await sendEmailResponse.json();
-          throw new Error(`Erro ao enviar e-mail: ${errorData.error}`);
+        if (!emailResponse.ok) {
+          const errorData = await emailResponse.json();
+          throw new Error(errorData.error || 'Falha ao enviar e-mail.');
         }
 
-        setMessages((prev) => [...prev, { role: 'assistant', content: `E-mail com o contrato PDF enviado para ${client.email}!` }]);
+        alert('Contrato assinado e e-mail com PDF enviado com sucesso!');
       };
     } catch (error) {
-      console.error('Erro no processo de PDF e e-mail:', error);
-      setMessages((prev) => [...prev, { role: 'assistant', content: `Erro ao gerar PDF ou enviar e-mail: ${error.message}` }]);
-    } finally {
-      setLoading(false);
+      console.error('Erro no fluxo de PDF/E-mail:', error);
+      alert(`Erro ao processar contrato e enviar e-mail: ${error.message}`);
     }
   };
 
 
-  // ── Renderização ────────────────────────────────────────────
-  if (!session || !cfg) {
-    return <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">Carregando...</div>
+  const handleSignContract = async (docId, clientSignatureData) => {
+    if (!cfg || !session) return
+
+    const docIndex = cfg.docHistory.findIndex(d => d.id === docId)
+    if (docIndex === -1) {
+      alert('Documento não encontrado.')
+      return
+    }
+
+    const doc = cfg.docHistory[docIndex]
+    const consultor = cfg.users.find(u => u.id === session.user.id)
+
+    const updatedDoc = { ...doc }
+    const now = new Date().toISOString()
+    const userIp = '127.0.0.1' // Em produção, você precisaria obter o IP real do servidor
+
+    // Coleta dados do consultor logado para o manifesto
+    const consultorManifest = {
+      consultorFullName: consultor?.nome || 'Consultor',
+      consultorCpf: consultor?.cpf || 'Não informado', // Adicione CPF ao perfil do consultor se tiver
+      consultorEmail: consultor?.email || session.user.email,
+      consultorSignedAt: now,
+      consultorIp: userIp,
+      consultorSignature: consultor?.assinatura || null,
+    }
+
+    // Coleta dados do cliente para o manifesto
+    const clientManifest = {
+      clientFullName: clientSignatureData.fullName,
+      clientCpf: clientSignatureData.cpf,
+      clientEmail: clientSignatureData.email,
+      clientSignedAt: now,
+      clientIp: userIp,
+      clientSignature: clientSignatureData.signatureImage, // A imagem da assinatura desenhada
+    }
+
+    // Atualiza o documento com as assinaturas e manifesto
+    updatedDoc.status = 'signed'
+    updatedDoc.signedAt = now
+    updatedDoc.signManifest = { ...consultorManifest, ...clientManifest } // Combina os manifestos
+
+    // Reconstroi o HTML do contrato com as assinaturas
+    const signedContractHtml = buildContract(
+      doc.quote,
+      doc.client,
+      consultor,
+      doc.signToken,
+      updatedDoc.signManifest // Passa o manifesto completo para buildContract
+    )
+    updatedDoc.html = signedContractHtml // Atualiza o HTML do documento no histórico
+
+    const updatedDocHistory = [...cfg.docHistory]
+    updatedDocHistory[docIndex] = updatedDoc
+
+    const updatedCfg = { ...cfg, docHistory: updatedDocHistory }
+    await saveConfig(updatedCfg)
+
+    // Enviar e-mail com o PDF do contrato assinado
+    await generatePdfAndSendEmail(
+      doc.id,
+      signedContractHtml,
+      clientSignatureData.email,
+      clientSignatureData.fullName,
+      consultor?.email || session.user.email,
+      consultor?.nome || 'Consultor',
+      cfg
+    );
+
+    alert('Contrato assinado com sucesso e e-mail enviado!')
+    router.push('/chat')
   }
 
-  const userIsAdmin = session?.user?.user_metadata?.perfil === 'admin' || cfg.users?.find(u => u.user_id === session.user.id)?.perfil === 'admin'
+  // ── Renderização ────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900 text-gray-300">
+        Carregando...
+      </div>
+    )
+  }
+
+  if (!session) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900 text-gray-300">
+        Redirecionando para login...
+      </div>
+    )
+  }
+
+  const currentConsultor = cfg.users.find(u => u.id === session.user.id) || { nome: 'Consultor', email: session.user.email, perfil: 'padrao' }
+  const isAdmin = currentConsultor.perfil === 'admin'
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900 text-white">
+    <div className="flex flex-col h-screen bg-gray-900 text-gray-100">
       <Head>
-        <title>{cfg.company || DEFAULT_CFG.company} - Assistente Comercial</title>
+        <title>{cfg.company || 'Vivanexa'} – Assistente Comercial</title>
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
       {/* Header */}
       <header className="flex items-center justify-between p-4 bg-gray-800 shadow-md">
-        <div className="flex items-center cursor-pointer" onClick={() => router.push('/chat')}>
-          {cfg.companyLogo && <img src={cfg.companyLogo} alt="Logo" className="h-8 mr-2" />}
-          <h1 className="text-xl font-bold">{cfg.company || DEFAULT_CFG.company}</h1>
-          <p className="ml-2 text-sm text-gray-400">{cfg.slogan || DEFAULT_CFG.slogan}</p>
+        <div className="flex items-center space-x-2 cursor-pointer" onClick={() => router.push('/chat')}>
+          {cfg.logob64 ? (
+            <img src={cfg.logob64} alt={cfg.company} className="h-9" />
+          ) : (
+            <h1 className="text-2xl font-bold text-blue-400">{cfg.company || 'VIVANEXA'}</h1>
+          )}
+          <span className="text-sm text-gray-400 hidden sm:block">{cfg.slogan || 'Assistente Comercial de Preços'}</span>
         </div>
         <nav className="flex items-center space-x-4">
-          <button onClick={() => setShowReportsModal(true)} className="text-gray-300 hover:text-white">Relatórios</button>
-          <button onClick={() => setShowConfig(true)} className="text-gray-300 hover:text-white">Configurações</button>
-          <button onClick={handleLogout} className="text-red-400 hover:text-red-300">Sair</button>
+          <button onClick={() => router.push('/dashboard')} className="text-gray-300 hover:text-blue-400 transition-colors">📊 Dashboard</button>
+          <button onClick={() => setShowReportsModal(true)} className="text-gray-300 hover:text-blue-400 transition-colors">📈 Relatórios</button>
+          <button onClick={() => setShowConfigModal(true)} className="text-gray-300 hover:text-blue-400 transition-colors">⚙️ Configurações</button>
+          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="text-gray-300 hover:text-red-400 transition-colors">Sair</button>
         </nav>
       </header>
 
       {/* Main Chat Area */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-64 bg-gray-800 p-4 border-r border-gray-700 flex flex-col">
-          <h2 className="text-lg font-semibold mb-4">Menu</h2>
-          <nav className="flex-1">
-            <ul>
-              <li className="mb-2"><a href="#" className="block p-2 rounded hover:bg-gray-700">📊 Dashboard</a></li>
-              <li className="mb-2"><a href="#" className="block p-2 rounded hover:bg-gray-700">📊 Metas</a></li>
-              <li className="mb-2"><a href="#" className="block p-2 rounded hover:bg-gray-700">📄 Documentos</a></li>
-              <li className="mb-2"><a href="#" className="block p-2 rounded hover:bg-gray-700">🗂️ Histórico</a></li>
-              <li className="mb-2"><a href="#" className="block p-2 rounded hover:bg-gray-700">✍️ Assinaturas</a></li>
-              {userIsAdmin && <li className="mb-2"><button onClick={() => setShowAdminPanel(true)} className="block w-full text-left p-2 rounded hover:bg-gray-700">🔑 Admin</button></li>}
-              <li className="mb-2"><button onClick={() => setShowConfig(true)} className="block w-full text-left p-2 rounded hover:bg-gray-700">⚙️ Configurações</button></li>
-              <li className="mb-2"><button onClick={handleLogout} className="block w-full text-left p-2 rounded hover:bg-gray-700">Sair</button></li>
-            </ul>
-          </nav>
-          <div className="mt-auto text-sm text-gray-500">
-            <p>Usuário: {session.user.email}</p>
-            <p>Perfil: {userIsAdmin ? 'Administrador' : 'Padrão'}</p>
-          </div>
-        </aside>
-
-        {/* Chat Content */}
-        <section className="flex-1 flex flex-col p-4 bg-gray-900">
-          <div className="flex-1 overflow-y-auto pr-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#4a5568 #2d3748' }}>
-            {messages.map((msg, index) => (
-              <div key={index} className={`mb-4 p-3 rounded-lg max-w-3/4 ${msg.role === 'user' ? 'bg-blue-600 ml-auto' : 'bg-gray-700 mr-auto'}`}>
-                <p className="font-bold">{msg.role === 'user' ? 'Você' : 'Assistente'}</p>
-                <div dangerouslySetInnerHTML={{ __html: msg.content }} />
-                {msg.role === 'assistant' && msg.content.includes('Gerar Proposta') && (
-                  <button onClick={() => handleOpenSignModal(msg.document)} className="mt-2 px-3 py-1 bg-green-500 rounded hover:bg-green-600">Gerar Proposta</button>
-                )}
-                {msg.role === 'assistant' && msg.content.includes('Gerar Contrato') && (
-                  <button onClick={() => {
-                    setSelectedClient(cfg.clients.find(c => c.id === msg.document.clientId));
-                    setShowPaymentModal(true);
-                    // Temporariamente armazenar o documento para uso no modal de pagamento
-                    // Isso pode ser melhorado com um estado específico para o documento em edição
-                    setMessages((prev) => [...prev, { role: 'system', content: JSON.stringify(msg.document) }]);
-                  }} className="mt-2 px-3 py-1 bg-green-500 rounded hover:bg-green-600">Configurar Contrato</button>
-                )}
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input Area */}
-          <form onSubmit={handleSendMessage} className="flex mt-4">
-            <input
-              type="text"
-              value={input}
-              onChange={handleInputChange}
-              placeholder={loading ? 'Pensando...' : 'Digite sua mensagem...'}
-              className="flex-1 p-3 rounded-l-lg bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500"
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              className="px-6 py-3 bg-blue-600 rounded-r-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-              disabled={loading}
+      <main className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+        {messages.map((msg, index) => (
+          <div
+            key={index}
+            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`max-w-xl p-3 rounded-lg shadow-md ${
+                msg.role === 'user'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-100'
+              }`}
             >
-              {loading ? 'Enviando...' : 'Enviar'}
-            </button>
-          </form>
-          {cfg.modChips && (
-            <div className="flex flex-wrap gap-2 mt-2">
-              {ALL_MODS.map(mod => (
-                <span
-                  key={mod}
-                  onClick={() => handleChipClick(mod)}
-                  className="px-3 py-1 bg-gray-700 rounded-full text-sm cursor-pointer hover:bg-gray-600"
-                >
-                  {pn(mod, cfg)}
-                </span>
+              {msg.content.split('\n').map((line, i) => (
+                <p key={i} className="mb-1 last:mb-0">
+                  {line}
+                </p>
               ))}
-              <span
-                onClick={handleClearChat}
-                className="px-3 py-1 bg-red-700 rounded-full text-sm cursor-pointer hover:bg-red-600"
-              >
-                Limpar Chat
-              </span>
+              {msg.role === 'assistant' && msg.content.includes('```json') && (
+                <button
+                  onClick={() => {
+                    const jsonMatch = msg.content.match(/```json\n([\s\S]*?)\n```/)
+                    if (jsonMatch && jsonMatch[1]) {
+                      try {
+                        const quoteData = JSON.parse(jsonMatch[1])
+                        const client = cfg.clients.find(c => clean(c.cpfCnpj) === clean(quoteData.clientCpfCnpj))
+                        if (!client) {
+                          alert('Cliente não encontrado. Por favor, cadastre o cliente antes de gerar o contrato.')
+                          return
+                        }
+                        const contractHtml = buildContract(quoteData, client, currentConsultor, generateToken())
+                        const newDoc = {
+                          id: generateToken(),
+                          type: 'contract',
+                          status: 'draft',
+                          criado: new Date().toISOString(),
+                          userId: session.user.id,
+                          client: client,
+                          quote: quoteData,
+                          html: contractHtml,
+                          signToken: generateToken(),
+                        }
+                        const updatedCfg = { ...cfg, docHistory: [...(cfg.docHistory || []), newDoc] }
+                        saveConfig(updatedCfg)
+                        alert('Contrato gerado e salvo no histórico de documentos!')
+                        router.push(`/sign/${newDoc.signToken}`)
+                      } catch (e) {
+                        console.error('Erro ao parsear JSON ou gerar contrato:', e)
+                        alert('Erro ao gerar contrato. Verifique os dados da proposta.')
+                      }
+                    }
+                  }}
+                  className="mt-2 px-4 py-2 bg-green-600 rounded-md hover:bg-green-700 transition-colors text-sm"
+                >
+                  📄 Gerar Contrato
+                </button>
+              )}
+              {msg.role === 'assistant' && cfg.modChips && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {msg.content.includes('Módulos:') && ALL_MODS.map(mod => (
+                    <button
+                      key={mod}
+                      onClick={() => handleChipClick(mod)}
+                      className="px-3 py-1 bg-gray-600 rounded-full text-xs hover:bg-gray-500 transition-colors"
+                    >
+                      {pn(mod, cfg)}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </section>
+          </div>
+        ))}
+        {isTyping && (
+          <div className="flex justify-start">
+            <div className="max-w-xl p-3 rounded-lg shadow-md bg-gray-700 text-gray-100">
+              Digitando...
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
       </main>
 
-      {/* Modals */}
-      {/* Configurações Modal */}
-      {showConfig && (
+      {/* Input Area */}
+      <form onSubmit={sendMessage} className="flex p-4 bg-gray-800 border-t border-gray-700">
+        <input
+          ref={inputRef}
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Digite sua mensagem..."
+          className="flex-1 p-3 rounded-l-lg bg-gray-700 border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          disabled={isTyping}
+        />
+        <button
+          type="submit"
+          className="px-6 py-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={isTyping}
+        >
+          Enviar
+        </button>
+      </form>
+
+      {/* Config Modal */}
+      {showConfigModal && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">⚙️ Configurações</h3>
-            <button onClick={() => setShowConfig(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto relative">
+            <h2 className="text-3xl font-bold mb-6 text-center text-blue-400">⚙️ Configurações</h2>
+            <button onClick={() => setShowConfigModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
 
             {/* Abas de Configuração */}
-            <div className="flex border-b border-gray-700 mb-6">
-              {/* Simplificado para fins de exemplo, você pode adicionar mais abas */}
-              <button className="py-2 px-4 text-blue-400 border-b-2 border-blue-400">Geral</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">Empresa</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">Metas</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">KPIs</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">Usuários</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">Produtos</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">Descontos</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">Vouchers</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">Documentos</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">Clientes</button>
-              <button className="py-2 px-4 text-gray-400 hover:text-white">Tema</button>
+            <div className="flex flex-wrap gap-2 mb-6">
+              {['Empresa', 'Metas', 'KPIs', 'Usuários', 'Produtos', 'Descontos', 'Vouchers', 'Documentos', 'Assinatura', 'Clientes', 'Tema'].map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setCfg(prev => ({ ...prev, currentConfigTab: tab }))}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${cfg.currentConfigTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                >
+                  {tab}
+                </button>
+              ))}
             </div>
 
-            {/* Conteúdo da Aba Geral */}
-            <div className="space-y-6">
-              {/* Identidade Visual */}
-              <div className="bg-gray-700 p-4 rounded-md">
-                <h4 className="font-semibold mb-3">Identidade Visual</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300">Nome da Empresa</label>
-                    <input
-                      type="text"
-                      value={cfg.company || ''}
-                      onChange={(e) => setCfg(prev => ({ ...prev, company: e.target.value }))}
-                      className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300">Slogan / Subtítulo</label>
-                    <input
-                      type="text"
-                      value={cfg.slogan || ''}
-                      onChange={(e) => setCfg(prev => ({ ...prev, slogan: e.target.value }))}
-                      className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-300">Logomarca (URL)</label>
-                    <input
-                      type="text"
-                      value={cfg.companyLogo || ''}
-                      onChange={(e) => setCfg(prev => ({ ...prev, companyLogo: e.target.value }))}
-                      placeholder="URL da imagem da logo (PNG/JPG)"
-                      className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                    />
-                    {cfg.companyLogo && <img src={cfg.companyLogo} alt="Logo Preview" className="mt-2 max-h-20" />}
-                  </div>
+            {/* Conteúdo das Abas */}
+            {cfg.currentConfigTab === 'Empresa' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">🏢 Identidade Visual</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Nome da Empresa</label>
+                  <input
+                    type="text"
+                    value={cfg.company || ''}
+                    onChange={(e) => setCfg({ ...cfg, company: e.target.value })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Slogan / Subtítulo</label>
+                  <input
+                    type="text"
+                    value={cfg.slogan || ''}
+                    onChange={(e) => setCfg({ ...cfg, slogan: e.target.value })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Logomarca (PNG/JPG — max 500kb)</label>
+                  <input
+                    type="file"
+                    accept="image/png, image/jpeg"
+                    onChange={(e) => {
+                      const file = e.target.files[0]
+                      if (file && file.size <= 500 * 1024) {
+                        const reader = new FileReader()
+                        reader.onloadend = () => {
+                          setCfg({ ...cfg, logob64: reader.result })
+                        }
+                        reader.readAsDataURL(file)
+                      } else {
+                        alert('A imagem deve ter no máximo 500kb.')
+                      }
+                    }}
+                    className="mt-1 block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                  {cfg.logob64 && <img src={cfg.logob64} alt="Logo Preview" className="mt-2 h-20" />}
+                </div>
+                <div className="flex justify-end mt-6">
+                  <button onClick={handleSaveCompanyConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar</button>
                 </div>
               </div>
+            )}
 
-              {/* Configurações Gerais */}
-              <div className="bg-gray-700 p-4 rounded-md">
-                <h4 className="font-semibold mb-3">Configurações Gerais</h4>
-                <div className="flex items-center">
+            {cfg.currentConfigTab === 'Metas' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">🎯 Metas de Vendas por Usuário</h3>
+                <p className="text-sm text-gray-400">Defina metas mensais de adesão e mensalidade para cada vendedor. O realizado é calculado automaticamente com base nos contratos com **ambas as partes assinadas**.</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Mês de Referência</label>
                   <input
-                    type="checkbox"
-                    checked={cfg.unlimitedStrategy || false}
-                    onChange={(e) => setCfg(prev => ({ ...prev, unlimitedStrategy: e.target.checked }))}
-                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                    type="month"
+                    value={cfg.currentGoalMonth || new Date().toISOString().slice(0, 7)}
+                    onChange={(e) => setCfg({ ...cfg, currentGoalMonth: e.target.value })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
                   />
-                  <label className="ml-2 block text-sm text-gray-300">Usuários Ilimitados nas ofertas</label>
                 </div>
-                <p className="text-xs text-gray-400 ml-6">Exibe "Usuários Ilimitados" nas ofertas com desconto e fechamento</p>
-                <div className="flex items-center mt-2">
-                  <input
-                    type="checkbox"
-                    checked={cfg.modChips || false}
-                    onChange={(e) => setCfg(prev => ({ ...prev, modChips: e.target.checked }))}
-                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                  />
-                  <label className="ml-2 block text-sm text-gray-300">Módulos Clicáveis (Chips)</label>
+                {(cfg.users || []).map(user => (
+                  <div key={user.id} className="border border-gray-700 p-4 rounded-md">
+                    <h4 className="font-semibold text-gray-200">{user.nome}</h4>
+                    <div className="flex space-x-4 mt-2">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400">Meta Adesão</label>
+                        <input
+                          type="number"
+                          value={(cfg.goals || []).find(g => g.userId === user.id && g.month === cfg.currentGoalMonth)?.adesao || ''}
+                          onChange={(e) => {
+                            const newGoals = [...(cfg.goals || [])]
+                            const goalIndex = newGoals.findIndex(g => g.userId === user.id && g.month === cfg.currentGoalMonth)
+                            if (goalIndex > -1) {
+                              newGoals[goalIndex].adesao = Number(e.target.value)
+                            } else {
+                              newGoals.push({ userId: user.id, month: cfg.currentGoalMonth, adesao: Number(e.target.value), mensalidade: 0 })
+                            }
+                            setCfg({ ...cfg, goals: newGoals })
+                          }}
+                          className="mt-1 block w-24 p-1 bg-gray-700 border border-gray-600 rounded-md text-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400">Meta Mensalidade</label>
+                        <input
+                          type="number"
+                          value={(cfg.goals || []).find(g => g.userId === user.id && g.month === cfg.currentGoalMonth)?.mensalidade || ''}
+                          onChange={(e) => {
+                            const newGoals = [...(cfg.goals || [])]
+                            const goalIndex = newGoals.findIndex(g => g.userId === user.id && g.month === cfg.currentGoalMonth)
+                            if (goalIndex > -1) {
+                              newGoals[goalIndex].mensalidade = Number(e.target.value)
+                            } else {
+                              newGoals.push({ userId: user.id, month: cfg.currentGoalMonth, adesao: 0, mensalidade: Number(e.target.value) })
+                            }
+                            setCfg({ ...cfg, goals: newGoals })
+                          }}
+                          className="mt-1 block w-24 p-1 bg-gray-700 border border-gray-600 rounded-md text-white text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex justify-end mt-6">
+                  <button onClick={() => saveConfig(cfg)} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Metas</button>
                 </div>
-                <p className="text-xs text-gray-400 ml-6">Exibe chips de módulos para preencher o input do chat</p>
               </div>
+            )}
 
-              {/* Modo de Desconto */}
-              <div className="bg-gray-700 p-4 rounded-md">
-                <h4 className="font-semibold mb-3">Modo de Desconto</h4>
-                <div className="space-y-2">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="discMode"
-                      value="screen"
-                      checked={cfg.discMode === 'screen'}
-                      onChange={(e) => setCfg(prev => ({ ...prev, discMode: e.target.value }))}
-                      className="h-4 w-4 text-blue-600 border-gray-300"
-                    />
-                    <span className="ml-2 text-sm text-gray-300">Desconto em Tela - Mostra desconto após o preço cheio automaticamente</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="discMode"
-                      value="voucher"
-                      checked={cfg.discMode === 'voucher'}
-                      onChange={(e) => setCfg(prev => ({ ...prev, discMode: e.target.value }))}
-                      className="h-4 w-4 text-blue-600 border-gray-300"
-                    />
-                    <span className="ml-2 text-sm text-gray-300">Somente via Voucher - Desconto só é aplicado com código de voucher válido</span>
-                  </label>
+            {cfg.currentConfigTab === 'KPIs' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">📊 Indicadores de Atividade (KPIs)</h3>
+                <p className="text-sm text-gray-400">Configure os KPIs que os vendedores irão acompanhar diariamente. Ex: ligações, agendamentos, contratos fechados.</p>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={cfg.kpiRequired || false}
+                    onChange={(e) => setCfg({ ...cfg, kpiRequired: e.target.checked })}
+                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                  />
+                  <label className="text-sm text-gray-300">Exigir preenchimento diário de KPIs?</label>
                 </div>
-                <h5 className="font-semibold mt-4 mb-2">Percentuais de Desconto</h5>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="border border-gray-700 p-4 rounded-md">
+                  <h4 className="font-semibold text-gray-200 mb-2">KPIs Configurados</h4>
+                  {(cfg.kpiTemplates || []).map((kpi, index) => (
+                    <div key={kpi.id} className="flex justify-between items-center py-1 border-b border-gray-700 last:border-b-0">
+                      <span className="text-gray-300">{kpi.name}</span>
+                      <button
+                        onClick={() => {
+                          const updatedKpis = cfg.kpiTemplates.filter((_, i) => i !== index)
+                          setCfg({ ...cfg, kpiTemplates: updatedKpis })
+                        }}
+                        className="text-red-500 hover:text-red-400 text-sm"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ))}
+                  <button onClick={() => setShowAddKpiModal(true)} className="mt-4 px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">➕ Adicionar KPI</button>
+                </div>
+
+                <h3 className="text-xl font-semibold text-blue-300 mt-6">🎯 Metas Diárias por Usuário</h3>
+                <p className="text-sm text-gray-400">Defina a meta diária de cada KPI para cada vendedor. O sistema calculará automaticamente a meta mensal (meta diária × dias úteis).</p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">💡 Selecione o mês para configurar as metas</label>
+                  <input
+                    type="month"
+                    value={cfg.currentKpiGoalMonth || new Date().toISOString().slice(0, 7)}
+                    onChange={(e) => setCfg({ ...cfg, currentKpiGoalMonth: e.target.value })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+                {(cfg.users || []).map(user => (
+                  <div key={user.id} className="border border-gray-700 p-4 rounded-md">
+                    <h4 className="font-semibold text-gray-200">{user.nome}</h4>
+                    {(cfg.kpiTemplates || []).map(kpi => (
+                      <div key={kpi.id} className="flex items-center space-x-4 mt-2">
+                        <label className="block text-xs font-medium text-gray-400 w-32">{kpi.name}</label>
+                        <input
+                          type="number"
+                          value={(cfg.kpiGoals || []).find(g => g.userId === user.id && g.kpiId === kpi.id && g.month === cfg.currentKpiGoalMonth)?.dailyGoal || ''}
+                          onChange={(e) => {
+                            const newKpiGoals = [...(cfg.kpiGoals || [])]
+                            const goalIndex = newKpiGoals.findIndex(g => g.userId === user.id && g.kpiId === kpi.id && g.month === cfg.currentKpiGoalMonth)
+                            if (goalIndex > -1) {
+                              newKpiGoals[goalIndex].dailyGoal = Number(e.target.value)
+                            } else {
+                              newKpiGoals.push({ userId: user.id, kpiId: kpi.id, month: cfg.currentKpiGoalMonth, dailyGoal: Number(e.target.value) })
+                            }
+                            setCfg({ ...cfg, kpiGoals: newKpiGoals })
+                          }}
+                          className="mt-1 block w-24 p-1 bg-gray-700 border border-gray-600 rounded-md text-white text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div className="flex justify-end mt-6">
+                  <button onClick={handleSaveKpiConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Metas de KPI</button>
+                </div>
+              </div>
+            )}
+
+            {cfg.currentConfigTab === 'Usuários' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">👥 Usuários do Sistema</h3>
+                <button onClick={() => setShowAddUserModal(true)} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">+ Novo Usuário</button>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-gray-700 rounded-lg">
+                    <thead>
+                      <tr>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Nome</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">E-mail</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Perfil</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(cfg.users || []).map(user => (
+                        <tr key={user.id}>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{user.nome}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{user.email}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{user.perfil}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm">
+                            <button onClick={() => { setCurrentUserToEdit(user); setShowEditUserModal(true); }} className="text-blue-400 hover:text-blue-300 mr-2">Editar</button>
+                            <button onClick={() => {
+                              if (confirm(`Tem certeza que deseja remover ${user.nome}?`)) {
+                                const updatedUsers = cfg.users.filter(u => u.id !== user.id)
+                                setCfg({ ...cfg, users: updatedUsers })
+                                handleSaveUsersConfig()
+                              }
+                            }} className="text-red-400 hover:text-red-300">Remover</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end mt-6">
+                  <button onClick={handleSaveUsersConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Usuários</button>
+                </div>
+              </div>
+            )}
+
+            {cfg.currentConfigTab === 'Produtos' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">📦 Produtos e Planos</h3>
+                <button onClick={() => setShowAddProductModal(true)} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">+ Novo Produto</button>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-gray-700 rounded-lg">
+                    <thead>
+                      <tr>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Produto</th>
+                        {(cfg.plans || []).map(plan => (
+                          <th key={plan.id} className="py-2 px-4 border-b border-gray-600 text-center text-sm font-semibold text-gray-300">{plan.name} (Adesão | Mens.)</th>
+                        ))}
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.keys(cfg.prices || {}).map(productKey => (
+                        <tr key={productKey}>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">
+                            {cfg.productNames[productKey] || productKey}
+                          </td>
+                          {(cfg.plans || []).map(plan => {
+                            const [adesao, mensalidade] = getPrice(productKey, plan.id, cfg)
+                            return (
+                              <td key={`${productKey}-${plan.id}`} className="py-2 px-4 border-b border-gray-600 text-center text-sm text-gray-200">
+                                {fmt(adesao)} | {fmt(mensalidade)}
+                              </td>
+                            )
+                          })}
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm">
+                            <button onClick={() => {
+                              setCurrentProductForPrice(productKey)
+                              setShowAddPriceModal(true)
+                            }} className="text-blue-400 hover:text-blue-300 mr-2">Editar Preços</button>
+                            <button onClick={() => {
+                              setCurrentProductToEdit({ originalName: productKey, name: cfg.productNames[productKey] || productKey })
+                              setShowEditProductModal(true)
+                            }} className="text-yellow-400 hover:text-yellow-300 mr-2">Editar Nome</button>
+                            <button onClick={() => {
+                              if (confirm(`Tem certeza que deseja remover o produto ${cfg.productNames[productKey] || productKey}?`)) {
+                                const updatedPrices = { ...cfg.prices }
+                                delete updatedPrices[productKey]
+                                const updatedProductNames = { ...cfg.productNames }
+                                delete updatedProductNames[productKey]
+                                setCfg({ ...cfg, prices: updatedPrices, productNames: updatedProductNames })
+                                handleSaveProductsConfig()
+                              }
+                            }} className="text-red-400 hover:text-red-300">Remover</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <h3 className="text-xl font-semibold text-blue-300 mt-6">Planos Disponíveis</h3>
+                <button onClick={() => setShowAddPlanModal(true)} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">+ Novo Plano</button>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-gray-700 rounded-lg">
+                    <thead>
+                      <tr>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Nome Exibido</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">ID/Chave</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-center text-sm font-semibold text-gray-300">Max CNPJs</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-center text-sm font-semibold text-gray-300">Usuários</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(cfg.plans || []).map(plan => (
+                        <tr key={plan.id}>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{plan.name}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{plan.id}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-center text-sm text-gray-200">{plan.maxCnpjs}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-center text-sm text-gray-200">{plan.unlimitedUsers ? '∞' : plan.users}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm">
+                            <button onClick={() => {
+                              if (confirm(`Tem certeza que deseja remover o plano ${plan.name}?`)) {
+                                const updatedPlans = cfg.plans.filter(p => p.id !== plan.id)
+                                setCfg({ ...cfg, plans: updatedPlans })
+                                handleSaveProductsConfig()
+                              }
+                            }} className="text-red-400 hover:text-red-300">Remover</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-end space-x-4 mt-6">
+                  <button onClick={handleSaveProductsConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Tudo</button>
+                  <button onClick={() => {
+                    if (confirm('Tem certeza que deseja restaurar os preços padrão? Isso apagará todas as suas configurações de preços personalizadas.')) {
+                      setCfg({ ...cfg, prices: DEFAULT_CFG.prices, productNames: DEFAULT_CFG.productNames, plans: DEFAULT_CFG.plans })
+                      handleSaveProductsConfig()
+                    }
+                  }} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">🔄 Restaurar preços padrão</button>
+                </div>
+              </div>
+            )}
+
+            {cfg.currentConfigTab === 'Descontos' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">🏷️ Descontos</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Modo de Desconto</label>
+                  <select
+                    value={cfg.discMode || 'screen'}
+                    onChange={(e) => setCfg({ ...cfg, discMode: e.target.value })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  >
+                    <option value="screen">Desconto em Tela (Mostra desconto após o preço cheio automaticamente)</option>
+                    <option value="voucher">Somente via Voucher (Desconto só é aplicado com código de voucher válido)</option>
+                  </select>
+                </div>
+                <h4 className="font-semibold text-gray-200 mt-4">Percentuais de Desconto</h4>
+                <div className="flex space-x-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-300">% Adesão (tela)</label>
                     <input
                       type="number"
                       value={cfg.discAdPct || 0}
-                      onChange={(e) => setCfg(prev => ({ ...prev, discAdPct: parseFloat(e.target.value) }))}
-                      className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                      onChange={(e) => setCfg({ ...cfg, discAdPct: Number(e.target.value) })}
+                      className="mt-1 block w-24 p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
                     />
                   </div>
                   <div>
@@ -1107,112 +1487,361 @@ Status: ${doc.status}
                     <input
                       type="number"
                       value={cfg.discMenPct || 0}
-                      onChange={(e) => setCfg(prev => ({ ...prev, discMenPct: parseFloat(e.target.value) }))}
-                      className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                      onChange={(e) => setCfg({ ...cfg, discMenPct: Number(e.target.value) })}
+                      className="mt-1 block w-24 p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
                     />
                   </div>
-                  <div className="col-span-2">
+                  <div>
                     <label className="block text-sm font-medium text-gray-300">% Adesão (fechamento)</label>
                     <input
                       type="number"
                       value={cfg.discClosePct || 0}
-                      onChange={(e) => setCfg(prev => ({ ...prev, discClosePct: parseFloat(e.target.value) }))}
-                      className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                      onChange={(e) => setCfg({ ...cfg, discClosePct: Number(e.target.value) })}
+                      className="mt-1 block w-24 p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
                     />
                   </div>
                 </div>
+                <div className="flex items-center space-x-2 mt-4">
+                  <input
+                    type="checkbox"
+                    checked={cfg.unlimitedStrategy || false}
+                    onChange={(e) => setCfg({ ...cfg, unlimitedStrategy: e.target.checked })}
+                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                  />
+                  <label className="text-sm text-gray-300">Usuários Ilimitados nas ofertas (Exibe "Usuários Ilimitados" nas ofertas com desconto e fechamento)</label>
+                </div>
+                <div className="flex justify-end mt-6">
+                  <button onClick={handleSaveDiscountConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar</button>
+                </div>
               </div>
+            )}
 
-              {/* Configurações de Assinatura Eletrônica */}
-              <div className="bg-gray-700 p-4 rounded-md">
-                <h4 className="font-semibold mb-3">Configurações de Assinatura Eletrônica</h4>
+            {cfg.currentConfigTab === 'Vouchers' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">🎫 Vouchers</h3>
+                <button onClick={() => setShowAddVoucherModal(true)} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">Gerar Novo Voucher</button>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-gray-700 rounded-lg">
+                    <thead>
+                      <tr>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Prefixo</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-center text-sm font-semibold text-gray-300">% Adesão</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-center text-sm font-semibold text-gray-300">% Mensalidade</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Data Comemorativa</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Ativo</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(cfg.vouchers || []).map(voucher => (
+                        <tr key={voucher.id}>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{voucher.prefix}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-center text-sm text-gray-200">{voucher.adPct}%</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-center text-sm text-gray-200">{voucher.menPct}%</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{voucher.commemorativeDate}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">
+                            <input
+                              type="checkbox"
+                              checked={voucher.active}
+                              onChange={(e) => {
+                                const updatedVouchers = cfg.vouchers.map(v => v.id === voucher.id ? { ...v, active: e.target.checked } : v)
+                                setCfg({ ...cfg, vouchers: updatedVouchers })
+                                handleSaveVouchersConfig()
+                              }}
+                              className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                            />
+                          </td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm">
+                            <button onClick={() => {
+                              if (confirm(`Tem certeza que deseja remover o voucher ${voucher.prefix}?`)) {
+                                const updatedVouchers = cfg.vouchers.filter(v => v.id !== voucher.id)
+                                setCfg({ ...cfg, vouchers: updatedVouchers })
+                                handleSaveVouchersConfig()
+                              }
+                            }} className="text-red-400 hover:text-red-300">Remover</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end mt-6">
+                  <button onClick={handleSaveVouchersConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Vouchers</button>
+                </div>
+              </div>
+            )}
+
+            {cfg.currentConfigTab === 'Documentos' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">📄 Modelos de Documentos</h3>
+                <p className="text-sm text-gray-400">Configure os modelos padrão usados em todas as propostas e contratos gerados. Deixe em branco para usar o modelo padrão do sistema.</p>
+                <div className="border border-gray-700 p-4 rounded-md">
+                  <h4 className="font-semibold text-gray-200 mb-2">📄 Modelo de Proposta Comercial</h4>
+                  <p className="text-sm text-gray-400 mb-2">Texto de abertura personalizado para propostas</p>
+                  <button onClick={() => { setCurrentDocTemplateType('proposal'); setDocTemplateContent(cfg.proposalTemplate || ''); setShowEditDocTemplateModal(true); }} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">✏️ Editar</button>
+                </div>
+                <div className="border border-gray-700 p-4 rounded-md">
+                  <h4 className="font-semibold text-gray-200 mb-2">📝 Modelo de Contrato</h4>
+                  <p className="text-sm text-gray-400 mb-2">Texto de abertura personalizado para contratos</p>
+                  <button onClick={() => { setCurrentDocTemplateType('contract'); setDocTemplateContent(cfg.contractTemplate || ''); setShowEditDocTemplateModal(true); }} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">✏️ Editar</button>
+                </div>
+                <div className="flex justify-end mt-6">
+                  <button onClick={handleSaveDocTemplatesConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Modelos</button>
+                </div>
+              </div>
+            )}
+
+            {cfg.currentConfigTab === 'Assinatura' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">✍️ Configurações de Assinatura Eletrônica</h3>
                 <div>
                   <label className="block text-sm font-medium text-gray-300">E-mail remetente (para envio)</label>
                   <input
                     type="email"
-                    value={cfg.emailConfig?.smtpUser || ''}
-                    onChange={(e) => setCfg(prev => ({ ...prev, emailConfig: { ...prev.emailConfig, smtpUser: e.target.value } }))}
-                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                    value={cfg.emailRemetente || ''}
+                    onChange={(e) => setCfg({ ...cfg, emailRemetente: e.target.value })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
                   />
                 </div>
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-300">URL base do sistema (para links de assinatura)</label>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">WhatsApp da empresa</label>
                   <input
                     type="text"
-                    value={cfg.baseUrl || ''}
-                    onChange={(e) => setCfg(prev => ({ ...prev, baseUrl: e.target.value }))}
-                    placeholder="Ex: https://seusistema.com"
-                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                    value={cfg.whatsappEmpresa || ''}
+                    onChange={(e) => setCfg({ ...cfg, whatsappEmpresa: e.target.value })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
                   />
-                  <p className="text-xs text-gray-400 mt-1">Se não configurado, será gerado um link local com os dados do documento</p>
                 </div>
-                {/* Adicione mais campos de configuração de SMTP se necessário */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">URL base do sistema (para links de assinatura)</label>
+                  <p className="text-xs text-gray-400 mb-1">Se não configurado, será gerado um link local com os dados do documento</p>
+                  <input
+                    type="url"
+                    value={cfg.baseUrl || ''}
+                    onChange={(e) => setCfg({ ...cfg, baseUrl: e.target.value })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+                <div className="flex justify-end mt-6">
+                  <button onClick={handleSaveSignatureConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Configurações</button>
+                  <button onClick={() => alert('Funcionalidade de teste de conexão Supabase em desenvolvimento.')} className="ml-4 px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">🔌 Testar Conexão Supabase</button>
+                </div>
               </div>
+            )}
 
-              {/* Botão Salvar */}
-              <div className="flex justify-end mt-6">
-                <button onClick={() => handleSaveCfg(cfg)} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar</button>
+            {cfg.currentConfigTab === 'Clientes' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">🗃️ Clientes</h3>
+                <div className="flex justify-between items-center">
+                  <input
+                    type="text"
+                    placeholder="Buscar por CPF/CNPJ ou Nome"
+                    value={clientSearchTerm}
+                    onChange={(e) => setClientSearchTerm(e.target.value)}
+                    className="flex-1 p-2 bg-gray-700 border border-gray-600 rounded-md text-white mr-2"
+                  />
+                  <button onClick={handleNewClient} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">+ Novo Cliente</button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-gray-700 rounded-lg">
+                    <thead>
+                      <tr>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Nome Fantasia</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">CPF/CNPJ</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Contato</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-semibold text-gray-300">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(filteredClients || []).map((client, index) => (
+                        <tr key={client.id}>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{client.nomeFantasia}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{fmtDoc(client.cpfCnpj)}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm text-gray-200">{client.contatoNome}</td>
+                          <td className="py-2 px-4 border-b border-gray-600 text-sm">
+                            <button onClick={() => handleEditClient(client, index)} className="text-blue-400 hover:text-blue-300 mr-2">Editar</button>
+                            <button onClick={() => {
+                              if (confirm(`Tem certeza que deseja remover o cliente ${client.nomeFantasia}?`)) {
+                                const updatedClients = cfg.clients.filter(c => c.id !== client.id)
+                                setCfg({ ...cfg, clients: updatedClients })
+                                handleSaveClientsConfig()
+                              }
+                            }} className="text-red-400 hover:text-red-300">Remover</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end mt-6">
+                  <button onClick={handleSaveClientsConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Clientes</button>
+                </div>
               </div>
-            </div>
+            )}
+
+            {cfg.currentConfigTab === 'Tema' && (
+              <div className="space-y-4">
+                <h3 className="text-xl font-semibold text-blue-300">🎨 Aparência</h3>
+                <div className="flex items-center space-x-4">
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name="theme"
+                      value="dark"
+                      checked={cfg.theme !== 'light'}
+                      onChange={() => setCfg({ ...cfg, theme: 'dark' })}
+                      className="h-4 w-4 text-blue-600 border-gray-300"
+                    />
+                    <span className="ml-2 text-gray-300">🌙 Tema Escuro (Fundo escuro com cores vibrantes - padrão)</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name="theme"
+                      value="light"
+                      checked={cfg.theme === 'light'}
+                      onChange={() => setCfg({ ...cfg, theme: 'light' })}
+                      className="h-4 w-4 text-blue-600 border-gray-300"
+                    />
+                    <span className="ml-2 text-gray-300">☀️ Tema Claro (Fundo branco, ideal para ambientes iluminados)</span>
+                  </label>
+                </div>
+                <div className="flex justify-end mt-6">
+                  <button onClick={handleSaveThemeConfig} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Tema</button>
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}
 
-      {/* Cliente Modal (Novo/Editar) */}
-      {(showClientModal || showEditClientModal) && (
+      {/* Client Modal (Add/Edit) */}
+      {showClientModal && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">{selectedClient ? '✏️ Editar Cliente' : '+ Novo Cliente'}</h3>
-            <button onClick={() => { setShowClientModal(false); setShowEditClientModal(false); setSelectedClient(null); setNewClientData({ cpf_cnpj: '', nome_fantasia: '', razao_social: '', contato_nome: '', email: '', telefone: '', cep: '', endereco: '', bairro: '', cidade: '', estado: '', resp_impl_nome: '', resp_impl_email: '', resp_impl_telefone: '', resp_fin_nome: '', resp_fin_email: '', resp_fin_telefone: '', cpf_contato_principal: '', regime_tributario: '' }) }} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <h3 className="text-2xl font-bold mb-6 text-center">{currentClient ? '✏️ Editar Cliente' : '➕ Novo Cliente'}</h3>
+            <button onClick={() => setShowClientModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300">CPF / CNPJ</label>
-                <input type="text" name="cpf_cnpj" value={newClientData.cpf_cnpj} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <label className="block text-sm font-medium text-gray-300">CPF / CNPJ *</label>
+                <input
+                  type="text"
+                  value={newClientData.cpfCnpj}
+                  onChange={(e) => setNewClientData({ ...newClientData, cpfCnpj: clean(e.target.value) })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  maxLength={14}
+                />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300">Nome Fantasia / Nome</label>
-                <input type="text" name="nome_fantasia" value={newClientData.nome_fantasia} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <label className="block text-sm font-medium text-gray-300">Nome Fantasia / Nome *</label>
+                <input
+                  type="text"
+                  value={newClientData.nomeFantasia}
+                  onChange={(e) => setNewClientData({ ...newClientData, nomeFantasia: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-sm font-medium text-gray-300">Razão Social</label>
-                <input type="text" name="razao_social" value={newClientData.razao_social} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.razaoSocial}
+                  onChange={(e) => setNewClientData({ ...newClientData, razaoSocial: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">Nome do Contato</label>
-                <input type="text" name="contato_nome" value={newClientData.contato_nome} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.contatoNome}
+                  onChange={(e) => setNewClientData({ ...newClientData, contatoNome: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">E-mail</label>
-                <input type="email" name="email" value={newClientData.email} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="email"
+                  value={newClientData.email}
+                  onChange={(e) => setNewClientData({ ...newClientData, email: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">Telefone / WhatsApp</label>
-                <input type="text" name="telefone" value={newClientData.telefone} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.telefone}
+                  onChange={(e) => setNewClientData({ ...newClientData, telefone: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">CEP</label>
-                <input type="text" name="cep" value={newClientData.cep} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.cep}
+                  onChange={(e) => setNewClientData({ ...newClientData, cep: clean(e.target.value) })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  maxLength={8}
+                />
               </div>
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-sm font-medium text-gray-300">Endereço</label>
-                <input type="text" name="endereco" value={newClientData.endereco} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.endereco}
+                  onChange={(e) => setNewClientData({ ...newClientData, endereco: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">Bairro</label>
-                <input type="text" name="bairro" value={newClientData.bairro} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.bairro}
+                  onChange={(e) => setNewClientData({ ...newClientData, bairro: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">Cidade</label>
-                <input type="text" name="cidade" value={newClientData.cidade} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.cidade}
+                  onChange={(e) => setNewClientData({ ...newClientData, cidade: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">Estado</label>
-                <input type="text" name="estado" value={newClientData.estado} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.estado}
+                  onChange={(e) => setNewClientData({ ...newClientData, estado: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
-              <div className="md:col-span-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-300">CPF do Contato Principal</label>
+                <input
+                  type="text"
+                  value={newClientData.cpfContato}
+                  onChange={(e) => setNewClientData({ ...newClientData, cpfContato: clean(e.target.value) })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  maxLength={11}
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-300">Regime Tributário</label>
-                <select name="regime_tributario" value={newClientData.regime_tributario} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white">
+                <select
+                  value={newClientData.regimeTributario}
+                  onChange={(e) => setNewClientData({ ...newClientData, regimeTributario: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                >
                   <option value="">Selecione...</option>
                   <option value="Simples Nacional">Simples Nacional</option>
                   <option value="Lucro Presumido">Lucro Presumido</option>
@@ -1222,218 +1851,146 @@ Status: ${doc.status}
               </div>
             </div>
 
-            <h4 className="font-semibold mt-6 mb-3">👷 Responsável pela Implantação</h4>
+            <h4 className="text-lg font-semibold text-blue-300 mt-6 mb-4">👷 Responsável pela Implantação</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300">Nome</label>
-                <input type="text" name="resp_impl_nome" value={newClientData.resp_impl_nome} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.implNome}
+                  onChange={(e) => setNewClientData({ ...newClientData, implNome: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">E-mail</label>
-                <input type="email" name="resp_impl_email" value={newClientData.resp_impl_email} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="email"
+                  value={newClientData.implEmail}
+                  onChange={(e) => setNewClientData({ ...newClientData, implEmail: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">Telefone</label>
-                <input type="text" name="resp_impl_telefone" value={newClientData.resp_impl_telefone} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.implTelefone}
+                  onChange={(e) => setNewClientData({ ...newClientData, implTelefone: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
             </div>
 
-            <h4 className="font-semibold mt-6 mb-3">💰 Responsável Financeiro</h4>
+            <h4 className="text-lg font-semibold text-blue-300 mt-6 mb-4">💰 Responsável Financeiro</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300">Nome</label>
-                <input type="text" name="resp_fin_nome" value={newClientData.resp_fin_nome} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.finanNome}
+                  onChange={(e) => setNewClientData({ ...newClientData, finanNome: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">E-mail</label>
-                <input type="email" name="resp_fin_email" value={newClientData.resp_fin_email} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="email"
+                  value={newClientData.finanEmail}
+                  onChange={(e) => setNewClientData({ ...newClientData, finanEmail: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300">Telefone</label>
-                <input type="text" name="resp_fin_telefone" value={newClientData.resp_fin_telefone} onChange={handleClientChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newClientData.finanTelefone}
+                  onChange={(e) => setNewClientData({ ...newClientData, finanTelefone: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
             </div>
 
             <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => { setShowClientModal(false); setShowEditClientModal(false); setSelectedClient(null); setNewClientData({ cpf_cnpj: '', nome_fantasia: '', razao_social: '', contato_nome: '', email: '', telefone: '', cep: '', endereco: '', bairro: '', cidade: '', estado: '', resp_impl_nome: '', resp_impl_email: '', resp_impl_telefone: '', resp_fin_nome: '', resp_fin_email: '', resp_fin_telefone: '', cpf_contato_principal: '', regime_tributario: '' }) }} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={() => setShowClientModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
               <button onClick={handleSaveClient} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Cliente</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Payment Modal (Configurar Contrato) */}
-      {showPaymentModal && (
+      {/* Add KPI Modal */}
+      {showAddKpiModal && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📝 Configurar Contrato</h3>
-            <button onClick={() => setShowPaymentModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <p className="mb-4">Preencha os dados de pagamento antes de gerar o contrato.</p>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-300 mb-2">💳 Condição de Pagamento da Adesão</label>
-              <select value={paymentCondition} onChange={handlePaymentConditionChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white">
-                <option value="vista">Pagamento à vista</option>
-                <option value="pix_boleto">PIX ou Boleto à vista</option>
-                <option value="cartao_credito">Cartão de Crédito — sem juros</option>
-                <option value="boleto_parcelado">Boleto parcelado — sem juros</option>
-              </select>
+            <h3 className="text-2xl font-bold mb-6 text-center">➕ Adicionar Novo KPI</h3>
+            <button onClick={() => setShowAddKpiModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <div>
+              <label className="block text-sm font-medium text-gray-300">Nome do KPI</label>
+              <input
+                type="text"
+                value={newKpiData.name}
+                onChange={(e) => setNewKpiData({ ...newKpiData, name: e.target.value })}
+                className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+              />
             </div>
+            <div className="flex justify-end space-x-4 mt-6">
+              <button onClick={() => setShowAddKpiModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={handleAddKpi} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Adicionar KPI</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-300 mb-2">📅 Datas de Vencimento</label>
-              <label className="block text-sm font-medium text-gray-400">Vencimento da Adesão *</label>
-              <select value={adesaoDueDate} onChange={handleAdesaoDueDateChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white">
-                <option value="">Selecione...</option>
-                {['5', '10', '15', '20', '25'].map(day => (
-                  <option key={day} value={day}>Dia {day} do próximo mês</option>
-                ))}
-                <option value="other">Outra data</option>
-              </select>
-              {adesaoDueDate === 'other' && (
+      {/* Add Voucher Modal */}
+      {showAddVoucherModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
+            <h3 className="text-2xl font-bold mb-6 text-center">🎫 Gerar Novo Voucher</h3>
+            <button onClick={() => setShowAddVoucherModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Prefixo</label>
                 <input
-                  type="date"
-                  value={otherAdesaoDueDate}
-                  onChange={handleOtherAdesaoDueDateChange}
-                  className="mt-2 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  type="text"
+                  value={newVoucherData.prefix}
+                  onChange={(e) => setNewVoucherData({ ...newVoucherData, prefix: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
                 />
-              )}
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-400">Vencimento da Mensalidade *</label>
-              <select value={mensalidadeDueDate} onChange={handleMensalidadeDueDateChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white">
-                <option value="5">Dia 5</option>
-                <option value="10">Dia 10</option>
-                <option value="15">Dia 15</option>
-                <option value="20">Dia 20</option>
-                <option value="25">Dia 25</option>
-                <option value="other">Outra data</option>
-              </select>
-              {mensalidadeDueDate === 'other' && (
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">% Adesão</label>
                 <input
-                  type="text" // Pode ser um date picker ou texto livre
-                  value={otherMensalidadeDueDate}
-                  onChange={handleOtherMensalidadeDueDateChange}
-                  placeholder="Ex: Último dia útil"
-                  className="mt-2 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  type="number"
+                  value={newVoucherData.adPct}
+                  onChange={(e) => setNewVoucherData({ ...newVoucherData, adPct: Number(e.target.value) })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
                 />
-              )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">% Mensalidade</label>
+                <input
+                  type="number"
+                  value={newVoucherData.menPct}
+                  onChange={(e) => setNewVoucherData({ ...newVoucherData, menPct: Number(e.target.value) })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Data comemorativa (opcional)</label>
+                <input
+                  type="text"
+                  value={newVoucherData.commemorativeDate}
+                  onChange={(e) => setNewVoucherData({ ...newVoucherData, commemorativeDate: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
             </div>
-
-            <div className="flex justify-between mt-6">
-              <button onClick={() => setShowPaymentModal(false)} className="px-4 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">← Voltar</button>
-              <button onClick={() => {
-                // O documento atual para configuração está no último item das mensagens do assistente
-                const lastDocMessage = messages.slice().reverse().find(m => m.role === 'system' && m.content.startsWith('{'));
-                if (lastDocMessage) {
-                  const doc = JSON.parse(lastDocMessage.content);
-                  handleGenerateContract(doc);
-                } else {
-                  alert('Erro: Documento não encontrado para configuração.');
-                }
-              }} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">Próximo →</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CRM Data Modal */}
-      {showCRMModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📋 Dados para o CRM</h3>
-            <button onClick={() => setShowCRMModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-            <textarea
-              readOnly
-              value={crmData}
-              className="w-full h-96 p-4 bg-gray-900 border border-gray-600 rounded-md text-white font-mono text-sm"
-            ></textarea>
             <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={handleCopyCRMData} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">📋 Copiar tudo</button>
-              <button onClick={() => setShowCRMModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Fechar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit User Modal */}
-      {showEditUserModal && editingUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">✏️ Editar Usuário</h3>
-            <button onClick={() => setShowEditUserModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nome Completo</label>
-                <input type="text" value={editingUser.nome} onChange={(e) => setEditingUser(prev => ({ ...prev, nome: e.target.value }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Usuário (login)</label>
-                <input type="text" value={editingUser.email} disabled className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-gray-400 cursor-not-allowed" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">E-mail</label>
-                <input type="email" value={editingUser.email} onChange={(e) => setEditingUser(prev => ({ ...prev, email: e.target.value }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Telefone</label>
-                <input type="text" value={editingUser.telefone} onChange={(e) => setEditingUser(prev => ({ ...prev, telefone: e.target.value }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-300">Nova Senha (vazio = manter)</label>
-                <input type="password" placeholder="********" className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-300">Perfil</label>
-                <select value={editingUser.perfil} onChange={(e) => setEditingUser(prev => ({ ...prev, perfil: e.target.value }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white">
-                  <option value="padrao">Padrão</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </div>
-            </div>
-
-            <h4 className="font-semibold mt-6 mb-3">✍️ Assinatura do Consultor (aparece nos contratos)</h4>
-            <div className="flex items-center space-x-4">
-              {editUserSignature && <img src={editUserSignature} alt="Assinatura" className="h-20 border border-gray-600 rounded-md" />}
-              <button onClick={() => setShowDrawSignatureModal(true)} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✍️ Desenhar</button>
-              {editUserSignature && <button onClick={clearSignature} className="px-4 py-2 bg-red-600 rounded-lg hover:bg-red-700 transition-colors">🗑 Limpar</button>}
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowEditUserModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={handleSaveUser} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Draw Signature Modal */}
-      {showDrawSignatureModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-xl relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">✍️ Desenhar Assinatura</h3>
-            <button onClick={() => setShowDrawSignatureModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-            <canvas
-              ref={initSignatureCanvas}
-              width="400"
-              height="200"
-              className="border border-gray-600 bg-white rounded-md cursor-crosshair mx-auto block"
-              onMouseDown={startDrawing}
-              onMouseUp={stopDrawing}
-              onMouseOut={stopDrawing}
-              onMouseMove={draw}
-              onTouchStart={startDrawing}
-              onTouchEnd={stopDrawing}
-              onTouchCancel={stopDrawing}
-              onTouchMove={draw}
-            ></canvas>
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={clearSignature} className="px-6 py-2 bg-red-600 rounded-lg hover:bg-red-700 transition-colors">🗑 Limpar</button>
-              <button onClick={saveSignature} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Usar esta assinatura</button>
-              <button onClick={() => setShowDrawSignatureModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={() => setShowAddVoucherModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={handleAddVoucher} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">🎫 Gerar Voucher</button>
             </div>
           </div>
         </div>
@@ -1445,29 +2002,302 @@ Status: ${doc.status}
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
             <h3 className="text-2xl font-bold mb-6 text-center">📦 Novo Produto</h3>
             <button onClick={() => setShowAddProductModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300">Nome do Produto</label>
-                <input type="text" value={newProductData.name} onChange={(e) => setNewProductData(prev => ({ ...prev, name: e.target.value }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <input
+                  type="text"
+                  value={newProductData.name}
+                  onChange={(e) => setNewProductData({ ...newProductData, name: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">ID/Chave Interna</label>
-                <input type="text" value={newProductData.internal_key} onChange={(e) => setNewProductData(prev => ({ ...prev, internal_key: e.target.value }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={newProductData.noAdesao}
+                  onChange={(e) => setNewProductData({ ...newProductData, noAdesao: e.target.checked })}
+                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                />
+                <label className="text-sm text-gray-300">Sem adesão (módulo como CND)</label>
               </div>
-              <div className="flex items-center">
-                <input type="checkbox" checked={newProductData.no_adesao} onChange={(e) => setNewProductData(prev => ({ ...prev, no_adesao: e.target.checked }))} className="h-4 w-4 text-blue-600 border-gray-300 rounded" />
-                <label className="ml-2 block text-sm text-gray-300">Sem adesão (módulo como CND)</label>
-              </div>
-              <div className="flex items-center">
-                <input type="checkbox" checked={newProductData.basic_pro_top_only} onChange={(e) => setNewProductData(prev => ({ ...prev, basic_pro_top_only: e.target.checked }))} className="h-4 w-4 text-blue-600 border-gray-300 rounded" />
-                <label className="ml-2 block text-sm text-gray-300">Apenas planos Basic/Pro/Top (como IF/EP)</label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={newProductData.basicProTopOnly}
+                  onChange={(e) => setNewProductData({ ...newProductData, basicProTopOnly: e.target.checked })}
+                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                />
+                <label className="text-sm text-gray-300">Apenas planos Basic/Pro/Top (como IF/EP)</label>
               </div>
             </div>
-
             <div className="flex justify-end space-x-4 mt-6">
               <button onClick={() => setShowAddProductModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
               <button onClick={handleAddProduct} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Adicionar Produto</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Product Modal */}
+      {showEditProductModal && currentProductToEdit && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
+            <h3 className="text-2xl font-bold mb-6 text-center">✏️ Editar Produto</h3>
+            <button onClick={() => setShowEditProductModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Nome do Produto</label>
+                <input
+                  type="text"
+                  value={currentProductToEdit.name}
+                  onChange={(e) => setCurrentProductToEdit({ ...currentProductToEdit, name: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-4 mt-6">
+              <button onClick={() => setShowEditProductModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={handleEditProduct} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Price to Product Modal */}
+      {showAddPriceModal && currentProductForPrice && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
+            <h3 className="text-2xl font-bold mb-6 text-center">Preços para {cfg.productNames[currentProductForPrice] || currentProductForPrice}</h3>
+            <button onClick={() => setShowAddPriceModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Plano</label>
+                <select
+                  value={newPriceData.planId}
+                  onChange={(e) => setNewPriceData({ ...newPriceData, planId: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                >
+                  <option value="">Selecione um plano</option>
+                  {(cfg.plans || []).map(plan => (
+                    <option key={plan.id} value={plan.id}>{plan.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Adesão</label>
+                <input
+                  type="number"
+                  value={newPriceData.adesao}
+                  onChange={(e) => setNewPriceData({ ...newPriceData, adesao: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Mensalidade</label>
+                <input
+                  type="number"
+                  value={newPriceData.mensalidade}
+                  onChange={(e) => setNewPriceData({ ...newPriceData, mensalidade: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-4 mt-6">
+              <button onClick={() => setShowAddPriceModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={handleAddPriceToProduct} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Preço</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add User Modal */}
+      {showAddUserModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
+            <h3 className="text-2xl font-bold mb-6 text-center">➕ Novo Usuário</h3>
+            <button onClick={() => setShowAddUserModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Nome Completo</label>
+                <input
+                  type="text"
+                  value={newUserData.nome}
+                  onChange={(e) => setNewUserData({ ...newUserData, nome: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">E-mail</label>
+                <input
+                  type="email"
+                  value={newUserData.email}
+                  onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Telefone</label>
+                <input
+                  type="text"
+                  value={newUserData.telefone}
+                  onChange={(e) => setNewUserData({ ...newUserData, telefone: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Senha</label>
+                <input
+                  type="password"
+                  value={newUserData.senha}
+                  onChange={(e) => setNewUserData({ ...newUserData, senha: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Perfil</label>
+                <select
+                  value={newUserData.perfil}
+                  onChange={(e) => setNewUserData({ ...newUserData, perfil: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                >
+                  <option value="padrao">Padrão</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end space-x-4 mt-6">
+              <button onClick={() => setShowAddUserModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={handleAddUser} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Usuário</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit User Modal */}
+      {showEditUserModal && currentUserToEdit && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
+            <h3 className="text-2xl font-bold mb-6 text-center">✏️ Editar Usuário</h3>
+            <button onClick={() => setShowEditUserModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Nome Completo</label>
+                <input
+                  type="text"
+                  value={currentUserToEdit.nome}
+                  onChange={(e) => setCurrentUserToEdit({ ...currentUserToEdit, nome: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">E-mail</label>
+                <input
+                  type="email"
+                  value={currentUserToEdit.email}
+                  onChange={(e) => setCurrentUserToEdit({ ...currentUserToEdit, email: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Telefone</label>
+                <input
+                  type="text"
+                  value={currentUserToEdit.telefone}
+                  onChange={(e) => setCurrentUserToEdit({ ...currentUserToEdit, telefone: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Nova Senha (vazio = manter)</label>
+                <input
+                  type="password"
+                  value="" // Não pré-preenche senhas por segurança
+                  onChange={(e) => setCurrentUserToEdit({ ...currentUserToEdit, senha: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Perfil</label>
+                <select
+                  value={currentUserToEdit.perfil}
+                  onChange={(e) => setCurrentUserToEdit({ ...currentUserToEdit, perfil: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                >
+                  <option value="padrao">Padrão</option>
+                  <option value="admin">Administrador</option>
+                </select>
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-300">✍️ Assinatura do Consultor (aparece nos contratos)</label>
+                {currentUserToEdit.assinatura && (
+                  <img src={currentUserToEdit.assinatura} alt="Assinatura" className="mt-2 max-h-20 border border-gray-600 p-1" />
+                )}
+                <div className="flex space-x-2 mt-2">
+                  <button onClick={() => alert('Funcionalidade de carregar imagem em desenvolvimento.')} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">📷 Carregar imagem</button>
+                  <button onClick={() => setSignaturePadOpen(true)} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">✍️ Desenhar</button>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end space-x-4 mt-6">
+              <button onClick={() => setShowEditUserModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={handleEditUser} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Signature Pad Modal */}
+      {signaturePadOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
+            <h3 className="text-2xl font-bold mb-6 text-center">✍️ Desenhar Assinatura</h3>
+            <canvas
+              id="signatureCanvas"
+              width="400"
+              height="200"
+              className="border border-gray-600 bg-white rounded-md cursor-crosshair"
+              style={{ touchAction: 'none' }} // Para melhor experiência em touch
+            ></canvas>
+            <div className="flex justify-end space-x-4 mt-6">
+              <button onClick={() => {
+                const canvas = document.getElementById('signatureCanvas');
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+              }} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">🗑 Limpar</button>
+              <button onClick={() => {
+                const canvas = document.getElementById('signatureCanvas');
+                setDrawnSignature(canvas.toDataURL());
+                if (currentUserToEdit) {
+                  setCurrentUserToEdit({ ...currentUserToEdit, assinatura: canvas.toDataURL() });
+                } else if (newUserData) {
+                  setNewUserData({ ...newUserData, assinatura: canvas.toDataURL() });
+                }
+                setSignaturePadOpen(false);
+              }} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Usar esta assinatura</button>
+              <button onClick={() => setSignaturePadOpen(false)} className="px-6 py-2 bg-red-600 rounded-lg hover:bg-red-700 transition-colors">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Document Template Modal */}
+      {showEditDocTemplateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto relative">
+            <h3 className="text-2xl font-bold mb-6 text-center">✏️ Editar Modelo de {currentDocTemplateType === 'proposal' ? 'Proposta' : 'Contrato'}</h3>
+            <button onClick={() => setShowEditDocTemplateModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <p className="text-sm text-gray-400 mb-4">Texto de abertura personalizado (HTML ou texto puro). Deixe vazio para usar o padrão.</p>
+            <textarea
+              value={docTemplateContent}
+              onChange={(e) => setDocTemplateContent(e.target.value)}
+              className="mt-1 block w-full h-96 p-2 bg-gray-700 border border-gray-600 rounded-md text-white font-mono text-sm"
+              placeholder="Insira seu HTML ou texto aqui..."
+            ></textarea>
+            <div className="flex justify-end space-x-4 mt-6">
+              <button onClick={() => setShowEditDocTemplateModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={handleUseDefaultDocTemplate} className="px-6 py-2 bg-red-600 rounded-lg hover:bg-red-700 transition-colors">🔄 Usar Padrão</button>
+              <button onClick={handleSaveDocTemplate} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Modelo</button>
             </div>
           </div>
         </div>
@@ -1477,28 +2307,54 @@ Status: ${doc.status}
       {showAddPlanModal && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">+ Novo Plano</h3>
+            <h3 className="text-2xl font-bold mb-6 text-center">➕ Novo Plano</h3>
             <button onClick={() => setShowAddPlanModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300">ID/Chave do Plano</label>
-                <input type="text" value={newPlanData.id} onChange={(e) => setNewPlanData(prev => ({ ...prev, id: e.target.value }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <label className="block text-sm font-medium text-gray-300">ID/Chave do Plano (ex: basic, pro)</label>
+                <input
+                  type="text"
+                  value={newPlanData.id}
+                  onChange={(e) => setNewPlanData({ ...newPlanData, id: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300">Nome Exibido</label>
-                <input type="text" value={newPlanData.name} onChange={(e) => setNewPlanData(prev => ({ ...prev, name: e.target.value }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <label className="block text-sm font-medium text-gray-300">Nome Exibido (ex: Plano Básico)</label>
+                <input
+                  type="text"
+                  value={newPlanData.name}
+                  onChange={(e) => setNewPlanData({ ...newPlanData, name: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300">Máx CNPJs</label>
-                <input type="number" value={newPlanData.maxCnpjs} onChange={(e) => setNewPlanData(prev => ({ ...prev, maxCnpjs: parseInt(e.target.value) || 0 }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+                <label className="block text-sm font-medium text-gray-300">Máximo de CNPJs</label>
+                <input
+                  type="number"
+                  value={newPlanData.maxCnpjs}
+                  onChange={(e) => setNewPlanData({ ...newPlanData, maxCnpjs: Number(e.target.value) })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Usuários</label>
-                <input type="number" value={newPlanData.users} onChange={(e) => setNewPlanData(prev => ({ ...prev, users: parseInt(e.target.value) || 1 }))} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div className="flex items-center">
-                <input type="checkbox" checked={newPlanData.unlimited} onChange={(e) => setNewPlanData(prev => ({ ...prev, unlimited: e.target.checked }))} className="h-4 w-4 text-blue-600 border-gray-300 rounded" />
+              {!newPlanData.unlimitedUsers && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Número de Usuários</label>
+                  <input
+                    type="number"
+                    value={newPlanData.users}
+                    onChange={(e) => setNewPlanData({ ...newPlanData, users: Number(e.target.value) })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+              )}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={newPlanData.unlimitedUsers}
+                  onChange={(e) => setNewPlanData({ ...newPlanData, unlimitedUsers: e.target.checked })}
+                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                />
                 <label className="ml-2 block text-sm text-gray-300">Usuários Ilimitados?</label>
               </div>
             </div>
