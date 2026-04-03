@@ -118,16 +118,19 @@ export default function KpiPage() {
       )
       if (upsertError) throw new Error(upsertError.message)
 
-      // ✅ FIX: Marca no sessionStorage que acabou de salvar para evitar loop no _app.js
+      // ✅ Marca no sessionStorage que acabou de salvar (data específica)
       sessionStorage.setItem('kpi_just_saved', data)
+      // ✅ Pequeno delay para garantir que o banco já tenha processado
+      await new Promise(resolve => setTimeout(resolve, 100))
 
-      // ✅ FIX: Usa window.location para forçar navegação limpa (evita _app.js reler cfg antigo)
       const redirectTo = typeof redirect === 'string' && redirect
         ? decodeURIComponent(redirect)
         : '/chat'
-      window.location.href = redirectTo
+      // ✅ Substitui a URL atual, evitando loop
+      window.location.replace(redirectTo)
 
     } catch (err) {
+      console.error('Erro ao salvar KPIs:', err)
       setError(`Erro ao salvar. ${err.message}`)
       setSaving(false)
     }
