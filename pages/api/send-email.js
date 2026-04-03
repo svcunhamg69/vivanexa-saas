@@ -10,8 +10,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Método não permitido' })
   }
 
-  // Adicionado 'attachments' ao desestruturar o corpo da requisição
-  const { to, subject, html, text, from, config, attachments } = req.body
+  const { to, subject, html, text, from, config } = req.body
 
   if (!to || !subject) {
     return res.status(400).json({ error: 'Destinatário e assunto são obrigatórios' })
@@ -23,7 +22,7 @@ export default async function handler(req, res) {
       const transporter = nodemailer.createTransport({
         host: config.smtpHost,
         port: config.smtpPort || 587,
-        secure: config.smtpPort === 465, // true para 465, false para outros (como 587)
+        secure: config.smtpPort === 465,
         auth: {
           user: config.smtpUser,
           pass: config.smtpPass,
@@ -36,7 +35,6 @@ export default async function handler(req, res) {
         subject,
         text: text || html?.replace(/<[^>]*>/g, ''),
         html,
-        attachments: attachments || [], // Adiciona os anexos aqui
       })
       return res.status(200).json({ success: true })
     }
