@@ -2,10 +2,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
+import { fmt, planLabel } from '../lib/pricing'
 
 // ══════════════════════════════════════════════
 // CONSTANTES
 // ══════════════════════════════════════════════
+// REMOVIDA a aba 'historico' conforme solicitado
 const TABS = [
   { id: 'empresa',    label: '🏢 Empresa' },
   { id: 'metas',      label: '🎯 Metas' },
@@ -15,7 +17,6 @@ const TABS = [
   { id: 'descontos',  label: '🏷️ Descontos' },
   { id: 'vouchers',   label: '🎫 Vouchers' },
   { id: 'documentos', label: '📄 Documentos' },
-  { id: 'historico',  label: '🗂️ Histórico' },
   { id: 'clientes',   label: '🗃️ Clientes' },
   { id: 'tema',       label: '🎨 Tema' },
 ]
@@ -23,10 +24,10 @@ const TABS = [
 const KPI_ICONS = ['📞','📲','📧','🤝','💼','🏆','🎯','💰','📈','📊','🔥','⭐','🚀','✅','📅','🗓','👥','🏃','💡','🎤','📝','🔔','💬','🌐','🛒','📦','🔑','⚡','🎁','🏅']
 const MODULOS_PADRAO = ['Gestão Fiscal','CND','XML','BIA','IF','EP','Tributos']
 const PLANOS_PADRAO = [
-  { id: 'basic',   nome: 'Basic',    maxCnpjs: 25,  usuarios: 1  },
-  { id: 'pro',     nome: 'Pro',      maxCnpjs: 80,  usuarios: 1  },
-  { id: 'top',     nome: 'Top',      maxCnpjs: 150, usuarios: 5  },
-  { id: 'topplus', nome: 'Top Plus', maxCnpjs: 999, usuarios: 999 },
+  { id: 'basic',   nome: 'Basic',    maxCnpjs: 25,  usuarios: 1, unlimited: false },
+  { id: 'pro',     nome: 'Pro',      maxCnpjs: 80,  usuarios: 1, unlimited: false },
+  { id: 'top',     nome: 'Top',      maxCnpjs: 150, usuarios: 5, unlimited: false },
+  { id: 'topplus', nome: 'Top Plus', maxCnpjs: 999, usuarios: 999, unlimited: true },
 ]
 const PRECOS_PADRAO = {
   'Gestão Fiscal': { basic:[478,318], pro:[590,409], top:[1032,547], topplus:[1398,679] },
@@ -75,14 +76,14 @@ async function salvarStorage(empresaId, novoCfg) {
 }
 
 // ══════════════════════════════════════════════
-// ABA EMPRESA (com SMTP e IA)
+// ABA EMPRESA (com SMTP, IA e oferta de fechamento)
 // ══════════════════════════════════════════════
 function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [company,      setCompany]      = useState(cfg.company  || '')
   const [slogan,       setSlogan]       = useState(cfg.slogan   || '')
   const [logoB64,      setLogoB64]      = useState(cfg.logob64  || '')
   const [closeHour,    setCloseHour]    = useState(cfg.closeHour || 18)
-  const [closeMessage, setCloseMessage] = useState(cfg.closeMessage || '')
+  const [closeMessage, setCloseMessage] = useState(cfg.closeMessage || 'Oferta válida até as 18h de hoje')
   const [emailProvider, setEmailProvider] = useState(cfg.emailProvider || '')
   const [smtpHost,     setSmtpHost]     = useState(cfg.smtpHost || '')
   const [smtpPort,     setSmtpPort]     = useState(cfg.smtpPort || '587')
@@ -98,7 +99,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setSlogan(cfg.slogan    || '')
     setLogoB64(cfg.logob64  || '')
     setCloseHour(cfg.closeHour || 18)
-    setCloseMessage(cfg.closeMessage || '')
+    setCloseMessage(cfg.closeMessage || 'Oferta válida até as 18h de hoje')
     setEmailProvider(cfg.emailProvider || '')
     setSmtpHost(cfg.smtpHost || '')
     setSmtpPort(cfg.smtpPort || '587')
@@ -114,7 +115,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     if (!file) return
     if (file.size > 512000) { toast('Imagem muito grande (máx 500kb)', 'err'); return }
     const reader = new FileReader()
-    reader.onload = ev => setLogoB64(ev.target.result)
+    reader.onload = ev => setLogoB64(ev.target.result.split(',')[1])
     reader.readAsDataURL(file)
   }
 
@@ -125,7 +126,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     const novoCfg = {
       ...cfg,
       company, slogan, logob64: logoB64,
-      closeHour, closeMessage,
+      closeHour: Number(closeHour), closeMessage,
       emailProvider, smtpHost, smtpPort, smtpUser, smtpPass, emailApiKey,
       geminiApiKey, groqApiKey
     }
@@ -151,7 +152,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
         {logoB64 ? (
           <div style={{ marginTop: 12, padding: 14, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: 1, textTransform: 'uppercase' }}>Pré-visualização</div>
-            <img src={logoB64} alt="Logo" style={{ height: 70, maxWidth: 280, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--border)' }} />
+            <img src={`data:image/png;base64,${logoB64}`} alt="Logo" style={{ height: 70, maxWidth: 280, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--border)' }} />
             <button onClick={removerLogo} style={{ fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', padding: '4px 10px', borderRadius: 7, cursor: 'pointer' }}>🗑 Remover logo</button>
           </div>
         ) : (
@@ -167,17 +168,15 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
 
       <div style={s.sec}>
         <div style={s.secTitle}>📧 Configuração de E-mail Automático</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Configure as credenciais para envio de e-mails via SMTP ou API. Deixe vazio para usar o padrão mailto.</p>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Configure as credenciais para envio de e-mails via SMTP. Deixe vazio para usar o padrão mailto.</p>
         <div style={s.row2}>
-          <div style={s.field}><label style={s.label}>Provedor (smtp/brevo/sendgrid)</label><input style={s.input} value={emailProvider} onChange={e => setEmailProvider(e.target.value)} placeholder="smtp" /></div>
           <div style={s.field}><label style={s.label}>Host SMTP</label><input style={s.input} value={smtpHost} onChange={e => setSmtpHost(e.target.value)} placeholder="smtp.gmail.com" /></div>
+          <div style={s.field}><label style={s.label}>Porta SMTP</label><input style={s.input} value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="587" /></div>
         </div>
         <div style={s.row2}>
-          <div style={s.field}><label style={s.label}>Porta SMTP</label><input style={s.input} value={smtpPort} onChange={e => setSmtpPort(e.target.value)} placeholder="587" /></div>
           <div style={s.field}><label style={s.label}>Usuário SMTP</label><input style={s.input} value={smtpUser} onChange={e => setSmtpUser(e.target.value)} placeholder="email@dominio.com" /></div>
+          <div style={s.field}><label style={s.label}>Senha SMTP</label><input type="password" style={s.input} value={smtpPass} onChange={e => setSmtpPass(e.target.value)} placeholder="senha ou app password" /></div>
         </div>
-        <div style={s.field}><label style={s.label}>Senha SMTP</label><input type="password" style={s.input} value={smtpPass} onChange={e => setSmtpPass(e.target.value)} placeholder="senha ou app password" /></div>
-        <div style={s.field}><label style={s.label}>API Key (para Brevo/SendGrid)</label><input style={s.input} value={emailApiKey} onChange={e => setEmailApiKey(e.target.value)} placeholder="chave API" /></div>
         <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Nota: Se configurado, os e-mails de assinatura e cópia serão enviados automaticamente via servidor. Caso contrário, será aberto o cliente de e-mail padrão.</p>
       </div>
 
@@ -281,7 +280,7 @@ function TabMetas({ cfg, setCfg, empresaId }) {
 function TabKpis({ cfg, setCfg, empresaId }) {
   const [kpis,        setKpis]        = useState(cfg.kpiTemplates || [])
   const [kpiRequired, setKpiRequired] = useState(cfg.kpiRequired || false)
-  const [dailyGoals,  setDailyGoals]  = useState(cfg.kpiDailyGoals || {})
+  const [dailyGoals,  setDailyGoals]  = useState(cfg.kpiGoals || {})
   const [mesRef,      setMesRef]      = useState(new Date().toISOString().slice(0, 7))
   const [saving,      setSaving]      = useState(false)
   const [iconPickerId, setIconPickerId] = useState(null)
@@ -303,11 +302,16 @@ function TabKpis({ cfg, setCfg, empresaId }) {
   function addKpi() { setKpis(prev => [...prev, { id: Date.now(), nome: '', icone: '📊', unidade: 'un' }]) }
   function updateKpi(id, campo, val) { setKpis(prev => prev.map(k => k.id === id ? { ...k, [campo]: val } : k)) }
   function removeKpi(id) { setKpis(prev => prev.filter(k => k.id !== id)); if (iconPickerId === id) setIconPickerId(null) }
-  function updateDailyGoal(userId, kpiId, val) { setDailyGoals(prev => ({ ...prev, [userId]: { ...(prev[userId] || {}), [kpiId]: Number(val) || 0 } })) }
+  function updateDailyGoal(userId, kpiId, val) { 
+    setDailyGoals(prev => ({ 
+      ...prev, 
+      [userId]: { ...(prev[userId] || {}), [kpiId]: Number(val) || 0 } 
+    })) 
+  }
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, kpiTemplates: kpis, kpiRequired, kpiDailyGoals: dailyGoals }
+    const novoCfg = { ...cfg, kpiTemplates: kpis, kpiRequired, kpiGoals: dailyGoals }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -540,7 +544,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA PRODUTOS – com toggle de botões funcionando
+// ABA PRODUTOS
 // ══════════════════════════════════════════════
 function TabProdutos({ cfg, setCfg, empresaId }) {
   const [planos,  setPlanos]  = useState(cfg.plans   || PLANOS_PADRAO)
@@ -553,7 +557,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
   const [editandoMod, setEditandoMod] = useState(null)
 
   function updatePlano(id, campo, val) { setPlanos(prev => prev.map(p => p.id === id ? { ...p, [campo]: val } : p)) }
-  function addPlano() { setPlanos(prev => [...prev, { id: 'plano_' + Date.now(), nome: '', maxCnpjs: 0, usuarios: 1 }]) }
+  function addPlano() { setPlanos(prev => [...prev, { id: 'plano_' + Date.now(), nome: '', maxCnpjs: 0, usuarios: 1, unlimited: false }]) }
   function removePlano(id) { if (!confirm('Remover plano?')) return; setPlanos(prev => prev.filter(p => p.id !== id)) }
   function updatePreco(mod, planId, idx, val) {
     setPrecos(prev => {
@@ -595,6 +599,12 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
     toast('✅ Produtos salvos!')
   }
 
+  function resetDefaultPrices() {
+    if (!confirm('Restaurar preços padrão? Isso sobrescreverá todos os preços personalizados.')) return
+    setPrecos(JSON.parse(JSON.stringify(PRECOS_PADRAO)))
+    toast('Preços restaurados para o padrão!')
+  }
+
   return (
     <div style={s.body}>
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
@@ -608,13 +618,14 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={s.secTitle}>Planos Disponíveis</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th></th></tr></thead>
+              <thead><tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Plano</th><th>Máx. CNPJs</th><th>Usuários</th><th>Ilimitado</th><th></th></tr></thead>
               <tbody>
-                {planos.map(p => (
+                {planos.map((p, i) => (
                   <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '8px 12px' }}><input style={{ ...s.input, fontWeight: 700, color: 'var(--accent)' }} value={p.nome} onChange={e => updatePlano(p.id, 'nome', e.target.value)} /></td>
                     <td style={{ padding: '8px 12px' }}><input type="number" style={{ ...s.input, width: 90 }} value={p.maxCnpjs} onChange={e => updatePlano(p.id, 'maxCnpjs', Number(e.target.value))} /></td>
                     <td style={{ padding: '8px 12px' }}><input type="number" style={{ ...s.input, width: 90 }} value={p.usuarios} onChange={e => updatePlano(p.id, 'usuarios', Number(e.target.value))} /></td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center' }}><input type="checkbox" checked={p.unlimited || false} onChange={e => updatePlano(p.id, 'unlimited', e.target.checked)} /></td>
                     <td><button onClick={() => removePlano(p.id)} style={{ padding: '6px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--danger)' }}>🗑</button></td>
                   </tr>
                 ))}
@@ -632,7 +643,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead><tr style={{ background: 'var(--surface2)' }}><th style={{ padding: '10px 12px', textAlign: 'left' }}>Módulo</th>{planos.map(p => <th key={p.id} colSpan={2} style={{ padding: '10px 12px', textAlign: 'center' }}>{p.nome}</th>)}</tr>
-                <tr><td style={{ padding: '6px 12px' }}></td>{planos.map(p => <><td style={{ padding: '6px 8px', textAlign: 'center' }}>Adesão</td><td style={{ padding: '6px 8px', textAlign: 'center' }}>Mensal</td></>)}</tr>
+              <tr><td style={{ padding: '6px 12px' }}></td>{planos.map(p => <><td style={{ padding: '6px 8px', textAlign: 'center' }}>Adesão</td><td style={{ padding: '6px 8px', textAlign: 'center' }}>Mensal</td></>)}</tr>
               </thead>
               <tbody>
                 {modulos.map(mod => (
@@ -687,7 +698,10 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
         <p style={{ fontSize: 12, color: 'var(--muted)' }}>Se ativado, os módulos aparecerão como botões no chat em vez de digitação.</p>
       </div>
 
-      <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar Produtos'}</button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+        <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar Produtos'}</button>
+        <button onClick={resetDefaultPrices} style={{ padding: '11px 14px', borderRadius: 10, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--danger)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>🔄 Restaurar Preços Padrão</button>
+      </div>
     </div>
   )
 }
@@ -783,7 +797,8 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
     if (!win) { alert('Permita popups para imprimir.'); return }
     const criado = v.criado ? new Date(v.criado).toLocaleDateString('pt-BR') : ''
     const empresa = cfg.company || 'Vivanexa'
-    const logoTag = cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:8px;display:block">` : `<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:8px">${empresa}</div>`
+    const logob64 = cfg.logob64
+    const logoTag = logob64 ? `<img src="data:image/png;base64,${logob64}" style="height:52px;object-fit:contain;margin-bottom:8px;display:block">` : `<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:8px">${empresa}</div>`
     win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Voucher ${v.codigo}</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=DM+Mono:wght@500;700&display=swap" rel="stylesheet"><style> *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important} body{font-family:Inter,sans-serif;background:#f0f4f8;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px} .toolbar{display:flex;gap:10px;margin-bottom:20px} .toolbar button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none;font-family:DM Mono,monospace} .btn-print{background:#0f172a;color:#fff} .btn-close{background:#e2e8f0;color:#475569} .card{background:#0f172a;border-radius:20px;width:560px;padding:36px 40px;position:relative;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)} .card::before{content:'';position:absolute;top:-80px;right:-80px;width:260px;height:260px;background:#00d4ff;border-radius:50%;opacity:.06} .card::after{content:'';position:absolute;bottom:-60px;left:-60px;width:200px;height:200px;background:#7c3aed;border-radius:50%;opacity:.08} .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;position:relative;z-index:1} .badge{background:rgba(0,212,255,.15);border:1px solid rgba(0,212,255,.3);color:#00d4ff;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase} .title{font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;position:relative;z-index:1} .code{font-family:DM Mono,monospace;font-size:34px;font-weight:700;color:#fff;letter-spacing:6px;margin-bottom:24px;position:relative;z-index:1;text-shadow:0 0 30px rgba(0,212,255,.4)} .divider{border:none;border-top:1px dashed rgba(255,255,255,.12);margin:0 0 22px;position:relative;z-index:1} .benefits{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;position:relative;z-index:1} .benefit{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 16px;text-align:center} .benefit-val{font-size:28px;font-weight:900;color:#00d4ff;line-height:1} .benefit-label{font-size:11px;color:#64748b;margin-top:5px;text-transform:uppercase;letter-spacing:1px} .footer{display:flex;justify-content:space-between;align-items:center;position:relative;z-index:1} .footer-info{font-size:11px;color:#475569;line-height:1.6} .event{display:inline-block;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);color:#fbbf24;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;margin-bottom:16px;position:relative;z-index:1} @media print{.toolbar{display:none!important}} </style></head><body><div class="toolbar"><button class="btn-print" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="btn-close" onclick="window.close()">✕ Fechar</button></div><div class="card"><div class="top">${logoTag}<div class="badge">🎫 Voucher</div></div>${v.comemoracao ? `<div class="event">🎉 ${v.comemoracao}</div>` : ''}<div class="title">Código de Desconto Exclusivo</div><div class="code">${v.codigo}</div><hr class="divider"><div class="benefits">${v.pctAdesao > 0 ? `<div class="benefit"><div class="benefit-val">${v.pctAdesao}%</div><div class="benefit-label">Desconto na<br>Adesão</div></div>` : ''}${v.pctMensalidade > 0 ? `<div class="benefit"><div class="benefit-val">${v.pctMensalidade}%</div><div class="benefit-label">Desconto na<br>Mensalidade</div></div>` : ''}${v.pctAdesao === 0 && v.pctMensalidade === 0 ? `<div class="benefit" style="grid-column:span 2"><div class="benefit-val">🎁</div><div class="benefit-label">Voucher especial</div></div>` : ''}</div><div class="footer"><div class="footer-info">Emitido em: ${criado}<br>${empresa}</div><div style="font-size:11px;color:#334155;font-family:DM Mono,monospace">Código único · Uso exclusivo</div></div></div></body></html>`)
     win.document.close(); win.focus()
   }
@@ -830,8 +845,8 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
   const [emailRem,   setEmailRem]   = useState(cfg.signConfig?.email || '')
   const [wpp,        setWpp]        = useState(cfg.signConfig?.wpp   || '')
   const [urlBase,    setUrlBase]    = useState(cfg.signConfig?.url   || '')
-  const [propostaTemplate, setPropostaTemplate] = useState(cfg.propostaTemplate || '')
-  const [contratoTemplate, setContratoTemplate] = useState(cfg.contratoTemplate || '')
+  const [propostaTemplate, setPropostaTemplate] = useState(cfg.docTemplates?.proposta || '')
+  const [contratoTemplate, setContratoTemplate] = useState(cfg.docTemplates?.contrato || '')
   const [saving,     setSaving]     = useState(false)
   const [testando,   setTestando]   = useState(false)
 
@@ -839,12 +854,6 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     const file = e.target.files[0]
     if (!file) return
     if (file.size > 2 * 1024 * 1024) { toast('Arquivo muito grande (máx 2MB)', 'err'); return }
-    const ext = file.name.split('.').pop().toLowerCase()
-    if (ext === 'docx' || ext === 'doc') {
-      toast('Arquivo .doc/.docx não são suportados diretamente. Por favor, salve o conteúdo como .txt ou .html e tente novamente.', 'err')
-      e.target.value = ''
-      return
-    }
     const reader = new FileReader()
     reader.onload = ev => {
       const content = ev.target.result
@@ -856,7 +865,11 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = { ...cfg, signConfig: { email: emailRem, wpp, url: urlBase }, propostaTemplate, contratoTemplate }
+    const novoCfg = { 
+      ...cfg, 
+      signConfig: { email: emailRem, wpp, url: urlBase },
+      docTemplates: { proposta: propostaTemplate, contrato: contratoTemplate }
+    }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -925,53 +938,6 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
           <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳...' : '✅ Salvar'}</button>
           <button onClick={testarConexao} disabled={testando} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)' }}>{testando ? '⏳...' : '🔌 Testar Conexão'}</button>
         </div>
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════
-// ABA HISTÓRICO (com visualização)
-// ══════════════════════════════════════════════
-function TabHistorico({ cfg }) {
-  const [filtroTipo,   setFiltroTipo]   = useState('')
-  const [filtroStatus, setFiltroStatus] = useState('')
-  const [busca,        setBusca]        = useState('')
-  const docs = (cfg.docHistory || []).filter(d => {
-    if (filtroTipo   && d.type !== filtroTipo)   return false
-    if (filtroStatus && d.status !== filtroStatus) return false
-    if (busca && !d.clientName?.toLowerCase().includes(busca.toLowerCase())) return false
-    return true
-  })
-  function statusLabel(st) {
-    if (st === 'signed')  return { txt: '✅ Assinado', cor: 'var(--accent3)' }
-    if (st === 'pending') return { txt: '⏳ Pendente', cor: 'var(--warning)' }
-    return { txt: '📝 Rascunho', cor: 'var(--muted)' }
-  }
-  return (
-    <div style={s.body}>
-      <div style={s.sec}>
-        <div style={s.secTitle}>Histórico de Documentos</div>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-          <select style={s.input} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}><option value="">Todos</option><option value="proposta">Propostas</option><option value="contrato">Contratos</option></select>
-          <select style={s.input} value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}><option value="">Todos</option><option value="pending">Pendente</option><option value="signed">Assinado</option><option value="draft">Rascunho</option></select>
-          <input style={{ ...s.input, flex: 1, minWidth: 160 }} placeholder="Buscar por cliente..." value={busca} onChange={e => setBusca(e.target.value)} />
-        </div>
-        {docs.length === 0 && <p style={{ color: 'var(--muted)' }}>Nenhum documento encontrado.</p>}
-        {docs.map((d, i) => {
-          const sl = statusLabel(d.status)
-          return (
-            <div key={i} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{d.clientName || 'Cliente'}</div>
-                <div style={{ fontSize: 12, color: sl.cor, fontWeight: 600 }}>{sl.txt}</div>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                {d.type === 'contrato' ? '📝 Contrato' : '📄 Proposta'} · {d.date}
-              </div>
-            </div>
-          )
-        })}
       </div>
     </div>
   )
@@ -1126,14 +1092,12 @@ export default function Configuracoes() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/'); return }
 
-      // 👇 BUSCA OU CRIA O PERFIL AUTOMATICAMENTE
       let { data: perf, error } = await supabase
         .from('perfis')
         .select('*')
         .eq('user_id', session.user.id)
         .maybeSingle()
 
-      // Se não existe, cria agora
       if (!perf) {
         const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário'
         const { data: novoPerfil, error: insertError } = await supabase
@@ -1147,13 +1111,7 @@ export default function Configuracoes() {
           })
           .select()
           .single()
-
-        if (insertError) {
-          console.error('Erro ao criar perfil:', insertError)
-          perf = { empresa_id: session.user.id, nome }
-        } else {
-          perf = novoPerfil
-        }
+        perf = novoPerfil || { empresa_id: session.user.id, nome }
       }
 
       setPerfil(perf)
@@ -1190,7 +1148,6 @@ export default function Configuracoes() {
       case 'descontos':  return <TabDescontos  {...props} />
       case 'vouchers':   return <TabVouchers   {...props} />
       case 'documentos': return <TabDocumentos {...props} />
-      case 'historico':  return <TabHistorico  {...props} />
       case 'clientes':   return <TabClientes   {...props} />
       case 'tema':       return <TabTema       {...props} />
       default:           return null
@@ -1213,10 +1170,9 @@ export default function Configuracoes() {
       <div style={{ position:'fixed',width:400,height:400,background:'var(--accent2)',bottom:-150,left:-100,borderRadius:'50%',filter:'blur(120px)',opacity:.06,pointerEvents:'none',zIndex:0 }} />
       <div id="vx-toast" style={{ position:'fixed',bottom:30,left:'50%',transform:'translateX(-50%) translateY(20px)',background:'rgba(16,185,129,.9)',color:'#fff',padding:'12px 24px',borderRadius:10,fontFamily:'DM Mono, monospace',fontSize:14,zIndex:9999,opacity:0,transition:'opacity .3s, transform .3s',boxShadow:'0 4px 20px rgba(0,0,0,.3)' }} />
       <header style={{ position:'relative',zIndex:10,width:'100%',maxWidth:960,margin:'0 auto',padding:'18px 20px 0',display:'flex',alignItems:'center',gap:12 }}>
-        {/* Logo clicável */}
         <div style={{ cursor:'pointer' }} onClick={() => router.push('/chat')}>
           {cfg.logob64
-            ? <img src={cfg.logob64} alt="Logo" style={{ height:36,objectFit:'contain' }} onError={e => e.target.style.display='none'} />
+            ? <img src={`data:image/png;base64,${cfg.logob64}`} alt="Logo" style={{ height:36,objectFit:'contain' }} onError={e => e.target.style.display='none'} />
             : <div style={{ fontFamily:'Syne, sans-serif',fontSize:17,fontWeight:700,letterSpacing:.5 }}>{cfg.company || 'Vivanexa'}</div>
           }
         </div>
