@@ -1,19 +1,10 @@
 // pages/dashboard.js
-// ============================================================
-// DASHBOARD COMPLETO
-// • Autenticação corrigida (user_id em vez de id)
-// • Criação automática de perfil
-// • Header clicável + botão Relatórios
-// ============================================================
-
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
+import { fmt, planLabel, prodName } from '../lib/pricing'
 
 // ── Helpers ──────────────────────────────────────────────────
-function fmt(v) {
-  return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
 function fmtK(v) {
   if (v >= 1000) return `R$ ${(v / 1000).toFixed(1)}k`
   return fmt(v)
@@ -32,6 +23,93 @@ function diasUteisNoMes(yearMonth) {
 function pct(real, meta) {
   if (!meta || meta <= 0) return 0
   return Math.min(100, Math.round((real / meta) * 100))
+}
+function dateToMonth(dateStr) {
+  if (!dateStr) return ''
+  if (dateStr.includes('/')) {
+    const parts = dateStr.split('/')
+    if (parts.length >= 3) {
+      const year = parts[2].split(',')[0].trim()
+      const month = parts[1].padStart(2, '0')
+      return `${year}-${month}`
+    }
+  }
+  try { const d = new Date(dateStr); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` } catch (e) { return '' }
+}
+function entryBelongsTo(h, userId, users) {
+  if (h.consultantId && h.consultantId === userId) return true
+  if (h.consultantSignedBy) {
+    const u = users.find(u2 => (u2.id || u2.username) === userId)
+    if (u && (u.name === h.consultantSignedBy || u.username === h.consultantSignedBy)) return true
+  }
+  if (h.consultant) {
+    const u = users.find(u2 => (u2.id || u2.username) === userId)
+    if (u && (u.name === h.consultant || u.username === h.consultant)) return true
+  }
+  return false
+}
+function entryInMonth(h, month) {
+  if (h.dateISO) return h.dateISO.slice(0, 7) === month
+  const signDate = h.signedAt || h.consultantSignedAt || h.date
+  return dateToMonth(signDate) === month
+}
+function computeRealized(userId, month, users, docHistory) {
+  const history = docHistory || []
+  let adReal = 0, menReal = 0, contracts = 0
+  for (const h of history) {
+    if (h.type !== 'contrato') continue
+    if (!entryInMonth(h, month)) continue
+    if (!entryBelongsTo(h, userId, users)) continue
+    adReal += (h.tAd || 0)
+    menReal += (h.tMen || 0)
+    contracts++
+  }
+  return { adReal, menReal, contracts }
+}
+function computeProducts(userId, month, users, docHistory, productNames) {
+  const history = docHistory || []
+  const prodMap = {}
+  let totalAd = 0, totalMen = 0, totalContracts = 0
+  for (const h of history) {
+    if (h.type !== 'contrato') continue
+    if (!entryInMonth(h, month)) continue
+    if (!entryBelongsTo(h, userId, users)) continue
+    totalContracts++
+    const mods = h.modules && h.modules.length ? h.modules : []
+    if (mods.length) {
+      mods.forEach(mod => {
+        const displayName = prodName(mod, productNames) || mod
+        if (!prodMap[displayName]) prodMap[displayName] = { qty: 0, ad: 0, men: 0 }
+        prodMap[displayName].qty++
+        prodMap[displayName].ad += (h.modAd?.[mod] || h.modAd?.[displayName] || 0)
+        prodMap[displayName].men += (h.modMen?.[mod] || h.modMen?.[displayName] || 0)
+      })
+    } else {
+      if (!prodMap['Contrato']) prodMap['Contrato'] = { qty: 0, ad: 0, men: 0 }
+      prodMap['Contrato'].qty++
+      prodMap['Contrato'].ad += (h.tAd || 0)
+      prodMap['Contrato'].men += (h.tMen || 0)
+    }
+    totalAd += (h.tAd || 0)
+    totalMen += (h.tMen || 0)
+  }
+  return { prodMap, totalAd, totalMen, totalContracts }
+}
+function getKpiRealized(userId, yearMonth, kpiLog) {
+  const logs = (kpiLog || []).filter(l => l.userId === userId && l.date.startsWith(yearMonth))
+  const map = {}
+  for (const l of logs) {
+    if (!map[l.kpiId]) map[l.kpiId] = 0
+    map[l.kpiId] += Number(l.realizado) || 0
+  }
+  return map
+}
+function getKpiToday(userId, kpiLog) {
+  const today = new Date().toISOString().slice(0, 10)
+  const logs = (kpiLog || []).filter(l => l.userId === userId && l.date === today)
+  const map = {}
+  for (const l of logs) map[l.kpiId] = (map[l.kpiId] || 0) + (Number(l.realizado) || 0)
+  return map
 }
 
 // ── Barra de progresso ────────────────────────────────────────
@@ -56,7 +134,7 @@ function BarraProgresso({ label, real, meta }) {
 
 // ── Card KPI ─────────────────────────────────────────────────
 function CardKpi({ icone, nome, realizado, meta, onClick }) {
-  const p   = pct(realizado, meta)
+  const p = pct(realizado, meta)
   const cor = p >= 100 ? 'var(--accent3)' : p >= 60 ? 'var(--accent)' : 'var(--muted)'
   return (
     <div onClick={onClick}
@@ -86,8 +164,8 @@ function GraficoBarras({ dados, altura = 130, formatarValor }) {
     </div>
   )
   const maxVal = Math.max(...dados.map(d => d.valor), 1)
-  const larg   = 100 / dados.length
-  const fmtV   = formatarValor || (v => v > 9999 ? `${(v / 1000).toFixed(0)}k` : String(v))
+  const larg = 100 / dados.length
+  const fmtV = formatarValor || (v => v > 9999 ? `${(v / 1000).toFixed(0)}k` : String(v))
   return (
     <svg width="100%" height={altura} style={{ overflow: 'visible' }}>
       {dados.map((d, i) => {
@@ -115,88 +193,11 @@ function GraficoBarras({ dados, altura = 130, formatarValor }) {
   )
 }
 
-// ── Gráfico de pizza simples (SVG) ────────────────────────────
-function GraficoPizza({ dados, tamanho = 140 }) {
-  if (!dados || dados.length === 0) return null
-  const total = dados.reduce((a, d) => a + d.valor, 0)
-  if (total === 0) return (
-    <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: 20 }}>Sem dados</div>
-  )
-  const cx = tamanho / 2, cy = tamanho / 2, r = tamanho / 2 - 10
-  let anguloAtual = -Math.PI / 2
-  const fatias = dados.map(d => {
-    const angulo = (d.valor / total) * 2 * Math.PI
-    const x1 = cx + r * Math.cos(anguloAtual)
-    const y1 = cy + r * Math.sin(anguloAtual)
-    anguloAtual += angulo
-    const x2 = cx + r * Math.cos(anguloAtual)
-    const y2 = cy + r * Math.sin(anguloAtual)
-    const grande = angulo > Math.PI ? 1 : 0
-    return { ...d, x1, y1, x2, y2, grande, angulo }
-  })
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-      <svg width={tamanho} height={tamanho} style={{ flexShrink: 0 }}>
-        {fatias.map((f, i) => (
-          f.angulo > 0.01 && (
-            <path key={i}
-              d={`M${cx},${cy} L${f.x1},${f.y1} A${r},${r} 0 ${f.grande} 1 ${f.x2},${f.y2} Z`}
-              fill={f.cor} opacity={0.85} />
-          )
-        ))}
-        <circle cx={cx} cy={cy} r={r * 0.45} fill="var(--surface)" />
-      </svg>
-      <div style={{ flex: 1 }}>
-        {dados.map((d, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 3, background: d.cor, flexShrink: 0 }} />
-            <span style={{ color: 'var(--muted)', flex: 1 }}>{d.label}</span>
-            <span style={{ fontWeight: 700, color: 'var(--text)' }}>{Math.round((d.valor / total) * 100)}%</span>
-            <span style={{ color: 'var(--accent)', fontSize: 11 }}>{fmtK(d.valor)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ── Últimos docs ─────────────────────────────────────────────
-function UltimosDocs({ docs }) {
-  if (!docs || docs.length === 0) return (
-    <p style={{ color: 'var(--muted)', fontSize: 13, padding: '12px 0' }}>Nenhum documento gerado ainda.</p>
-  )
-  return (
-    <div>
-      {docs.slice(0, 6).map((d, i) => {
-        const isSigned  = d.status === 'signed'
-        const isPending = d.status === 'pending' || d.status === 'sent'
-        return (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: i < Math.min(docs.length, 6) - 1 ? '1px solid var(--border)' : 'none' }}>
-            <div style={{ fontSize: 18, flexShrink: 0 }}>{d.type === 'contrato' ? '📝' : '📄'}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {d.cliente || 'Cliente não identificado'}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                {d.type === 'contrato' ? 'Contrato' : 'Proposta'} · {d.criado ? new Date(d.criado).toLocaleDateString('pt-BR') : '—'}
-                {d.adesao > 0 && ` · ${fmtK(d.adesao)}`}
-              </div>
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: isSigned ? 'var(--accent3)' : isPending ? 'var(--warning)' : 'var(--muted)', flexShrink: 0 }}>
-              {isSigned ? '✅' : isPending ? '⏳' : '📝'}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 // ── Modal lançar KPI ─────────────────────────────────────────
 function ModalKpi({ kpi, userId, onClose, onSave }) {
   const hoje = new Date().toISOString().slice(0, 10)
   const [valor, setValor] = useState('')
-  const [data,  setData]  = useState(hoje)
+  const [data, setData] = useState(hoje)
 
   async function salvar() {
     if (!valor || isNaN(Number(valor))) return
@@ -241,20 +242,19 @@ function ModalKpi({ kpi, userId, onClose, onSave }) {
 // ══════════════════════════════════════════════════════════════
 export default function Dashboard() {
   const router = useRouter()
-  const [loading,   setLoading]   = useState(true)
-  const [perfil,    setPerfil]    = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [perfil, setPerfil] = useState(null)
   const [empresaId, setEmpresaId] = useState(null)
-  const [cfg,       setCfg]       = useState({})
-  const [mes,       setMes]       = useState(mesAtual())
-  const [kpiModal,  setKpiModal]  = useState(null)
-  const [abaAtiva,  setAbaAtiva]  = useState('geral')
+  const [cfg, setCfg] = useState({})
+  const [mes, setMes] = useState(mesAtual())
+  const [kpiModal, setKpiModal] = useState(null)
+  const [abaAtiva, setAbaAtiva] = useState('geral')
 
   useEffect(() => {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/'); return }
 
-      // Busca ou cria perfil automaticamente (corrigido: user_id)
       let { data: perf } = await supabase
         .from('perfis')
         .select('*')
@@ -293,7 +293,7 @@ export default function Dashboard() {
           setCfg(saved)
           if (saved.theme) document.documentElement.setAttribute('data-theme', saved.theme)
           else document.documentElement.setAttribute('data-theme', 'dark')
-        } catch {}
+        } catch { }
       } else {
         document.documentElement.setAttribute('data-theme', 'dark')
       }
@@ -311,16 +311,17 @@ export default function Dashboard() {
     setCfg(novoCfg)
   }
 
-  // ── Derivações ─────────────────────────────────
-  const isAdmin      = perfil?.perfil === 'admin'
-  const usuarios     = cfg.users        || []
-  const goals        = cfg.goals        || []
+  const isAdmin = perfil?.perfil === 'admin'
+  const usuarios = cfg.users || []
+  const goals = cfg.goals || []
   const kpiTemplates = cfg.kpiTemplates || []
-  const kpiGoals     = cfg.kpiGoals     || {}
-  const kpiLog       = cfg.kpiLog       || []
-  const docHistory   = cfg.docHistory   || []
+  const kpiGoals = cfg.kpiGoals || {}
+  const kpiLog = cfg.kpiLog || []
+  const docHistory = cfg.docHistory || []
+  const productNames = cfg.productNames || {}
 
   const usuarioAtual = usuarios.find(u => u.email === perfil?.email) || usuarios[0]
+  const userId = usuarioAtual?.id || perfil?.id || ''
 
   // Contratos assinados no mês selecionado
   const contratosMes = docHistory.filter(d => {
@@ -330,29 +331,34 @@ export default function Dashboard() {
   })
 
   function metasUsuario(userId) {
-    return goals.find(g => g.userId === userId && g.mes === mes) || {}
-  }
-  function realizadoUsuario(userId) {
-    const contratos = contratosMes.filter(d => d.userId === userId || d.consultor === userId)
-    const adesao    = contratos.reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
-    const mensalidade = contratos.reduce((acc, d) => acc + (Number(d.mensalidade) || 0), 0)
-    return { adesao, mensalidade, contratos: contratos.length }
+    const goal = goals.find(g => g.userId === userId && g.mes === mes)
+    return goal || {}
   }
 
+  // Realizado para um usuário usando a função computeRealized
+  const realizedMap = {}
+  usuarios.forEach(u => {
+    const rid = u.id || u.username
+    realizedMap[rid] = computeRealized(rid, mes, usuarios, docHistory)
+  })
+
   const totaisGerais = (() => {
-    const docs = isAdmin ? contratosMes : contratosMes.filter(d =>
-      d.userId === usuarioAtual?.id || d.consultor === usuarioAtual?.nome || d.consultorEmail === perfil?.email
-    )
-    const ad  = docs.reduce((a, d) => a + (Number(d.adesao) || 0), 0)
-    const men = docs.reduce((a, d) => a + (Number(d.mensalidade) || 0), 0)
-    return { adesao: ad, mensalidade: men, contratos: docs.length }
+    let ad = 0, men = 0, docs = 0
+    const usersToSum = isAdmin ? usuarios : [usuarioAtual]
+    usersToSum.forEach(u => {
+      const rid = u.id || u.username
+      ad += realizedMap[rid]?.adReal || 0
+      men += realizedMap[rid]?.menReal || 0
+      docs += realizedMap[rid]?.contracts || 0
+    })
+    return { adesao: ad, mensalidade: men, contratos: docs }
   })()
 
   const metasTotais = (() => {
     let ad = 0, men = 0
     usuarios.forEach(u => {
-      const m = metasUsuario(u.id)
-      ad  += Number(m.metaAdesao || 0)
+      const m = metasUsuario(u.id || u.username)
+      ad += Number(m.metaAdesao || 0)
       men += Number(m.metaMensalidade || 0)
     })
     return { adesao: ad, mensalidade: men }
@@ -364,43 +370,51 @@ export default function Dashboard() {
       .reduce((acc, l) => acc + (Number(l.realizado) || 0), 0)
   }
   function kpiMetaMes(kpiId, userId, month) {
-    const diaria = kpiGoals[userId]?.[month]?.[kpiId] || 0
+    const diaria = (kpiGoals[userId]?.[month]?.[kpiId]) || 0
     return diaria * diasUteisNoMes(month)
   }
 
-  // Gráfico últimos 6 meses — adesão
+  // Gráfico últimos 6 meses — adesão (apenas admin ou time todo)
   const dadosGrafico6m = (() => {
     const meses = []
     for (let i = 5; i >= 0; i--) {
       const d = new Date(); d.setMonth(d.getMonth() - i)
-      const m     = d.toISOString().slice(0, 7)
+      const m = d.toISOString().slice(0, 7)
       const label = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
-      const valor = docHistory
-        .filter(d => d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m)
-        .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
+      let valor = 0
+      if (isAdmin) {
+        valor = docHistory
+          .filter(d => d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m)
+          .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
+      } else {
+        valor = docHistory
+          .filter(d => d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m && entryBelongsTo(d, userId, usuarios))
+          .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
+      }
       meses.push({ label, valor, cor: m === mes ? 'var(--accent)' : 'rgba(0,212,255,.4)' })
     }
     return meses
   })()
 
-  // ── NOVO: Produtos vendidos no mês ─────────────
+  // Produtos vendidos no mês (admin vê todos, usuário vê só seus)
   const produtosVendidos = (() => {
     const mapa = {}
-    contratosMes.forEach(d => {
+    const docsFiltrados = isAdmin ? contratosMes : contratosMes.filter(d => entryBelongsTo(d, userId, usuarios))
+    docsFiltrados.forEach(d => {
       if (!d.modulos) return
       d.modulos.forEach(mod => {
-        if (!mapa[mod]) mapa[mod] = { adesao: 0, mensalidade: 0, qtd: 0 }
-        mapa[mod].adesao      += Number(d.adesaoModulos?.[mod] || 0)
-        mapa[mod].mensalidade += Number(d.mensalidadeModulos?.[mod] || 0)
-        mapa[mod].qtd         += 1
+        const nomeMod = prodName(mod, productNames)
+        if (!mapa[nomeMod]) mapa[nomeMod] = { adesao: 0, mensalidade: 0, qtd: 0 }
+        mapa[nomeMod].adesao += Number(d.adesaoModulos?.[mod] || 0)
+        mapa[nomeMod].mensalidade += Number(d.mensalidadeModulos?.[mod] || 0)
+        mapa[nomeMod].qtd += 1
       })
     })
     return Object.entries(mapa).map(([nome, v]) => ({ nome, ...v }))
       .sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
   })()
 
-  // Cores para módulos
-  const CORES_MOD = ['var(--accent)','var(--accent3)','var(--accent2)','var(--gold)','var(--danger)','var(--warning)','#06b6d4','#8b5cf6']
+  const CORES_MOD = ['var(--accent)', 'var(--accent3)', 'var(--accent2)', 'var(--gold)', 'var(--danger)', 'var(--warning)', '#06b6d4', '#8b5cf6']
 
   const dadosAdesaoPorMod = produtosVendidos.map((p, i) => ({
     label: p.nome.length > 8 ? p.nome.slice(0, 7) + '…' : p.nome,
@@ -412,19 +426,24 @@ export default function Dashboard() {
     valor: p.mensalidade,
     cor: CORES_MOD[i % CORES_MOD.length]
   }))
-  const dadosPizzaAdesao = produtosVendidos.map((p, i) => ({
-    label: p.nome, valor: p.adesao, cor: CORES_MOD[i % CORES_MOD.length]
-  })).filter(d => d.valor > 0)
-  const dadosPizzaMensal = produtosVendidos.map((p, i) => ({
-    label: p.nome, valor: p.mensalidade, cor: CORES_MOD[i % CORES_MOD.length]
-  })).filter(d => d.valor > 0)
 
-  // Ranking de vendedores
-  const ranking = usuarios.map(u => {
-    const r = realizadoUsuario(u.id)
-    const m = metasUsuario(u.id)
-    return { ...u, adesao: r.adesao, mensalidade: r.mensalidade, contratos: r.contratos, metaAd: Number(m.metaAdesao || 0), metaMen: Number(m.metaMensalidade || 0) }
-  }).sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
+  // Ranking de vendedores (admin vê todos, usuário vê só seu)
+  const ranking = (() => {
+    const usersToRank = isAdmin ? usuarios : [usuarioAtual]
+    return usersToRank.map(u => {
+      const rid = u.id || u.username
+      const r = realizedMap[rid] || { adReal: 0, menReal: 0, contracts: 0 }
+      const m = metasUsuario(rid)
+      return {
+        ...u,
+        adesao: r.adReal,
+        mensalidade: r.menReal,
+        contratos: r.contracts,
+        metaAd: Number(m.metaAdesao || 0),
+        metaMen: Number(m.metaMensalidade || 0)
+      }
+    }).sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
+  })()
 
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
@@ -469,14 +488,13 @@ export default function Dashboard() {
       <div style={{ position: 'fixed', width: 500, height: 500, background: 'var(--accent)', top: -200, right: -150, borderRadius: '50%', filter: 'blur(120px)', opacity: .05, pointerEvents: 'none', zIndex: 0 }} />
       <div style={{ position: 'fixed', width: 400, height: 400, background: 'var(--accent2)', bottom: -150, left: -100, borderRadius: '50%', filter: 'blur(120px)', opacity: .05, pointerEvents: 'none', zIndex: 0 }} />
 
-      {kpiModal && <ModalKpi kpi={kpiModal} userId={usuarioAtual?.id} onClose={() => setKpiModal(null)} onSave={salvarKpi} />}
+      {kpiModal && <ModalKpi kpi={kpiModal} userId={userId} onClose={() => setKpiModal(null)} onSave={salvarKpi} />}
 
-      {/* HEADER COM MENUS, LOGO CLICÁVEL E BOTÃO RELATÓRIOS */}
       <header style={{ position: 'sticky', top: 0, zIndex: 100, width: '100%', background: 'rgba(10,15,30,.85)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '12px 20px' }}>
         <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ cursor: 'pointer' }} onClick={() => router.push('/chat')}>
             {cfg.logob64
-              ? <img src={cfg.logob64} alt={cfg.company} style={{ height: 36, objectFit: 'contain', borderRadius: 6 }} onError={e => e.target.style.display = 'none'} />
+              ? <img src={`data:image/png;base64,${cfg.logob64}`} alt={cfg.company} style={{ height: 36, objectFit: 'contain', borderRadius: 6 }} onError={e => e.target.style.display = 'none'} />
               : <div>
                   <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, letterSpacing: .5 }}>{cfg.company || 'Vivanexa'}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>📊 Dashboard de Vendas</div>
@@ -507,14 +525,13 @@ export default function Dashboard() {
 
       <main style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: 960, margin: '20px auto 60px', padding: '0 20px' }}>
 
-        {/* ABAS + SELETOR MÊS */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {[
-              { id: 'geral',    label: '📊 Geral'    },
-              { id: 'produtos', label: '📦 Produtos'  },
-              { id: 'kpis',    label: '🎯 KPIs'      },
-              { id: 'ranking', label: '🏆 Ranking'   },
+              { id: 'geral', label: '📊 Geral' },
+              { id: 'produtos', label: '📦 Produtos' },
+              { id: 'kpis', label: '🎯 KPIs' },
+              { id: 'ranking', label: '🏆 Ranking' },
             ].map(t => (
               <button key={t.id} onClick={() => setAbaAtiva(t.id)}
                 style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${abaAtiva === t.id ? 'var(--accent)' : 'var(--border)'}`, background: abaAtiva === t.id ? 'rgba(0,212,255,.1)' : 'var(--surface2)', color: abaAtiva === t.id ? 'var(--accent)' : 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', fontWeight: abaAtiva === t.id ? 600 : 400 }}>
@@ -533,15 +550,15 @@ export default function Dashboard() {
         {abaAtiva === 'geral' && (
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-              {card('💰 Adesão Total',       fmt(totaisGerais.adesao),                    'var(--accent)',  `Meta: ${fmt(metasTotais.adesao)}`)}
-              {card('📅 Mensalidade Total',  fmt(totaisGerais.mensalidade),               'var(--accent3)', `Meta: ${fmt(metasTotais.mensalidade)}`)}
+              {card('💰 Adesão Total', fmt(totaisGerais.adesao), 'var(--accent)', `Meta: ${fmt(metasTotais.adesao)}`)}
+              {card('📅 Mensalidade Total', fmt(totaisGerais.mensalidade), 'var(--accent3)', `Meta: ${fmt(metasTotais.mensalidade)}`)}
               {card('📝 Contratos Fechados', totaisGerais.contratos + ' contrato' + (totaisGerais.contratos !== 1 ? 's' : ''), 'var(--gold)')}
             </div>
 
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
               <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>🎯 Metas do Mês</div>
-              <BarraProgresso label="Adesão"       real={totaisGerais.adesao}       meta={metasTotais.adesao}       />
-              <BarraProgresso label="Mensalidade"  real={totaisGerais.mensalidade}  meta={metasTotais.mensalidade}  />
+              <BarraProgresso label="Adesão" real={totaisGerais.adesao} meta={metasTotais.adesao} />
+              <BarraProgresso label="Mensalidade" real={totaisGerais.mensalidade} meta={metasTotais.mensalidade} />
             </div>
 
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
@@ -551,12 +568,34 @@ export default function Dashboard() {
 
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
               <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 12 }}>🗂️ Últimos Documentos</div>
-              <UltimosDocs docs={docHistory.slice().reverse()} />
+              <div>
+                {(docHistory || []).slice(0, 6).map((d, i) => {
+                  const isSigned = d.status === 'signed'
+                  const isPending = d.status === 'pending' || d.status === 'sent'
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: i < Math.min(docHistory.length, 6) - 1 ? '1px solid var(--border)' : 'none' }}>
+                      <div style={{ fontSize: 18, flexShrink: 0 }}>{d.type === 'contrato' ? '📝' : '📄'}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {d.cliente || 'Cliente não identificado'}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+                          {d.type === 'contrato' ? 'Contrato' : 'Proposta'} · {d.criado ? new Date(d.criado).toLocaleDateString('pt-BR') : '—'}
+                          {d.adesao > 0 && ` · ${fmt(d.adesao)}`}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: isSigned ? 'var(--accent3)' : isPending ? 'var(--warning)' : 'var(--muted)', flexShrink: 0 }}>
+                        {isSigned ? '✅' : isPending ? '⏳' : '📝'}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           </div>
         )}
 
-        {/* ── ABA PRODUTOS VENDIDOS ── */}
+        {/* ── ABA PRODUTOS ── */}
         {abaAtiva === 'produtos' && (
           <div>
             {produtosVendidos.length === 0 ? (
@@ -567,7 +606,6 @@ export default function Dashboard() {
               </div>
             ) : (
               <>
-                {/* Cards resumo por módulo */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
                   {produtosVendidos.map((p, i) => (
                     <div key={p.nome} style={{ background: 'var(--surface)', border: `1px solid ${CORES_MOD[i % CORES_MOD.length]}40`, borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
@@ -603,22 +641,6 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                  {dadosPizzaAdesao.length > 0 && (
-                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
-                      <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>🥧 Distribuição Adesão</div>
-                      <GraficoPizza dados={dadosPizzaAdesao} tamanho={130} />
-                    </div>
-                  )}
-                  {dadosPizzaMensal.length > 0 && (
-                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
-                      <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent3)', marginBottom: 14 }}>🥧 Distribuição Mensalidade</div>
-                      <GraficoPizza dados={dadosPizzaMensal} tamanho={130} />
-                    </div>
-                  )}
-                </div>
-
-                {/* Tabela detalhada */}
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginTop: 16, boxShadow: 'var(--shadow)' }}>
                   <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 14 }}>📋 Resumo Detalhado</div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -635,7 +657,7 @@ export default function Dashboard() {
                           <td style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
                             <div style={{ width: 8, height: 8, borderRadius: 2, background: CORES_MOD[i % CORES_MOD.length], flexShrink: 0 }} />
                             <span style={{ fontWeight: 600 }}>{p.nome}</span>
-                           </td>
+                          </td>
                           <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--muted)' }}>{p.qtd}×</td>
                           <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>{fmt(p.adesao)}</td>
                           <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent3)', fontWeight: 600 }}>{fmt(p.mensalidade)}</td>
@@ -651,9 +673,6 @@ export default function Dashboard() {
                       </tr>
                     </tbody>
                   </table>
-                  <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 12 }}>
-                    💡 Os dados aparecem quando o contrato salvo inclui o campo <code>modulos</code>, <code>adesaoModulos</code> e <code>mensalidadeModulos</code>.
-                  </p>
                 </div>
               </>
             )}
@@ -678,7 +697,6 @@ export default function Dashboard() {
                 <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 16 }}>
                   Clique em um KPI para lançar seu realizado
                 </div>
-                {/* Admin: todos os usuários; Usuário: apenas o próprio */}
                 {isAdmin && usuarios.length > 0 ? (
                   usuarios.map(u => (
                     <div key={u.id} style={{ marginBottom: 24 }}>
@@ -697,18 +715,17 @@ export default function Dashboard() {
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
                     {kpiTemplates.map(kpi => {
-                      const uid  = usuarioAtual?.id || ''
-                      const real = kpiRealizadoMes(kpi.id, uid, mes)
-                      const meta = kpiMetaMes(kpi.id, uid, mes)
+                      const real = kpiRealizadoMes(kpi.id, userId, mes)
+                      const meta = kpiMetaMes(kpi.id, userId, mes)
                       return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={() => setKpiModal(kpi)} />
                     })}
                   </div>
                 )}
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginTop: 20, boxShadow: 'var(--shadow)' }}>
                   <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>📅 Lançamentos do Mês</div>
-                  {kpiLog.filter(l => l.date.startsWith(mes) && l.userId === usuarioAtual?.id).length === 0
+                  {kpiLog.filter(l => l.date.startsWith(mes) && l.userId === userId).length === 0
                     ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum lançamento neste mês.</p>
-                    : kpiLog.filter(l => l.date.startsWith(mes) && l.userId === usuarioAtual?.id).slice().reverse().slice(0, 10).map((l, i) => {
+                    : kpiLog.filter(l => l.date.startsWith(mes) && l.userId === userId).slice().reverse().slice(0, 10).map((l, i) => {
                         const kpi = kpiTemplates.find(k => k.id === l.kpiId)
                         return (
                           <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
@@ -750,43 +767,12 @@ export default function Dashboard() {
                           <div style={{ fontSize: 11, color: 'var(--muted)' }}>total no mês</div>
                         </div>
                       </div>
-                      <BarraProgresso label="Adesão"      real={u.adesao}      meta={u.metaAd}  />
+                      <BarraProgresso label="Adesão" real={u.adesao} meta={u.metaAd} />
                       <BarraProgresso label="Mensalidade" real={u.mensalidade} meta={u.metaMen} />
                     </div>
                   )
                 })}
               </div>
-            )}
-          </div>
-        )}
-
-        {/* ── ABA HISTÓRICO ── */}
-        {abaAtiva === 'historico' && (
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
-            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>🗂️ Todos os Documentos</div>
-            {docHistory.length === 0 ? (
-              <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum documento gerado ainda.</p>
-            ) : (
-              docHistory.slice().reverse().map((d, i) => {
-                const isSigned  = d.status === 'signed'
-                const isPending = d.status === 'pending' || d.status === 'sent'
-                return (
-                  <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-                    <span style={{ fontSize: 18 }}>{d.type === 'contrato' ? '📝' : '📄'}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{d.cliente || 'Cliente não identificado'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                        {d.type === 'contrato' ? 'Contrato' : 'Proposta'} · {d.criado ? new Date(d.criado).toLocaleDateString('pt-BR') : '—'}
-                        {d.adesao > 0 && ` · ${fmt(d.adesao)}`}
-                        {d.modulos?.length > 0 && ` · ${d.modulos.join(', ')}`}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: isSigned ? 'var(--accent3)' : isPending ? 'var(--warning)' : 'var(--muted)' }}>
-                      {isSigned ? '✅ Assinado' : isPending ? '⏳ Pendente' : '📝 Rascunho'}
-                    </div>
-                  </div>
-                )
-              })
             )}
           </div>
         )}
