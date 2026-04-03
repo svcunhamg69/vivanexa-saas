@@ -37,18 +37,20 @@ function dateToMonth(dateStr) {
   try { const d = new Date(dateStr); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` } catch (e) { return '' }
 }
 function entryBelongsTo(h, userId, users) {
+  if (!h || !userId) return false
   if (h.consultantId && h.consultantId === userId) return true
   if (h.consultantSignedBy) {
-    const u = users.find(u2 => (u2.id || u2.username) === userId)
+    const u = (users || []).find(u2 => (u2.id || u2.username) === userId)
     if (u && (u.name === h.consultantSignedBy || u.username === h.consultantSignedBy)) return true
   }
   if (h.consultant) {
-    const u = users.find(u2 => (u2.id || u2.username) === userId)
+    const u = (users || []).find(u2 => (u2.id || u2.username) === userId)
     if (u && (u.name === h.consultant || u.username === h.consultant)) return true
   }
   return false
 }
 function entryInMonth(h, month) {
+  if (!h) return false
   if (h.dateISO) return h.dateISO.slice(0, 7) === month
   const signDate = h.signedAt || h.consultantSignedAt || h.date
   return dateToMonth(signDate) === month
@@ -57,7 +59,7 @@ function computeRealized(userId, month, users, docHistory) {
   const history = docHistory || []
   let adReal = 0, menReal = 0, contracts = 0
   for (const h of history) {
-    if (h.type !== 'contrato') continue
+    if (!h || h.type !== 'contrato') continue
     if (!entryInMonth(h, month)) continue
     if (!entryBelongsTo(h, userId, users)) continue
     adReal += (h.tAd || 0)
@@ -65,51 +67,6 @@ function computeRealized(userId, month, users, docHistory) {
     contracts++
   }
   return { adReal, menReal, contracts }
-}
-function computeProducts(userId, month, users, docHistory, productNames) {
-  const history = docHistory || []
-  const prodMap = {}
-  let totalAd = 0, totalMen = 0, totalContracts = 0
-  for (const h of history) {
-    if (h.type !== 'contrato') continue
-    if (!entryInMonth(h, month)) continue
-    if (!entryBelongsTo(h, userId, users)) continue
-    totalContracts++
-    const mods = h.modules && h.modules.length ? h.modules : []
-    if (mods.length) {
-      mods.forEach(mod => {
-        const displayName = prodName(mod, productNames) || mod
-        if (!prodMap[displayName]) prodMap[displayName] = { qty: 0, ad: 0, men: 0 }
-        prodMap[displayName].qty++
-        prodMap[displayName].ad += (h.modAd?.[mod] || h.modAd?.[displayName] || 0)
-        prodMap[displayName].men += (h.modMen?.[mod] || h.modMen?.[displayName] || 0)
-      })
-    } else {
-      if (!prodMap['Contrato']) prodMap['Contrato'] = { qty: 0, ad: 0, men: 0 }
-      prodMap['Contrato'].qty++
-      prodMap['Contrato'].ad += (h.tAd || 0)
-      prodMap['Contrato'].men += (h.tMen || 0)
-    }
-    totalAd += (h.tAd || 0)
-    totalMen += (h.tMen || 0)
-  }
-  return { prodMap, totalAd, totalMen, totalContracts }
-}
-function getKpiRealized(userId, yearMonth, kpiLog) {
-  const logs = (kpiLog || []).filter(l => l.userId === userId && l.date.startsWith(yearMonth))
-  const map = {}
-  for (const l of logs) {
-    if (!map[l.kpiId]) map[l.kpiId] = 0
-    map[l.kpiId] += Number(l.realizado) || 0
-  }
-  return map
-}
-function getKpiToday(userId, kpiLog) {
-  const today = new Date().toISOString().slice(0, 10)
-  const logs = (kpiLog || []).filter(l => l.userId === userId && l.date === today)
-  const map = {}
-  for (const l of logs) map[l.kpiId] = (map[l.kpiId] || 0) + (Number(l.realizado) || 0)
-  return map
 }
 
 // ── Barra de progresso ────────────────────────────────────────
@@ -198,13 +155,11 @@ function ModalKpi({ kpi, userId, onClose, onSave }) {
   const hoje = new Date().toISOString().slice(0, 10)
   const [valor, setValor] = useState('')
   const [data, setData] = useState(hoje)
-
   async function salvar() {
     if (!valor || isNaN(Number(valor))) return
     await onSave({ kpiId: kpi.id, valor: Number(valor), data, userId })
     onClose()
   }
-
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 360, boxShadow: 'var(--shadow)' }}>
@@ -311,45 +266,43 @@ export default function Dashboard() {
     setCfg(novoCfg)
   }
 
+  // ── Dados seguros (com proteções contra undefined) ──────────
   const isAdmin = perfil?.perfil === 'admin'
+
   const usuarios = cfg.users || []
   const goals = cfg.goals || []
   const kpiTemplates = cfg.kpiTemplates || []
-  const kpiGoals = cfg.kpiGoals || {}
+  const kpiGoals = cfg.kpiDailyGoals || cfg.kpiGoals || {}
   const kpiLog = cfg.kpiLog || []
   const docHistory = cfg.docHistory || []
   const productNames = cfg.productNames || {}
 
-  const usuarioAtual = usuarios.find(u => u.email === perfil?.email) || usuarios[0]
-  const userId = usuarioAtual?.id || perfil?.id || ''
+  // Proteção crítica: nunca deixa ser undefined
+  const usuarioAtual = usuarios.find(u => u?.email === perfil?.email) || usuarios[0] || {}
+  const userId = usuarioAtual?.id || usuarioAtual?.username || perfil?.id || ''
 
-  // Contratos assinados no mês selecionado
-  const contratosMes = docHistory.filter(d => {
-    if (d.status !== 'signed') return false
-    const dt = (d.criado || d.dateISO || d.date || '')
-    return dt.slice(0, 7) === mes
-  })
-
-  function metasUsuario(userId) {
-    const goal = goals.find(g => g.userId === userId && g.mes === mes)
-    return goal || {}
+  function metasUsuario(uid) {
+    if (!uid) return {}
+    return goals.find(g => g.userId === uid && g.mes === mes) || {}
   }
 
-  // Realizado para um usuário usando a função computeRealized
   const realizedMap = {}
   usuarios.forEach(u => {
-    const rid = u.id || u.username
-    realizedMap[rid] = computeRealized(rid, mes, usuarios, docHistory)
+    if (!u) return
+    const rid = u.id || u.username || ''
+    if (rid) realizedMap[rid] = computeRealized(rid, mes, usuarios, docHistory)
   })
 
   const totaisGerais = (() => {
     let ad = 0, men = 0, docs = 0
-    const usersToSum = isAdmin ? usuarios : [usuarioAtual]
+    const usersToSum = isAdmin ? usuarios : [usuarioAtual].filter(u => u && (u.id || u.username))
     usersToSum.forEach(u => {
-      const rid = u.id || u.username
-      ad += realizedMap[rid]?.adReal || 0
-      men += realizedMap[rid]?.menReal || 0
-      docs += realizedMap[rid]?.contracts || 0
+      if (!u) return
+      const rid = u.id || u.username || ''
+      const r = realizedMap[rid] || { adReal: 0, menReal: 0, contracts: 0 }
+      ad += r.adReal || 0
+      men += r.menReal || 0
+      docs += r.contracts || 0
     })
     return { adesao: ad, mensalidade: men, contratos: docs }
   })()
@@ -357,6 +310,7 @@ export default function Dashboard() {
   const metasTotais = (() => {
     let ad = 0, men = 0
     usuarios.forEach(u => {
+      if (!u) return
       const m = metasUsuario(u.id || u.username)
       ad += Number(m.metaAdesao || 0)
       men += Number(m.metaMensalidade || 0)
@@ -364,17 +318,23 @@ export default function Dashboard() {
     return { adesao: ad, mensalidade: men }
   })()
 
-  function kpiRealizadoMes(kpiId, userId, month) {
+  const contratosMes = docHistory.filter(d => {
+    if (!d || d.status !== 'signed') return false
+    const dt = d.criado || d.dateISO || d.date || ''
+    return dt.slice(0, 7) === mes
+  })
+
+  function kpiRealizadoMes(kpiId, uid, month) {
     return kpiLog
-      .filter(l => l.kpiId === kpiId && l.userId === userId && l.date.startsWith(month))
+      .filter(l => l && l.kpiId === kpiId && l.userId === uid && l.date && l.date.startsWith(month))
       .reduce((acc, l) => acc + (Number(l.realizado) || 0), 0)
   }
-  function kpiMetaMes(kpiId, userId, month) {
-    const diaria = (kpiGoals[userId]?.[month]?.[kpiId]) || 0
+
+  function kpiMetaMes(kpiId, uid, month) {
+    const diaria = (kpiGoals[uid]?.[month]?.[kpiId]) || 0
     return diaria * diasUteisNoMes(month)
   }
 
-  // Gráfico últimos 6 meses — adesão (apenas admin ou time todo)
   const dadosGrafico6m = (() => {
     const meses = []
     for (let i = 5; i >= 0; i--) {
@@ -384,11 +344,11 @@ export default function Dashboard() {
       let valor = 0
       if (isAdmin) {
         valor = docHistory
-          .filter(d => d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m)
+          .filter(d => d && d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m)
           .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
       } else {
         valor = docHistory
-          .filter(d => d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m && entryBelongsTo(d, userId, usuarios))
+          .filter(d => d && d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m && entryBelongsTo(d, userId, usuarios))
           .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
       }
       meses.push({ label, valor, cor: m === mes ? 'var(--accent)' : 'rgba(0,212,255,.4)' })
@@ -396,14 +356,16 @@ export default function Dashboard() {
     return meses
   })()
 
-  // Produtos vendidos no mês (admin vê todos, usuário vê só seus)
+  const CORES_MOD = ['var(--accent)', 'var(--accent3)', 'var(--accent2)', 'var(--gold)', 'var(--danger)', 'var(--warning)', '#06b6d4', '#8b5cf6']
+
   const produtosVendidos = (() => {
     const mapa = {}
-    const docsFiltrados = isAdmin ? contratosMes : contratosMes.filter(d => entryBelongsTo(d, userId, usuarios))
+    const docsFiltrados = isAdmin ? contratosMes : contratosMes.filter(d => d && entryBelongsTo(d, userId, usuarios))
     docsFiltrados.forEach(d => {
-      if (!d.modulos) return
+      if (!d || !d.modulos) return
       d.modulos.forEach(mod => {
-        const nomeMod = prodName(mod, productNames)
+        if (!mod) return
+        const nomeMod = (productNames && prodName) ? prodName(mod, productNames) : mod
         if (!mapa[nomeMod]) mapa[nomeMod] = { adesao: 0, mensalidade: 0, qtd: 0 }
         mapa[nomeMod].adesao += Number(d.adesaoModulos?.[mod] || 0)
         mapa[nomeMod].mensalidade += Number(d.mensalidadeModulos?.[mod] || 0)
@@ -414,35 +376,36 @@ export default function Dashboard() {
       .sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
   })()
 
-  const CORES_MOD = ['var(--accent)', 'var(--accent3)', 'var(--accent2)', 'var(--gold)', 'var(--danger)', 'var(--warning)', '#06b6d4', '#8b5cf6']
-
   const dadosAdesaoPorMod = produtosVendidos.map((p, i) => ({
     label: p.nome.length > 8 ? p.nome.slice(0, 7) + '…' : p.nome,
     valor: p.adesao,
     cor: CORES_MOD[i % CORES_MOD.length]
   }))
+
   const dadosMensalidadePorMod = produtosVendidos.map((p, i) => ({
     label: p.nome.length > 8 ? p.nome.slice(0, 7) + '…' : p.nome,
     valor: p.mensalidade,
     cor: CORES_MOD[i % CORES_MOD.length]
   }))
 
-  // Ranking de vendedores (admin vê todos, usuário vê só seu)
   const ranking = (() => {
-    const usersToRank = isAdmin ? usuarios : [usuarioAtual]
-    return usersToRank.map(u => {
-      const rid = u.id || u.username
-      const r = realizedMap[rid] || { adReal: 0, menReal: 0, contracts: 0 }
-      const m = metasUsuario(rid)
-      return {
-        ...u,
-        adesao: r.adReal,
-        mensalidade: r.menReal,
-        contratos: r.contracts,
-        metaAd: Number(m.metaAdesao || 0),
-        metaMen: Number(m.metaMensalidade || 0)
-      }
-    }).sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
+    const usersToRank = isAdmin ? usuarios : [usuarioAtual].filter(u => u && (u.id || u.username))
+    return usersToRank
+      .filter(u => u != null)
+      .map(u => {
+        const rid = u.id || u.username || ''
+        const r = realizedMap[rid] || { adReal: 0, menReal: 0, contracts: 0 }
+        const m = metasUsuario(rid)
+        return {
+          ...u,
+          adesao: r.adReal || 0,
+          mensalidade: r.menReal || 0,
+          contratos: r.contracts || 0,
+          metaAd: Number(m.metaAdesao || 0),
+          metaMen: Number(m.metaMensalidade || 0)
+        }
+      })
+      .sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
   })()
 
   if (loading) return (
@@ -524,7 +487,6 @@ export default function Dashboard() {
       </header>
 
       <main style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: 960, margin: '20px auto 60px', padding: '0 20px' }}>
-
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {[
@@ -554,22 +516,20 @@ export default function Dashboard() {
               {card('📅 Mensalidade Total', fmt(totaisGerais.mensalidade), 'var(--accent3)', `Meta: ${fmt(metasTotais.mensalidade)}`)}
               {card('📝 Contratos Fechados', totaisGerais.contratos + ' contrato' + (totaisGerais.contratos !== 1 ? 's' : ''), 'var(--gold)')}
             </div>
-
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
               <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>🎯 Metas do Mês</div>
               <BarraProgresso label="Adesão" real={totaisGerais.adesao} meta={metasTotais.adesao} />
               <BarraProgresso label="Mensalidade" real={totaisGerais.mensalidade} meta={metasTotais.mensalidade} />
             </div>
-
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
               <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>📈 Adesão — Últimos 6 Meses</div>
               <GraficoBarras dados={dadosGrafico6m} altura={140} formatarValor={v => fmtK(v)} />
             </div>
-
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
               <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 12 }}>🗂️ Últimos Documentos</div>
               <div>
                 {(docHistory || []).slice(0, 6).map((d, i) => {
+                  if (!d) return null
                   const isSigned = d.status === 'signed'
                   const isPending = d.status === 'pending' || d.status === 'sent'
                   return (
@@ -629,7 +589,6 @@ export default function Dashboard() {
                     </div>
                   ))}
                 </div>
-
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
                   <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
                     <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>💰 Adesão por Módulo</div>
@@ -640,7 +599,6 @@ export default function Dashboard() {
                     <GraficoBarras dados={dadosMensalidadePorMod} altura={130} formatarValor={v => fmtK(v)} />
                   </div>
                 </div>
-
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginTop: 16, boxShadow: 'var(--shadow)' }}>
                   <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 14 }}>📋 Resumo Detalhado</div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -654,9 +612,11 @@ export default function Dashboard() {
                     <tbody>
                       {produtosVendidos.map((p, i) => (
                         <tr key={p.nome} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ width: 8, height: 8, borderRadius: 2, background: CORES_MOD[i % CORES_MOD.length], flexShrink: 0 }} />
-                            <span style={{ fontWeight: 600 }}>{p.nome}</span>
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: 2, background: CORES_MOD[i % CORES_MOD.length], flexShrink: 0 }} />
+                              <span style={{ fontWeight: 600 }}>{p.nome}</span>
+                            </div>
                           </td>
                           <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--muted)' }}>{p.qtd}×</td>
                           <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>{fmt(p.adesao)}</td>
@@ -698,23 +658,28 @@ export default function Dashboard() {
                   Clique em um KPI para lançar seu realizado
                 </div>
                 {isAdmin && usuarios.length > 0 ? (
-                  usuarios.map(u => (
-                    <div key={u.id} style={{ marginBottom: 24 }}>
-                      <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--muted)', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
-                        👤 {u.nome}
+                  usuarios.map(u => {
+                    if (!u) return null
+                    return (
+                      <div key={u.id || u.username} style={{ marginBottom: 24 }}>
+                        <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--muted)', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
+                          👤 {u.nome}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+                          {kpiTemplates.map(kpi => {
+                            if (!kpi) return null
+                            const real = kpiRealizadoMes(kpi.id, u.id || u.username, mes)
+                            const meta = kpiMetaMes(kpi.id, u.id || u.username, mes)
+                            return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={null} />
+                          })}
+                        </div>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-                        {kpiTemplates.map(kpi => {
-                          const real = kpiRealizadoMes(kpi.id, u.id, mes)
-                          const meta = kpiMetaMes(kpi.id, u.id, mes)
-                          return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={null} />
-                        })}
-                      </div>
-                    </div>
-                  ))
+                    )
+                  })
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
                     {kpiTemplates.map(kpi => {
+                      if (!kpi) return null
                       const real = kpiRealizadoMes(kpi.id, userId, mes)
                       const meta = kpiMetaMes(kpi.id, userId, mes)
                       return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={() => setKpiModal(kpi)} />
@@ -723,10 +688,10 @@ export default function Dashboard() {
                 )}
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginTop: 20, boxShadow: 'var(--shadow)' }}>
                   <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>📅 Lançamentos do Mês</div>
-                  {kpiLog.filter(l => l.date.startsWith(mes) && l.userId === userId).length === 0
+                  {kpiLog.filter(l => l && l.date && l.date.startsWith(mes) && l.userId === userId).length === 0
                     ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum lançamento neste mês.</p>
-                    : kpiLog.filter(l => l.date.startsWith(mes) && l.userId === userId).slice().reverse().slice(0, 10).map((l, i) => {
-                        const kpi = kpiTemplates.find(k => k.id === l.kpiId)
+                    : kpiLog.filter(l => l && l.date && l.date.startsWith(mes) && l.userId === userId).slice().reverse().slice(0, 10).map((l, i) => {
+                        const kpi = kpiTemplates.find(k => k && k.id === l.kpiId)
                         return (
                           <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
                             <span>{kpi?.icone || '📊'}</span>
@@ -753,9 +718,10 @@ export default function Dashboard() {
             ) : (
               <div>
                 {ranking.map((u, i) => {
+                  if (!u) return null
                   const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`
                   return (
-                    <div key={u.id} style={{ background: i === 0 ? 'linear-gradient(135deg,rgba(251,191,36,.08),rgba(251,191,36,.02))' : 'var(--surface)', border: `1px solid ${i === 0 ? 'rgba(251,191,36,.3)' : 'var(--border)'}`, borderRadius: 14, padding: '18px 20px', marginBottom: 12, boxShadow: 'var(--shadow)' }}>
+                    <div key={u.id || u.username || i} style={{ background: i === 0 ? 'linear-gradient(135deg,rgba(251,191,36,.08),rgba(251,191,36,.02))' : 'var(--surface)', border: `1px solid ${i === 0 ? 'rgba(251,191,36,.3)' : 'var(--border)'}`, borderRadius: 14, padding: '18px 20px', marginBottom: 12, boxShadow: 'var(--shadow)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
                         <span style={{ fontSize: 22 }}>{emoji}</span>
                         <div>
@@ -779,4 +745,9 @@ export default function Dashboard() {
       </main>
     </>
   )
+}
+
+// ✅ CORREÇÃO PRINCIPAL: Força SSR e evita erro de pré-renderização estática no build
+export async function getServerSideProps() {
+  return { props: {} }
 }
