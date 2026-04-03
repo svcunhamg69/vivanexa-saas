@@ -1,5 +1,5 @@
 // pages/kpi.js
-import { useState, useEffect, useCallback } from 'react' // Adicionado useCallback
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
@@ -16,93 +16,109 @@ export default function KpiPage() {
   const [data, setData] = useState(dateParam || new Date().toISOString().slice(0,10))
   const [error, setError] = useState('')
 
+  // Função para carregar os dados
   const loadData = useCallback(async () => {
-    setLoading(true)
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      router.push('/')
-      return
-    }
+    setLoading(true);
+    setError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.replace('/'); // Usar replace para não adicionar ao histórico
+        return;
+      }
 
-    let { data: profile } = await supabase
-      .from('perfis')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .maybeSingle()
-
-    if (!profile) {
-      const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário'
-      const { data: novoPerfil } = await supabase
+      let { data: profile } = await supabase
         .from('perfis')
-        .insert({
-          user_id: session.user.id,
-          nome: nome,
-          email: session.user.email,
-          empresa_id: session.user.id,
-          perfil: 'admin'
-        })
-        .select()
-        .single()
-      profile = novoPerfil
-    }
+        .select('*')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
 
-    const eid = profile?.empresa_id || session.user.id
-    setEmpresaId(eid)
-    setUser({ ...session.user, ...profile })
+      if (!profile) {
+        const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário';
+        const { data: novoPerfil } = await supabase
+          .from('perfis')
+          .insert({
+            user_id: session.user.id,
+            nome: nome,
+            email: session.user.email,
+            empresa_id: session.user.id,
+            perfil: 'admin'
+          })
+          .select()
+          .single();
+        profile = novoPerfil;
+      }
 
-    const { data: cfgRow, error: cfgError } = await supabase
-      .from('vx_storage')
-      .select('value')
-      .eq('key', `cfg:${eid}`)
-      .single()
+      const eid = profile?.empresa_id || session.user.id;
+      setEmpresaId(eid);
+      setUser({ ...session.user, ...profile });
 
-    if (cfgError && cfgError.code !== 'PGRST116') { // PGRST116 = no rows found
-      console.error("Erro ao carregar configuração:", cfgError);
-      setError("Erro ao carregar configurações. Tente novamente.");
+      const { data: cfgRow, error: cfgError } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `cfg:${eid}`)
+        .single();
+
+      let loadedCfg = {};
+      if (cfgError && cfgError.code !== 'PGRST116') { // PGRST116 = no rows found
+        console.error("Erro ao carregar configuração:", cfgError);
+        setError("Erro ao carregar configurações. Tente novamente.");
+        setLoading(false);
+        return;
+      }
+      if (cfgRow?.value) {
+        loadedCfg = JSON.parse(cfgRow.value);
+      }
+      setCfg(loadedCfg);
+      setKpis(loadedCfg.kpiTemplates || []);
+
+      const log = loadedCfg.kpiLog || [];
+      const dia = dateParam || new Date().toISOString().slice(0, 10); // Garante que a data seja consistente
+      setData(dia); // Atualiza o estado da data com a data da URL ou hoje
+      const existing = log.filter(l => l.userId === session.user.id && l.date === dia);
+      const map = {};
+      existing.forEach(l => { map[l.kpiId] = l.realizado; });
+      setValores(map);
+
+    } catch (err) {
+      console.error("Erro geral ao carregar dados do KPI:", err);
+      setError("Erro ao carregar dados. Tente novamente.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    let loadedCfg = cfgRow?.value ? JSON.parse(cfgRow.value) : {};
-    setCfg(loadedCfg);
-    setKpis(loadedCfg.kpiTemplates || []);
-
-    const log = loadedCfg.kpiLog || [];
-    const dia = dateParam || new Date().toISOString().slice(0,10); // Usa dateParam ou data atual
-    const existing = log.filter(l => l.userId === session.user.id && l.date === dia);
-    const map = {};
-    existing.forEach(l => { map[l.kpiId] = l.realizado; });
-    setValores(map);
-    setLoading(false);
   }, [router, dateParam]); // Adicionado dateParam como dependência
 
   useEffect(() => {
     loadData();
-  }, [loadData]); // Depende de loadData
+  }, [loadData]);
 
   async function handleSubmit(e) {
-    e.preventDefault()
-    setSaving(true)
-    setError('')
+    e.preventDefault();
+    setSaving(true);
+    setError('');
 
     try {
-      // Recarrega a configuração mais recente antes de salvar para evitar sobrescrever
-      const { data: cfgRow } = await supabase
+      const { data: cfgRow, error: fetchError } = await supabase
         .from('vx_storage')
         .select('value')
         .eq('key', `cfg:${empresaId}`)
-        .single()
-      let currentCfg = cfgRow?.value ? JSON.parse(cfgRow.value) : cfg || {}
-      if (!currentCfg.kpiLog) currentCfg.kpiLog = []
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        throw new Error(`Erro ao buscar configuração para salvar: ${fetchError.message}`);
+      }
+
+      let currentCfg = cfgRow?.value ? JSON.parse(cfgRow.value) : (cfg || {});
+      if (!currentCfg.kpiLog) currentCfg.kpiLog = [];
 
       // Remove logs existentes para o usuário e data atual
       currentCfg.kpiLog = currentCfg.kpiLog.filter(l =>
         !(l.userId === user.id && l.date === data)
-      )
+      );
 
       // Adiciona os novos valores de KPI
       for (const k of kpis) {
-        const val = valores[k.id]
+        const val = valores[k.id];
         if (val !== undefined && val !== '') {
           currentCfg.kpiLog.push({
             id: Date.now() + Math.random(), // ID único para cada log
@@ -110,37 +126,40 @@ export default function KpiPage() {
             date: data,
             kpiId: k.id,
             realizado: Number(val)
-          })
+          });
         }
       }
 
-      // Salva a configuração atualizada
-      const { error: upsertError } = await supabase.from('vx_storage').upsert({
-        key: `cfg:${empresaId}`,
-        value: JSON.stringify(currentCfg),
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'key' }) // Garante que atualiza se a chave já existe
+      // Atualiza a configuração no Supabase
+      const { error: upsertError } = await supabase.from('vx_storage').upsert(
+        {
+          key: `cfg:${empresaId}`,
+          value: JSON.stringify(currentCfg),
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'key' } // Garante que atualiza se a chave já existe
+      );
 
       if (upsertError) {
-        throw new Error(upsertError.message);
+        throw new Error(`Erro ao salvar configuração: ${upsertError.message}`);
       }
 
-      // Redireciona para a página de origem ou para /chat
-      const redirectTo = typeof redirect === 'string' ? decodeURIComponent(redirect) : '/chat'
-      router.push(redirectTo) // Usa router.push para navegação no Next.js
+      // Redireciona para a página original ou /chat
+      const redirectTo = typeof redirect === 'string' ? decodeURIComponent(redirect) : '/chat';
+      router.replace(redirectTo);
+      router.reload(); // Força o _app.js a reavaliar a configuração
     } catch (err) {
-      console.error("Erro ao salvar KPI:", err)
-      setError('Erro ao salvar. Tente novamente: ' + err.message)
+      console.error("Erro ao salvar KPIs:", err);
+      setError(`Erro ao salvar. Tente novamente. Detalhes: ${err.message}`);
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   if (loading) {
-    return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>Carregando...</div>
+    return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>Carregando KPIs...</div>
   }
 
-  // Se não há KPIs configurados na `cfg` carregada, exibe a mensagem
   if (!kpis.length) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)', flexDirection: 'column', gap: 16 }}>
