@@ -13,7 +13,6 @@ export default function KpiPage() {
   const [saving, setSaving] = useState(false)
   const [kpis, setKpis] = useState([])
   const [valores, setValores] = useState({})
-  // Garante que a data inicial seja sempre a do parâmetro URL, se existir
   const [data, setData] = useState(dateParam || new Date().toISOString().slice(0,10))
   const [error, setError] = useState('')
 
@@ -25,7 +24,6 @@ export default function KpiPage() {
         return
       }
 
-      // Busca ou cria perfil automaticamente (corrigido: user_id)
       let { data: profile } = await supabase
         .from('perfis')
         .select('*')
@@ -62,8 +60,7 @@ export default function KpiPage() {
         setCfg(loaded)
         setKpis(loaded.kpiTemplates || [])
         const log = loaded.kpiLog || []
-        // Usa a data do estado, que já foi inicializada com dateParam
-        const dia = data
+        const dia = dateParam || new Date().toISOString().slice(0,10) // Usar dateParam para consistência
         const existing = log.filter(l => l.userId === session.user.id && l.date === dia)
         const map = {}
         existing.forEach(l => { map[l.kpiId] = l.realizado })
@@ -72,7 +69,7 @@ export default function KpiPage() {
       setLoading(false)
     }
     load()
-  }, [data]) // Adicione 'data' como dependência para recarregar se a data mudar
+  }, [dateParam, router]) // Adicionar dateParam e router como dependências
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -88,23 +85,27 @@ export default function KpiPage() {
       let currentCfg = cfgRow?.value ? JSON.parse(cfgRow.value) : cfg || {}
       if (!currentCfg.kpiLog) currentCfg.kpiLog = []
 
-      // Filtra logs existentes para a data ATUALMENTE SELECIONADA (que veio da URL)
+      // Filtra logs existentes para a data e usuário atual
       currentCfg.kpiLog = currentCfg.kpiLog.filter(l =>
         !(l.userId === user.id && l.date === data)
       )
 
+      // Adiciona os novos logs
       for (const k of kpis) {
         const val = valores[k.id]
         if (val !== undefined && val !== '') {
           currentCfg.kpiLog.push({
-            id: Date.now() + Math.random(),
+            id: Date.now() + Math.random(), // ID único para cada lançamento
             userId: user.id,
-            date: data, // Garante que a data salva é a data do input
+            date: data,
             kpiId: k.id,
             realizado: Number(val)
           })
         }
       }
+
+      // Atualiza o objeto cfg no estado local para refletir as mudanças
+      setCfg(currentCfg);
 
       await supabase.from('vx_storage').upsert({
         key: `cfg:${empresaId}`,
@@ -112,9 +113,9 @@ export default function KpiPage() {
         updated_at: new Date().toISOString()
       })
 
-      const redirectTo = typeof redirect === 'string' ? redirect : '/chat'
-      // Força um recarregamento completo para que _app.js reavalie o KPI
-      window.location.href = redirectTo
+      // Redireciona para a página de origem ou para /chat
+      const redirectTo = typeof redirect === 'string' && redirect.startsWith('/') ? redirect : '/chat'
+      router.push(redirectTo) // Usar router.push para navegação Next.js
     } catch (err) {
       console.error(err)
       setError('Erro ao salvar. Tente novamente.')
