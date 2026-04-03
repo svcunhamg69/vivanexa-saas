@@ -13,17 +13,17 @@ export default function KpiPage() {
   const [saving, setSaving] = useState(false)
   const [kpis, setKpis] = useState([])
   const [valores, setValores] = useState({})
-  const [data, setData] = useState(dateParam || new Date().toISOString().slice(0,10))
+  const [data, setData] = useState(dateParam || new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
+  const [metasDiarias, setMetasDiarias] = useState({})
 
-  // Função para carregar os dados
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        router.replace('/'); // Usar replace para não adicionar ao histórico
+        router.replace('/');
         return;
       }
 
@@ -60,7 +60,7 @@ export default function KpiPage() {
         .single();
 
       let loadedCfg = {};
-      if (cfgError && cfgError.code !== 'PGRST116') { // PGRST116 = no rows found
+      if (cfgError && cfgError.code !== 'PGRST116') {
         console.error("Erro ao carregar configuração:", cfgError);
         setError("Erro ao carregar configurações. Tente novamente.");
         setLoading(false);
@@ -72,9 +72,14 @@ export default function KpiPage() {
       setCfg(loadedCfg);
       setKpis(loadedCfg.kpiTemplates || []);
 
+      // Carregar metas diárias do usuário para o mês atual
+      const mesAtual = new Date().toISOString().slice(0, 7);
+      const metas = (loadedCfg.kpiGoals || {})[session.user.id]?.[mesAtual] || {};
+      setMetasDiarias(metas);
+
       const log = loadedCfg.kpiLog || [];
-      const dia = dateParam || new Date().toISOString().slice(0, 10); // Garante que a data seja consistente
-      setData(dia); // Atualiza o estado da data com a data da URL ou hoje
+      const dia = dateParam || new Date().toISOString().slice(0, 10);
+      setData(dia);
       const existing = log.filter(l => l.userId === session.user.id && l.date === dia);
       const map = {};
       existing.forEach(l => { map[l.kpiId] = l.realizado; });
@@ -86,7 +91,7 @@ export default function KpiPage() {
     } finally {
       setLoading(false);
     }
-  }, [router, dateParam]); // Adicionado dateParam como dependência
+  }, [router, dateParam]);
 
   useEffect(() => {
     loadData();
@@ -121,7 +126,7 @@ export default function KpiPage() {
         const val = valores[k.id];
         if (val !== undefined && val !== '') {
           currentCfg.kpiLog.push({
-            id: Date.now() + Math.random(), // ID único para cada log
+            id: Date.now() + Math.random(),
             userId: user.id,
             date: data,
             kpiId: k.id,
@@ -130,24 +135,21 @@ export default function KpiPage() {
         }
       }
 
-      // Atualiza a configuração no Supabase
       const { error: upsertError } = await supabase.from('vx_storage').upsert(
         {
           key: `cfg:${empresaId}`,
           value: JSON.stringify(currentCfg),
           updated_at: new Date().toISOString()
         },
-        { onConflict: 'key' } // Garante que atualiza se a chave já existe
+        { onConflict: 'key' }
       );
 
       if (upsertError) {
         throw new Error(`Erro ao salvar configuração: ${upsertError.message}`);
       }
 
-      // Redireciona para a página original ou /chat
       const redirectTo = typeof redirect === 'string' ? decodeURIComponent(redirect) : '/chat';
       router.replace(redirectTo);
-      router.reload(); // Força o _app.js a reavaliar a configuração
     } catch (err) {
       console.error("Erro ao salvar KPIs:", err);
       setError(`Erro ao salvar. Tente novamente. Detalhes: ${err.message}`);
@@ -155,6 +157,21 @@ export default function KpiPage() {
       setSaving(false);
     }
   }
+
+  // Função para calcular dias úteis no mês (para exibir meta mensal)
+  function diasUteisNoMes(yearMonth) {
+    const [y, m] = yearMonth.split('-').map(Number);
+    const dias = new Date(y, m, 0).getDate();
+    let uteis = 0;
+    for (let d = 1; d <= dias; d++) {
+      const dow = new Date(y, m - 1, d).getDay();
+      if (dow !== 0 && dow !== 6) uteis++;
+    }
+    return uteis;
+  }
+
+  const mesAtual = data.slice(0, 7);
+  const diasUteis = diasUteisNoMes(mesAtual);
 
   if (loading) {
     return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)' }}>Carregando KPIs...</div>
@@ -191,26 +208,35 @@ export default function KpiPage() {
                 type="date"
                 value={data}
                 onChange={e => setData(e.target.value)}
-                max={new Date().toISOString().slice(0,10)}
+                max={new Date().toISOString().slice(0, 10)}
                 style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', color: 'var(--text)', fontFamily: 'DM Mono, monospace' }}
               />
             </div>
 
-            {kpis.map(k => (
-              <div key={k.id} style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 18 }}>{k.icone || '📊'}</span> {k.nome}
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={valores[k.id] || ''}
-                  onChange={e => setValores(prev => ({ ...prev, [k.id]: e.target.value }))}
-                  placeholder={`Quantidade (${k.unidade || 'un'})`}
-                  style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', color: 'var(--text)', fontFamily: 'DM Mono, monospace' }}
-                />
-              </div>
-            ))}
+            {kpis.map(k => {
+              const metaDiaria = metasDiarias[k.id] || 0;
+              const metaMensal = metaDiaria * diasUteis;
+              return (
+                <div key={k.id} style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>{k.icone || '📊'}</span> {k.nome}
+                    {metaDiaria > 0 && (
+                      <span style={{ fontSize: 11, color: 'var(--accent3)', marginLeft: 'auto' }}>
+                        Meta: {metaDiaria}/dia ({metaMensal}/mês)
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={valores[k.id] || ''}
+                    onChange={e => setValores(prev => ({ ...prev, [k.id]: e.target.value }))}
+                    placeholder={`Quantidade (${k.unidade || 'un'})`}
+                    style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', color: 'var(--text)', fontFamily: 'DM Mono, monospace' }}
+                  />
+                </div>
+              );
+            })}
 
             {error && (
               <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 8, fontSize: 12, color: 'var(--danger)', marginBottom: 16 }}>
