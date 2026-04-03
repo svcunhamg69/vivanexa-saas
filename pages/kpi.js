@@ -7,16 +7,16 @@ export default function KpiPage() {
   const router = useRouter()
   const { redirect, date: dateParam } = router.query
 
-  const [cfg,         setCfg]         = useState(null)
-  const [user,        setUser]        = useState(null)
-  const [empresaId,   setEmpresaId]   = useState(null)
-  const [loading,     setLoading]     = useState(true)
-  const [saving,      setSaving]      = useState(false)
-  const [kpis,        setKpis]        = useState([])
-  const [valores,     setValores]     = useState({})
-  const [data,        setData]        = useState(dateParam || new Date().toISOString().slice(0, 10))
-  const [error,       setError]       = useState('')
-  const [metasDiarias,setMetasDiarias] = useState({})
+  const [cfg,          setCfg]         = useState(null)
+  const [user,         setUser]        = useState(null)
+  const [empresaId,    setEmpresaId]   = useState(null)
+  const [loading,      setLoading]     = useState(true)
+  const [saving,       setSaving]      = useState(false)
+  const [kpis,         setKpis]        = useState([])
+  const [valores,      setValores]     = useState({})
+  const [data,         setData]        = useState(dateParam || new Date().toISOString().slice(0, 10))
+  const [error,        setError]       = useState('')
+  const [metasDiarias, setMetasDiarias] = useState({})
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -53,11 +53,9 @@ export default function KpiPage() {
       setCfg(loadedCfg)
       setKpis(loadedCfg.kpiTemplates || [])
 
-      // ✅ ITEM 14: lê kpiDailyGoals (chave correta, salva em configuracoes.js)
       const dailyGoals = loadedCfg.kpiDailyGoals || {}
       setMetasDiarias(dailyGoals[session.user.id] || {})
 
-      // Preenche valores existentes do dia
       const dia = dateParam || new Date().toISOString().slice(0, 10)
       setData(dia)
       const log      = loadedCfg.kpiLog || []
@@ -77,8 +75,16 @@ export default function KpiPage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    setSaving(true)
     setError('')
+
+    // Valida se pelo menos um KPI foi preenchido
+    const algumPreenchido = kpis.some(k => valores[k.id] !== undefined && valores[k.id] !== '')
+    if (!algumPreenchido) {
+      setError('Preencha pelo menos um KPI antes de salvar.')
+      return
+    }
+
+    setSaving(true)
     try {
       const { data: cfgRow, error: fetchError } = await supabase
         .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
@@ -112,11 +118,17 @@ export default function KpiPage() {
       )
       if (upsertError) throw new Error(upsertError.message)
 
-      const redirectTo = typeof redirect === 'string' ? decodeURIComponent(redirect) : '/chat'
-      router.replace(redirectTo)
+      // ✅ FIX: Marca no sessionStorage que acabou de salvar para evitar loop no _app.js
+      sessionStorage.setItem('kpi_just_saved', data)
+
+      // ✅ FIX: Usa window.location para forçar navegação limpa (evita _app.js reler cfg antigo)
+      const redirectTo = typeof redirect === 'string' && redirect
+        ? decodeURIComponent(redirect)
+        : '/chat'
+      window.location.href = redirectTo
+
     } catch (err) {
       setError(`Erro ao salvar. ${err.message}`)
-    } finally {
       setSaving(false)
     }
   }
@@ -177,7 +189,6 @@ export default function KpiPage() {
             </div>
 
             {kpis.map(k => {
-              // ✅ ITEM 14: meta diária lida corretamente de kpiDailyGoals
               const metaDiaria = metasDiarias[k.id] || 0
               const metaMensal = metaDiaria * diasUteis
               return (
@@ -192,7 +203,7 @@ export default function KpiPage() {
                   </label>
                   <input
                     type="number" min="0"
-                    value={valores[k.id] || ''}
+                    value={valores[k.id] ?? ''}
                     onChange={e => setValores(prev => ({ ...prev, [k.id]: e.target.value }))}
                     placeholder={`Quantidade (${k.unidade || 'un'})`}
                     style={{ width: '100%', background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 8, padding: '9px 12px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace' }}
@@ -210,7 +221,7 @@ export default function KpiPage() {
             <button
               type="submit"
               disabled={saving}
-              style={{ width: '100%', padding: '12px', borderRadius: 10, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+              style={{ width: '100%', padding: '12px', borderRadius: 10, background: saving ? '#1a2540' : 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: saving ? '#64748b' : '#fff', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer' }}
             >
               {saving ? '⏳ Salvando...' : '✅ Salvar KPIs'}
             </button>
