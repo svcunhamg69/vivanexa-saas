@@ -71,31 +71,16 @@ function MyApp({ Component, pageProps }) {
         const loaded = JSON.parse(row.value);
         setCfg(loaded);
       } else {
-        setCfg({}); // Garante que cfg não seja nulo se não houver configuração salva
+        // Se não houver cfg, inicializa com um objeto vazio para evitar null
+        setCfg({});
       }
       setCheckingKpi(false);
     };
     loadCfg();
   }, [session]);
 
-  useEffect(() => {
-    if (!session || checkingKpi || isPublicPage || kpiExemptPages.includes(router.pathname)) return;
-    if (!cfg || !cfg.kpiRequired) return;
-
-    const hoje = new Date();
-    const ontem = new Date(hoje);
-    ontem.setDate(hoje.getDate() - 1);
-    const ontemStr = ontem.toISOString().slice(0,10);
-
-    const logs = cfg.kpiLog || [];
-    const userId = session.user.id;
-    const hasYesterdayLog = logs.some(l => l.userId === userId && l.date === ontemStr);
-
-    if (!hasYesterdayLog && !kpiExemptPages.includes(router.pathname)) {
-      const currentPath = router.asPath;
-      router.push(`/kpi?redirect=${encodeURIComponent(currentPath)}&date=${ontemStr}`);
-    }
-  }, [session, cfg, checkingKpi, router.pathname, router.asPath, isPublicPage]); // Adicionado router.asPath e isPublicPage
+  // REMOVIDO: O useEffect que verificava e redirecionava para o KPI.
+  // Isso desativa a obrigatoriedade de preenchimento do KPI.
 
   if (isPublicPage || (!session && !isPublicPage)) {
     return <Component {...pageProps} />;
@@ -105,15 +90,8 @@ function MyApp({ Component, pageProps }) {
     return <p style={{ background: '#0a0f1e', color: '#fff', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Carregando...</p>;
   }
 
-  // Esta parte foi removida para evitar o "null" e permitir que o kpi.js renderize
-  // if (router.pathname === '/kpi') {
-  //   return <Component {...pageProps} />;
-  // }
-
-  // A lógica de bloqueio deve ser tratada pelo redirecionamento no useEffect
-  // e não impedindo a renderização do componente.
-  // Se o usuário está em /kpi, ele deve ver o componente KpiPage.
-  // Se ele não está em /kpi e precisa preencher, o useEffect acima o redirecionará.
+  // REMOVIDO: A condição que renderizava null se o KPI não estivesse preenchido.
+  // Agora, a página de KPI só será acessada se o usuário navegar para ela.
 
   return <Component {...pageProps} />;
 }
