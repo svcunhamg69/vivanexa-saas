@@ -8,7 +8,6 @@ import { supabase } from '../lib/supabase';
 function ultimoDiaUtilAnterior() {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  // Se for domingo (0) → volta para sexta (-2 a mais)
   while (d.getDay() === 0 || d.getDay() === 6) {
     d.setDate(d.getDate() - 1);
   }
@@ -16,13 +15,13 @@ function ultimoDiaUtilAnterior() {
 }
 
 function MyApp({ Component, pageProps }) {
-  const [session,      setSession]      = useState(null);
-  const [cfg,          setCfg]          = useState(null);
-  const [checkingKpi,  setCheckingKpi]  = useState(true);
+  const [session,     setSession]     = useState(null);
+  const [cfg,         setCfg]         = useState(null);
+  const [checkingKpi, setCheckingKpi] = useState(true);
   const router = useRouter();
 
-  const publicPages   = ['/', '/sign/[token]'];
-  const isPublicPage  = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
+  const publicPages    = ['/', '/sign/[token]'];
+  const isPublicPage   = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
   const kpiExemptPages = ['/kpi'];
 
   // ── Auth listener ────────────────────────────────────────────────────────
@@ -71,7 +70,7 @@ function MyApp({ Component, pageProps }) {
     loadCfg();
   }, [session]);
 
-  // ── ✅ ITEM 13: Verificação de KPI do DIA ÚTIL ANTERIOR (não do dia atual) ──
+  // ── ✅ Verificação de KPI do DIA ÚTIL ANTERIOR ───────────────────────────
   useEffect(() => {
     if (!session || !cfg || checkingKpi) return;
     if (kpiExemptPages.includes(router.pathname)) return;
@@ -80,15 +79,20 @@ function MyApp({ Component, pageProps }) {
     const kpiTemplates = cfg.kpiTemplates || [];
     if (!cfg.kpiRequired || kpiTemplates.length === 0) return;
 
-    // ✅ Verifica o ÚLTIMO DIA ÚTIL — se não preencheu, redireciona
     const diaVerificar = ultimoDiaUtilAnterior();
+
+    // ✅ FIX: Se o usuário acabou de salvar esse dia via kpi.js, não redireciona
+    const kpiJustSaved = sessionStorage.getItem('kpi_just_saved');
+    if (kpiJustSaved === diaVerificar) {
+      sessionStorage.removeItem('kpi_just_saved');
+      return;
+    }
 
     const jaPreencheu = (cfg.kpiLog || []).some(
       l => l.userId === session.user.id && l.date === diaVerificar
     );
 
     if (!jaPreencheu) {
-      // Passa a data do dia que falta preencher como parâmetro
       router.push(`/kpi?redirect=${encodeURIComponent(router.asPath)}&date=${diaVerificar}`);
     }
   }, [session, cfg, router.pathname, checkingKpi]);
