@@ -55,11 +55,15 @@ function entryInMonth(h, month) {
   const signDate = h.signedAt || h.consultantSignedAt || h.date
   return dateToMonth(signDate) === month
 }
+function isFullySigned(h) {
+  return h.status === 'signed' && h.signedAt && h.consultantSignedAt
+}
 function computeRealized(userId, month, users, docHistory) {
   const history = docHistory || []
   let adReal = 0, menReal = 0, contracts = 0
   for (const h of history) {
     if (!h || h.type !== 'contrato') continue
+    if (!isFullySigned(h)) continue
     if (!entryInMonth(h, month)) continue
     if (!entryBelongsTo(h, userId, users)) continue
     adReal += (h.tAd || 0)
@@ -90,7 +94,7 @@ function BarraProgresso({ label, real, meta }) {
 }
 
 // ── Card KPI ─────────────────────────────────────────────────
-function CardKpi({ icone, nome, realizado, meta, onClick }) {
+function CardKpi({ icone, nome, realizado, meta, onClick, warning }) {
   const p = pct(realizado, meta)
   const cor = p >= 100 ? 'var(--accent3)' : p >= 60 ? 'var(--accent)' : 'var(--muted)'
   return (
@@ -104,6 +108,7 @@ function CardKpi({ icone, nome, realizado, meta, onClick }) {
         <span style={{ fontSize: 26, fontWeight: 800, fontFamily: 'Syne, sans-serif', color: cor }}>{realizado}</span>
         {meta > 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>/ {meta}</span>}
       </div>
+      {warning && <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 6 }}>⚠️ Pendente</div>}
       {meta > 0 && (
         <div style={{ marginTop: 8, height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${p}%`, background: cor, borderRadius: 2, transition: 'width .6s' }} />
@@ -150,7 +155,7 @@ function GraficoBarras({ dados, altura = 130, formatarValor }) {
   )
 }
 
-// ── Modal lançar KPI ─────────────────────────────────────────
+// ── Modal lançar KPI ── (igual ao original)
 function ModalKpi({ kpi, userId, onClose, onSave }) {
   const hoje = new Date().toISOString().slice(0, 10)
   const [valor, setValor] = useState('')
@@ -266,9 +271,8 @@ export default function Dashboard() {
     setCfg(novoCfg)
   }
 
-  // ── Dados seguros (com proteções contra undefined) ──────────
+  // ── Dados seguros ───────────────────────────────────────────
   const isAdmin = perfil?.perfil === 'admin'
-
   const usuarios = cfg.users || []
   const goals = cfg.goals || []
   const kpiTemplates = cfg.kpiTemplates || []
@@ -277,7 +281,6 @@ export default function Dashboard() {
   const docHistory = cfg.docHistory || []
   const productNames = cfg.productNames || {}
 
-  // Proteção crítica: nunca deixa ser undefined
   const usuarioAtual = usuarios.find(u => u?.email === perfil?.email) || usuarios[0] || {}
   const userId = usuarioAtual?.id || usuarioAtual?.username || perfil?.id || ''
 
@@ -286,11 +289,14 @@ export default function Dashboard() {
     return goals.find(g => g.userId === uid && g.mes === mes) || {}
   }
 
+  // Contratos totalmente assinados (status signed + ambas assinaturas)
+  const fullySignedDocs = (docHistory || []).filter(d => d && d.status === 'signed' && d.signedAt && d.consultantSignedAt)
+
   const realizedMap = {}
   usuarios.forEach(u => {
     if (!u) return
     const rid = u.id || u.username || ''
-    if (rid) realizedMap[rid] = computeRealized(rid, mes, usuarios, docHistory)
+    if (rid) realizedMap[rid] = computeRealized(rid, mes, usuarios, fullySignedDocs)
   })
 
   const totaisGerais = (() => {
@@ -318,11 +324,42 @@ export default function Dashboard() {
     return { adesao: ad, mensalidade: men }
   })()
 
-  const contratosMes = docHistory.filter(d => {
-    if (!d || d.status !== 'signed') return false
-    const dt = d.criado || d.dateISO || d.date || ''
+  // Gráfico de adesão (12 meses) e mensalidade (12 meses)
+  const dadosGrafico12m = (tipo) => {
+    const meses = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(); d.setMonth(d.getMonth() - i)
+      const m = d.toISOString().slice(0, 7)
+      const label = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+      let valor = 0
+      const docsFiltrados = fullySignedDocs.filter(doc => doc && doc.dateISO && doc.dateISO.slice(0, 7) === m)
+      for (const doc of docsFiltrados) {
+        if (!isAdmin && !entryBelongsTo(doc, userId, usuarios)) continue
+        valor += tipo === 'adesao' ? (doc.tAd || 0) : (doc.tMen || 0)
+      }
+      meses.push({ label, valor, cor: m === mes ? 'var(--accent)' : 'rgba(0,212,255,.4)' })
+    }
+    return meses
+  }
+
+  const contratosMes = fullySignedDocs.filter(d => {
+    const dt = d.dateISO || d.criado || ''
     return dt.slice(0, 7) === mes
   })
+
+  // Função para verificar se usuário deixou de lançar KPI do dia útil anterior
+  function ultimoDiaUtilAnterior() {
+    const d = new Date()
+    d.setDate(d.getDate() - 1)
+    while (d.getDay() === 0 || d.getDay() === 6) {
+      d.setDate(d.getDate() - 1)
+    }
+    return d.toISOString().slice(0, 10)
+  }
+  const diaVerificar = ultimoDiaUtilAnterior()
+  const usuarioNaoPreencheu = (uid) => {
+    return !(kpiLog || []).some(l => l && l.userId === uid && l.date === diaVerificar)
+  }
 
   function kpiRealizadoMes(kpiId, uid, month) {
     return kpiLog
@@ -331,30 +368,9 @@ export default function Dashboard() {
   }
 
   function kpiMetaMes(kpiId, uid, month) {
-    const diaria = (kpiGoals[uid]?.[month]?.[kpiId]) || 0
+    const diaria = (kpiGoals[uid]?.[kpiId]) || 0
     return diaria * diasUteisNoMes(month)
   }
-
-  const dadosGrafico6m = (() => {
-    const meses = []
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(); d.setMonth(d.getMonth() - i)
-      const m = d.toISOString().slice(0, 7)
-      const label = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
-      let valor = 0
-      if (isAdmin) {
-        valor = docHistory
-          .filter(d => d && d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m)
-          .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
-      } else {
-        valor = docHistory
-          .filter(d => d && d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m && entryBelongsTo(d, userId, usuarios))
-          .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
-      }
-      meses.push({ label, valor, cor: m === mes ? 'var(--accent)' : 'rgba(0,212,255,.4)' })
-    }
-    return meses
-  })()
 
   const CORES_MOD = ['var(--accent)', 'var(--accent3)', 'var(--accent2)', 'var(--gold)', 'var(--danger)', 'var(--warning)', '#06b6d4', '#8b5cf6']
 
@@ -522,35 +538,12 @@ export default function Dashboard() {
               <BarraProgresso label="Mensalidade" real={totaisGerais.mensalidade} meta={metasTotais.mensalidade} />
             </div>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
-              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>📈 Adesão — Últimos 6 Meses</div>
-              <GraficoBarras dados={dadosGrafico6m} altura={140} formatarValor={v => fmtK(v)} />
+              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>📈 Adesão — Últimos 12 Meses</div>
+              <GraficoBarras dados={dadosGrafico12m('adesao')} altura={140} formatarValor={v => fmtK(v)} />
             </div>
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
-              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 12 }}>🗂️ Últimos Documentos</div>
-              <div>
-                {(docHistory || []).slice(0, 6).map((d, i) => {
-                  if (!d) return null
-                  const isSigned = d.status === 'signed'
-                  const isPending = d.status === 'pending' || d.status === 'sent'
-                  return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: i < Math.min(docHistory.length, 6) - 1 ? '1px solid var(--border)' : 'none' }}>
-                      <div style={{ fontSize: 18, flexShrink: 0 }}>{d.type === 'contrato' ? '📝' : '📄'}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {d.cliente || 'Cliente não identificado'}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                          {d.type === 'contrato' ? 'Contrato' : 'Proposta'} · {d.criado ? new Date(d.criado).toLocaleDateString('pt-BR') : '—'}
-                          {d.adesao > 0 && ` · ${fmt(d.adesao)}`}
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: isSigned ? 'var(--accent3)' : isPending ? 'var(--warning)' : 'var(--muted)', flexShrink: 0 }}>
-                        {isSigned ? '✅' : isPending ? '⏳' : '📝'}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent3)', marginBottom: 16 }}>📊 Mensalidade — Últimos 12 Meses</div>
+              <GraficoBarras dados={dadosGrafico12m('mensalidade')} altura={140} formatarValor={v => fmtK(v)} />
             </div>
           </div>
         )}
@@ -607,7 +600,7 @@ export default function Dashboard() {
                         {['Módulo', 'Qtd', 'Adesão Total', 'Mensalidade Total', 'Receita Total'].map(h => (
                           <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Módulo' ? 'left' : 'right', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
                         ))}
-                      </tr>
+                      </table>
                     </thead>
                     <tbody>
                       {produtosVendidos.map((p, i) => (
@@ -660,17 +653,18 @@ export default function Dashboard() {
                 {isAdmin && usuarios.length > 0 ? (
                   usuarios.map(u => {
                     if (!u) return null
+                    const pendente = usuarioNaoPreencheu(u.id || u.username)
                     return (
                       <div key={u.id || u.username} style={{ marginBottom: 24 }}>
                         <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--muted)', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
-                          👤 {u.nome}
+                          👤 {u.nome} {pendente && <span style={{ color: 'var(--danger)', marginLeft: 8 }}>⚠️ Lançamento pendente de {diaVerificar}</span>}
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
                           {kpiTemplates.map(kpi => {
                             if (!kpi) return null
                             const real = kpiRealizadoMes(kpi.id, u.id || u.username, mes)
                             const meta = kpiMetaMes(kpi.id, u.id || u.username, mes)
-                            return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={null} />
+                            return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={null} warning={false} />
                           })}
                         </div>
                       </div>
@@ -682,7 +676,8 @@ export default function Dashboard() {
                       if (!kpi) return null
                       const real = kpiRealizadoMes(kpi.id, userId, mes)
                       const meta = kpiMetaMes(kpi.id, userId, mes)
-                      return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={() => setKpiModal(kpi)} />
+                      const pendente = usuarioNaoPreencheu(userId)
+                      return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={() => setKpiModal(kpi)} warning={pendente} />
                     })}
                   </div>
                 )}
