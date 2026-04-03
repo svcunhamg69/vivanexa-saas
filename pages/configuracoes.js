@@ -642,7 +642,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
                 {planos.map(p => (
                   <th key={p.id} colSpan={2} style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--accent)', fontWeight: 600 }}>{p.name}</th>
                 ))}
-              <tr>
+              </tr>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
                 <th></th>
                 {planos.map(p => (
