@@ -71,1324 +71,964 @@ function getPlanLabel(id,plans){const p=(plans||[]).find(x=>x.id===id);return p?
 function pn(key,cfg){return cfg?.productNames?.[key]||key}
 function calcTrib(n){if(!n||n<=0)return 0;if(n<=50)return 169.90;if(n<=100)return 200;return 200+(n-100)*0.80}
 function getPrice(mod,planId,cfg){const p=(cfg.prices[mod]||DEFAULT_CFG.prices[mod])||{};if(p[planId])return p[planId];const k=Object.keys(p);if(!k.length)return[0,0];return p[k[k.length-1]]||[0,0]}
-function generateToken(){return Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2)+Date.now().toString(36)}
-
-// ── Cálculos ─────────────────────────────────────────────────
-function calcFull(mods,plan,ifPlan,cnpjs,notas,cfg){
-  const res=[];let tAd=0,tMen=0
-  for(const mod of mods){
-    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*2,men=mB*1.2;res.push({name:pn('IF',cfg),ad,men,adD:ad,menD:men,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;continue}
-    if(mod==='Tributos'){const m=calcTrib(notas);res.push({name:pn('Tributos',cfg),ad:0,men:m,adD:0,menD:m,isTributos:true,notas});tMen+=m;continue}
-    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg),men=mB*1.2;res.push({name:pn('EP',cfg),ad:0,men,adD:0,menD:men,isEP:true,plan:ep});tMen+=men;continue}
-    const [aB,mB]=getPrice(mod,plan,cfg);let ad=aB>0?Math.max(aB*2,1000):0;let men=mB*1.2;if(mod==='XML')men=Math.max(men,175);if(mod==='Gestão Fiscal')men=Math.max(men,200);res.push({name:pn(mod,cfg),ad,men,adD:ad,menD:men,plan});tAd+=ad;tMen+=men
+function generateToken(length = 32) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return {results:res,tAd,tMen,tAdD:tAd,tMenD:tMen}
-}
-function calcDisc(mods,plan,ifPlan,cnpjs,notas,cfg){
-  const {discAdPct=50,discMenPct=0,unlimitedStrategy=true}=cfg;const res=[];let tAd=0,tMen=0,tAdD=0,tMenD=0
-  for(const mod of mods){
-    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*2,men=mB*1.2,adD=aB,menD=mB;res.push({name:pn('IF',cfg),ad,men,adD,menD,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD;continue}
-    if(mod==='Tributos'){const m=calcTrib(notas);res.push({name:pn('Tributos',cfg),ad:0,men:m,adD:0,menD:m,isTributos:true,notas});tMen+=m;tMenD+=m;continue}
-    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg),men=mB*1.2,menD=mB;res.push({name:pn('EP',cfg),ad:0,men,adD:0,menD,isEP:true,plan:ep});tMen+=men;tMenD+=menD;continue}
-    const [aB,mB]=getPrice(mod,plan,cfg);let ad=aB>0?Math.max(aB*2,1000):0;let men=mB*1.2;if(mod==='XML')men=Math.max(men,175);if(mod==='Gestão Fiscal')men=Math.max(men,200);const adD=aB>0?aB:0;const menD=mB;res.push({name:pn(mod,cfg),ad,men,adD,menD,plan});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD
-  }
-  const discAd=discAdPct/100;const discMen=discMenPct/100;const tAdFinal=tAd*(1-discAd);const tMenFinal=tMen*(1-discMen);const tAdDFinal=tAdD*(1-discAd);const tMenDFinal=tMenD*(1-discMen);res.forEach(r=>{if(!r.isTributos&&!r.isEP){r.ad=r.ad*(1-discAd);r.adD=r.adD*(1-discAd)}if(!r.isTributos&&!r.isEP&&!r.isIF){r.men=r.men*(1-discMen);r.menD=r.menD*(1-discMen)}});return {results:res,tAd:tAdFinal,tMen:tMenFinal,tAdD:tAdDFinal,tMenD:tMenDFinal}
-}
-function calcClosing(mods,plan,ifPlan,cnpjs,notas,cfg){
-  const {discClosePct=40,unlimitedStrategy=true}=cfg;const res=[];let tAd=0,tMen=0;const cp=discClosePct/100
-  for(const mod of mods){
-    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*(1-cp);res.push({name:pn('IF',cfg),ad,men:mB,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=mB;continue}
-    if(mod==='Tributos'){const m=calcTrib(notas);res.push({name:pn('Tributos',cfg),ad:0,men:m,isTributos:true});tMen+=m;continue}
-    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg);res.push({name:pn('EP',cfg),ad:0,men:mB,isEP:true,plan:ep});tMen+=mB;continue}
-    const [aB]=getPrice(mod,plan,cfg);const ad=aB>0?Math.max(aB*(1-cp),0):0;let men=0;if(mod==='BIA')men=0.85*(cnpjs||0);else if(mod==='CND')men=0.40*(cnpjs||0);else if(mod==='Gestão Fiscal')men=Math.max(2.00*(cnpjs||0),200);else if(mod==='XML')men=Math.max(1.75*(cnpjs||0),175);res.push({name:pn(mod,cfg),ad,men,plan});tAd+=ad;tMen+=men
-  }
-  return {results:res,tAd,tMen}
+  return result;
 }
 
-// ── Funções de Parse ─────────────────────────────────────────
-function parseModules(text, productNames){
-  const t=text.toLowerCase();const found=[];const ifName=(productNames['IF']||'Inteligência Fiscal').toLowerCase();const hasIF=/intelig[eê]ncia\s*fiscal|intelig.*fiscal/i.test(t)||(ifName&&t.includes(ifName));if(hasIF)found.push('IF');const tNoIF=t.replace(/intelig[eê]ncia\s*fiscal|intelig[\w\s]*fiscal/gi,'');const gfName=(productNames['Gestão Fiscal']||'').toLowerCase();if(/gest[aã]o\s*(e\s*an[aá]lise|fiscal)/i.test(tNoIF)||(/
-\b
-fiscal
-\b
-/i.test(tNoIF)&&!/intelig/i.test(tNoIF))||(gfName&&tNoIF.includes(gfName)))found.push('Gestão Fiscal');if(/
-\b
-bia
-\b
-/i.test(t))found.push('BIA');if(/
-\b
-cnd
-\b
-/i.test(t))found.push('CND');if(/
-\b
-xml
-\b
-/i.test(t))found.push('XML');if(/tributos/i.test(t))found.push('Tributos');const epName=(productNames['EP']||'').toLowerCase();if(/e[\s-]?process[o]s?|eprocess/i.test(t)||(epName&&t.includes(epName)))found.push('EP');return found
-}
-function parseIFPlan(text,plans){
-  const t=text.toLowerCase();for(const p of plans){if(t.includes(p.name.toLowerCase())||t.includes(p.id))return p.id}if(/
-\b
-top
-\b
-/i.test(t))return 'top';if(/
-\b
-pro
-\b
-/i.test(t))return 'pro';if(/
-\b
-basic
-\b
-/i.test(t))return 'basic';return null
-}
-function parseCNPJsQty(text){
-  const m=text.match(/
-\b
-(\d+)\s*(cnpj[s]?)?
-\b
-/i);return m?parseInt(m[1]):null
-}
-function parseUsers(text){
-  const m=text.match(/
-\b
-(\d+)\s*(usu[aá]rio[s]?)?
-\b
-/i);return m?parseInt(m[1]):null
-}
-function getNextDates(){
-  const now=new Date(),day=now.getDate(),m=now.getMonth(),y=now.getFullYear();let tm,ty;if(day<=20){tm=m+1;ty=y;if(tm>11){tm=0;ty++}return [5,10,15,20,25].map(d=>`${String(d).padStart(2,'0')}/${String(tm+1).padStart(2,'0')}`)}else{tm=m+2;ty=y;if(tm>11){tm-=12;ty++}return [5,10,15].map(d=>`${String(d).padStart(2,'0')}/${String(tm+1).padStart(2,'0')}`)}
-}
-
-// ── Componente Principal ─────────────────────────────────────
+// ── Componente principal ──────────────────────────────────────
 export default function Chat() {
   const router = useRouter()
-  const [session, setSession] = useState(null)
-  const [cfg, setCfg] = useState(DEFAULT_CFG)
+  const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [cfg, setCfg] = useState(DEFAULT_CFG)
+  const [empresaId, setEmpresaId] = useState(null)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [currentClient, setCurrentClient] = useState(null)
+  const [showConfig, setShowConfig] = useState(false)
   const [showClientModal, setShowClientModal] = useState(false)
-  const [showAddClientModal, setShowAddClientModal] = useState(false)
-  const [newClientData, setNewClientData] = useState({
-    cpf_cnpj: '', nome_fantasia: '', razao_social: '',
-    nome_contato: '', email: '', telefone: '',
-    cep: '', endereco: '', bairro: '', cidade: '', estado: '',
-    responsavel_implantacao_nome: '', responsavel_implantacao_email: '', responsavel_implantacao_telefone: '',
-    responsavel_financeiro_nome: '', responsavel_financeiro_email: '', responsavel_financeiro_telefone: '',
-    cpf_contato_principal: '', regime_tributario: ''
-  })
-  const [clientSearchTerm, setClientSearchTerm] = useState('')
-  const [filteredClients, setFilteredClients] = useState([])
+  const [showEditClientModal, setShowEditClientModal] = useState(false)
+  const [currentClient, setCurrentClient] = useState(null)
+  const [showContractPreview, setShowContractPreview] = useState(false)
+  const [contractData, setContractData] = useState(null)
+  const [showAddPlanModal, setShowAddPlanModal] = useState(false)
+  const [newPlanData, setNewPlanData] = useState({ id: '', name: '', maxCnpjs: 0, users: 1, unlimitedUsers: false })
   const [showAdminPanel, setShowAdminPanel] = useState(false)
   const [adminPassword, setAdminPassword] = useState('')
   const [adminError, setAdminError] = useState('')
   const [showReportsModal, setShowReportsModal] = useState(false)
-  const [showAddPlanModal, setShowAddPlanModal] = useState(false)
-  const [newPlanData, setNewPlanData] = useState({ id: '', name: '', maxCnpjs: 0, users: 1, unlimitedUsers: false })
-  const [showAddProductModal, setShowAddProductModal] = useState(false)
-  const [newProductData, setNewProductData] = useState({ name: '', internal_key: '', no_adesao: false, basic_pro_top_only: false, prices: {} })
-  const [showEditUserModal, setShowEditUserModal] = useState(false)
-  const [editingUser, setEditingUser] = useState(null)
-  const [userSignature, setUserSignature] = useState(null)
-  const [showSignaturePad, setShowSignaturePad] = useState(false)
-  const [signatureImage, setSignatureImage] = useState(null)
-  const [showEditTemplateModal, setShowEditTemplateModal] = useState(false)
-  const [editingTemplate, setEditingTemplate] = useState({ type: '', content: '' })
-  const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [paymentDetails, setPaymentDetails] = useState({
-    adesao_condicao: 'vista',
-    adesao_vencimento: '',
-    mensalidade_vencimento: ''
-  })
-  const [showContractPreview, setShowContractPreview] = useState(false)
-  const [contractHtml, setContractHtml] = useState('')
-  const [contractData, setContractData] = useState(null)
-  const [currentProposal, setCurrentProposal] = useState(null)
-  const [showProposalPreview, setShowProposalPreview] = useState(false)
-  const [proposalHtml, setProposalHtml] = useState('')
-  const [showToast, setShowToast] = useState(false)
-  const [toastMessage, setToastMessage] = useState('')
-  const [toastType, setToastType] = useState('success') // 'success', 'error', 'info'
-  const messagesEndRef = useRef(null)
+  const chatContainerRef = useRef(null)
 
-  // ── Efeitos ──────────────────────────────────────────────────
+  // ── Autenticação e Carregamento de Configurações ──────────
   useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (!session) {
+    async function checkUser() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
         router.push('/')
       } else {
+        setUser(user)
+        fetchConfig(user.id)
+      }
+      setLoading(false)
+    }
+    checkUser()
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user)
         fetchConfig(session.user.id)
+      } else {
+        setUser(null)
+        router.push('/')
       }
     })
-    return () => authListener.unsubscribe()
+
+    return () => {
+      authListener.subscription.unsubscribe()
+    }
   }, [])
 
-  useEffect(() => {
-    if (session?.user?.id) {
-      fetchConfig(session.user.id)
-    }
-  }, [session?.user?.id])
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  useEffect(() => {
-    if (clientSearchTerm) {
-      const term = clientSearchTerm.toLowerCase()
-      setFilteredClients(
-        cfg.clients.filter(
-          (client) =>
-            client.nome_fantasia?.toLowerCase().includes(term) ||
-            client.razao_social?.toLowerCase().includes(term) ||
-            client.cpf_cnpj?.includes(term)
-        )
-      )
-    } else {
-      setFilteredClients(cfg.clients)
-    }
-  }, [clientSearchTerm, cfg.clients])
-
-  // ── Funções de Toast ─────────────────────────────────────────
-  const showToastMessage = (message, type = 'info') => {
-    setToastMessage(message)
-    setToastType(type)
-    setShowToast(true)
-    setTimeout(() => setShowToast(false), 3000)
-  }
-
-  // ── Funções de Configuração ──────────────────────────────────
   const fetchConfig = async (userId) => {
-    setLoading(true)
     const { data, error } = await supabase
-      .from('configs')
+      .from('empresas')
       .select('*')
       .eq('user_id', userId)
       .single()
 
     if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
-      console.error('Erro ao buscar configuração:', error)
-      showToastMessage('Erro ao carregar configurações.', 'error')
+      console.error('Erro ao buscar configurações da empresa:', error)
     } else if (data) {
-      setCfg({ ...DEFAULT_CFG, ...data.config })
-      if (data.config.userSignature) {
-        setUserSignature(data.config.userSignature)
+      setEmpresaId(data.id)
+      const parsedCfg = { ...DEFAULT_CFG, ...data.config }
+      setCfg(parsedCfg)
+      if (parsedCfg.clients) {
+        setMessages(prev => [...prev, { from: 'bot', text: `Olá ${user?.email || 'consultor'}! Tenho ${parsedCfg.clients.length} clientes cadastrados. Como posso ajudar hoje?` }])
+      } else {
+        setMessages(prev => [...prev, { from: 'bot', text: `Olá ${user?.email || 'consultor'}! Como posso ajudar hoje?` }])
       }
     } else {
-      // Se não houver configuração, cria uma padrão
-      const { error: insertError } = await supabase
-        .from('configs')
-        .insert({ user_id: userId, config: DEFAULT_CFG })
-      if (insertError) {
-        console.error('Erro ao criar configuração padrão:', insertError)
-        showToastMessage('Erro ao criar configurações padrão.', 'error')
+      // Create default config for new user
+      const { data: newCompany, error: newCompanyError } = await supabase
+        .from('empresas')
+        .insert([{ user_id: userId, config: DEFAULT_CFG }])
+        .select()
+        .single()
+
+      if (newCompanyError) {
+        console.error('Erro ao criar configuração padrão:', newCompanyError)
       } else {
+        setEmpresaId(newCompany.id)
         setCfg(DEFAULT_CFG)
+        setMessages(prev => [...prev, { from: 'bot', text: `Olá ${user?.email || 'consultor'}! Como posso ajudar hoje?` }])
       }
     }
-    setLoading(false)
   }
 
-  const updateConfig = async (newConfig) => {
-    const finalConfig = { ...cfg, ...newConfig }
-    setCfg(finalConfig)
-    const { error } = await supabase
-      .from('configs')
-      .update({ config: finalConfig })
-      .eq('user_id', session.user.id)
-    if (error) {
-      console.error('Erro ao salvar configuração:', error)
-      showToastMessage('Erro ao salvar configurações.', 'error')
-      return false
+  // ── Scroll para o final do chat ───────────────────────────
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
     }
-    showToastMessage('Configurações salvas!', 'success')
-    return true
-  }
+  }, [messages])
 
-  // ── Funções de Chat ──────────────────────────────────────────
+  // ── Lógica do Chat ─────────────────────────────────────────
   const handleSendMessage = async () => {
-    if (!input.trim()) return
+    if (input.trim() === '') return
 
-    const newMessage = { role: 'user', content: input }
-    setMessages((prev) => [...prev, newMessage])
+    const userMessage = { from: 'user', text: input }
+    setMessages(prev => [...prev, userMessage])
     setInput('')
 
-    // Processar comandos internos
-    if (input.toLowerCase().startsWith('/cliente')) {
-      const clientDoc = clean(input.split(' ')[1] || '')
-      if (clientDoc) {
-        const client = cfg.clients.find(c => clean(c.cpf_cnpj) === clientDoc)
-        if (client) {
-          setCurrentClient(client)
-          setMessages((prev) => [...prev, { role: 'assistant', content: `Cliente **${client.nome_fantasia || client.razao_social}** (${fmtDoc(client.cpf_cnpj)}) selecionado.` }])
-        } else {
-          setMessages((prev) => [...prev, { role: 'assistant', content: `Cliente com documento **${fmtDoc(clientDoc)}** não encontrado. Gostaria de cadastrá-lo?` }])
-          setNewClientData(prev => ({ ...prev, cpf_cnpj: clientDoc }))
-          setShowAddClientModal(true)
-        }
-      } else {
-        setMessages((prev) => [...prev, { role: 'assistant', content: 'Por favor, informe o CPF/CNPJ do cliente. Ex: `/cliente 12345678901`' }])
-      }
-      return
+    // Processar a mensagem do usuário
+    const response = await processUserMessage(input)
+    setMessages(prev => [...prev, { from: 'bot', text: response }])
+  }
+
+  const processUserMessage = async (message) => {
+    const lowerMessage = message.toLowerCase()
+
+    // 1. Gerar Proposta
+    if (lowerMessage.includes('gerar proposta') || lowerMessage.includes('fazer proposta')) {
+      return handleGenerateProposal()
     }
 
-    if (input.toLowerCase().startsWith('/proposta')) {
-      if (!currentClient) {
-        setMessages((prev) => [...prev, { role: 'assistant', content: 'Por favor, selecione um cliente primeiro com `/cliente [CPF/CNPJ]`.' }])
-        return
-      }
-      const prompt = input.substring('/proposta'.length).trim()
-      await generateProposal(prompt)
-      return
+    // 2. Gerar Contrato
+    if (lowerMessage.includes('gerar contrato') || lowerMessage.includes('fazer contrato')) {
+      return handleGenerateContract()
     }
 
-    if (input.toLowerCase().startsWith('/contrato')) {
-      if (!currentClient) {
-        setMessages((prev) => [...prev, { role: 'assistant', content: 'Por favor, selecione um cliente primeiro com `/cliente [CPF/CNPJ]`.' }])
-        return
-      }
-      const prompt = input.substring('/contrato'.length).trim()
-      await generateContract(prompt)
-      return
+    // 3. Salvar Cliente
+    if (lowerMessage.includes('salvar cliente') || lowerMessage.includes('cadastrar cliente')) {
+      setShowClientModal(true)
+      return 'Certo, vamos cadastrar um novo cliente. Por favor, preencha os dados.'
     }
 
-    if (input.toLowerCase() === '/limpar') {
+    // 4. Buscar Cliente
+    if (lowerMessage.includes('buscar cliente') || lowerMessage.includes('procurar cliente')) {
+      const doc = clean(message.match(/\d+/g)?.join('') || '')
+      if (doc) {
+        return handleSearchClient(doc)
+      }
+      return 'Por favor, informe o CPF ou CNPJ do cliente que deseja buscar.'
+    }
+
+    // 5. Editar Cliente
+    if (lowerMessage.includes('editar cliente')) {
+      const doc = clean(message.match(/\d+/g)?.join('') || '')
+      if (doc) {
+        return handleEditClient(doc)
+      }
+      return 'Por favor, informe o CPF ou CNPJ do cliente que deseja editar.'
+    }
+
+    // 6. Limpar Chat
+    if (lowerMessage.includes('limpar chat') || lowerMessage.includes('nova consulta')) {
       setMessages([])
-      setCurrentClient(null)
-      showToastMessage('Chat limpo e cliente deselecionado.', 'info')
-      return
+      return 'Chat limpo. Como posso ajudar agora?'
     }
 
-    // Enviar para a API de análise
-    setMessages((prev) => [...prev, { role: 'assistant', content: 'Analisando...' }])
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: {
-            currentClient,
-            messages: messages.map(m => ({ role: m.role, content: m.content })),
-            config: cfg,
-            latestUserMessage: input
-          },
-          geminiKey: cfg.geminiKey, // Passa a chave da config
-          groqKey: cfg.groqKey // Passa a chave da config
-        }),
-      })
-      const data = await response.json()
-
-      if (data.error) {
-        setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: `Erro: ${data.error}` }))
-        showToastMessage(`Erro da IA: ${data.error}`, 'error')
-      } else {
-        setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: data.analysis }))
-      }
-    } catch (error) {
-      console.error('Erro ao chamar API de análise:', error)
-      setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Erro ao conectar com a IA. Verifique sua conexão ou as chaves de API.' }))
-      showToastMessage('Erro ao conectar com a IA.', 'error')
+    // 7. Abrir Configurações
+    if (lowerMessage.includes('configurações') || lowerMessage.includes('config')) {
+      setShowConfig(true)
+      return 'Abrindo configurações...'
     }
+
+    // 8. Abrir Relatórios
+    if (lowerMessage.includes('relatórios') || lowerMessage.includes('reports')) {
+      setShowReportsModal(true)
+      return 'Abrindo relatórios...'
+    }
+
+    // 9. Abrir Painel Master
+    if (lowerMessage.includes('painel master') || lowerMessage.includes('admin')) {
+      setShowAdminPanel(true)
+      setAdminPassword('')
+      setAdminError('')
+      return 'Abrindo painel master...'
+    }
+
+    // Resposta padrão
+    return 'Desculpe, não entendi. Posso gerar uma proposta, um contrato, salvar/buscar/editar clientes, limpar o chat, ou abrir as configurações/relatórios/painel master.'
   }
 
-  // ── Funções de Cliente ───────────────────────────────────────
-  const handleSaveClient = async () => {
-    if (!newClientData.cpf_cnpj || !newClientData.nome_fantasia) {
-      showToastMessage('CPF/CNPJ e Nome Fantasia são obrigatórios.', 'error')
-      return
+  // ── Funções de Cliente ──────────────────────────────────────
+  const handleSearchClient = async (doc) => {
+    const client = cfg.clients.find(c => clean(c.doc) === doc)
+    if (client) {
+      setCurrentClient(client)
+      setShowEditClientModal(true)
+      return `Cliente ${client.name} (${fmtDoc(client.doc)}) encontrado. Abrindo para edição.`
     }
-
-    const cleanedCpfCnpj = clean(newClientData.cpf_cnpj)
-    if (cfg.clients.some(c => clean(c.cpf_cnpj) === cleanedCpfCnpj && c.id !== newClientData.id)) {
-      showToastMessage('Já existe um cliente com este CPF/CNPJ.', 'error')
-      return
-    }
-
-    let updatedClients
-    if (newClientData.id) { // Editando cliente existente
-      updatedClients = cfg.clients.map(c =>
-        c.id === newClientData.id ? { ...newClientData, cpf_cnpj: cleanedCpfCnpj } : c
-      )
-      showToastMessage('Cliente atualizado com sucesso!', 'success')
-    } else { // Adicionando novo cliente
-      const newId = Date.now().toString()
-      updatedClients = [...cfg.clients, { ...newClientData, id: newId, cpf_cnpj: cleanedCpfCnpj }]
-      showToastMessage('Cliente adicionado com sucesso!', 'success')
-    }
-
-    await updateConfig({ clients: updatedClients })
-    setNewClientData({
-      cpf_cnpj: '', nome_fantasia: '', razao_social: '',
-      nome_contato: '', email: '', telefone: '',
-      cep: '', endereco: '', bairro: '', cidade: '', estado: '',
-      responsavel_implantacao_nome: '', responsavel_implantacao_email: '', responsavel_implantacao_telefone: '',
-      responsavel_financeiro_nome: '', responsavel_financeiro_email: '', responsavel_financeiro_telefone: '',
-      cpf_contato_principal: '', regime_tributario: ''
-    })
-    setShowAddClientModal(false)
-    setShowClientModal(false) // Fecha o modal de detalhes se estiver aberto
+    return `Cliente com documento ${fmtDoc(doc)} não encontrado.`
   }
 
-  const handleEditClient = (client) => {
-    setNewClientData(client)
-    setShowAddClientModal(true)
+  const handleEditClient = async (doc) => {
+    const client = cfg.clients.find(c => clean(c.doc) === doc)
+    if (client) {
+      setCurrentClient(client)
+      setShowEditClientModal(true)
+      return `Cliente ${client.name} (${fmtDoc(client.doc)}) encontrado. Abrindo para edição.`
+    }
+    return `Cliente com documento ${fmtDoc(doc)} não encontrado.`
   }
 
-  const handleDeleteClient = async (clientId) => {
-    if (window.confirm('Tem certeza que deseja excluir este cliente?')) {
-      const updatedClients = cfg.clients.filter(c => c.id !== clientId)
-      await updateConfig({ clients: updatedClients })
-      if (currentClient?.id === clientId) {
-        setCurrentClient(null)
-      }
-      showToastMessage('Cliente excluído.', 'info')
-      setShowClientModal(false)
+  const handleSaveClient = async (clientData) => {
+    const existingClientIndex = cfg.clients.findIndex(c => clean(c.doc) === clean(clientData.doc))
+    let updatedClients = []
+
+    if (existingClientIndex > -1) {
+      updatedClients = cfg.clients.map((c, i) => i === existingClientIndex ? clientData : c)
+    } else {
+      updatedClients = [...cfg.clients, clientData]
     }
+
+    const { error } = await supabase
+      .from('empresas')
+      .update({ config: { ...cfg, clients: updatedClients } })
+      .eq('id', empresaId)
+
+    if (error) {
+      console.error('Erro ao salvar cliente:', error)
+      return 'Erro ao salvar cliente.'
+    }
+
+    setCfg(prev => ({ ...prev, clients: updatedClients }))
+    setShowClientModal(false)
+    setShowEditClientModal(false)
+    setCurrentClient(null)
+    return `Cliente ${clientData.name} salvo com sucesso!`
   }
 
-  // ── Funções de Proposta/Contrato ─────────────────────────────
-  const generateProposal = async (prompt) => {
-    setMessages((prev) => [...prev, { role: 'assistant', content: 'Gerando proposta...' }])
-    try {
-      const parsedModules = parseModules(prompt, cfg.productNames)
-      const parsedCnpjs = parseCNPJsQty(prompt) || (currentClient.cpf_cnpj && isCNPJ(clean(currentClient.cpf_cnpj)) ? 1 : 0)
-      const parsedIFPlan = parseIFPlan(prompt, cfg.plans)
-
-      if (!parsedModules.length) {
-        setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Não consegui identificar os módulos para a proposta. Por favor, especifique.' }))
-        return
-      }
-
-      const planId = getPlan(parsedCnpjs, cfg.plans)
-      const quote = cfg.discMode === 'screen' ? calcDisc(parsedModules, planId, parsedIFPlan, parsedCnpjs, 0, cfg) : calcFull(parsedModules, planId, parsedIFPlan, parsedCnpjs, 0, cfg)
-
-      const proposal = {
-        id: generateToken(),
-        type: 'proposal',
-        date: new Date().toISOString(),
-        client: currentClient,
-        modules: parsedModules,
-        cnpjs: parsedCnpjs,
-        planId: planId,
-        ifPlan: parsedIFPlan,
-        quote: quote,
-        status: 'Rascunho',
-        consultor: session.user.user_metadata.full_name || session.user.email,
-        consultorEmail: session.user.email,
-        html: '', // Será preenchido ao construir
-      }
-
-      const proposalHtmlContent = buildProposal(proposal, cfg)
-      proposal.html = proposalHtmlContent // Salva o HTML gerado
-      setCurrentProposal(proposal)
-      setProposalHtml(proposalHtmlContent)
-      setShowProposalPreview(true)
-      setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Proposta gerada com sucesso!' }))
-
-      // Salvar proposta no histórico
-      const updatedDocuments = [...(cfg.documents || []), proposal]
-      await updateConfig({ documents: updatedDocuments })
-
-    } catch (error) {
-      console.error('Erro ao gerar proposta:', error)
-      setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Erro ao gerar proposta. Tente novamente.' }))
-      showToastMessage('Erro ao gerar proposta.', 'error')
-    }
-  }
-
-  const generateContract = async (prompt) => {
-    setMessages((prev) => [...prev, { role: 'assistant', content: 'Gerando contrato...' }])
-    try {
-      const parsedModules = parseModules(prompt, cfg.productNames)
-      const parsedCnpjs = parseCNPJsQty(prompt) || (currentClient.cpf_cnpj && isCNPJ(clean(currentClient.cpf_cnpj)) ? 1 : 0)
-      const parsedIFPlan = parseIFPlan(prompt, cfg.plans)
-
-      if (!parsedModules.length) {
-        setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Não consegui identificar os módulos para o contrato. Por favor, especifique.' }))
-        return
-      }
-
-      const planId = getPlan(parsedCnpjs, cfg.plans)
-      const quote = cfg.discMode === 'screen' ? calcDisc(parsedModules, planId, parsedIFPlan, parsedCnpjs, 0, cfg) : calcFull(parsedModules, planId, parsedIFPlan, parsedCnpjs, 0, cfg)
-
-      const contract = {
-        id: generateToken(),
-        type: 'contract',
-        date: new Date().toISOString(),
-        client: currentClient,
-        modules: parsedModules,
-        cnpjs: parsedCnpjs,
-        planId: planId,
-        ifPlan: parsedIFPlan,
-        quote: quote,
-        status: 'Rascunho',
-        consultor: session.user.user_metadata.full_name || session.user.email,
-        consultorEmail: session.user.email,
-        paymentDetails: paymentDetails, // Adiciona detalhes de pagamento
-        html: '', // Será preenchido ao construir
-        signatures: {
-          consultor: null,
-          client: null
-        }
-      }
-
-      setContractData(contract)
-      setShowPaymentModal(true) // Abre o modal de pagamento antes de gerar o HTML final
-      setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Detalhes de pagamento necessários para o contrato.' }))
-
-    } catch (error) {
-      console.error('Erro ao gerar contrato:', error)
-      setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Erro ao gerar contrato. Tente novamente.' }))
-      showToastMessage('Erro ao gerar contrato.', 'error')
-    }
-  }
-
-  const handleConfirmPaymentDetails = async () => {
-    if (!paymentDetails.adesao_vencimento || !paymentDetails.mensalidade_vencimento) {
-      showToastMessage('Datas de vencimento são obrigatórias.', 'error')
-      return
+  // ── Funções de Proposta/Contrato ──────────────────────────
+  const handleGenerateProposal = async () => {
+    // Lógica para coletar dados da proposta (ex: perguntar ao usuário)
+    // Por enquanto, vamos usar dados mock
+    const proposalData = {
+      clientName: 'Cliente Teste Proposta',
+      clientDoc: '11.222.333/0001-44',
+      modules: ['Gestão Fiscal', 'BIA'],
+      cnpjs: 10,
+      planId: 'pro',
+      totalAdesao: 1500,
+      totalMensalidade: 800,
+      consultorName: user?.user_metadata?.full_name || 'Consultor Vivanexa',
+      consultorEmail: user?.email,
+      date: new Date().toLocaleDateString('pt-BR'),
+      companyName: cfg.company,
+      companyLogo: cfg.companyLogo,
+      proposalTemplate: cfg.proposalTemplate,
+      contractTemplate: cfg.contractTemplate, // Incluir para referência futura
     }
 
-    const updatedContract = { ...contractData, paymentDetails: paymentDetails }
-    const contractHtmlContent = buildContract(updatedContract, cfg, userSignature) // Passa userSignature
-    updatedContract.html = contractHtmlContent
-
-    setContractData(updatedContract)
-    setContractHtml(contractHtmlContent)
-    setShowPaymentModal(false)
+    const proposalHtml = buildProposal(proposalData)
+    setContractData({ ...proposalData, html: proposalHtml, type: 'proposal' })
     setShowContractPreview(true)
-    showToastMessage('Contrato gerado com sucesso!', 'success')
-
-    // Salvar contrato no histórico
-    const updatedDocuments = [...(cfg.documents || []), updatedContract]
-    await updateConfig({ documents: updatedDocuments })
+    return 'Proposta gerada. Revise e envie para o cliente.'
   }
 
-  const handleSendProposal = async (proposal) => {
-    const { email, nome_fantasia } = proposal.client
-    const { consultor, consultorEmail } = proposal
+  const handleGenerateContract = async () => {
+    // Lógica para coletar dados do contrato (ex: perguntar ao usuário)
+    // Por enquanto, vamos usar dados mock
+    const contractDetails = {
+      clientName: 'Cliente Teste Contrato',
+      clientDoc: '55.666.777/0001-88',
+      clientEmail: 'cliente@teste.com',
+      modules: ['Gestão Fiscal', 'XML', 'CND'],
+      cnpjs: 25,
+      planId: 'top',
+      totalAdesao: 2000,
+      totalMensalidade: 1200,
+      consultorName: user?.user_metadata?.full_name || 'Consultor Vivanexa',
+      consultorEmail: user?.email,
+      date: new Date().toLocaleDateString('pt-BR'),
+      companyName: cfg.company,
+      companyLogo: cfg.companyLogo,
+      contractTemplate: cfg.contractTemplate,
+      proposalTemplate: cfg.proposalTemplate, // Incluir para referência futura
+      paymentConditionAdesao: 'PIX ou Boleto à vista',
+      paymentConditionMensalidade: 'Boleto mensal',
+      dueDateAdesao: '10/04/2026',
+      dueDateMensalidade: '15/04/2026',
+      // Adicionar campos para assinaturas
+      consultorSignature: user?.user_metadata?.signature_url || null, // URL da imagem da assinatura do consultor
+      clientSignature: null, // Será preenchido após a assinatura
+      consultorSignedAt: null,
+      clientSignedAt: null,
+      consultorSignedIp: null,
+      clientSignedIp: null,
+      consultorSignedCpf: null,
+      clientSignedCpf: null,
+      consultorSignedEmail: null,
+      clientSignedEmail: null,
+      token: generateToken(), // Token único para o link de assinatura
+    }
 
-    if (!email) {
-      showToastMessage('Cliente não possui e-mail cadastrado.', 'error')
+    const contractHtml = buildContract(contractDetails)
+    setContractData({ ...contractDetails, html: contractHtml, type: 'contract' })
+    setShowContractPreview(true)
+    return 'Contrato gerado. Revise e envie para o cliente para assinatura.'
+  }
+
+  const handleSendContract = async (data) => {
+    if (!data || data.type !== 'contract') {
+      setMessages(prev => [...prev, { from: 'bot', text: 'Erro: Não há dados de contrato para enviar.' }])
       return
     }
 
-    setMessages((prev) => [...prev, { role: 'assistant', content: 'Enviando proposta por e-mail...' }])
+    setMessages(prev => [...prev, { from: 'bot', text: 'Enviando contrato para assinatura...' }])
 
     try {
-      const response = await fetch('/api/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: email,
-          subject: `Proposta Comercial Vivanexa para ${nome_fantasia}`,
-          html: proposal.html,
-          from: cfg.emailRemetente || consultorEmail,
-          config: cfg // Passa a config para o backend usar SMTP
-        }),
-      })
+      // 1. Salvar o contrato no histórico de documentos
+      const { data: docData, error: docError } = await supabase
+        .from('documentos')
+        .insert([{
+          empresa_id: empresaId,
+          tipo: 'contrato',
+          titulo: `Contrato - ${data.clientName} (${fmtDoc(data.clientDoc)})`,
+          conteudo_html: data.html,
+          status: 'aguardando_assinatura',
+          token_assinatura: data.token,
+          dados_contrato: data, // Salva todos os dados do contrato para referência
+        }])
+        .select()
+        .single()
 
-      const data = await response.json()
-
-      if (data.success) {
-        setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: `Proposta enviada para ${email}!` }))
-        showToastMessage('Proposta enviada com sucesso!', 'success')
-        // Atualizar status da proposta para "Enviada" ou similar
-        const updatedDocuments = cfg.documents.map(doc =>
-          doc.id === proposal.id ? { ...doc, status: 'Enviada' } : doc
-        )
-        await updateConfig({ documents: updatedDocuments })
-      } else {
-        setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: `Erro ao enviar proposta: ${data.error}` }))
-        showToastMessage(`Erro ao enviar proposta: ${data.error}`, 'error')
+      if (docError) {
+        console.error('Erro ao salvar documento:', docError)
+        setMessages(prev => [...prev, { from: 'bot', text: `Erro ao salvar o contrato: ${docError.message}` }])
+        return
       }
-    } catch (error) {
-      console.error('Erro ao enviar proposta:', error)
-      setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Erro ao enviar proposta. Verifique a configuração de e-mail.' }))
-      showToastMessage('Erro ao enviar proposta.', 'error')
-    }
-  }
 
-  const handleSendContract = async (contract) => {
-    const { email, nome_fantasia } = contract.client
-    const { consultor, consultorEmail, id: contractId } = contract
+      const signatureLink = `${window.location.origin}/sign/${data.token}`
 
-    if (!email) {
-      showToastMessage('Cliente não possui e-mail cadastrado.', 'error')
-      return
-    }
-
-    setMessages((prev) => [...prev, { role: 'assistant', content: 'Enviando contrato para assinatura...' }])
-
-    try {
-      const baseUrl = cfg.baseUrl || window.location.origin
-      const signLink = `${baseUrl}/sign/${contractId}`
-
+      // 2. Enviar e-mail para o cliente com o link de assinatura
       const emailHtml = `
-        <p>Prezado(a) ${nome_fantasia},</p>
-        <p>Segue o contrato de prestação de serviços da Vivanexa para sua análise e assinatura eletrônica.</p>
-        <p>Por favor, clique no link abaixo para visualizar e assinar o documento:</p>
-        <p><a href="${signLink}" target="_blank" style="padding: 10px 20px; background-color: #00d4ff; color: white; text-decoration: none; border-radius: 5px;">Assinar Contrato</a></p>
+        <p>Prezado(a) ${data.clientName},</p>
+        <p>Seu contrato com a ${data.companyName} está pronto para ser assinado eletronicamente.</p>
+        <p>Por favor, clique no link abaixo para revisar e assinar o documento:</p>
+        <p><a href="${signatureLink}">${signatureLink}</a></p>
         <p>Atenciosamente,</p>
-        <p>${consultor}</p>
-        <p>Vivanexa</p>
+        <p>${data.consultorName}</p>
+        <p>${data.companyName}</p>
       `
 
-      const response = await fetch('/api/send-email', {
+      const emailResponse = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to: email,
-          subject: `Contrato Vivanexa para Assinatura - ${nome_fantasia}`,
+          to: data.clientEmail,
+          subject: `Contrato para Assinatura - ${data.companyName}`,
           html: emailHtml,
-          from: cfg.emailRemetente || consultorEmail,
-          config: cfg // Passa a config para o backend usar SMTP
+          config: cfg.emailConfig, // Assumindo que as configurações de e-mail estão em cfg.emailConfig
         }),
       })
 
-      const data = await response.json()
-
-      if (data.success) {
-        setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: `Contrato enviado para ${email} para assinatura!` }))
-        showToastMessage('Contrato enviado para assinatura!', 'success')
-        // Atualizar status do contrato para "Aguardando assinatura"
-        const updatedDocuments = cfg.documents.map(doc =>
-          doc.id === contract.id ? { ...doc, status: 'Aguardando assinatura' } : doc
-        )
-        await updateConfig({ documents: updatedDocuments })
-      } else {
-        setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: `Erro ao enviar contrato: ${data.error}` }))
-        showToastMessage(`Erro ao enviar contrato: ${data.error}`, 'error')
+      if (!emailResponse.ok) {
+        const errorData = await emailResponse.json()
+        throw new Error(errorData.error || 'Erro ao enviar e-mail.')
       }
+
+      setMessages(prev => [...prev, { from: 'bot', text: `Contrato enviado com sucesso para ${data.clientEmail}. O cliente receberá um e-mail com o link para assinatura.` }])
+      setShowContractPreview(false)
+
     } catch (error) {
       console.error('Erro ao enviar contrato:', error)
-      setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Erro ao enviar contrato. Verifique a configuração de e-mail.' }))
-      showToastMessage('Erro ao enviar contrato.', 'error')
+      setMessages(prev => [...prev, { from: 'bot', text: `Falha ao enviar contrato: ${error.message}` }])
     }
   }
 
-  const generatePdfAndSendEmail = async (contract) => {
-    setMessages((prev) => [...prev, { role: 'assistant', content: 'Gerando PDF do contrato e enviando por e-mail...' }])
+  // Nova função para gerar PDF e enviar e-mail com anexo
+  const generatePdfAndSendEmail = async (contractDetails, clientEmail, consultorEmail, emailConfig) => {
     try {
-      // 1. Gerar PDF do contrato
+      // 1. Gerar o PDF do contrato
       const pdfResponse = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ htmlContent: contract.html }),
+        body: JSON.stringify({ htmlContent: buildContract(contractDetails) }), // Usa o HTML final do contrato
       });
 
       if (!pdfResponse.ok) {
-        const errorText = await pdfResponse.text();
-        throw new Error(`Falha ao gerar PDF: ${errorText}`);
+        const errorData = await pdfResponse.json();
+        throw new Error(errorData.error || 'Erro ao gerar PDF do contrato.');
       }
 
       const pdfBlob = await pdfResponse.blob();
       const reader = new FileReader();
       reader.readAsDataURL(pdfBlob);
+
       reader.onloadend = async () => {
-        const base64Pdf = reader.result.split(',')[1]; // Pega apenas a parte base64
+        const base64Pdf = reader.result.split(',')[1]; // Extrai o base64
 
         // 2. Enviar e-mail com o PDF anexado
-        const { email, nome_fantasia } = contract.client;
-        const { consultor, consultorEmail } = contract;
-
+        const emailSubject = `Contrato Assinado - ${contractDetails.companyName} - ${contractDetails.clientName}`;
         const emailHtml = `
-          <p>Prezado(a) ${nome_fantasia},</p>
-          <p>Seu contrato com a Vivanexa foi assinado por ambas as partes e está anexado a este e-mail.</p>
-          <p>Agradecemos a confiança!</p>
+          <p>Prezado(a) ${contractDetails.clientName},</p>
+          <p>Seu contrato com a ${contractDetails.companyName} foi assinado por ambas as partes e está anexado a este e-mail.</p>
+          <p>Agradecemos a sua confiança!</p>
           <p>Atenciosamente,</p>
-          <p>${consultor}</p>
-          <p>Vivanexa</p>
+          <p>${contractDetails.consultorName}</p>
+          <p>${contractDetails.companyName}</p>
         `;
+
+        const attachments = [{
+          filename: `contrato_${contractDetails.clientName.replace(/\s/g, '_')}.pdf`,
+          content: base64Pdf,
+          encoding: 'base64',
+          contentType: 'application/pdf',
+        }];
 
         const sendEmailResponse = await fetch('/api/send-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            to: email,
-            subject: `Contrato Vivanexa Assinado - ${nome_fantasia}`,
+            to: clientEmail,
+            bcc: consultorEmail, // Envia uma cópia para o consultor
+            subject: emailSubject,
             html: emailHtml,
-            from: cfg.emailRemetente || consultorEmail,
-            config: cfg,
-            attachments: [{
-              filename: `contrato_vivanexa_${contract.id}.pdf`,
-              content: base64Pdf,
-              encoding: 'base64',
-              contentType: 'application/pdf'
-            }]
+            config: emailConfig,
+            attachments: attachments,
           }),
         });
 
-        const emailData = await sendEmailResponse.json();
-
-        if (emailData.success) {
-          setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: `Contrato PDF enviado para ${email}!` }));
-          showToastMessage('Contrato PDF enviado com sucesso!', 'success');
-        } else {
-          setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: `Erro ao enviar contrato PDF: ${emailData.error}` }));
-          showToastMessage(`Erro ao enviar contrato PDF: ${emailData.error}`, 'error');
+        if (!sendEmailResponse.ok) {
+          const errorData = await sendEmailResponse.json();
+          throw new Error(errorData.error || 'Erro ao enviar e-mail com o contrato assinado.');
         }
+
+        setMessages(prev => [...prev, { from: 'bot', text: `Contrato assinado enviado por e-mail para ${clientEmail} e ${consultorEmail}.` }]);
       };
+
     } catch (error) {
-      console.error('Erro ao gerar PDF ou enviar e-mail:', error);
-      setMessages((prev) => prev.slice(0, -1).concat({ role: 'assistant', content: 'Erro ao gerar PDF ou enviar e-mail do contrato.' }));
-      showToastMessage('Erro ao gerar PDF ou enviar e-mail.', 'error');
+      console.error('Erro no fluxo de PDF e e-mail:', error);
+      setMessages(prev => [...prev, { from: 'bot', text: `Falha ao gerar PDF ou enviar e-mail do contrato assinado: ${error.message}` }]);
     }
   };
 
 
-  const handleSignContract = async (contractId, signerType, signatureData) => {
-    // Esta função seria chamada pela página de assinatura (sign/[token].js)
-    // Mas para fins de demonstração e teste, vamos simular aqui.
-    // Na prática, a página de assinatura faria a atualização no Supabase.
+  // ── Construtor de HTML para Proposta/Contrato ─────────────
+  const buildProposal = (data) => {
+    const {
+      clientName, clientDoc, modules, cnpjs, planId,
+      totalAdesao, totalMensalidade, consultorName, date,
+      companyName, companyLogo, proposalTemplate
+    } = data
 
-    const updatedDocuments = cfg.documents.map(doc => {
-      if (doc.id === contractId && doc.type === 'contract') {
-        const updatedSignatures = { ...doc.signatures, [signerType]: signatureData };
-        const newStatus = (updatedSignatures.consultor && updatedSignatures.client) ? 'Assinado' : doc.status;
-        const updatedDoc = { ...doc, signatures: updatedSignatures, status: newStatus };
+    const productsHtml = modules.map(mod => {
+      const [adesao, mensalidade] = getPrice(mod, planId, cfg)
+      return `
+        <tr>
+          <td>${pn(mod, cfg)}</td>
+          <td>${fmt(adesao)}</td>
+          <td>${fmt(mensalidade)}</td>
+        </tr>
+      `
+    }).join('')
 
-        // Se ambas as partes assinaram, atualiza o HTML para incluir as assinaturas
-        if (newStatus === 'Assinado') {
-          updatedDoc.html = buildContract(updatedDoc, cfg, userSignature); // Reconstroi o HTML com as assinaturas
-          generatePdfAndSendEmail(updatedDoc); // Envia o PDF por e-mail
-        }
-        return updatedDoc;
-      }
-      return doc;
-    });
+    const logoHtml = companyLogo ? `<img src="${companyLogo}" alt="${companyName} Logo" style="max-width: 150px; margin-bottom: 20px;">` : `<h2>${companyName}</h2>`;
 
-    await updateConfig({ documents: updatedDocuments });
-    showToastMessage(`Contrato ${contractId} assinado por ${signerType}!`, 'success');
-  };
-
-  // ── Funções de Construção de HTML (Proposta/Contrato) ───────
-  const buildProposal = (proposal, cfg) => {
-    const { client, modules, cnpjs, planId, ifPlan, quote } = proposal
-    const { company, slogan, logob64, productNames, plans, proposalTemplate } = cfg
-    const date = new Date(proposal.date).toLocaleDateString('pt-BR')
-
-    const headerHtml = `
-      <div style="text-align: center; margin-bottom: 30px;">
-        ${logob64 ? `<img src="${logob64}" alt="${company}" style="max-height: 80px; margin-bottom: 10px;" />` : `<h1 style="color: #00d4ff; font-family: 'Syne', sans-serif; margin: 0;">${company}</h1>`}
-        <p style="color: #64748b; font-size: 14px; margin: 0;">${slogan}</p>
-      </div>
-    `
-
-    const introText = proposalTemplate || `
-      <p>Prezado(a) ${client.nome_contato || client.nome_fantasia || client.razao_social},</p>
-      <p>Apresentamos a seguir nossa proposta comercial para os serviços da Vivanexa, desenvolvida para otimizar a gestão e a inteligência fiscal de sua empresa.</p>
-    `
-
-    const productsTable = `
-      <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+    const templateContent = proposalTemplate || `
+      <p>Prezado(a) ${clientName},</p>
+      <p>Apresentamos a seguir a proposta comercial para os serviços da ${companyName}.</p>
+      <p><strong>Cliente:</strong> ${clientName} (${fmtDoc(clientDoc)})</p>
+      <p><strong>Data:</strong> ${date}</p>
+      <p><strong>Consultor:</strong> ${consultorName}</p>
+      <h3>Serviços Contratados:</h3>
+      <table style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
         <thead>
-          <tr style="background-color: #1a2540; color: #e2e8f0;">
-            <th style="padding: 12px; text-align: left; border: 1px solid #1e2d4a;">Módulo</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #1e2d4a;">Plano</th>
-            <th style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">Adesão</th>
-            <th style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">Mensalidade</th>
+          <tr style="background-color:#f2f2f2;">
+            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Módulo</th>
+            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Adesão</th>
+            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Mensalidade</th>
           </tr>
         </thead>
         <tbody>
-          ${quote.results.map(item => `
-            <tr style="background-color: #111827; color: #e2e8f0;">
-              <td style="padding: 10px; border: 1px solid #1e2d4a;">${item.name}</td>
-              <td style="padding: 10px; text-align: center; border: 1px solid #1e2d4a;">${item.isIF ? getPlanLabel(item.plan, plans) + ' (IF)' : item.isEP ? getPlanLabel(item.plan, plans) + ' (EP)' : getPlanLabel(planId, plans)}</td>
-              <td style="padding: 10px; text-align: right; border: 1px solid #1e2d4a;">${fmt(item.adD)}</td>
-              <td style="padding: 10px; text-align: right; border: 1px solid #1e2d4a;">${fmt(item.menD)}</td>
-            </tr>
-          `).join('')}
-          <tr style="background-color: #1a2540; color: #00d4ff; font-weight: bold;">
-            <td colspan="2" style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">Total:</td>
-            <td style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">${fmt(quote.tAdD)}</td>
-            <td style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">${fmt(quote.tMenD)}</td>
-          </tr>
+          ${productsHtml}
         </tbody>
+        <tfoot>
+          <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; text-align: right; font-weight: bold;">Total:</td>
+            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">${fmt(totalAdesao)}</td>
+            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">${fmt(totalMensalidade)}</td>
+          </tr>
+        </tfoot>
       </table>
-    `
-
-    const clientInfo = `
-      <div style="margin-top: 30px; padding: 15px; background-color: #1a2540; border-radius: 8px; color: #e2e8f0;">
-        <h3 style="color: #00d4ff; margin-bottom: 10px;">Dados do Cliente</h3>
-        <p><strong>Empresa:</strong> ${client.nome_fantasia || client.razao_social}</p>
-        <p><strong>CNPJ/CPF:</strong> ${fmtDoc(client.cpf_cnpj)}</p>
-        <p><strong>Contato:</strong> ${client.nome_contato}</p>
-        <p><strong>E-mail:</strong> ${client.email}</p>
-        <p><strong>Telefone:</strong> ${client.telefone}</p>
-      </div>
-    `
-
-    const footerHtml = `
-      <div style="margin-top: 50px; text-align: center; color: #64748b; font-size: 12px;">
-        <p>${company} – Proposta Comercial – Gerado em ${date}</p>
-        <p>Este documento é uma proposta e não possui validade de contrato.</p>
-      </div>
-    `
+      <p>Esta proposta é válida por 7 dias.</p>
+      <p>Aguardamos seu contato para formalizarmos esta parceria.</p>
+      <p>Atenciosamente,</p>
+      <p>${consultorName}</p>
+      <p>${companyName}</p>
+    `;
 
     return `
       <!DOCTYPE html>
-      <html lang="pt-BR">
+      <html>
       <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Proposta Comercial - ${company}</title>
-          <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #e2e8f0; background-color: #0a0f1e; margin: 0; padding: 20px; }
-              .container { max-width: 800px; margin: 20px auto; background-color: #111827; padding: 30px; border-radius: 10px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); border: 1px solid #1e2d4a; }
-              h1, h2, h3 { color: #00d4ff; font-family: 'Syne', sans-serif; }
-              p { margin-bottom: 10px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th, td { padding: 12px; text-align: left; border: 1px solid #1e2d4a; }
-              th { background-color: #1a2540; color: #00d4ff; }
-              .total { background-color: #1a2540; font-weight: bold; color: #00d4ff; }
-              .footer { margin-top: 40px; text-align: center; font-size: 0.8em; color: #64748b; }
-              .section-title { color: #00d4ff; border-bottom: 2px solid #1e2d4a; padding-bottom: 5px; margin-top: 30px; margin-bottom: 15px; }
-          </style>
+        <title>Proposta Comercial - ${companyName}</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 40px; }
+          .container { max-width: 800px; margin: auto; background: #fff; padding: 30px; border: 1px solid #ddd; }
+          h1, h2, h3 { color: #0056b3; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+          th { background-color: #f2f2f2; }
+          .footer { margin-top: 40px; font-size: 0.9em; text-align: center; color: #777; }
+        </style>
       </head>
       <body>
-          <div class="container">
-              ${headerHtml}
-              <div class="section-title">Proposta Comercial</div>
-              ${introText}
-              ${productsTable}
-              ${clientInfo}
-              ${footerHtml}
+        <div class="container">
+          <div style="text-align: center;">
+            ${logoHtml}
           </div>
+          <h1>Proposta Comercial</h1>
+          ${templateContent}
+          <div class="footer">
+            <p>${companyName} - ${new Date().getFullYear()}</p>
+          </div>
+        </div>
       </body>
       </html>
-    `
+    `;
   }
 
-  const buildContract = (contract, cfg, consultorSignatureImage) => {
-    const { client, modules, cnpjs, planId, ifPlan, quote, paymentDetails, signatures } = contract
-    const { company, slogan, logob64, productNames, plans, contractTemplate } = cfg
-    const date = new Date(contract.date).toLocaleDateString('pt-BR')
+  const buildContract = (data) => {
+    const {
+      clientName, clientDoc, clientEmail, modules, cnpjs, planId,
+      totalAdesao, totalMensalidade, consultorName, consultorEmail, date,
+      companyName, companyLogo, contractTemplate,
+      paymentConditionAdesao, paymentConditionMensalidade,
+      dueDateAdesao, dueDateMensalidade,
+      consultorSignature, clientSignature,
+      consultorSignedAt, clientSignedAt,
+      consultorSignedIp, clientSignedIp,
+      consultorSignedCpf, clientSignedCpf,
+      consultorSignedEmail, clientSignedEmail,
+    } = data
 
-    const headerHtml = `
-      <div style="text-align: center; margin-bottom: 30px;">
-        ${logob64 ? `<img src="${logob64}" alt="${company}" style="max-height: 80px; margin-bottom: 10px;" />` : `<h1 style="color: #00d4ff; font-family: 'Syne', sans-serif; margin: 0;">${company}</h1>`}
-        <p style="color: #64748b; font-size: 14px; margin: 0;">${slogan}</p>
+    const productsHtml = modules.map(mod => {
+      const [adesao, mensalidade] = getPrice(mod, planId, cfg)
+      return `
+        <tr>
+          <td>${pn(mod, cfg)}</td>
+          <td>${fmt(adesao)}</td>
+          <td>${fmt(mensalidade)}</td>
+        </tr>
+      `
+    }).join('')
+
+    const logoHtml = companyLogo ? `<img src="${companyLogo}" alt="${companyName} Logo" style="max-width: 150px; margin-bottom: 20px;">` : `<h2>${companyName}</h2>`;
+
+    const consultorSignatureHtml = consultorSignature ? `
+      <div style="margin-top: 30px; text-align: center;">
+        <img src="${consultorSignature}" alt="Assinatura do Consultor" style="max-width: 200px; border-bottom: 1px solid #000; padding-bottom: 5px;">
+        <p style="margin-top: 5px; font-size: 0.9em;">${consultorName}</p>
+        <p style="font-size: 0.8em; color: #555;">Consultor(a) ${companyName}</p>
+        ${consultorSignedCpf ? `<p style="font-size: 0.8em; color: #555;">CPF: ${fmtDoc(consultorSignedCpf)}</p>` : ''}
+        ${consultorSignedEmail ? `<p style="font-size: 0.8em; color: #555;">Email: ${consultorSignedEmail}</p>` : ''}
+        ${consultorSignedAt ? `<p style="font-size: 0.8em; color: #555;">Data/Hora: ${new Date(consultorSignedAt).toLocaleString('pt-BR')}</p>` : ''}
+        ${consultorSignedIp ? `<p style="font-size: 0.8em; color: #555;">IP: ${consultorSignedIp}</p>` : ''}
       </div>
-    `
+    ` : `
+      <div style="margin-top: 30px; text-align: center; border-bottom: 1px solid #000; padding-bottom: 5px; width: 200px; margin-left: auto; margin-right: auto;">
+        <p style="margin-top: 5px; font-size: 0.9em;">${consultorName}</p>
+        <p style="font-size: 0.8em; color: #555;">Consultor(a) ${companyName}</p>
+      </div>
+    `;
 
-    const introText = contractTemplate || `
+    const clientSignatureHtml = clientSignature ? `
+      <div style="margin-top: 30px; text-align: center;">
+        <img src="${clientSignature}" alt="Assinatura do Cliente" style="max-width: 200px; border-bottom: 1px solid #000; padding-bottom: 5px;">
+        <p style="margin-top: 5px; font-size: 0.9em;">${clientName}</p>
+        <p style="font-size: 0.8em; color: #555;">Cliente</p>
+        ${clientSignedCpf ? `<p style="font-size: 0.8em; color: #555;">CPF: ${fmtDoc(clientSignedCpf)}</p>` : ''}
+        ${clientSignedEmail ? `<p style="font-size: 0.8em; color: #555;">Email: ${clientSignedEmail}</p>` : ''}
+        ${clientSignedAt ? `<p style="font-size: 0.8em; color: #555;">Data/Hora: ${new Date(clientSignedAt).toLocaleString('pt-BR')}</p>` : ''}
+        ${clientSignedIp ? `<p style="font-size: 0.8em; color: #555;">IP: ${clientSignedIp}</p>` : ''}
+      </div>
+    ` : `
+      <div style="margin-top: 30px; text-align: center; border-bottom: 1px solid #000; padding-bottom: 5px; width: 200px; margin-left: auto; margin-right: auto;">
+        <p style="margin-top: 5px; font-size: 0.9em;">${clientName}</p>
+        <p style="font-size: 0.8em; color: #555;">Cliente</p>
+      </div>
+    `;
+
+    const templateContent = contractTemplate || `
       <p>Este Contrato de Prestação de Serviços é celebrado entre:</p>
-      <p><strong>CONTRATADA:</strong> ${company}, com sede em [Endereço da Contratada], inscrita no CNPJ sob o nº [CNPJ da Contratada].</p>
-      <p><strong>CONTRATANTE:</strong> ${client.razao_social || client.nome_fantasia}, inscrita no CNPJ/CPF sob o nº ${fmtDoc(client.cpf_cnpj)}, com sede em ${client.endereco}, ${client.bairro}, ${client.cidade} - ${client.estado}.</p>
-      <p>As partes acima identificadas têm, entre si, justo e contratado o presente, mediante as cláusulas e condições seguintes:</p>
-    `
+      <p><strong>CONTRATADA:</strong> ${companyName}, com sede em [Endereço da Empresa], inscrita no CNPJ sob o nº [CNPJ da Empresa].</p>
+      <p><strong>CONTRATANTE:</strong> ${clientName}, ${isCNPJ(clean(clientDoc)) ? 'pessoa jurídica' : 'pessoa física'}, inscrita no ${isCNPJ(clean(clientDoc)) ? 'CNPJ' : 'CPF'} sob o nº ${fmtDoc(clientDoc)}, com e-mail ${clientEmail}.</p>
 
-    const productsTable = `
-      <h3 style="color: #00d4ff; margin-top: 30px; margin-bottom: 15px;">Serviços Contratados</h3>
-      <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+      <h3>Objeto do Contrato:</h3>
+      <p>A CONTRATADA prestará à CONTRATANTE os seguintes serviços:</p>
+      <table style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
         <thead>
-          <tr style="background-color: #1a2540; color: #e2e8f0;">
-            <th style="padding: 12px; text-align: left; border: 1px solid #1e2d4a;">Módulo</th>
-            <th style="padding: 12px; text-align: center; border: 1px solid #1e2d4a;">Plano</th>
-            <th style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">Adesão</th>
-            <th style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">Mensalidade</th>
+          <tr style="background-color:#f2f2f2;">
+            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Módulo</th>
+            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Adesão</th>
+            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Mensalidade</th>
           </tr>
         </thead>
         <tbody>
-          ${quote.results.map(item => `
-            <tr style="background-color: #111827; color: #e2e8f0;">
-              <td style="padding: 10px; border: 1px solid #1e2d4a;">${item.name}</td>
-              <td style="padding: 10px; text-align: center; border: 1px solid #1e2d4a;">${item.isIF ? getPlanLabel(item.plan, plans) + ' (IF)' : item.isEP ? getPlanLabel(item.plan, plans) + ' (EP)' : getPlanLabel(planId, plans)}</td>
-              <td style="padding: 10px; text-align: right; border: 1px solid #1e2d4a;">${fmt(item.adD)}</td>
-              <td style="padding: 10px; text-align: right; border: 1px solid #1e2d4a;">${fmt(item.menD)}</td>
-            </tr>
-          `).join('')}
-          <tr style="background-color: #1a2540; color: #00d4ff; font-weight: bold;">
-            <td colspan="2" style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">Total:</td>
-            <td style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">${fmt(quote.tAdD)}</td>
-            <td style="padding: 12px; text-align: right; border: 1px solid #1e2d4a;">${fmt(quote.tMenD)}</td>
-          </tr>
+          ${productsHtml}
         </tbody>
+        <tfoot>
+          <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; text-align: right; font-weight: bold;">Total:</td>
+            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">${fmt(totalAdesao)}</td>
+            <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">${fmt(totalMensalidade)}</td>
+          </tr>
+        </tfoot>
       </table>
-    `
 
-    const paymentInfo = `
-      <h3 style="color: #00d4ff; margin-top: 30px; margin-bottom: 15px;">Condições de Pagamento</h3>
-      <p><strong>Valor da Adesão:</strong> ${fmt(quote.tAdD)}</p>
-      <p><strong>Condição de Pagamento da Adesão:</strong> ${paymentDetails.adesao_condicao === 'vista' ? 'À vista' : paymentDetails.adesao_condicao === 'pix_boleto' ? 'PIX ou Boleto à vista' : paymentDetails.adesao_condicao === 'cartao' ? 'Cartão de Crédito - sem juros' : 'Boleto parcelado - sem juros'}</p>
-      <p><strong>Vencimento da Adesão:</strong> ${new Date(paymentDetails.adesao_vencimento).toLocaleDateString('pt-BR')}</p>
-      <p><strong>Valor da Mensalidade:</strong> ${fmt(quote.tMenD)}</p>
-      <p><strong>Vencimento da Mensalidade:</strong> Todo dia ${new Date(paymentDetails.mensalidade_vencimento).getDate()} de cada mês, a partir de ${new Date(paymentDetails.mensalidade_vencimento).toLocaleDateString('pt-BR')}.</p>
-    `
+      <h3>Condições de Pagamento:</h3>
+      <p><strong>Adesão:</strong> ${paymentConditionAdesao} - Vencimento: ${dueDateAdesao}</p>
+      <p><strong>Mensalidade:</strong> ${paymentConditionMensalidade} - Vencimento: ${dueDateMensalidade}</p>
 
-    const signatureSection = `
-      <h3 style="color: #00d4ff; margin-top: 50px; margin-bottom: 30px; text-align: center;">Assinaturas</h3>
-      <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 30px;">
-        <div style="flex: 1; min-width: 280px; text-align: center; padding: 20px; border: 1px dashed #1e2d4a; border-radius: 8px;">
-          ${signatures.consultor?.image ? `<img src="${signatures.consultor.image}" alt="Assinatura do Consultor" style="max-width: 200px; max-height: 100px; display: block; margin: 0 auto 10px auto;" />` : (consultorSignatureImage ? `<img src="${consultorSignatureImage}" alt="Assinatura do Consultor" style="max-width: 200px; max-height: 100px; display: block; margin: 0 auto 10px auto;" />` : '<div style="height: 100px; display: flex; align-items: center; justify-content: center; color: #64748b;">[Espaço para Assinatura do Consultor]</div>')}
-          <p style="margin-top: 10px; font-weight: bold; color: #e2e8f0;">${contract.consultor}</p>
-          <p style="font-size: 12px; color: #64748b;">Consultor Vivanexa</p>
-          ${signatures.consultor ? `
-            <p style="font-size: 10px; color: #64748b; margin-top: 5px;">
-              CPF: ${fmtDoc(signatures.consultor.cpf)}<br/>
-              E-mail: ${signatures.consultor.email}<br/>
-              Data: ${new Date(signatures.consultor.date).toLocaleString('pt-BR')}<br/>
-              IP: ${signatures.consultor.ip}
-            </p>
-          ` : ''}
-        </div>
-        <div style="flex: 1; min-width: 280px; text-align: center; padding: 20px; border: 1px dashed #1e2d4a; border-radius: 8px;">
-          ${signatures.client?.image ? `<img src="${signatures.client.image}" alt="Assinatura do Cliente" style="max-width: 200px; max-height: 100px; display: block; margin: 0 auto 10px auto;" />` : '<div style="height: 100px; display: flex; align-items: center; justify-content: center; color: #64748b;">[Espaço para Assinatura do Cliente]</div>'}
-          <p style="margin-top: 10px; font-weight: bold; color: #e2e8f0;">${client.nome_contato || client.nome_fantasia || client.razao_social}</p>
-          <p style="font-size: 12px; color: #64748b;">Contratante</p>
-          ${signatures.client ? `
-            <p style="font-size: 10px; color: #64748b; margin-top: 5px;">
-              CPF: ${fmtDoc(signatures.client.cpf)}<br/>
-              E-mail: ${signatures.client.email}<br/>
-              Data: ${new Date(signatures.client.date).toLocaleString('pt-BR')}<br/>
-              IP: ${signatures.client.ip}
-            </p>
-          ` : ''}
-        </div>
-      </div>
-      <div style="margin-top: 30px; text-align: center; font-size: 11px; color: #64748b;">
-        <p><strong>Manifesto de Assinatura Eletrônica Simples:</strong> Este documento foi assinado eletronicamente por ambas as partes, em conformidade com a Lei nº 14.063/2020.</p>
-        <p>Token de Validação: <strong>${contract.id}</strong></p>
-        <p>Os dados de IP, data e hora de cada assinatura foram registrados para fins de auditoria e validade jurídica.</p>
-      </div>
-    `
+      <h3>Disposições Gerais:</h3>
+      <p>Este contrato entra em vigor na data de sua assinatura e terá prazo de 12 (doze) meses, renovável automaticamente por iguais períodos, salvo manifestação em contrário de qualquer das partes com antecedência mínima de 30 (trinta) dias.</p>
+      <p>Fica eleito o foro da comarca de [Cidade/Estado da Empresa] para dirimir quaisquer dúvidas ou litígios decorrentes deste contrato.</p>
 
-    const footerHtml = `
-      <div style="margin-top: 50px; text-align: center; color: #64748b; font-size: 12px;">
-        <p>${company} – Contrato de Prestação de Serviços – Gerado em ${date}</p>
-        <p>Este documento possui validade jurídica mediante as assinaturas eletrônicas.</p>
+      <p>E, por estarem assim justos e contratados, as partes assinam o presente instrumento eletronicamente.</p>
+
+      <div style="display: flex; justify-content: space-around; margin-top: 50px;">
+        ${consultorSignatureHtml}
+        ${clientSignatureHtml}
       </div>
-    `
+      <p style="text-align: center; margin-top: 20px; font-size: 0.8em; color: #777;">
+        Documento assinado eletronicamente conforme Lei nº 14.063/2020.
+      </p>
+    `;
 
     return `
       <!DOCTYPE html>
-      <html lang="pt-BR">
+      <html>
       <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Contrato de Prestação de Serviços - ${company}</title>
-          <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #e2e8f0; background-color: #0a0f1e; margin: 0; padding: 20px; }
-              .container { max-width: 800px; margin: 20px auto; background-color: #111827; padding: 30px; border-radius: 10px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); border: 1px solid #1e2d4a; }
-              h1, h2, h3 { color: #00d4ff; font-family: 'Syne', sans-serif; }
-              p { margin-bottom: 10px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th, td { padding: 12px; text-align: left; border: 1px solid #1e2d4a; }
-              th { background-color: #1a2540; color: #00d4ff; }
-              .total { background-color: #1a2540; font-weight: bold; color: #00d4ff; }
-              .footer { margin-top: 40px; text-align: center; font-size: 0.8em; color: #64748b; }
-              .section-title { color: #00d4ff; border-bottom: 2px solid #1e2d4a; padding-bottom: 5px; margin-top: 30px; margin-bottom: 15px; }
-          </style>
+        <title>Contrato de Prestação de Serviços - ${companyName}</title>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 40px; }
+          .container { max-width: 800px; margin: auto; background: #fff; padding: 30px; border: 1px solid #ddd; }
+          h1, h2, h3 { color: #0056b3; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+          th { background-color: #f2f2f2; }
+          .footer { margin-top: 40px; font-size: 0.9em; text-align: center; color: #777; }
+        </style>
       </head>
       <body>
-          <div class="container">
-              ${headerHtml}
-              <div class="section-title">Contrato de Prestação de Serviços</div>
-              ${introText}
-              ${productsTable}
-              ${paymentInfo}
-              ${signatureSection}
-              ${footerHtml}
+        <div class="container">
+          <div style="text-align: center;">
+            ${logoHtml}
           </div>
+          <h1>Contrato de Prestação de Serviços</h1>
+          <p style="text-align: right; font-size: 0.9em;">${date}</p>
+          ${templateContent}
+          <div class="footer">
+            <p>${companyName} - ${new Date().getFullYear()}</p>
+          </div>
+        </div>
       </body>
       </html>
-    `
+    `;
   }
 
-  // ── Renderização ─────────────────────────────────────────────
+  // ── Renderização do Componente ────────────────────────────
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
-        <div className="text-xl">Carregando...</div>
+        Carregando...
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+    <div className="flex flex-col h-screen bg-gray-900 text-white">
       <Head>
-        <title>{cfg.company || 'Vivanexa'} – Assistente Comercial</title>
+        <title>{cfg.company} - Assistente Comercial</title>
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      {/* Global Orbs */}
-      <div className="orb orb1" />
-      <div className="orb orb2" />
-
       {/* Header */}
-      <header className="sticky top-0 z-10 max-w-4xl mx-auto p-4 flex items-center gap-2 flex-wrap bg-gray-900 bg-opacity-90 backdrop-filter backdrop-blur-md border-b border-gray-800">
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push('/chat')}>
-          {cfg.logob64 ? <img src={cfg.logob64} alt={cfg.company} className="h-9" /> : <div className="font-syne text-xl font-bold text-blue-400">{cfg.company || 'Vivanexa'}</div>}
-          <span className="text-gray-400 text-sm">{cfg.slogan || 'Assistente Comercial de Preços'}</span>
+      <header className="flex items-center justify-between p-4 bg-gray-800 shadow-md">
+        <div className="flex items-center cursor-pointer" onClick={() => router.push('/chat')}>
+          {cfg.companyLogo && <img src={cfg.companyLogo} alt="Logo" className="h-8 mr-3" />}
+          <h1 className="text-xl font-bold">{cfg.company}</h1>
         </div>
-        <div className="ml-auto flex gap-2">
-          <button onClick={() => router.push('/dashboard')} className="px-3 py-1 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors text-sm">📊 Dashboard</button>
-          <button onClick={() => router.push('/configuracoes')} className="px-3 py-1 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors text-sm">⚙️ Config</button>
-          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="px-3 py-1 bg-red-600 rounded-lg hover:bg-red-700 transition-colors text-sm">Sair</button>
-        </div>
+        <nav className="flex items-center space-x-4">
+          <button onClick={() => setShowReportsModal(true)} className="text-gray-300 hover:text-white">📊 Relatórios</button>
+          <button onClick={() => setShowConfig(true)} className="text-gray-300 hover:text-white">⚙️ Configurações</button>
+          <button onClick={async () => { await supabase.auth.signOut(); router.push('/'); }} className="text-red-400 hover:text-red-300">Sair</button>
+        </nav>
       </header>
 
       {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col max-w-4xl mx-auto w-full p-4">
-        {/* Current Client Display */}
-        {currentClient && (
-          <div className="bg-gray-800 p-3 rounded-lg mb-4 flex items-center justify-between">
-            <p className="text-sm text-gray-300">
-              Cliente selecionado: <span className="font-semibold text-blue-400">{currentClient.nome_fantasia || currentClient.razao_social}</span> ({fmtDoc(currentClient.cpf_cnpj)})
-            </p>
-            <button onClick={() => setCurrentClient(null)} className="text-red-400 hover:text-red-300 text-sm">Remover</button>
-          </div>
-        )}
+      <main className="flex-1 flex overflow-hidden">
+        {/* Sidebar (optional, can be removed if not needed) */}
+        {/* <aside className="w-64 bg-gray-800 p-4 border-r border-gray-700">
+          <h2 className="text-lg font-semibold mb-4">Menu</h2>
+          <ul>
+            <li className="mb-2"><a href="#" className="text-gray-300 hover:text-white">Dashboard</a></li>
+            <li className="mb-2"><a href="#" className="text-gray-300 hover:text-white">Clientes</a></li>
+            <li className="mb-2"><a href="#" className="text-gray-300 hover:text-white">Documentos</a></li>
+          </ul>
+        </aside> */}
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto space-y-4 p-4 bg-gray-800 rounded-lg shadow-inner mb-4">
-          {messages.map((msg, index) => (
-            <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-xl px-4 py-2 rounded-lg shadow ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-100'}`}>
-                {msg.content.split('\n').map((line, i) => (
-                  <p key={i} className="mb-1 last:mb-0">{line}</p>
-                ))}
+        {/* Chat Content */}
+        <div className="flex-1 flex flex-col p-4 overflow-hidden">
+          <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 bg-gray-800 rounded-lg shadow-inner mb-4 custom-scrollbar">
+            {messages.map((msg, index) => (
+              <div key={index} className={`mb-4 ${msg.from === 'user' ? 'text-right' : 'text-left'}`}>
+                <span className={`inline-block p-3 rounded-lg ${msg.from === 'user' ? 'bg-blue-600' : 'bg-gray-700'}`}>
+                  {msg.text}
+                </span>
               </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
+            ))}
+          </div>
 
-        {/* Input Area */}
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder="Digite sua mensagem ou comando (/cliente, /proposta, /contrato, /limpar)"
-            className="flex-1 p-3 rounded-lg bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            onClick={handleSendMessage}
-            className="px-5 py-3 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            Enviar
-          </button>
+          {/* Input Area */}
+          <div className="flex items-center p-4 bg-gray-800 rounded-lg shadow-md">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+              placeholder="Digite sua mensagem..."
+              className="flex-1 p-3 rounded-lg bg-gray-700 border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleSendMessage}
+              className="ml-4 px-6 py-3 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              Enviar
+            </button>
+          </div>
         </div>
       </main>
 
-      {/* Toast Notification */}
-      {showToast && (
-        <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-lg text-white ${toastType === 'success' ? 'bg-green-500' : toastType === 'error' ? 'bg-red-500' : 'bg-blue-500'}`}>
-          {toastMessage}
-        </div>
-      )}
-
-      {/* Modals */}
-      {/* Client Details Modal */}
-      {showClientModal && currentClient && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📋 Dados para o CRM</h3>
-            <button onClick={() => setShowClientModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-            <div className="space-y-3 text-gray-300">
-              <p><strong>CPF/CNPJ:</strong> {fmtDoc(currentClient.cpf_cnpj)}</p>
-              <p><strong>Nome Fantasia:</strong> {currentClient.nome_fantasia}</p>
-              <p><strong>Razão Social:</strong> {currentClient.razao_social}</p>
-              <p><strong>Contato:</strong> {currentClient.nome_contato}</p>
-              <p><strong>E-mail:</strong> {currentClient.email}</p>
-              <p><strong>Telefone:</strong> {currentClient.telefone}</p>
-              <p><strong>Endereço:</strong> {currentClient.endereco}, {currentClient.bairro}, {currentClient.cidade} - {currentClient.estado} ({currentClient.cep})</p>
-              {currentClient.responsavel_implantacao_nome && <p><strong>Resp. Implantação:</strong> {currentClient.responsavel_implantacao_nome} ({currentClient.responsavel_implantacao_email})</p>}
-              {currentClient.responsavel_financeiro_nome && <p><strong>Resp. Financeiro:</strong> {currentClient.responsavel_financeiro_nome} ({currentClient.responsavel_financeiro_email})</p>}
-              <p><strong>Regime Tributário:</strong> {currentClient.regime_tributario}</p>
-            </div>
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => {
-                const crmData = `
-CPF/CNPJ: ${fmtDoc(currentClient.cpf_cnpj)}
-Nome Fantasia: ${currentClient.nome_fantasia}
-Razão Social: ${currentClient.razao_social}
-Contato: ${currentClient.nome_contato}
-E-mail: ${currentClient.email}
-Telefone: ${currentClient.telefone}
-Endereço: ${currentClient.endereco}, ${currentClient.bairro}, ${currentClient.cidade} - ${currentClient.estado} (${currentClient.cep})
-Responsável Implantação: ${currentClient.responsavel_implantacao_nome} (${currentClient.responsavel_implantacao_email})
-Responsável Financeiro: ${currentClient.responsavel_financeiro_nome} (${currentClient.responsavel_financeiro_email})
-Regime Tributário: ${currentClient.regime_tributario}
-                `
-                navigator.clipboard.writeText(crmData.trim())
-                showToastMessage('Dados copiados para o CRM!', 'success')
-              }} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">📋 Copiar tudo</button>
-              <button onClick={() => setShowClientModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Fechar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add/Edit Client Modal */}
-      {showAddClientModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">{newClientData.id ? '✏️ Editar Cliente' : '➕ Novo Cliente'}</h3>
-            <button onClick={() => setShowAddClientModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">CPF / CNPJ *</label>
-                <input
-                  type="text"
-                  value={newClientData.cpf_cnpj}
-                  onChange={(e) => setNewClientData({ ...newClientData, cpf_cnpj: clean(e.target.value) })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  maxLength={14}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nome Fantasia / Nome *</label>
-                <input
-                  type="text"
-                  value={newClientData.nome_fantasia}
-                  onChange={(e) => setNewClientData({ ...newClientData, nome_fantasia: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Razão Social</label>
-                <input
-                  type="text"
-                  value={newClientData.razao_social}
-                  onChange={(e) => setNewClientData({ ...newClientData, razao_social: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nome do Contato</label>
-                <input
-                  type="text"
-                  value={newClientData.nome_contato}
-                  onChange={(e) => setNewClientData({ ...newClientData, nome_contato: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">E-mail</label>
-                <input
-                  type="email"
-                  value={newClientData.email}
-                  onChange={(e) => setNewClientData({ ...newClientData, email: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Telefone / WhatsApp</label>
-                <input
-                  type="text"
-                  value={newClientData.telefone}
-                  onChange={(e) => setNewClientData({ ...newClientData, telefone: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">CEP</label>
-                <input
-                  type="text"
-                  value={newClientData.cep}
-                  onChange={(e) => setNewClientData({ ...newClientData, cep: clean(e.target.value) })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  maxLength={8}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Endereço</label>
-                <input
-                  type="text"
-                  value={newClientData.endereco}
-                  onChange={(e) => setNewClientData({ ...newClientData, endereco: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Bairro</label>
-                <input
-                  type="text"
-                  value={newClientData.bairro}
-                  onChange={(e) => setNewClientData({ ...newClientData, bairro: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Cidade</label>
-                <input
-                  type="text"
-                  value={newClientData.cidade}
-                  onChange={(e) => setNewClientData({ ...newClientData, cidade: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Estado</label>
-                <input
-                  type="text"
-                  value={newClientData.estado}
-                  onChange={(e) => setNewClientData({ ...newClientData, estado: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <h4 className="text-lg font-semibold text-blue-400 mt-4 mb-2">👷 Responsável pela Implantação</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300">Nome</label>
-                    <input
-                      type="text"
-                      value={newClientData.responsavel_implantacao_nome}
-                      onChange={(e) => setNewClientData({ ...newClientData, responsavel_implantacao_nome: e.target.value })}
-                      className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300">E-mail</label>
-                    <input
-                      type="email"
-                      value={newClientData.responsavel_implantacao_email}
-                      onChange={(e) => setNewClientData({ ...newClientData, responsavel_implantacao_email: e.target.value })}
-                      className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300">Telefone</label>
-                    <input
-                      type="text"
-                      value={newClientData.responsavel_implantacao_telefone}
-                      onChange={(e) => setNewClientData({ ...newClientData, responsavel_implantacao_telefone: e.target.value })}
-                      className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="md:col-span-2">
-                <h4 className="text-lg font-semibold text-blue-400 mt-4 mb-2">💰 Responsável Financeiro</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300">Nome</label>
-                    <input
-                      type="text"
-                      value={newClientData.responsavel_financeiro_nome}
-                      onChange={(e) => setNewClientData({ ...newClientData, responsavel_financeiro_nome: e.target.value })}
-                      className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300">E-mail</label>
-                    <input
-                      type="email"
-                      value={newClientData.responsavel_financeiro_email}
-                      onChange={(e) => setNewClientData({ ...newClientData, responsavel_financeiro_email: e.target.value })}
-                      className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300">Telefone</label>
-                    <input
-                      type="text"
-                      value={newClientData.responsavel_financeiro_telefone}
-                      onChange={(e) => setNewClientData({ ...newClientData, responsavel_financeiro_telefone: e.target.value })}
-                      className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">CPF do Contato Principal</label>
-                <input
-                  type="text"
-                  value={newClientData.cpf_contato_principal}
-                  onChange={(e) => setNewClientData({ ...newClientData, cpf_contato_principal: clean(e.target.value) })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  maxLength={11}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Regime Tributário</label>
-                <select
-                  value={newClientData.regime_tributario}
-                  onChange={(e) => setNewClientData({ ...newClientData, regime_tributario: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                >
-                  <option value="">Selecione...</option>
-                  <option value="Simples Nacional">Simples Nacional</option>
-                  <option value="Lucro Presumido">Lucro Presumido</option>
-                  <option value="Lucro Real">Lucro Real</option>
-                  <option value="MEI">MEI</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowAddClientModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={handleSaveClient} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Cliente</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Proposal Preview Modal */}
-      {showProposalPreview && currentProposal && (
+      {/* Config Modal */}
+      {showConfig && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📄 Prévia da Proposta</h3>
-            <button onClick={() => setShowProposalPreview(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-            <iframe srcDoc={proposalHtml} className="w-full h-[60vh] border border-gray-700 rounded-lg bg-white" title="Prévia da Proposta"></iframe>
+            <h3 className="text-2xl font-bold mb-6 text-center">⚙️ Configurações</h3>
+            <button onClick={() => setShowConfig(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+
+            {/* Configurações da Empresa */}
+            <div className="mb-8 p-6 bg-gray-700 rounded-lg">
+              <h4 className="font-semibold mb-3">🏢 Identidade Visual</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Nome da Empresa</label>
+                  <input
+                    type="text"
+                    value={cfg.company}
+                    onChange={(e) => setCfg(prev => ({ ...prev, company: e.target.value }))}
+                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Slogan / Subtítulo</label>
+                  <input
+                    type="text"
+                    value={cfg.slogan}
+                    onChange={(e) => setCfg(prev => ({ ...prev, slogan: e.target.value }))}
+                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Logomarca (URL)</label>
+                <input
+                  type="text"
+                  value={cfg.companyLogo || ''}
+                  onChange={(e) => setCfg(prev => ({ ...prev, companyLogo: e.target.value }))}
+                  placeholder="URL da imagem da logo (ex: https://exemplo.com/logo.png)"
+                  className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                />
+                {cfg.companyLogo && <img src={cfg.companyLogo} alt="Logo Preview" className="mt-2 h-16" />}
+              </div>
+            </div>
+
+            {/* Configurações de E-mail e Assinatura */}
+            <div className="mb-8 p-6 bg-gray-700 rounded-lg">
+              <h4 className="font-semibold mb-3">📧 Configurações de E-mail e Assinatura Eletrônica</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">E-mail Remetente (SMTP User)</label>
+                  <input
+                    type="email"
+                    value={cfg.emailConfig?.smtpUser || ''}
+                    onChange={(e) => setCfg(prev => ({ ...prev, emailConfig: { ...prev.emailConfig, smtpUser: e.target.value } }))}
+                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Senha do E-mail (SMTP Pass)</label>
+                  <input
+                    type="password"
+                    value={cfg.emailConfig?.smtpPass || ''}
+                    onChange={(e) => setCfg(prev => ({ ...prev, emailConfig: { ...prev.emailConfig, smtpPass: e.target.value } }))}
+                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Host SMTP</label>
+                  <input
+                    type="text"
+                    value={cfg.emailConfig?.smtpHost || ''}
+                    onChange={(e) => setCfg(prev => ({ ...prev, emailConfig: { ...prev.emailConfig, smtpHost: e.target.value } }))}
+                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Porta SMTP</label>
+                  <input
+                    type="number"
+                    value={cfg.emailConfig?.smtpPort || 587}
+                    onChange={(e) => setCfg(prev => ({ ...prev, emailConfig: { ...prev.emailConfig, smtpPort: Number(e.target.value) } }))}
+                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">URL Base do Sistema (para links de assinatura)</label>
+                <input
+                  type="text"
+                  value={cfg.baseUrl || ''}
+                  onChange={(e) => setCfg(prev => ({ ...prev, baseUrl: e.target.value }))}
+                  placeholder="Ex: https://seusistema.com"
+                  className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+            </div>
+
+            {/* Produtos e Planos */}
+            <div className="mb-8 p-6 bg-gray-700 rounded-lg">
+              <h4 className="font-semibold mb-3">📦 Produtos e Planos</h4>
+              <div className="mb-4">
+                <h5 className="text-lg font-medium mb-2">Planos Disponíveis</h5>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-gray-900 rounded-md">
+                    <thead>
+                      <tr>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Nome Exibido</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">ID/Chave</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Max CNPJs</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Usuários</th>
+                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cfg.plans.map((plan, index) => (
+                        <tr key={plan.id} className="border-b border-gray-600 last:border-b-0">
+                          <td className="py-2 px-4">{plan.name}</td>
+                          <td className="py-2 px-4">{plan.id}</td>
+                          <td className="py-2 px-4">{plan.maxCnpjs}</td>
+                          <td className="py-2 px-4">{plan.unlimitedUsers ? 'Ilimitados' : plan.users}</td>
+                          <td className="py-2 px-4">
+                            <button
+                              onClick={() => {
+                                const updatedPlans = cfg.plans.filter((_, i) => i !== index);
+                                setCfg(prev => ({ ...prev, plans: updatedPlans }));
+                              }}
+                              className="text-red-500 hover:text-red-700"
+                            >
+                              Remover
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button onClick={() => setShowAddPlanModal(true)} className="mt-4 px-4 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">
+                  + Novo Plano
+                </button>
+              </div>
+
+              <div className="mb-4">
+                <h5 className="text-lg font-medium mb-2">Nomes de Produtos (Exibição)</h5>
+                {Object.keys(cfg.productNames).map(key => (
+                  <div key={key} className="flex items-center mb-2">
+                    <label className="w-40 text-sm font-medium text-gray-300">{key}:</label>
+                    <input
+                      type="text"
+                      value={cfg.productNames[key]}
+                      onChange={(e) => setCfg(prev => ({
+                        ...prev,
+                        productNames: { ...prev.productNames, [key]: e.target.value }
+                      }))}
+                      className="ml-2 flex-1 p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modelos de Documentos */}
+            <div className="mb-8 p-6 bg-gray-700 rounded-lg">
+              <h4 className="font-semibold mb-3">📄 Modelos de Documentos</h4>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-300">Modelo de Proposta Comercial (HTML)</label>
+                <textarea
+                  value={cfg.proposalTemplate || ''}
+                  onChange={(e) => setCfg(prev => ({ ...prev, proposalTemplate: e.target.value }))}
+                  rows="5"
+                  className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  placeholder="Deixe em branco para usar o modelo padrão do sistema."
+                ></textarea>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Modelo de Contrato (HTML)</label>
+                <textarea
+                  value={cfg.contractTemplate || ''}
+                  onChange={(e) => setCfg(prev => ({ ...prev, contractTemplate: e.target.value }))}
+                  rows="5"
+                  className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
+                  placeholder="Deixe em branco para usar o modelo padrão do sistema."
+                ></textarea>
+              </div>
+            </div>
+
+            {/* Botões de Ação */}
             <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => handleSendProposal(currentProposal)} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">📧 Enviar por E-mail</button>
-              <button onClick={() => setShowProposalPreview(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Fechar</button>
+              <button onClick={() => setShowConfig(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={async () => {
+                const { error } = await supabase
+                  .from('empresas')
+                  .update({ config: cfg })
+                  .eq('id', empresaId)
+                if (error) {
+                  console.error('Erro ao salvar configurações:', error)
+                  setMessages(prev => [...prev, { from: 'bot', text: `Erro ao salvar configurações: ${error.message}` }])
+                } else {
+                  setMessages(prev => [...prev, { from: 'bot', text: 'Configurações salvas com sucesso!' }])
+                  setShowConfig(false)
+                }
+              }} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✅ Salvar Configurações</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Payment Details Modal (for Contract) */}
-      {showPaymentModal && (
+      {/* Client Modal (Add New Client) */}
+      {showClientModal && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📝 Configurar Contrato</h3>
-            <button onClick={() => setShowPaymentModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <h3 className="text-2xl font-bold mb-6 text-center">➕ Novo Cliente</h3>
+            <button onClick={() => setShowClientModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <ClientForm client={null} onSave={handleSaveClient} onCancel={() => setShowClientModal(false)} />
+          </div>
+        </div>
+      )}
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">💳 Condição de Pagamento da Adesão</label>
-                <select
-                  value={paymentDetails.adesao_condicao}
-                  onChange={(e) => setPaymentDetails({ ...paymentDetails, adesao_condicao: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                >
-                  <option value="vista">Pagamento à vista</option>
-                  <option value="pix_boleto">PIX ou Boleto à vista</option>
-                  <option value="cartao">Cartão de Crédito — sem juros</option>
-                  <option value="boleto_parcelado">Boleto parcelado — sem juros</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Vencimento da Adesão *</label>
-                <input
-                  type="date"
-                  value={paymentDetails.adesao_vencimento}
-                  onChange={(e) => setPaymentDetails({ ...paymentDetails, adesao_vencimento: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Vencimento da Mensalidade *</label>
-                <input
-                  type="date"
-                  value={paymentDetails.mensalidade_vencimento}
-                  onChange={(e) => setPaymentDetails({ ...paymentDetails, mensalidade_vencimento: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowPaymentModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={handleConfirmPaymentDetails} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">Próximo →</button>
-            </div>
+      {/* Client Modal (Edit Existing Client) */}
+      {showEditClientModal && currentClient && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
+            <h3 className="text-2xl font-bold mb-6 text-center">✏️ Editar Cliente</h3>
+            <button onClick={() => setShowEditClientModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <ClientForm client={currentClient} onSave={handleSaveClient} onCancel={() => setShowEditClientModal(false)} />
           </div>
         </div>
       )}
@@ -1397,12 +1037,78 @@ Regime Tributário: ${currentClient.regime_tributario}
       {showContractPreview && contractData && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📄 Prévia do Contrato</h3>
+            <h3 className="text-2xl font-bold mb-6 text-center">{contractData.type === 'contract' ? '📝 Prévia do Contrato' : '📄 Prévia da Proposta'}</h3>
             <button onClick={() => setShowContractPreview(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-            <iframe srcDoc={contractHtml} className="w-full h-[60vh] border border-gray-700 rounded-lg bg-white" title="Prévia do Contrato"></iframe>
+            <iframe srcDoc={contractData.html} className="w-full h-[60vh] border border-gray-600 rounded-lg bg-white" title="Prévia do Contrato"></iframe>
             <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => handleSendContract(contractData)} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">📧 Enviar para Assinatura</button>
+              {contractData.type === 'contract' && (
+                <button onClick={() => handleSendContract(contractData)} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">📧 Enviar para Assinatura</button>
+              )}
               <button onClick={() => setShowContractPreview(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Plan Modal */}
+      {showAddPlanModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
+            <h3 className="text-2xl font-bold mb-6 text-center">➕ Adicionar Novo Plano</h3>
+            <button onClick={() => setShowAddPlanModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300">ID/Chave do Plano (ex: basic, pro)</label>
+                <input
+                  type="text"
+                  value={newPlanData.id}
+                  onChange={(e) => setNewPlanData({ ...newPlanData, id: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Nome Exibido (ex: Plano Basic)</label>
+                <input
+                  type="text"
+                  value={newPlanData.name}
+                  onChange={(e) => setNewPlanData({ ...newPlanData, name: e.target.value })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300">Máximo de CNPJs</label>
+                <input
+                  type="number"
+                  value={newPlanData.maxCnpjs}
+                  onChange={(e) => setNewPlanData({ ...newPlanData, maxCnpjs: Number(e.target.value) })}
+                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                />
+              </div>
+              {!newPlanData.unlimitedUsers && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300">Número de Usuários</label>
+                  <input
+                    type="number"
+                    value={newPlanData.users}
+                    onChange={(e) => setNewPlanData({ ...newPlanData, users: Number(e.target.value) })}
+                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+                  />
+                </div>
+              )}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={newPlanData.unlimitedUsers}
+                  onChange={(e) => setNewPlanData({ ...newPlanData, unlimitedUsers: e.target.checked })}
+                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                />
+                <label className="ml-2 block text-sm text-gray-300">Usuários Ilimitados?</label>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-4 mt-6">
+              <button onClick={() => setShowAddPlanModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+              <button onClick={handleAddPlan} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Adicionar Plano</button>
             </div>
           </div>
         </div>
@@ -1465,4 +1171,133 @@ Regime Tributário: ${currentClient.regime_tributario}
 
     </div>
   )
+}
+
+// ClientForm Component (needs to be defined outside the main Chat component or in its own file)
+function ClientForm({ client, onSave, onCancel }) {
+  const [formData, setFormData] = useState(client || {
+    name: '', doc: '', email: '', phone: '', cep: '', address: '',
+    neighborhood: '', city: '', state: '', contactCpf: '', taxRegime: '',
+    implementationContact: { name: '', email: '', phone: '' },
+    financialContact: { name: '', email: '', phone: '' },
+  });
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleNestedChange = (section, e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [section]: { ...prev[section], [name]: value }
+    }));
+  };
+
+  const handleSave = () => {
+    onSave(formData);
+  };
+
+  return (
+    <div className="space-y-4 text-gray-300">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium">CPF / CNPJ</label>
+          <input type="text" name="doc" value={formData.doc} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Nome Fantasia / Nome</label>
+          <input type="text" name="name" value={formData.name} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Razão Social</label>
+          <input type="text" name="companyName" value={formData.companyName || ''} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Nome do Contato</label>
+          <input type="text" name="contactName" value={formData.contactName || ''} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">E-mail</label>
+          <input type="email" name="email" value={formData.email} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Telefone / WhatsApp</label>
+          <input type="text" name="phone" value={formData.phone} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">CEP</label>
+          <input type="text" name="cep" value={formData.cep} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Endereço</label>
+          <input type="text" name="address" value={formData.address} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Bairro</label>
+          <input type="text" name="neighborhood" value={formData.neighborhood} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Cidade</label>
+          <input type="text" name="city" value={formData.city} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Estado</label>
+          <input type="text" name="state" value={formData.state} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">CPF do Contato Principal</label>
+          <input type="text" name="contactCpf" value={formData.contactCpf} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Regime Tributário</label>
+          <select name="taxRegime" value={formData.taxRegime} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white">
+            <option value="">Selecione...</option>
+            <option value="Simples Nacional">Simples Nacional</option>
+            <option value="Lucro Presumido">Lucro Presumido</option>
+            <option value="Lucro Real">Lucro Real</option>
+            <option value="MEI">MEI</option>
+          </select>
+        </div>
+      </div>
+
+      <h4 className="font-semibold mt-6 mb-2">👷 Responsável pela Implantação</h4>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium">Nome</label>
+          <input type="text" name="name" value={formData.implementationContact.name} onChange={(e) => handleNestedChange('implementationContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">E-mail</label>
+          <input type="email" name="email" value={formData.implementationContact.email} onChange={(e) => handleNestedChange('implementationContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Telefone</label>
+          <input type="text" name="phone" value={formData.implementationContact.phone} onChange={(e) => handleNestedChange('implementationContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+      </div>
+
+      <h4 className="font-semibold mt-6 mb-2">💰 Responsável Financeiro</h4>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium">Nome</label>
+          <input type="text" name="name" value={formData.financialContact.name} onChange={(e) => handleNestedChange('financialContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">E-mail</label>
+          <input type="email" name="email" value={formData.financialContact.email} onChange={(e) => handleNestedChange('financialContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium">Telefone</label>
+          <input type="text" name="phone" value={formData.financialContact.phone} onChange={(e) => handleNestedChange('financialContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
+        </div>
+      </div>
+
+      <div className="flex justify-end space-x-4 mt-6">
+        <button onClick={onCancel} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
+        <button onClick={handleSave} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✅ Salvar Cliente</button>
+      </div>
+    </div>
+  );
 }
