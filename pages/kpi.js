@@ -13,6 +13,7 @@ export default function KpiPage() {
   const [saving, setSaving] = useState(false)
   const [kpis, setKpis] = useState([])
   const [valores, setValores] = useState({})
+  // Garante que a data inicial seja sempre a do parâmetro URL, se existir
   const [data, setData] = useState(dateParam || new Date().toISOString().slice(0,10))
   const [error, setError] = useState('')
 
@@ -61,6 +62,7 @@ export default function KpiPage() {
         setCfg(loaded)
         setKpis(loaded.kpiTemplates || [])
         const log = loaded.kpiLog || []
+        // Usa a data do estado, que já foi inicializada com dateParam
         const dia = data
         const existing = log.filter(l => l.userId === session.user.id && l.date === dia)
         const map = {}
@@ -70,7 +72,7 @@ export default function KpiPage() {
       setLoading(false)
     }
     load()
-  }, [])
+  }, [data]) // Adicione 'data' como dependência para recarregar se a data mudar
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -86,6 +88,7 @@ export default function KpiPage() {
       let currentCfg = cfgRow?.value ? JSON.parse(cfgRow.value) : cfg || {}
       if (!currentCfg.kpiLog) currentCfg.kpiLog = []
 
+      // Filtra logs existentes para a data ATUALMENTE SELECIONADA (que veio da URL)
       currentCfg.kpiLog = currentCfg.kpiLog.filter(l =>
         !(l.userId === user.id && l.date === data)
       )
@@ -96,7 +99,7 @@ export default function KpiPage() {
           currentCfg.kpiLog.push({
             id: Date.now() + Math.random(),
             userId: user.id,
-            date: data,
+            date: data, // Garante que a data salva é a data do input
             kpiId: k.id,
             realizado: Number(val)
           })
@@ -110,6 +113,7 @@ export default function KpiPage() {
       })
 
       const redirectTo = typeof redirect === 'string' ? redirect : '/chat'
+      // Força um recarregamento completo para que _app.js reavalie o KPI
       window.location.href = redirectTo
     } catch (err) {
       console.error(err)
