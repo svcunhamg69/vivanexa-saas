@@ -7,51 +7,60 @@ import { supabase } from '../lib/supabase'
 // CONSTANTES
 // ══════════════════════════════════════════════
 const TABS = [
-  { id: 'empresa', label: '🏢 Empresa' },
-  { id: 'metas', label: '🎯 Metas' },
-  { id: 'kpis', label: '📊 KPIs' },
-  { id: 'usuarios', label: '👥 Usuários' },
-  { id: 'produtos', label: '📦 Produtos' },
-  { id: 'descontos', label: '🏷️ Descontos' },
-  { id: 'vouchers', label: '🎫 Vouchers' },
+  { id: 'empresa',    label: '🏢 Empresa' },
+  { id: 'metas',      label: '🎯 Metas' },
+  { id: 'kpis',       label: '📊 KPIs' },
+  { id: 'usuarios',   label: '👥 Usuários' },
+  { id: 'produtos',   label: '📦 Produtos' },
+  { id: 'descontos',  label: '🏷️ Descontos' },
+  { id: 'vouchers',   label: '🎫 Vouchers' },
   { id: 'documentos', label: '📄 Documentos' },
-  { id: 'clientes', label: '🗃️ Clientes' },
-  { id: 'tema', label: '🎨 Tema' },
+  { id: 'clientes',   label: '🗃️ Clientes' },
+  { id: 'tema',       label: '🎨 Tema' },
+  // ❌ ITEM 17: aba "Histórico" REMOVIDA de Configurações
 ]
+
 const KPI_ICONS = ['📞','📲','📧','🤝','💼','🏆','🎯','💰','📈','📊','🔥','⭐','🚀','✅','📅','🗓','👥','🏃','💡','🎤','📝','🔔','💬','🌐','🛒','📦','🔑','⚡','🎁','🏅']
+
 const MODULOS_PADRAO = ['Gestão Fiscal','CND','XML','BIA','IF','EP','Tributos']
+
 const PLANOS_PADRAO = [
-  { id: 'basic', nome: 'Basic', maxCnpjs: 25, usuarios: 1 },
-  { id: 'pro', nome: 'Pro', maxCnpjs: 80, usuarios: 1 },
-  { id: 'top', nome: 'Top', maxCnpjs: 150, usuarios: 5 },
-  { id: 'topplus', nome: 'Top Plus', maxCnpjs: 999, usuarios: 999 },
+  // ✅ ITEM 16: campo unificado como "name" para coincidir com pricing.js
+  { id: 'basic',   name: 'Basic',    maxCnpjs: 25,  usuarios: 1 },
+  { id: 'pro',     name: 'Pro',      maxCnpjs: 80,  usuarios: 1 },
+  { id: 'top',     name: 'Top',      maxCnpjs: 150, usuarios: 5 },
+  { id: 'topplus', name: 'Top Plus', maxCnpjs: 999, usuarios: 999 },
 ]
+
 const PRECOS_PADRAO = {
   'Gestão Fiscal': { basic:[478,318], pro:[590,409], top:[1032,547], topplus:[1398,679] },
-  'CND': { basic:[0,48], pro:[0,90], top:[0,150], topplus:[0,200] },
-  'XML': { basic:[478,199], pro:[590,299], top:[1032,349], topplus:[1398,399] },
-  'BIA': { basic:[478,129], pro:[590,169], top:[1032,280], topplus:[1398,299] },
-  'IF': { basic:[1600,379],pro:[1600,619],top:[1600,920], topplus:[1600,1100]},
-  'EP': { basic:[0,39], pro:[0,82], top:[0,167], topplus:[0,200] },
-  'Tributos': { basic:[0,0], pro:[0,0], top:[0,0], topplus:[0,0] },
+  'CND':           { basic:[0,48],    pro:[0,90],    top:[0,150],    topplus:[0,200]    },
+  'XML':           { basic:[478,199], pro:[590,299], top:[1032,349], topplus:[1398,399] },
+  'BIA':           { basic:[478,129], pro:[590,169], top:[1032,280], topplus:[1398,299] },
+  'IF':            { basic:[1600,379],pro:[1600,619],top:[1600,920], topplus:[1600,1100]},
+  'EP':            { basic:[0,39],    pro:[0,82],    top:[0,167],    topplus:[0,200]    },
+  'Tributos':      { basic:[0,0],     pro:[0,0],     top:[0,0],      topplus:[0,0]      },
 }
+
 const PERMISSOES_DISPONIVEIS = [
-  { id: 'ver_dashboard', label: '📊 Ver Dashboard' },
-  { id: 'ver_chat', label: '💬 Usar Chat' },
-  { id: 'ver_configuracoes', label: '⚙️ Ver Configurações' },
-  { id: 'editar_precos', label: '💲 Editar Preços' },
-  { id: 'ver_historico', label: '🗂️ Ver Histórico' },
-  { id: 'gerar_proposta', label: '📄 Gerar Proposta' },
-  { id: 'gerar_contrato', label: '📝 Gerar Contrato' },
-  { id: 'ver_clientes', label: '🗃️ Ver Clientes' },
+  { id: 'ver_dashboard',      label: '📊 Ver Dashboard' },
+  { id: 'ver_chat',           label: '💬 Usar Chat' },
+  { id: 'ver_configuracoes',  label: '⚙️ Ver Configurações' },
+  { id: 'editar_precos',      label: '💲 Editar Preços' },
+  { id: 'gerar_proposta',     label: '📄 Gerar Proposta' },
+  { id: 'gerar_contrato',     label: '📝 Gerar Contrato' },
+  { id: 'ver_clientes',       label: '🗃️ Ver Clientes' },
   { id: 'gerenciar_usuarios', label: '👥 Gerenciar Usuários' },
-  { id: 'ver_kpis', label: '📈 Ver KPIs' },
-  { id: 'lancar_kpis', label: '✏️ Lançar KPIs diários' },
-  { id: 'ver_vouchers', label: '🎫 Ver/Gerar Vouchers' },
+  { id: 'ver_kpis',           label: '📈 Ver KPIs' },
+  { id: 'lancar_kpis',        label: '✏️ Lançar KPIs diários' },
+  { id: 'ver_vouchers',       label: '🎫 Ver/Gerar Vouchers' },
 ]
 const PERMISSOES_ADMIN = PERMISSOES_DISPONIVEIS.map(p => p.id)
-const PERMISSOES_USER = ['ver_dashboard','ver_chat','gerar_proposta','gerar_contrato','ver_clientes','ver_historico','ver_kpis','lancar_kpis']
+const PERMISSOES_USER  = ['ver_dashboard','ver_chat','gerar_proposta','gerar_contrato','ver_clientes','ver_kpis','lancar_kpis']
 
+// ══════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════
 function toast(msg, type = 'ok') {
   const el = document.getElementById('vx-toast')
   if (!el) return
@@ -67,34 +76,46 @@ async function salvarStorage(empresaId, novoCfg) {
     key: `cfg:${empresaId}`,
     value: JSON.stringify(novoCfg),
     updated_at: new Date().toISOString()
-  })
+  }, { onConflict: 'key' })
+}
+
+function diasUteisNoMes(yearMonth) {
+  const [y, m] = yearMonth.split('-').map(Number)
+  const dias = new Date(y, m, 0).getDate()
+  let uteis = 0
+  for (let d = 1; d <= dias; d++) {
+    const dow = new Date(y, m - 1, d).getDay()
+    if (dow !== 0 && dow !== 6) uteis++
+  }
+  return uteis
 }
 
 // ══════════════════════════════════════════════
 // ABA EMPRESA
 // ══════════════════════════════════════════════
 function TabEmpresa({ cfg, setCfg, empresaId }) {
-  const [company, setCompany] = useState(cfg.company || '')
-  const [slogan, setSlogan] = useState(cfg.slogan || '')
-  const [logoB64, setLogoB64] = useState(cfg.logob64 || '')
-  const [closeHour, setCloseHour] = useState(cfg.closeHour || 18)
-  const [closeMessage, setCloseMessage] = useState(cfg.closeMessage || '')
-  const [emailProvider, setEmailProvider] = useState(cfg.emailProvider || '')
-  const [smtpHost, setSmtpHost] = useState(cfg.smtpHost || '')
-  const [smtpPort, setSmtpPort] = useState(cfg.smtpPort || '587')
-  const [smtpUser, setSmtpUser] = useState(cfg.smtpUser || '')
-  const [smtpPass, setSmtpPass] = useState(cfg.smtpPass || '')
-  const [emailApiKey, setEmailApiKey] = useState(cfg.emailApiKey || '')
+  const [company,      setCompany]      = useState(cfg.company      || '')
+  const [slogan,       setSlogan]       = useState(cfg.slogan       || '')
+  const [logoB64,      setLogoB64]      = useState(cfg.logob64      || '')
+  // ✅ ITEM 15: closeHour e closeMessage corretamente ligados ao chat
+  const [closeHour,    setCloseHour]    = useState(cfg.closeHour    ?? 18)
+  const [closeMessage, setCloseMessage] = useState(cfg.closeMessage || 'Oferta válida até as 18h de hoje!')
+  const [emailProvider,setEmailProvider]= useState(cfg.emailProvider|| '')
+  const [smtpHost,     setSmtpHost]     = useState(cfg.smtpHost     || '')
+  const [smtpPort,     setSmtpPort]     = useState(cfg.smtpPort     || '587')
+  const [smtpUser,     setSmtpUser]     = useState(cfg.smtpUser     || '')
+  const [smtpPass,     setSmtpPass]     = useState(cfg.smtpPass     || '')
+  const [emailApiKey,  setEmailApiKey]  = useState(cfg.emailApiKey  || '')
   const [geminiApiKey, setGeminiApiKey] = useState(cfg.geminiApiKey || '')
-  const [groqApiKey, setGroqApiKey] = useState(cfg.groqApiKey || '')
-  const [saving, setSaving] = useState(false)
+  const [groqApiKey,   setGroqApiKey]   = useState(cfg.groqApiKey   || '')
+  const [saving,       setSaving]       = useState(false)
 
   useEffect(() => {
     setCompany(cfg.company || '')
     setSlogan(cfg.slogan || '')
     setLogoB64(cfg.logob64 || '')
-    setCloseHour(cfg.closeHour || 18)
-    setCloseMessage(cfg.closeMessage || '')
+    setCloseHour(cfg.closeHour ?? 18)
+    setCloseMessage(cfg.closeMessage || 'Oferta válida até as 18h de hoje!')
     setEmailProvider(cfg.emailProvider || '')
     setSmtpHost(cfg.smtpHost || '')
     setSmtpPort(cfg.smtpPort || '587')
@@ -114,14 +135,12 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     reader.readAsDataURL(file)
   }
 
-  function removerLogo() { setLogoB64('') }
-
   async function salvar() {
     setSaving(true)
     const novoCfg = {
       ...cfg,
       company, slogan, logob64: logoB64,
-      closeHour, closeMessage,
+      closeHour: Number(closeHour), closeMessage,
       emailProvider, smtpHost, smtpPort, smtpUser, smtpPass, emailApiKey,
       geminiApiKey, groqApiKey
     }
@@ -131,6 +150,14 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setCfg(novoCfg)
     toast('✅ Configurações salvas!')
   }
+
+  // Preview countdown da oferta de fechamento
+  const agora = new Date()
+  const horaAtual = agora.getHours() + agora.getMinutes() / 60
+  const restante = closeHour - horaAtual
+  const countdownPreview = restante > 0
+    ? `${Math.floor(restante)}h ${Math.round((restante % 1) * 60)}min restantes`
+    : 'Oferta encerrada para hoje'
 
   return (
     <div style={s.body}>
@@ -148,18 +175,34 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
           <div style={{ marginTop: 12, padding: 14, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: 1, textTransform: 'uppercase' }}>Pré-visualização</div>
             <img src={`data:image/png;base64,${logoB64}`} alt="Logo" style={{ height: 70, maxWidth: 280, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--border)' }} />
-            <button onClick={removerLogo} style={{ fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', padding: '4px 10px', borderRadius: 7, cursor: 'pointer' }}>🗑 Remover logo</button>
+            <button onClick={() => setLogoB64('')} style={{ fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', padding: '4px 10px', borderRadius: 7, cursor: 'pointer' }}>🗑 Remover logo</button>
           </div>
         ) : (
           <div style={{ marginTop: 10, padding: '14px 18px', background: 'var(--surface2)', border: '1px dashed var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>Nenhuma logomarca carregada</div>
         )}
-        <div style={{ ...s.secTitle, marginTop: 24 }}>Configurações da Oferta de Fechamento</div>
-        <div style={s.row2}>
-          <div style={s.field}><label style={s.label}>Horário limite (0-23)</label><input type="number" min={0} max={23} value={closeHour} onChange={e => setCloseHour(Number(e.target.value))} style={s.input} /></div>
-          <div style={s.field}><label style={s.label}>Texto da oferta</label><input value={closeMessage} onChange={e => setCloseMessage(e.target.value)} style={s.input} placeholder="Oferta válida até as 18h de hoje" /></div>
-        </div>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>A contagem regressiva será exibida no chat após o fechamento, usando o horário configurado.</p>
       </div>
+
+      {/* ✅ ITEM 15: Configuração da Oferta de Fechamento com preview funcional */}
+      <div style={s.sec}>
+        <div style={s.secTitle}>⏰ Configurações da Oferta de Fechamento</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
+          Quando configurado, uma contagem regressiva aparecerá automaticamente no chat na última oferta gerada, usando o horário abaixo.
+        </p>
+        <div style={s.row2}>
+          <div style={s.field}>
+            <label style={s.label}>Horário limite (0-23h)</label>
+            <input type="number" min={0} max={23} value={closeHour} onChange={e => setCloseHour(Number(e.target.value))} style={s.input} />
+          </div>
+          <div style={s.field}>
+            <label style={s.label}>Texto da oferta exibido no chat</label>
+            <input value={closeMessage} onChange={e => setCloseMessage(e.target.value)} style={s.input} placeholder="Oferta válida até as 18h de hoje!" />
+          </div>
+        </div>
+        <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.2)', borderRadius: 8, fontSize: 12, color: 'var(--accent)' }}>
+          ⏱ Preview agora: <strong>{countdownPreview}</strong> — Exibição: "{closeMessage || `Oferta válida até as ${closeHour}h de hoje!`}"
+        </div>
+      </div>
+
       <div style={s.sec}>
         <div style={s.secTitle}>📧 Configuração de E-mail Automático</div>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Configure as credenciais para envio de e-mails via SMTP ou API.</p>
@@ -174,6 +217,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
         <div style={s.field}><label style={s.label}>Senha SMTP</label><input type="password" style={s.input} value={smtpPass} onChange={e => setSmtpPass(e.target.value)} placeholder="senha ou app password" /></div>
         <div style={s.field}><label style={s.label}>API Key (para Brevo/SendGrid)</label><input style={s.input} value={emailApiKey} onChange={e => setEmailApiKey(e.target.value)} placeholder="chave API" /></div>
       </div>
+
       <div style={s.sec}>
         <div style={s.secTitle}>🤖 Configuração de IA</div>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Insira sua chave de API do Google Gemini ou Groq.</p>
@@ -188,6 +232,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Opcional. Se Gemini falhar, usa Groq.</div>
         </div>
       </div>
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar Configurações'}</button>
     </div>
   )
@@ -199,8 +244,8 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
 function TabMetas({ cfg, setCfg, empresaId }) {
   const mes = new Date().toISOString().slice(0, 7)
   const [mesRef, setMesRef] = useState(mes)
-  const [metas, setMetas] = useState({})
-  const [saving, setSaving] = useState(false)
+  const [metas, setMetas]   = useState({})
+  const [saving, setSaving]  = useState(false)
   const usuarios = cfg.users || []
 
   useEffect(() => {
@@ -217,22 +262,23 @@ function TabMetas({ cfg, setCfg, empresaId }) {
   async function salvar() {
     setSaving(true)
     const outrasGoals = (cfg.goals || []).filter(x => x && x.mes !== mesRef)
-    const novasGoals = Object.values(metas).map(m => ({ ...m, mes: mesRef }))
-    const novoCfg = { ...cfg, goals: [...outrasGoals, ...novasGoals] }
-    const { error } = await salvarStorage(empresaId, novoCfg)
+    const novasGoals  = Object.values(metas).map(m => ({ ...m, mes: mesRef }))
+    const novoCfg     = { ...cfg, goals: [...outrasGoals, ...novasGoals] }
+    const { error }   = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
     setCfg(novoCfg)
     toast('✅ Metas salvas!')
   }
 
+  // ✅ ITEM 17: Botão "Zerar histórico" removido daqui (não há mais aba Histórico em Configurações)
   async function adminClear(tipo) {
     if (!confirm(`Confirma zerar ${tipo}?`)) return
     let novoCfg = { ...cfg }
-    if (tipo === 'historico') novoCfg.docHistory = []
-    if (tipo === 'metas') novoCfg.goals = []
+    if (tipo === 'metas')   novoCfg.goals   = []
     if (tipo === 'clientes') novoCfg.clients = []
-    if (tipo === 'tudo') novoCfg = { company: cfg.company, slogan: cfg.slogan, logob64: cfg.logob64, users: cfg.users }
+    if (tipo === 'kpis')    { novoCfg.kpiLog = []; novoCfg.kpiDailyGoals = {} }
+    if (tipo === 'tudo')    novoCfg = { company: cfg.company, slogan: cfg.slogan, logob64: cfg.logob64, users: cfg.users }
     const { error } = await salvarStorage(empresaId, novoCfg)
     if (error) { toast('Erro', 'err'); return }
     setCfg(novoCfg)
@@ -248,21 +294,23 @@ function TabMetas({ cfg, setCfg, empresaId }) {
         {usuarios.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum usuário cadastrado. Cadastre na aba Usuários.</p>}
         {usuarios.map(u => {
           if (!u) return null
+          const uid = u.id || u.username
           return (
-            <div key={u.id || u.username} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
+            <div key={uid} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 10 }}>
               <div style={{ fontWeight: 600, marginBottom: 10, color: 'var(--accent)', fontSize: 14 }}>{u.nome}</div>
               <div style={s.row2}>
-                <div style={s.field}><label style={s.label}>Meta Adesão (R$)</label><input type="number" style={s.input} value={metas[u.id || u.username]?.metaAdesao || ''} onChange={e => updateMeta(u.id || u.username, 'metaAdesao', e.target.value)} placeholder="0" /></div>
-                <div style={s.field}><label style={s.label}>Meta Mensalidade (R$)</label><input type="number" style={s.input} value={metas[u.id || u.username]?.metaMensalidade || ''} onChange={e => updateMeta(u.id || u.username, 'metaMensalidade', e.target.value)} placeholder="0" /></div>
+                <div style={s.field}><label style={s.label}>Meta Adesão (R$)</label><input type="number" style={s.input} value={metas[uid]?.metaAdesao || ''} onChange={e => updateMeta(uid, 'metaAdesao', e.target.value)} placeholder="0" /></div>
+                <div style={s.field}><label style={s.label}>Meta Mensalidade (R$)</label><input type="number" style={s.input} value={metas[uid]?.metaMensalidade || ''} onChange={e => updateMeta(uid, 'metaMensalidade', e.target.value)} placeholder="0" /></div>
               </div>
             </div>
           )
         })}
         <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar Metas'}</button>
       </div>
+
       <div style={s.sec}>
         <div style={{ ...s.secTitle, color: 'var(--danger)' }}>⚠️ Área Administrativa — Limpeza de Dados</div>
-        {[['historico','🗑 Zerar histórico'],['metas','🎯 Zerar metas'],['clientes','👥 Zerar clientes'],['tudo','⚠️ RESET COMPLETO']].map(([tipo, label]) => (
+        {[['metas','🎯 Zerar metas'],['clientes','👥 Zerar clientes'],['kpis','📊 Zerar logs de KPI'],['tudo','⚠️ RESET COMPLETO']].map(([tipo, label]) => (
           <button key={tipo} onClick={() => adminClear(tipo)} style={{ display: 'block', width: '100%', marginBottom: 8, padding: '11px 14px', borderRadius: 9, background: tipo === 'tudo' ? 'rgba(239,68,68,.2)' : 'rgba(239,68,68,.1)', border: tipo === 'tudo' ? '2px solid rgba(239,68,68,.5)' : '1px solid rgba(239,68,68,.3)', color: 'var(--danger)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', textAlign: 'left', fontWeight: tipo === 'tudo' ? 700 : 400 }}>{label}</button>
         ))}
       </div>
@@ -274,34 +322,28 @@ function TabMetas({ cfg, setCfg, empresaId }) {
 // ABA KPIs
 // ══════════════════════════════════════════════
 function TabKpis({ cfg, setCfg, empresaId }) {
-  const [kpis, setKpis] = useState(cfg.kpiTemplates || [])
-  const [kpiRequired, setKpiRequired] = useState(cfg.kpiRequired || false)
-  const [dailyGoals, setDailyGoals] = useState(cfg.kpiDailyGoals || {})
-  const [mesRef, setMesRef] = useState(new Date().toISOString().slice(0, 7))
-  const [saving, setSaving] = useState(false)
+  const [kpis,         setKpis]         = useState(cfg.kpiTemplates  || [])
+  const [kpiRequired,  setKpiRequired]  = useState(cfg.kpiRequired   || false)
+  // ✅ ITEM 13+14: unificando chave para kpiDailyGoals (estrutura: { userId: { kpiId: metaDiaria } })
+  const [dailyGoals,   setDailyGoals]   = useState(cfg.kpiDailyGoals || {})
+  const [mesRef,       setMesRef]       = useState(new Date().toISOString().slice(0, 7))
+  const [saving,       setSaving]       = useState(false)
   const [iconPickerId, setIconPickerId] = useState(null)
   const usuarios = cfg.users || []
-
-  function diasUteisNoMes(yearMonth) {
-    const [y, m] = yearMonth.split('-').map(Number)
-    const dias = new Date(y, m, 0).getDate()
-    let uteis = 0
-    for (let d = 1; d <= dias; d++) {
-      const dow = new Date(y, m-1, d).getDay()
-      if (dow !== 0 && dow !== 6) uteis++
-    }
-    return uteis
-  }
 
   const diasUteis = diasUteisNoMes(mesRef)
 
   function addKpi() { setKpis(prev => [...prev, { id: Date.now(), nome: '', icone: '📊', unidade: 'un' }]) }
   function updateKpi(id, campo, val) { setKpis(prev => prev.map(k => k.id === id ? { ...k, [campo]: val } : k)) }
   function removeKpi(id) { setKpis(prev => prev.filter(k => k.id !== id)); if (iconPickerId === id) setIconPickerId(null) }
-  function updateDailyGoal(userId, kpiId, val) { setDailyGoals(prev => ({ ...prev, [userId]: { ...(prev[userId] || {}), [kpiId]: Number(val) || 0 } })) }
+  function updateDailyGoal(userId, kpiId, val) {
+    setDailyGoals(prev => ({ ...prev, [userId]: { ...(prev[userId] || {}), [kpiId]: Number(val) || 0 } }))
+  }
 
   async function salvar() {
     setSaving(true)
+    // ✅ ITEM 13: kpiRequired salvo corretamente
+    // ✅ ITEM 14: kpiDailyGoals salvo com chave consistente (lida pelo kpi.js, dashboard e relatórios)
     const novoCfg = { ...cfg, kpiTemplates: kpis, kpiRequired, kpiDailyGoals: dailyGoals }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
@@ -319,10 +361,8 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           if (!k) return null
           return (
             <div key={k.id} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: iconPickerId === k.id ? 12 : 0 }}>
-                <div style={{ position: 'relative' }}>
-                  <button onClick={() => setIconPickerId(iconPickerId === k.id ? null : k.id)} style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 22, cursor: 'pointer' }}>{k.icone}</button>
-                </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button onClick={() => setIconPickerId(iconPickerId === k.id ? null : k.id)} style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--surface)', border: '1px solid var(--border)', fontSize: 22, cursor: 'pointer' }}>{k.icone}</button>
                 <input style={{ ...s.input, flex: 1 }} value={k.nome} onChange={e => updateKpi(k.id, 'nome', e.target.value)} placeholder="Nome do KPI" />
                 <select style={{ ...s.input, width: 72 }} value={k.unidade || 'un'} onChange={e => updateKpi(k.id, 'unidade', e.target.value)}>
                   <option value="un">un</option>
@@ -346,16 +386,33 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           )
         })}
         <button onClick={addKpi} style={{ padding: '10px 18px', borderRadius: 9, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginBottom: 16 }}>+ Adicionar KPI</button>
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}>
-            <input type="checkbox" checked={kpiRequired} onChange={e => setKpiRequired(e.target.checked)} />
-            Exigir lançamento diário de KPIs
+
+        {/* ✅ ITEM 13: Checkbox de KPI obrigatório com descrição clara */}
+        <div style={{ padding: '14px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={kpiRequired}
+              onChange={e => setKpiRequired(e.target.checked)}
+              style={{ marginTop: 2, width: 16, height: 16 }}
+            />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>✅ Exigir preenchimento diário de KPIs</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>
+                Se ativado, os usuários serão redirecionados para a tela de lançamento de KPIs sempre que <strong>não tiverem preenchido o dia útil anterior</strong>. O bloqueio ocorre automaticamente ao acessar o sistema.
+              </div>
+            </div>
           </label>
         </div>
       </div>
-      {usuarios.length > 0 && (
+
+      {/* ✅ ITEM 14: Metas diárias corretamente salvas em kpiDailyGoals e exibem meta mensal calculada */}
+      {usuarios.length > 0 && kpis.length > 0 && (
         <div style={s.sec}>
           <div style={s.secTitle}>🎯 Metas Diárias por Usuário — {mesRef}</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
+            Defina a meta diária de cada KPI por vendedor. A meta mensal será calculada automaticamente com base nos dias úteis do mês ({diasUteis} dias úteis em {mesRef}).
+          </p>
           <div style={{ marginBottom: 14 }}>
             <label style={s.label}>Mês de Referência</label>
             <input type="month" value={mesRef} onChange={e => setMesRef(e.target.value)} style={{ ...s.input, maxWidth: 200 }} />
@@ -363,19 +420,29 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           </div>
           {usuarios.map(u => {
             if (!u) return null
+            const uid = u.id || u.username
             return (
-              <div key={u.id || u.username} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 12 }}>
+              <div key={uid} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 12 }}>
                 <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14, marginBottom: 10 }}>{u.nome}</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))', gap: 12 }}>
                   {kpis.map(k => {
                     if (!k || !k.nome) return null
-                    const uid = u.id || u.username
-                    const diaria = dailyGoals[uid]?.[k.id] || 0
+                    const diaria   = dailyGoals[uid]?.[k.id] || 0
+                    const mensal   = diaria * diasUteis
                     return (
                       <div key={k.id} style={s.field}>
                         <label style={s.label}>{k.icone} {k.nome} / dia</label>
-                        <input type="number" min={0} style={s.input} value={diaria || ''} onChange={e => updateDailyGoal(uid, k.id, e.target.value)} placeholder="0" />
-                        {diaria > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Meta mensal: {diaria * diasUteis} {k.unidade || 'un'}</div>}
+                        <input
+                          type="number" min={0} style={s.input}
+                          value={diaria || ''}
+                          onChange={e => updateDailyGoal(uid, k.id, e.target.value)}
+                          placeholder="0"
+                        />
+                        {diaria > 0 && (
+                          <div style={{ fontSize: 11, color: 'var(--accent3)', marginTop: 4 }}>
+                            📅 Meta mensal: <strong>{mensal} {k.unidade || 'un'}</strong>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -385,6 +452,7 @@ function TabKpis({ cfg, setCfg, empresaId }) {
           })}
         </div>
       )}
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar KPIs'}</button>
     </div>
   )
@@ -394,14 +462,14 @@ function TabKpis({ cfg, setCfg, empresaId }) {
 // ABA USUÁRIOS
 // ══════════════════════════════════════════════
 function TabUsuarios({ cfg, setCfg, empresaId }) {
-  const [users, setUsers] = useState(cfg.users || [])
-  const [form, setForm] = useState(null)
+  const [users,  setUsers]  = useState(cfg.users || [])
+  const [form,   setForm]   = useState(null)
   const [saving, setSaving] = useState(false)
 
   const perfisTipos = [
-    { id: 'admin', label: 'Admin', permissoes: PERMISSOES_ADMIN },
-    { id: 'vendedor', label: 'Vendedor', permissoes: PERMISSOES_USER },
-    { id: 'personalizado', label: 'Personalizado', permissoes: [] },
+    { id: 'admin',        label: 'Admin',        permissoes: PERMISSOES_ADMIN },
+    { id: 'vendedor',     label: 'Vendedor',     permissoes: PERMISSOES_USER  },
+    { id: 'personalizado',label: 'Personalizado',permissoes: []               },
   ]
 
   const emptyUser = { id: '', nome: '', email: '', username: '', password: '', tipo: 'vendedor', permissoes: [...PERMISSOES_USER] }
@@ -421,30 +489,23 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
   async function salvarUser() {
     if (!form.nome || !form.email) { toast('Nome e e-mail obrigatórios', 'err'); return }
     setSaving(true)
-    let novos
-    if (form.id) {
-      novos = users.map(u => u.id === form.id ? form : u)
-    } else {
-      const novo = { ...form, id: Date.now().toString() }
-      novos = [...users, novo]
-    }
+    const novos = form.id
+      ? users.map(u => u.id === form.id ? form : u)
+      : [...users, { ...form, id: Date.now().toString() }]
     const novoCfg = { ...cfg, users: novos }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
-    setUsers(novos)
-    setCfg(novoCfg)
-    setForm(null)
+    setUsers(novos); setCfg(novoCfg); setForm(null)
     toast('✅ Usuário salvo!')
   }
 
   async function removerUser(id) {
     if (!confirm('Remover usuário?')) return
-    const novos = users.filter(u => u.id !== id)
+    const novos   = users.filter(u => u.id !== id)
     const novoCfg = { ...cfg, users: novos }
     await salvarStorage(empresaId, novoCfg)
-    setUsers(novos)
-    setCfg(novoCfg)
+    setUsers(novos); setCfg(novoCfg)
     toast('🗑 Usuário removido!')
   }
 
@@ -517,22 +578,34 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 // ABA PRODUTOS
 // ══════════════════════════════════════════════
 function TabProdutos({ cfg, setCfg, empresaId }) {
-  const [modulos, setModulos] = useState(cfg.modulos || MODULOS_PADRAO)
-  const [planos, setPlanos] = useState(cfg.plans || PLANOS_PADRAO)
-  const [precos, setPrecos] = useState(cfg.prices || PRECOS_PADRAO)
-  const [novoMod, setNovoMod] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [modulos,  setModulos]  = useState(cfg.modulos || MODULOS_PADRAO)
+  // ✅ ITEM 16: planos com campo "name" (não "nome") para coincidir com pricing.js
+  const [planos,   setPlanos]   = useState(() => {
+    const ps = cfg.plans || PLANOS_PADRAO
+    // migra "nome" → "name" se vier de versão antiga
+    return ps.map(p => ({ ...p, name: p.name || p.nome || p.id }))
+  })
+  // ✅ ITEM 16: garante que preços sejam carregados com fallback para PRECOS_PADRAO por módulo
+  const [precos,   setPrecos]   = useState(() => {
+    const p = cfg.prices || {}
+    const merged = { ...PRECOS_PADRAO }
+    Object.keys(p).forEach(mod => { merged[mod] = { ...PRECOS_PADRAO[mod], ...p[mod] } })
+    return merged
+  })
+  const [novoMod,  setNovoMod]  = useState('')
+  const [saving,   setSaving]   = useState(false)
 
   function addModulo() {
     if (!novoMod.trim()) return
-    setModulos(prev => [...prev, novoMod.trim()])
-    setPrecos(prev => ({ ...prev, [novoMod.trim()]: { basic:[0,0], pro:[0,0], top:[0,0], topplus:[0,0] } }))
+    const mod = novoMod.trim()
+    setModulos(prev => [...prev, mod])
+    setPrecos(prev => ({ ...prev, [mod]: { basic:[0,0], pro:[0,0], top:[0,0], topplus:[0,0] } }))
     setNovoMod('')
   }
 
   function removeModulo(mod) {
     setModulos(prev => prev.filter(m => m !== mod))
-    setPrecos(prev => { const n = {...prev}; delete n[mod]; return n })
+    setPrecos(prev => { const n = { ...prev }; delete n[mod]; return n })
   }
 
   function updatePreco(mod, plano, idx, val) {
@@ -573,23 +646,24 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
           ))}
         </div>
       </div>
+
       <div style={s.sec}>
-        <div style={s.secTitle}>💰 Tabela de Preços</div>
+        <div style={s.secTitle}>💰 Tabela de Preços (Adesão / Mensalidade)</div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
                 <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Módulo</th>
                 {planos.map(p => (
-                  <th key={p.id} colSpan={2} style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--muted)', fontWeight: 500 }}>{p.nome}</th>
+                  <th key={p.id} colSpan={2} style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--accent)', fontWeight: 600 }}>{p.name}</th>
                 ))}
               </tr>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
                 <th></th>
                 {planos.map(p => (
                   <>
-                    <th key={`${p.id}-ad`} style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Adesão</th>
-                    <th key={`${p.id}-men`} style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Mensal</th>
+                    <th key={`${p.id}-ad`}  style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Adesão R$</th>
+                    <th key={`${p.id}-men`} style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Mensal R$</th>
                   </>
                 ))}
               </tr>
@@ -597,18 +671,20 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
             <tbody>
               {modulos.map(mod => (
                 <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13 }}>{mod}</td>
+                  <td style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{mod}</td>
                   {planos.map(p => (
                     <>
                       <td key={`${p.id}-ad`} style={{ padding: '6px 8px' }}>
-                        <input type="number" min={0} value={precos[mod]?.[p.id]?.[0] ?? 0}
+                        <input type="number" min={0}
+                          value={precos[mod]?.[p.id]?.[0] ?? 0}
                           onChange={e => updatePreco(mod, p.id, 0, e.target.value)}
-                          style={{ ...s.input, padding: '5px 8px', width: 80, fontSize: 12 }} />
+                          style={{ ...s.input, padding: '5px 8px', width: 85, fontSize: 12 }} />
                       </td>
                       <td key={`${p.id}-men`} style={{ padding: '6px 8px' }}>
-                        <input type="number" min={0} value={precos[mod]?.[p.id]?.[1] ?? 0}
+                        <input type="number" min={0}
+                          value={precos[mod]?.[p.id]?.[1] ?? 0}
                           onChange={e => updatePreco(mod, p.id, 1, e.target.value)}
-                          style={{ ...s.input, padding: '5px 8px', width: 80, fontSize: 12 }} />
+                          style={{ ...s.input, padding: '5px 8px', width: 85, fontSize: 12 }} />
                       </td>
                     </>
                   ))}
@@ -617,6 +693,9 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
             </tbody>
           </table>
         </div>
+        <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
+          💡 Os valores são usados diretamente no chat para calcular propostas e contratos.
+        </p>
       </div>
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar Produtos'}</button>
     </div>
@@ -630,17 +709,9 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
   const [regras, setRegras] = useState(cfg.discountRules || [])
   const [saving, setSaving] = useState(false)
 
-  function addRegra() {
-    setRegras(prev => [...prev, { id: Date.now(), nome: '', pctAdesao: 0, pctMensalidade: 0, condicao: '' }])
-  }
-
-  function updateRegra(id, campo, val) {
-    setRegras(prev => prev.map(r => r.id === id ? { ...r, [campo]: val } : r))
-  }
-
-  function removeRegra(id) {
-    setRegras(prev => prev.filter(r => r.id !== id))
-  }
+  function addRegra() { setRegras(prev => [...prev, { id: Date.now(), nome: '', pctAdesao: 0, pctMensalidade: 0, condicao: '' }]) }
+  function updateRegra(id, campo, val) { setRegras(prev => prev.map(r => r.id === id ? { ...r, [campo]: val } : r)) }
+  function removeRegra(id) { setRegras(prev => prev.filter(r => r.id !== id)) }
 
   async function salvar() {
     setSaving(true)
@@ -685,43 +756,33 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
 // ══════════════════════════════════════════════
 function TabVouchers({ cfg, setCfg, empresaId }) {
   const [vouchers, setVouchers] = useState(cfg.vouchers || [])
-  const [prefixo, setPrefixo] = useState('PROMO')
-  const [vda, setVda] = useState(0)
-  const [vdm, setVdm] = useState(0)
-  const [vdate, setVdate] = useState('')
-  const [ultimo, setUltimo] = useState(null)
+  const [prefixo,  setPrefixo]  = useState('PROMO')
+  const [vda,      setVda]      = useState(0)
+  const [vdm,      setVdm]      = useState(0)
+  const [vdate,    setVdate]    = useState('')
+  const [ultimo,   setUltimo]   = useState(null)
 
   async function gerarVoucher() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    const code = Array.from({length: 6}, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-    const novo = {
-      id: Date.now().toString(),
-      codigo: `${prefixo}-${code}`,
-      pctAdesao: Number(vda) || 0,
-      pctMensalidade: Number(vdm) || 0,
-      comemoracao: vdate,
-      criado: new Date().toISOString()
-    }
+    const code  = Array.from({length: 6}, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+    const novo  = { id: Date.now().toString(), codigo: `${prefixo}-${code}`, pctAdesao: Number(vda) || 0, pctMensalidade: Number(vdm) || 0, comemoracao: vdate, criado: new Date().toISOString() }
     const novos = [...vouchers, novo]
     const novoCfg = { ...cfg, vouchers: novos }
     await salvarStorage(empresaId, novoCfg)
-    setVouchers(novos)
-    setCfg(novoCfg)
-    setUltimo(novo)
+    setVouchers(novos); setCfg(novoCfg); setUltimo(novo)
   }
 
   async function removerVoucher(id) {
-    const novos = vouchers.filter(v => v.id !== id)
+    const novos   = vouchers.filter(v => v.id !== id)
     const novoCfg = { ...cfg, vouchers: novos }
     await salvarStorage(empresaId, novoCfg)
-    setVouchers(novos)
-    setCfg(novoCfg)
+    setVouchers(novos); setCfg(novoCfg)
   }
 
   function imprimirVoucher(v) {
     const empresa = cfg.company || 'Vivanexa'
-    const criado = v.criado ? new Date(v.criado).toLocaleDateString('pt-BR') : ''
-    const win = window.open('', '_blank', 'width=420,height=600')
+    const criado  = v.criado ? new Date(v.criado).toLocaleDateString('pt-BR') : ''
+    const win     = window.open('', '_blank', 'width=420,height=600')
     win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Voucher ${v.codigo}</title>
     <style>body{margin:0;background:#0a0f1e;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:'DM Mono',monospace}
     .card{background:linear-gradient(135deg,#111827,#1a2540);border:1px solid #1e2d4a;border-radius:20px;padding:32px;width:340px;color:#e2e8f0}
@@ -749,8 +810,7 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
     </div>
     <div class="footer"><div class="footer-info">Emitido em: ${criado}<br>${empresa}</div><div style="font-size:11px;color:#334155">Código único</div></div>
     </div></body></html>`)
-    win.document.close()
-    win.focus()
+    win.document.close(); win.focus()
   }
 
   return (
@@ -798,13 +858,13 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
 // ABA DOCUMENTOS
 // ══════════════════════════════════════════════
 function TabDocumentos({ cfg, setCfg, empresaId }) {
-  const [emailRem, setEmailRem] = useState(cfg.signConfig?.email || '')
-  const [wpp, setWpp] = useState(cfg.signConfig?.wpp || '')
-  const [urlBase, setUrlBase] = useState(cfg.signConfig?.url || '')
-  const [propostaTemplate, setPropostaTemplate] = useState(cfg.docTemplates?.proposta || '')
-  const [contratoTemplate, setContratoTemplate] = useState(cfg.docTemplates?.contrato || '')
-  const [saving, setSaving] = useState(false)
-  const [testando, setTestando] = useState(false)
+  const [emailRem,          setEmailRem]          = useState(cfg.signConfig?.email || '')
+  const [wpp,               setWpp]               = useState(cfg.signConfig?.wpp   || '')
+  const [urlBase,           setUrlBase]            = useState(cfg.signConfig?.url   || '')
+  const [propostaTemplate,  setPropostaTemplate]   = useState(cfg.docTemplates?.proposta  || '')
+  const [contratoTemplate,  setContratoTemplate]   = useState(cfg.docTemplates?.contrato  || '')
+  const [saving,            setSaving]             = useState(false)
+  const [testando,          setTestando]           = useState(false)
 
   function handleFileUpload(type, e) {
     const file = e.target.files[0]
@@ -812,9 +872,8 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     if (file.size > 2 * 1024 * 1024) { toast('Arquivo muito grande (máx 2MB)', 'err'); return }
     const reader = new FileReader()
     reader.onload = ev => {
-      const content = ev.target.result
-      if (type === 'proposta') setPropostaTemplate(content)
-      else setContratoTemplate(content)
+      if (type === 'proposta') setPropostaTemplate(ev.target.result)
+      else setContratoTemplate(ev.target.result)
     }
     reader.readAsText(file)
   }
@@ -823,7 +882,7 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     setSaving(true)
     const novoCfg = {
       ...cfg,
-      signConfig: { email: emailRem, wpp, url: urlBase },
+      signConfig:   { email: emailRem, wpp, url: urlBase },
       docTemplates: { proposta: propostaTemplate, contrato: contratoTemplate }
     }
     const { error } = await salvarStorage(empresaId, novoCfg)
@@ -841,53 +900,55 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     else toast('✅ Conexão com Supabase OK!')
   }
 
+  const VARIAVEIS = [
+    ['{{empresa}}','Nome fantasia'],['{{razao}}','Razão social'],['{{cnpj}}','CNPJ'],
+    ['{{contato}}','Nome do contato'],['{{email}}','E-mail'],['{{telefone}}','Telefone'],
+    ['{{endereco}}','Endereço'],['{{regime}}','Regime tributário'],['{{plano}}','Plano contratado'],
+    ['{{total_adesao}}','Total adesão'],['{{total_mensal}}','Total mensalidade'],['{{data_hora}}','Data atual'],
+    ['{{condicao_pagamento}}','Condição de pagamento'],['{{vencimento_adesao}}','Venc. adesão'],
+    ['{{vencimento_mensal}}','Venc. mensalidade'],['{{cnpjs_qty}}','Qtd. CNPJs'],
+    ['{{consultor_nome}}','Nome do consultor'],['{{company}}','Empresa contratante'],
+    ['{{produtos_tabela}}','Tabela HTML de produtos'],['{{produtos_lista}}','Lista de produtos'],['{{logo}}','Logo em base64'],
+  ]
+
   return (
     <div style={s.body}>
       <div style={s.sec}>
         <div style={s.secTitle}>✍️ Modelos de Documentos</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Personalize os modelos de proposta e contrato. Deixe vazio para usar os padrões.</p>
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ ...s.secTitle, marginBottom: 8 }}>Modelo de Proposta</div>
-          <textarea rows={8} style={{ ...s.input, fontFamily: 'monospace', fontSize: 12 }} value={propostaTemplate} onChange={e => setPropostaTemplate(e.target.value)} placeholder="Use HTML e variáveis como {{empresa}}, {{total_adesao}}, etc." />
-          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer', background: 'rgba(0,212,255,.1)', padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(0,212,255,.25)' }}>
-              📂 Importar arquivo (.txt, .html)
-              <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload('proposta', e)} style={{ display: 'none' }} />
-            </label>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>ou cole o HTML diretamente acima</span>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Personalize os modelos de proposta e contrato. Deixe vazio para usar os padrões do sistema.</p>
+
+        {[['proposta','Modelo de Proposta', propostaTemplate, setPropostaTemplate],
+          ['contrato','Modelo de Contrato', contratoTemplate, setContratoTemplate]].map(([tipo, titulo, val, setter]) => (
+          <div key={tipo} style={{ marginBottom: 24 }}>
+            <div style={{ ...s.secTitle, marginBottom: 8 }}>{titulo}</div>
+            <textarea rows={8} style={{ ...s.input, fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }} value={val} onChange={e => setter(e.target.value)} placeholder={`Use HTML e variáveis como {{empresa}}, {{total_adesao}}, etc.`} />
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer', background: 'rgba(0,212,255,.1)', padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(0,212,255,.25)' }}>
+                📂 Importar arquivo (.txt, .html)
+                <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload(tipo, e)} style={{ display: 'none' }} />
+              </label>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>ou cole o HTML diretamente acima</span>
+            </div>
           </div>
-        </div>
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ ...s.secTitle, marginBottom: 8 }}>Modelo de Contrato</div>
-          <textarea rows={8} style={{ ...s.input, fontFamily: 'monospace', fontSize: 12 }} value={contratoTemplate} onChange={e => setContratoTemplate(e.target.value)} placeholder="Use HTML e variáveis como {{empresa}}, {{total_adesao}}, etc." />
-          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer', background: 'rgba(0,212,255,.1)', padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(0,212,255,.25)' }}>
-              📂 Importar arquivo (.txt, .html)
-              <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload('contrato', e)} style={{ display: 'none' }} />
-            </label>
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>ou cole o HTML diretamente acima</span>
-          </div>
-        </div>
+        ))}
+
         <div style={{ background: 'var(--surface2)', padding: '12px 16px', borderRadius: 8, marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Variáveis disponíveis:</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 11, color: 'var(--muted)' }}>
-            <div><code>{'{{empresa}}'}</code> - Nome fantasia</div><div><code>{'{{razao}}'}</code> - Razão social</div><div><code>{'{{cnpj}}'}</code> - CNPJ</div>
-            <div><code>{'{{contato}}'}</code> - Nome do contato</div><div><code>{'{{email}}'}</code> - E-mail</div><div><code>{'{{telefone}}'}</code> - Telefone</div>
-            <div><code>{'{{endereco}}'}</code> - Endereço</div><div><code>{'{{regime}}'}</code> - Regime</div><div><code>{'{{plano}}'}</code> - Plano</div>
-            <div><code>{'{{total_adesao}}'}</code> - Total adesão</div><div><code>{'{{total_mensal}}'}</code> - Total mensal</div><div><code>{'{{data_hora}}'}</code> - Data atual</div>
-            <div><code>{'{{condicao_pagamento}}'}</code> - Condição</div><div><code>{'{{vencimento_adesao}}'}</code> - Venc. adesão</div><div><code>{'{{vencimento_mensal}}'}</code> - Venc. mensal</div>
-            <div><code>{'{{cnpjs_qty}}'}</code> - Qtd. CNPJs</div><div><code>{'{{consultor_nome}}'}</code> - Consultor</div><div><code>{'{{company}}'}</code> - Empresa</div>
-            <div><code>{'{{produtos_tabela}}'}</code> - Tabela HTML</div><div><code>{'{{produtos_lista}}'}</code> - Lista vertical</div><div><code>{'{{logo}}'}</code> - Logo base64</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 6 }}>
+            {VARIAVEIS.map(([v, desc]) => (
+              <div key={v} style={{ fontSize: 11, color: 'var(--muted)' }}><code style={{ color: 'var(--accent3)' }}>{v}</code> — {desc}</div>
+            ))}
           </div>
         </div>
       </div>
+
       <div style={s.sec}>
         <div style={s.secTitle}>Configurações de Assinatura Eletrônica</div>
         <div style={s.row2}>
           <div style={s.field}><label style={s.label}>E-mail remetente</label><input type="email" style={s.input} value={emailRem} onChange={e => setEmailRem(e.target.value)} placeholder="noreply@vivanexa.com.br" /></div>
           <div style={s.field}><label style={s.label}>WhatsApp da empresa</label><input style={s.input} value={wpp} onChange={e => setWpp(e.target.value)} placeholder="5569984059125" /></div>
         </div>
-        <div style={s.field}><label style={s.label}>URL base do sistema</label><input style={s.input} value={urlBase} onChange={e => setUrlBase(e.target.value)} placeholder="https://seusite.com/sign" /></div>
+        <div style={s.field}><label style={s.label}>URL base do sistema (para links de assinatura)</label><input style={s.input} value={urlBase} onChange={e => setUrlBase(e.target.value)} placeholder="https://seusite.com" /></div>
         <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
           <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳...' : '✅ Salvar'}</button>
           <button onClick={testarConexao} disabled={testando} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>{testando ? '⏳...' : '🔌 Testar Conexão'}</button>
@@ -901,18 +962,20 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
 // ABA CLIENTES
 // ══════════════════════════════════════════════
 function TabClientes({ cfg, setCfg, empresaId }) {
-  const [busca, setBusca] = useState('')
-  const [form, setForm] = useState(null)
+  const [busca,  setBusca]  = useState('')
+  const [form,   setForm]   = useState(null)
   const [saving, setSaving] = useState(false)
-  const clientes = cfg.clients || []
-  const filtrados = busca.trim() ? clientes.filter(c => c && (c.nome?.toLowerCase().includes(busca.toLowerCase()) || c.cnpj?.includes(busca) || c.cpf?.includes(busca))) : clientes
+  const clientes  = cfg.clients || []
+  const filtrados = busca.trim()
+    ? clientes.filter(c => c && (c.nome?.toLowerCase().includes(busca.toLowerCase()) || c.cnpj?.includes(busca) || c.cpf?.includes(busca)))
+    : clientes
   const emptyClient = { id: '', nome: '', cnpj: '', cpf: '', email: '', telefone: '', cidade: '' }
 
   function isDuplicate(formData) {
     return clientes.some(c => {
       if (!c || c.id === formData.id) return false
       if (formData.cnpj && c.cnpj === formData.cnpj) return true
-      if (formData.cpf && c.cpf === formData.cpf) return true
+      if (formData.cpf  && c.cpf  === formData.cpf)  return true
       if (formData.email && c.email === formData.email) return true
       return false
     })
@@ -922,7 +985,9 @@ function TabClientes({ cfg, setCfg, empresaId }) {
     if (!form.nome) { toast('Nome obrigatório', 'err'); return }
     if (isDuplicate(form)) { toast('Cliente já cadastrado com esse CNPJ/CPF ou e-mail.', 'err'); return }
     setSaving(true)
-    let novos = form.id ? clientes.map(c => c.id === form.id ? form : c) : [...clientes, { ...form, id: Date.now().toString() }]
+    const novos = form.id
+      ? clientes.map(c => c.id === form.id ? form : c)
+      : [...clientes, { ...form, id: Date.now().toString() }]
     const novoCfg = { ...cfg, clients: novos }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
@@ -932,7 +997,7 @@ function TabClientes({ cfg, setCfg, empresaId }) {
 
   async function removerCliente(id) {
     if (!confirm('Remover cliente?')) return
-    const novos = clientes.filter(c => c.id !== id)
+    const novos   = clientes.filter(c => c.id !== id)
     const novoCfg = { ...cfg, clients: novos }
     await salvarStorage(empresaId, novoCfg)
     setCfg(novoCfg); toast('🗑 Cliente removido!')
@@ -1010,7 +1075,7 @@ function TabTema({ cfg, setCfg, empresaId }) {
     <div style={s.body}>
       <div style={s.sec}>
         <div style={s.secTitle}>Aparência</div>
-        {[['dark','🌙 Tema Escuro','Fundo escuro'],['light','☀️ Tema Claro','Fundo branco']].map(([t, title, sub]) => (
+        {[['dark','🌙 Tema Escuro','Fundo escuro com detalhes ciano'],['light','☀️ Tema Claro','Fundo branco, ideal para apresentações']].map(([t, title, sub]) => (
           <div key={t} style={temaStyle(t)} onClick={() => aplicarTema(t)}>
             <div><div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{sub}</div></div>
             <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${tema === t ? 'var(--accent)' : 'var(--border)'}`, background: tema === t ? 'var(--accent)' : 'transparent' }} />
@@ -1025,15 +1090,15 @@ function TabTema({ cfg, setCfg, empresaId }) {
 // ESTILOS COMPARTILHADOS
 // ══════════════════════════════════════════════
 const s = {
-  body: { padding: '20px 24px' },
-  sec: { marginBottom: 24 },
-  secTitle: { fontSize: 11, letterSpacing: '1.5px', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' },
-  label: { fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4, letterSpacing: '.5px' },
-  input: { width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none' },
-  field: { marginBottom: 12 },
-  row2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 4 },
-  row3: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 },
-  row4: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 },
+  body:    { padding: '20px 24px' },
+  sec:     { marginBottom: 24 },
+  secTitle:{ fontSize: 11, letterSpacing: '1.5px', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border)' },
+  label:   { fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4, letterSpacing: '.5px' },
+  input:   { width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none' },
+  field:   { marginBottom: 12 },
+  row2:    { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 4 },
+  row3:    { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 },
+  row4:    { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 12 },
   saveBtn: { padding: '11px 22px', borderRadius: 10, background: 'linear-gradient(135deg,var(--accent),#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 600, cursor: 'pointer', letterSpacing: '.5px' },
 }
 
@@ -1041,63 +1106,40 @@ const s = {
 // PÁGINA PRINCIPAL
 // ══════════════════════════════════════════════
 export default function Configuracoes() {
-  const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [perfil, setPerfil] = useState(null)
+  const router    = useRouter()
+  const [loading,   setLoading]   = useState(true)
+  const [perfil,    setPerfil]    = useState(null)
   const [empresaId, setEmpresaId] = useState(null)
-  const [cfg, setCfg] = useState({})
-  const [abaAtiva, setAbaAtiva] = useState('empresa')
+  const [cfg,       setCfg]       = useState({})
+  const [abaAtiva,  setAbaAtiva]  = useState('empresa')
 
   useEffect(() => {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/'); return }
 
-      let { data: perf, error } = await supabase
-        .from('perfis')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .maybeSingle()
+      let { data: perf } = await supabase
+        .from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
 
       if (!perf) {
         const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário'
         const { data: novoPerfil, error: insertError } = await supabase
           .from('perfis')
-          .insert({
-            user_id: session.user.id,
-            nome: nome,
-            email: session.user.email,
-            empresa_id: session.user.id,
-            perfil: 'admin'
-          })
-          .select()
-          .single()
-        if (insertError) {
-          console.error('Erro ao criar perfil:', insertError)
-          perf = { empresa_id: session.user.id, nome }
-        } else {
-          perf = novoPerfil
-        }
+          .insert({ user_id: session.user.id, nome, email: session.user.email, empresa_id: session.user.id, perfil: 'admin' })
+          .select().single()
+        perf = insertError ? { empresa_id: session.user.id, nome } : novoPerfil
       }
 
       setPerfil(perf)
       const eid = perf?.empresa_id || session.user.id
       setEmpresaId(eid)
 
-      const { data: row } = await supabase
-        .from('vx_storage')
-        .select('value')
-        .eq('key', `cfg:${eid}`)
-        .single()
-
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
       if (row?.value) {
         try { setCfg(JSON.parse(row.value)) } catch {}
       }
-
       const saved = row?.value ? JSON.parse(row.value) : {}
-      if (saved.theme) document.documentElement.setAttribute('data-theme', saved.theme)
-      else document.documentElement.setAttribute('data-theme', 'dark')
-
+      document.documentElement.setAttribute('data-theme', saved.theme || 'dark')
       setLoading(false)
     }
     init()
@@ -1106,17 +1148,17 @@ export default function Configuracoes() {
   function renderAba() {
     const props = { cfg, setCfg, empresaId }
     switch (abaAtiva) {
-      case 'empresa': return <TabEmpresa {...props} />
-      case 'metas': return <TabMetas {...props} />
-      case 'kpis': return <TabKpis {...props} />
-      case 'usuarios': return <TabUsuarios {...props} />
-      case 'produtos': return <TabProdutos {...props} />
-      case 'descontos': return <TabDescontos {...props} />
-      case 'vouchers': return <TabVouchers {...props} />
+      case 'empresa':    return <TabEmpresa    {...props} />
+      case 'metas':      return <TabMetas      {...props} />
+      case 'kpis':       return <TabKpis       {...props} />
+      case 'usuarios':   return <TabUsuarios   {...props} />
+      case 'produtos':   return <TabProdutos   {...props} />
+      case 'descontos':  return <TabDescontos  {...props} />
+      case 'vouchers':   return <TabVouchers   {...props} />
       case 'documentos': return <TabDocumentos {...props} />
-      case 'clientes': return <TabClientes {...props} />
-      case 'tema': return <TabTema {...props} />
-      default: return null
+      case 'clientes':   return <TabClientes   {...props} />
+      case 'tema':       return <TabTema       {...props} />
+      default:           return null
     }
   }
 
@@ -1130,14 +1172,14 @@ export default function Configuracoes() {
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600;700&display=swap');
-        [data-theme="dark"]{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;--card-bg:#1a2540;--shadow:0 4px 24px rgba(0,0,0,.4);}
-        [data-theme="light"]{--bg:#f0f4f8;--surface:#ffffff;--surface2:#f8fafc;--border:#e2e8f0;--accent:#0099bb;--accent2:#7c3aed;--accent3:#059669;--text:#1e293b;--muted:#64748b;--danger:#ef4444;--warning:#d97706;--gold:#b45309;--card-bg:#f8fafc;--shadow:0 4px 24px rgba(0,0,0,.1);}
+        [data-theme="dark"]{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;--shadow:0 4px 24px rgba(0,0,0,.4);}
+        [data-theme="light"]{--bg:#f0f4f8;--surface:#ffffff;--surface2:#f8fafc;--border:#e2e8f0;--accent:#0099bb;--accent2:#7c3aed;--accent3:#059669;--text:#1e293b;--muted:#64748b;--danger:#ef4444;--warning:#d97706;--gold:#b45309;--shadow:0 4px 24px rgba(0,0,0,.1);}
         *{box-sizing:border-box;margin:0;padding:0}
         body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
         [data-theme="dark"] body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
         input[type=number]::-webkit-inner-spin-button{opacity:1}
         select option{background:var(--surface2);color:var(--text)}
-        input:focus,select:focus{border-color:var(--accent)!important;outline:none}
+        input:focus,select:focus,textarea:focus{border-color:var(--accent)!important;outline:none}
       `}</style>
 
       <div style={{ position: 'fixed', width: 500, height: 500, background: 'var(--accent)', top: -200, right: -150, borderRadius: '50%', filter: 'blur(120px)', opacity: .06, pointerEvents: 'none', zIndex: 0 }} />
@@ -1152,9 +1194,9 @@ export default function Configuracoes() {
           }
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={() => router.push('/chat')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace', letterSpacing: .3 }}>💬 Chat</button>
-          <button onClick={() => router.push('/dashboard')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace', letterSpacing: .3 }}>📊 Dashboard</button>
-          <button onClick={() => router.push('/reports')} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace', letterSpacing: .3 }}>📈 Relatórios</button>
+          <button onClick={() => router.push('/chat')}      style={navBtn}>💬 Chat</button>
+          <button onClick={() => router.push('/dashboard')} style={navBtn}>📊 Dashboard</button>
+          <button onClick={() => router.push('/reports')}   style={navBtn}>📈 Relatórios</button>
           <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 9px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>Sair</button>
         </div>
       </header>
@@ -1177,7 +1219,8 @@ export default function Configuracoes() {
   )
 }
 
-// ✅ CORREÇÃO PRINCIPAL: Força SSR e evita erro de pré-renderização estática no build
+const navBtn = { background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace', letterSpacing: .3 }
+
 export async function getServerSideProps() {
   return { props: {} }
 }
