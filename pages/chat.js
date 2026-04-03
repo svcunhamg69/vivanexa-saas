@@ -54,2366 +54,1468 @@ const isCPF  = s => s.length===11
 
 function fmtDoc(s){
   if(!s)return'—'
-  if(s.length===14)return s.replace(/
-^
-(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})
-$
-/,'$1.$2.$3/$4-$5')
-  if(s.length===11)return s.replace(/
-^
-(\d{3})(\d{3})(\d{3})(\d{2})
-$
-/,'$1.$2.$3-$4')
+  if(s.length===14)return s.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5')
+  if(s.length===11)return s.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4')
   return s
 }
 function getPlan(n,plans){const s=[...plans].sort((a,b)=>a.maxCnpjs-b.maxCnpjs);for(const p of s)if(n<=p.maxCnpjs)return p.id;return s[s.length-1].id}
-function planLabel(id,plans){if(!id)return'—';const p=plans.find(p=>p.id===id);return p?p.name:id}
-function prodName(key,productNames){if(!key)return key;return productNames[key]||key}
-function getPriceForPlan(mod,planId,prices,plans){const pricesMod=prices[mod];if(!pricesMod)return[0,0];if(pricesMod[planId])return pricesMod[planId];const keyLower=planId.toLowerCase();for(let[k,v]of Object.entries(pricesMod))if(k.toLowerCase()===keyLower)return v;const keys=Object.keys(pricesMod);if(keys.length)return pricesMod[keys[keys.length-1]];return[0,0]}
-function calcTributos(notas){if(!notas||notas<=0)return 0;if(notas<=50)return 169.90;if(notas<=100)return 200;return 200+(notas-100)*0.80}
-function calcQuoteFullPrice(mods,planId,ifPlan,cnpjs,notas,config={}){const{prices={},plans=[],productNames={}}=config;const results=[];let tAd=0,tMen=0;for(let mod of mods){if(mod==='IF'){const p=ifPlan||'basic';const[aB,mB]=getPriceForPlan('IF',p,prices,plans);const ad=aB*2,men=mB*1.2;results.push({name:prodName('IF',productNames),ad,men,adD:ad,menD:men,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;continue}if(mod==='Tributos'){const m=calcTributos(notas);results.push({name:prodName('Tributos',productNames),ad:0,men:m,adD:0,menD:m,isTributos:true,notas});tMen+=m;continue}if(mod==='EP'){const epPlan=planId==='topplus'?'top':planId;const[,mB]=getPriceForPlan('EP',epPlan,prices,plans);const men=mB*1.2;results.push({name:prodName('EP',productNames),ad:0,men,adD:0,menD:men,isEP:true,plan:epPlan});tMen+=men;continue}const[aB,mB]=getPriceForPlan(mod,planId,prices,plans);let ad=aB>0?Math.max(aB*2,1000):0;let men=mB*1.2;if(mod==='XML')men=Math.max(men,175);if(mod==='Gestão Fiscal')men=Math.max(men,200);results.push({name:prodName(mod,productNames),ad,men,adD:ad,menD:men,plan:planId});tAd+=ad;tMen+=men}return{results,tAd,tMen,tAdD:tAd,tMenD:tMen}}
-function calcQuoteWithDiscount(mods,planId,ifPlan,cnpjs,notas,config={}){const{discAdPct=50,discMenPct=0,unlimitedStrategy=true,prices={},plans=[],productNames={}}=config;const results=[];let tAd=0,tMen=0,tAdD=0,tMenD=0;for(let mod of mods){if(mod==='IF'){const p=ifPlan||'basic';const[aB,mB]=getPriceForPlan('IF',p,prices,plans);const ad=aB*2,men=mB*1.2;const adD=aB,menD=mB;results.push({name:prodName('IF',productNames),ad,men,adD,menD,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD;continue}if(mod==='Tributos'){const m=calcTributos(notas);results.push({name:prodName('Tributos',productNames),ad:0,men:m,adD:0,menD:m,isTributos:true,notas});tMen+=m;tMenD+=m;continue}if(mod==='EP'){const epPlan=planId==='topplus'?'top':planId;const[,mB]=getPriceForPlan('EP',epPlan,prices,plans);const men=mB*1.2,menD=mB;results.push({name:prodName('EP',productNames),ad:0,men,adD:0,menD,isEP:true,plan:epPlan});tMen+=men;tMenD+=menD;continue}const[aB,mB]=getPriceForPlan(mod,planId,prices,plans);let ad=aB>0?Math.max(aB*2,1000):0;let men=mB*1.2;if(mod==='XML')men=Math.max(men,175);if(mod==='Gestão Fiscal')men=Math.max(men,200);const adD=aB>0?aB:0;const menD=mB;results.push({name:prodName(mod,productNames),ad,men,adD,menD,plan:planId});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD}const discAd=discAdPct/100;const discMen=discMenPct/100;const tAdFinal=tAd*(1-discAd);const tMenFinal=tMen*(1-discMen);const tAdDFinal=tAdD*(1-discAd);const tMenDFinal=tMenD*(1-discMen);results.forEach(r=>{if(!r.isTributos&&!r.isEP){r.ad=r.ad*(1-discAd);r.adD=r.adD*(1-discAd)}if(!r.isTributos&&!r.isEP&&!r.isIF){r.men=r.men*(1-discMen);r.menD=r.menD*(1-discMen)}});return{results,tAd:tAdFinal,tMen:tMenFinal,tAdD:tAdDFinal,tMenD:tMenDFinal}}
-function calcClosing(mods,planId,ifPlan,cnpjs,notas,config={}){const{discClosePct=40,unlimitedStrategy=true,prices={},plans=[],productNames={}}=config;const results=[];let tAd=0,tMen=0;const cp=discClosePct/100;for(let mod of mods){if(mod==='IF'){const p=ifPlan||'basic';const[aB,mB]=getPriceForPlan('IF',p,prices,plans);const ad=aB*(1-cp);results.push({name:prodName('IF',productNames),ad,men:mB,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=mB;continue}if(mod==='Tributos'){const m=calcTributos(notas);results.push({name:prodName('Tributos',productNames),ad:0,men:m,isTributos:true});tMen+=m;continue}if(mod==='EP'){const epPlan=planId==='topplus'?'top':planId;const[,mB]=getPriceForPlan('EP',epPlan,prices,plans);results.push({name:prodName('EP',productNames),ad:0,men:mB,isEP:true,plan:epPlan});tMen+=mB;continue}const[aB]=getPriceForPlan(mod,planId,prices,plans);const ad=aB>0?Math.max(aB*(1-cp),0):0;let men=0;if(mod==='BIA')men=0.85*(cnpjs||0);else if(mod==='CND')men=0.40*(cnpjs||0);else if(mod==='Gestão Fiscal')men=Math.max(2.00*(cnpjs||0),200);else if(mod==='XML')men=Math.max(1.75*(cnpjs||0),175);results.push({name:prodName(mod,productNames),ad,men,plan:planId});tAd+=ad;tMen+=men}return{results,tAd,tMen}}
-function parseModules(text,productNames){const t=text.toLowerCase();const found=[];const ifName=(productNames['IF']||'Inteligência Fiscal').toLowerCase();const hasIF=/intelig[eê]ncia\s*fiscal|intelig.*fiscal/i.test(t)||(ifName&&t.includes(ifName));if(hasIF)found.push('IF');const tNoIF=t.replace(/intelig[eê]ncia\s*fiscal|intelig[\w\s]*fiscal/gi,'');const gfName=(productNames['Gestão Fiscal']||'').toLowerCase();if(/gest[aã]o\s*(e\s*an[aá]lise|fiscal)/i.test(tNoIF)||(/
-\b
-fiscal
-\b
-/i.test(tNoIF)&&!/intelig/i.test(tNoIF))||(gfName&&tNoIF.includes(gfName)))found.push('Gestão Fiscal');if(/
-\b
-bia
-\b
-/i.test(t))found.push('BIA');if(/
-\b
-cnd
-\b
-/i.test(t))found.push('CND');if(/
-\b
-xml
-\b
-/i.test(t))found.push('XML');if(/tributos/i.test(t))found.push('Tributos');const epName=(productNames['EP']||'').toLowerCase();if(/e[\s-]?process[o]s?|eprocess/i.test(t)||(epName&&t.includes(epName)))found.push('EP');return found}
-function parseIFPlan(text,plans){const t=text.toLowerCase();for(let p of plans){if(t.includes(p.name.toLowerCase())||t.includes(p.id))return p.id}if(/
-\b
-top
-\b
-/i.test(t))return'top';if(/
-\b
-pro
-\b
-/i.test(t))return'pro';if(/
-\b
-basic
-\b
-/i.test(t))return'basic';return null}
-function parseCNPJsQty(text){const m=text.match(/
-\b
-(\d+)\s*(cnpj[s]?)?
-\b
-/i);return m?parseInt(m[1]):null}
-function parseUsers(text){const m=text.match(/
-\b
-(\d+)\s*(usu[aá]rio[s]?)?
-\b
-/i);return m?parseInt(m[1]):null}
-function getNextDates(){const now=new Date(),day=now.getDate(),m=now.getMonth(),y=now.getFullYear();let tm,ty;if(day<=20){tm=m+1;ty=y;if(tm>11){tm=0;ty++}return[5,10,15,20,25].map(d=>`${String(d).padStart(2,'0')}/${String(tm+1).padStart(2,'0')}`)}else{tm=m+2;ty=y;if(tm>11){tm-=12;ty++}return[5,10,15].map(d=>`${String(d).padStart(2,'0')}/${String(tm+1).padStart(2,'0')}`)}}
+function getPlanLabel(id,plans){const p=(plans||[]).find(x=>x.id===id);return p?p.name:id}
+function pn(key,cfg){return cfg?.productNames?.[key]||key}
+function calcTrib(n){if(!n||n<=0)return 0;if(n<=50)return 169.90;if(n<=100)return 200;return 200+(n-100)*0.80}
+function getPrice(mod,planId,cfg){const p=(cfg.prices[mod]||DEFAULT_CFG.prices[mod])||{};if(p[planId])return p[planId];const k=Object.keys(p);if(!k.length)return[0,0];return p[k[k.length-1]]||[0,0]}
+function generateToken(){return Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2)+Date.now().toString(36)}
 
-// ── Componente ClienteForm ────────────────────────────────────
-function ClientForm({ clientData, onSave, onCancel, cfg }) {
-  const [formData, setFormData] = useState(clientData || {
-    id: null,
-    cnpj: '',
-    nomeFantasia: '',
-    razaoSocial: '',
-    contatoNome: '',
-    contatoEmail: '',
-    contatoTelefone: '',
-    cep: '',
-    endereco: '',
-    bairro: '',
-    cidade: '',
-    estado: '',
-    implementationContact: { name: '', email: '', phone: '' },
-    financialContact: { name: '', email: '', phone: '' },
-    contatoCpf: '',
-    regimeTributario: '',
-  });
-  const [loadingCep, setLoadingCep] = useState(false);
-  const [cepError, setCepError] = useState('');
-
-  useEffect(() => {
-    if (clientData) {
-      setFormData(clientData);
-    }
-  }, [clientData]);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleNestedChange = (parent, e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [parent]: {
-        ...prev[parent],
-        [name]: value
-      }
-    }));
-  };
-
-  const handleCepChange = async (e) => {
-    const { value } = e.target;
-    setFormData(prev => ({ ...prev, cep: value }));
-    const cleanedCep = value.replace(/\D/g, '');
-
-    if (cleanedCep.length === 8) {
-      setLoadingCep(true);
-      setCepError('');
-      try {
-        const res = await fetch(`https://viacep.com.br/ws/${cleanedCep}/json/`);
-        const data = await res.json();
-        if (data.erro) {
-          setCepError('CEP não encontrado.');
-        } else {
-          setFormData(prev => ({
-            ...prev,
-            endereco: data.logradouro,
-            bairro: data.bairro,
-            cidade: data.localidade,
-            estado: data.uf,
-          }));
-        }
-      } catch (error) {
-        setCepError('Erro ao buscar CEP.');
-      } finally {
-        setLoadingCep(false);
-      }
-    }
-  };
-
-  const handleSave = () => {
-    // Validação básica
-    if (!formData.cnpj || !formData.nomeFantasia || !formData.contatoEmail) {
-      alert('Por favor, preencha os campos obrigatórios (CNPJ, Nome Fantasia, E-mail do Contato).');
-      return;
-    }
-    onSave(formData);
-  };
-
-  return (
-    <div className="p-6 bg-gray-800 rounded-lg shadow-xl text-gray-200">
-      <h3 className="text-xl font-bold mb-4">{clientData ? '✏️ Editar Cliente' : '➕ Novo Cliente'}</h3>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <div>
-          <label className="block text-sm font-medium">CPF / CNPJ</label>
-          <input type="text" name="cnpj" value={formData.cnpj} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Nome Fantasia / Nome</label>
-          <input type="text" name="nomeFantasia" value={formData.nomeFantasia} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Razão Social</label>
-          <input type="text" name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Nome do Contato Principal</label>
-          <input type="text" name="contatoNome" value={formData.contatoNome} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">E-mail do Contato Principal</label>
-          <input type="email" name="contatoEmail" value={formData.contatoEmail} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Telefone / WhatsApp</label>
-          <input type="text" name="contatoTelefone" value={formData.contatoTelefone} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">CPF do Contato Principal</label>
-          <input type="text" name="contatoCpf" value={formData.contatoCpf} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Regime Tributário</label>
-          <select
-            name="regimeTributario"
-            value={formData.regimeTributario}
-            onChange={handleChange}
-            className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-          >
-            <option value="">Selecione...</option>
-            <option value="Simples Nacional">Simples Nacional</option>
-            <option value="Lucro Presumido">Lucro Presumido</option>
-            <option value="Lucro Real">Lucro Real</option>
-            <option value="MEI">MEI</option>
-          </select>
-        </div>
-      </div>
-
-      <h4 className="font-semibold mt-6 mb-2">📍 Endereço</h4>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label className="block text-sm font-medium">CEP</label>
-          <input type="text" name="cep" value={formData.cep} onChange={handleCepChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-          {loadingCep && <p className="text-blue-400 text-xs mt-1">Buscando CEP...</p>}
-          {cepError && <p className="text-red-500 text-xs mt-1">{cepError}</p>}
-        </div>
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium">Endereço</label>
-          <input type="text" name="endereco" value={formData.endereco} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Bairro</label>
-          <input type="text" name="bairro" value={formData.bairro} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Cidade</label>
-          <input type="text" name="cidade" value={formData.cidade} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Estado</label>
-          <input type="text" name="estado" value={formData.estado} onChange={handleChange} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-      </div>
-
-      <h4 className="font-semibold mt-6 mb-2">👷 Responsável pela Implantação</h4>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label className="block text-sm font-medium">Nome</label>
-          <input type="text" name="name" value={formData.implementationContact.name} onChange={(e) => handleNestedChange('implementationContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">E-mail</label>
-          <input type="email" name="email" value={formData.implementationContact.email} onChange={(e) => handleNestedChange('implementationContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Telefone</label>
-          <input type="text" name="phone" value={formData.implementationContact.phone} onChange={(e) => handleNestedChange('implementationContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-      </div>
-
-      <h4 className="font-semibold mt-6 mb-2">💰 Responsável Financeiro</h4>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label className="block text-sm font-medium">Nome</label>
-          <input type="text" name="name" value={formData.financialContact.name} onChange={(e) => handleNestedChange('financialContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">E-mail</label>
-          <input type="email" name="email" value={formData.financialContact.email} onChange={(e) => handleNestedChange('financialContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium">Telefone</label>
-          <input type="text" name="phone" value={formData.financialContact.phone} onChange={(e) => handleNestedChange('financialContact', e)} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-        </div>
-      </div>
-
-      <div className="flex justify-end space-x-4 mt-6">
-        <button onClick={onCancel} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-        <button onClick={handleSave} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✅ Salvar Cliente</button>
-      </div>
-    </div>
-  );
+// ── Cálculos ─────────────────────────────────────────────────
+function calcFull(mods,plan,ifPlan,cnpjs,notas,cfg){
+  const res=[];let tAd=0,tMen=0
+  for(const mod of mods){
+    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*2,men=mB*1.2;res.push({name:pn('IF',cfg),ad,men,adD:ad,menD:men,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;continue}
+    if(mod==='Tributos'){const m=calcTrib(notas);res.push({name:pn('Tributos',cfg),ad:0,men:m,adD:0,menD:m,isTributos:true,notas});tMen+=m;continue}
+    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg),men=mB*1.2;res.push({name:pn('EP',cfg),ad:0,men,adD:0,menD:men,isEP:true,plan:ep});tMen+=men;continue}
+    const[aB,mB]=getPrice(mod,plan,cfg);let ad=aB>0?Math.max(aB*2,1000):0,men=mB*1.2
+    if(mod==='XML')men=Math.max(men,175);if(mod==='Gestão Fiscal')men=Math.max(men,200)
+    res.push({name:mod,ad,men,adD:ad,menD:men,plan});tAd+=ad;tMen+=men
+  }
+  return{results:res,tAd,tMen,tAdD:tAd,tMenD:tMen}
+}
+function calcDisc(mods,plan,ifPlan,cnpjs,notas,cfg,vo){
+  const adPct=vo?vo.discAdPct:(cfg.discAdPct||50),menPct=vo?vo.discMenPct:(cfg.discMenPct||0)
+  const res=[];let tAd=0,tMen=0,tAdD=0,tMenD=0
+  for(const mod of mods){
+    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*2,men=mB*1.2,adD=ad*(1-adPct/100),menD=men*(1-menPct/100);res.push({name:pn('IF',cfg),ad,men,adD,menD,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD;continue}
+    if(mod==='Tributos'){const m=calcTrib(notas);res.push({name:pn('Tributos',cfg),ad:0,men:m,adD:0,menD:m,isTributos:true,notas});tMen+=m;tMenD+=m;continue}
+    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg),men=mB*1.2,menD=men*(1-menPct/100);res.push({name:pn('EP',cfg),ad:0,men,adD:0,menD,isEP:true,plan:ep});tMen+=men;tMenD+=menD;continue}
+    const[aB,mB]=getPrice(mod,plan,cfg);let ad=aB>0?Math.max(aB*2,1000):0,men=mB*1.2
+    if(mod==='XML')men=Math.max(men,175);if(mod==='Gestão Fiscal')men=Math.max(men,200)
+    const adD=aB>0?ad*(1-adPct/100):0,menD=men*(1-menPct/100)
+    res.push({name:mod,ad,men,adD,menD,plan});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD
+  }
+  return{results:res,tAd,tMen,tAdD,tMenD}
+}
+function calcClose(mods,plan,ifPlan,cnpjs,notas,cfg){
+  const cp=(cfg.discClosePct||40)/100;const res=[];let tAd=0,tMen=0
+  for(const mod of mods){
+    if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg);res.push({name:pn('IF',cfg),ad:aB*(1-cp),men:mB,isPrepaid:true,plan:p,isIF:true});tAd+=aB*(1-cp);tMen+=mB;continue}
+    if(mod==='Tributos'){const m=calcTrib(notas);res.push({name:pn('Tributos',cfg),ad:0,men:m,isTributos:true});tMen+=m;continue}
+    if(mod==='EP'){const ep=plan==='topplus'?'top':plan,[,mB]=getPrice('EP',ep,cfg);res.push({name:pn('EP',cfg),ad:0,men:mB,isEP:true,plan:ep});tMen+=mB;continue}
+    const[aB]=getPrice(mod,plan,cfg);const ad=aB>0?Math.max(aB*(1-cp),0):0
+    let men=0
+    if(mod==='BIA')men=0.85*(cnpjs||0);else if(mod==='CND')men=0.40*(cnpjs||0)
+    else if(mod==='Gestão Fiscal')men=Math.max(2.00*(cnpjs||0),200);else if(mod==='XML')men=Math.max(1.75*(cnpjs||0),175)
+    res.push({name:mod,ad,men,plan});tAd+=ad;tMen+=men
+  }
+  return{results:res,tAd,tMen}
 }
 
-// ── Componente principal Chat ────────────────────────────────
-export default function Chat() {
-  const router = useRouter()
-  const [session, setSession] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
-  const [cfg, setCfg] = useState(DEFAULT_CFG)
-  const [empresaId, setEmpresaId] = useState(null)
-  const [showConfigModal, setShowConfigModal] = useState(false)
-  const [showAddPlanModal, setShowAddPlanModal] = useState(false)
-  const [newPlanData, setNewPlanData] = useState({ id: '', name: '', maxCnpjs: 0, users: 1, unlimitedUsers: false })
-  const [showAdminPanel, setShowAdminPanel] = useState(false)
-  const [adminPassword, setAdminPassword] = useState('')
-  const [adminError, setAdminError] = useState('')
-  const [showReportsModal, setShowReportsModal] = useState(false)
-  const [showClientModal, setShowClientModal] = useState(false)
-  const [editingClient, setEditingClient] = useState(null)
-  const [showSignModal, setShowSignModal] = useState(false)
-  const [signData, setSignData] = useState(null)
-  const [signError, setSignError] = useState('')
-  const [signSuccess, setSignSuccess] = useState(false)
-  const [signConsent, setSignConsent] = useState(false)
-  const [consultorSignature, setConsultorSignature] = useState(null)
-  const [clientSignature, setClientSignature] = useState(null)
-  const [showSignaturePad, setShowSignaturePad] = useState(false)
-  const [signatureFor, setSignatureFor] = useState(null) // 'consultor' or 'client'
-  const [tempSignature, setTempSignature] = useState(null) // Temporarily holds drawn signature
-  const [showEditDocModal, setShowEditDocModal] = useState(false)
-  const [editingDocType, setEditingDocType] = useState(null) // 'proposta' or 'contrato'
-  const [editingDocContent, setEditingDocContent] = useState('')
-  const [showClientSearchModal, setShowClientSearchModal] = useState(false)
-  const [clientSearchTerm, setClientSearchTerm] = useState('')
-  const [filteredClients, setFilteredClients] = useState([])
-  const [selectedClient, setSelectedClient] = useState(null)
-  const [showClientDetailsModal, setShowClientDetailsModal] = useState(false)
-  const [showEditUserModal, setShowEditUserModal] = useState(false)
-  const [editingUser, setEditingUser] = useState(null)
-  const [showAddUserModal, setShowAddUserModal] = useState(false)
-  const [newUserData, setNewUserData] = useState({ nome: '', email: '', telefone: '', perfil: 'padrao', password: '', signature: null, signatureImage: null })
-  const [showAddProductModal, setShowAddProductModal] = useState(false)
-  const [newProductData, setNewProductData] = useState({ id: '', name: '', prices: {}, noAdesao: false, basicProTopOnly: false })
-  const [showEditProductModal, setShowEditProductModal] = useState(false)
-  const [editingProduct, setEditingProduct] = useState(null)
-  const [showVoucherModal, setShowVoucherModal] = useState(false)
-  const [newVoucherData, setNewVoucherData] = useState({ prefix: '', discAdPct: 0, discMenPct: 0, expiresAt: '' })
-  const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [paymentData, setPaymentData] = useState({
-    adesaoCondition: 'vista',
-    adesaoDueDate: '',
-    mensalidadeDueDate: '',
-    outraAdesaoDate: '',
-    outraMensalidadeDate: '',
-  })
-  const [currentDoc, setCurrentDoc] = useState(null) // Para armazenar a proposta/contrato atual
-  const [currentQuote, setCurrentQuote] = useState(null) // Para armazenar a cotação atual
-  const [currentClient, setCurrentClient] = useState(null) // Para armazenar o cliente atual da cotação
-  const [showQuoteModal, setShowQuoteModal] = useState(false) // Para exibir a cotação
-  const [quoteType, setQuoteType] = useState('full') // 'full', 'discount', 'closing'
-  const [quoteVoucher, setQuoteVoucher] = useState('') // Voucher aplicado na cotação
-  const [quoteVoucherData, setQuoteVoucherData] = useState(null) // Dados do voucher
-  const [quoteVoucherError, setQuoteVoucherError] = useState('') // Erro do voucher
-  const [showContractModal, setShowContractModal] = useState(false) // Para exibir o contrato
-  const [contractHtml, setContractHtml] = useState('') // HTML do contrato
-  const [contractToken, setContractToken] = useState('') // Token de assinatura
-  const [contractId, setContractId] = useState(null) // ID do contrato no histórico
-  const [userProfile, setUserProfile] = useState(null) // Perfil do usuário logado
+function getNextDates(){
+  const now=new Date(),day=now.getDate(),m=now.getMonth()
+  if(day<=20){let tm=m+1;if(tm>11)tm=0;return[5,10,15,20,25].map(d=>`${String(d).padStart(2,'0')}/${String(tm+1).padStart(2,'0')}`)}
+  let tm=m+2;if(tm>11)tm-=12;return[5,10,15].map(d=>`${String(d).padStart(2,'0')}/${String(tm+1).padStart(2,'0')}`)
+}
+function parseMods(t,cfg){
+  const lo=t.toLowerCase(),found=[]
+  const ifN=(pn('IF',cfg)||'').toLowerCase()
+  if(/intelig[eê]ncia\s*fiscal|intelig.*fiscal/i.test(lo)||(ifN&&lo.includes(ifN)))found.push('IF')
+  const tn=lo.replace(/intelig[eê]ncia\s*fiscal|intelig[\w\s]*fiscal/gi,'')
+  if(/gest[aã]o\s*(e\s*an[aá]lise|fiscal)/i.test(tn)||/\bfiscal\b/i.test(tn))found.push('Gestão Fiscal')
+  if(/\bbia\b/i.test(lo))found.push('BIA')
+  if(/\bcnd\b/i.test(lo))found.push('CND')
+  if(/\bxml\b/i.test(lo))found.push('XML')
+  if(/tributos/i.test(lo))found.push('Tributos')
+  if(/e[\s-]?process[o]?s?|eprocess/i.test(lo))found.push('EP')
+  return found
+}
+function parseIFPlan(t,plans){
+  const lo=t.toLowerCase()
+  for(const p of plans){if(lo.includes(p.name.toLowerCase())||lo.includes(p.id))return p.id}
+  if(/\btop\b/i.test(t))return'top';if(/\bpro\b/i.test(t))return'pro';if(/\bbasic\b/i.test(t))return'basic'
+  return null
+}
+async function fetchCNPJ(cnpj){
+  try{
+    const r=await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);if(!r.ok)return null
+    const d=await r.json();const f=(d.ddd_telefone_1||d.ddd_telefone_2||'').replace(/\D/g,'')
+    const end=(d.descricao_tipo_logradouro?d.descricao_tipo_logradouro+' ':'')+(d.logradouro||'')+(d.numero&&d.numero!=='S/N'?' '+d.numero:'')+(d.complemento?' – '+d.complemento:'')
+    return{nome:d.razao_social||'',fantasia:d.nome_fantasia||d.razao_social||'',email:d.email||'',
+      telefone:f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'',municipio:d.municipio||'',uf:d.uf||'',
+      cep:d.cep?.replace(/\D/g,'')||'',logradouro:end.trim(),bairro:d.bairro||'',cnpj,tipo:'PJ'}
+  }catch{return null}
+}
+async function fetchCEP(cep){
+  try{
+    const r=await fetch(`https://brasilapi.com.br/api/cep/v1/${cep.replace(/\D/g,'')}`);if(!r.ok)return null
+    const d=await r.json()
+    return{logradouro:d.street||'',bairro:d.neighborhood||'',municipio:d.city||'',uf:d.state||''}
+  }catch{return null}
+}
 
-  const messagesEndRef = useRef(null)
+function openPrint(html,title){
+  const win=window.open('','_blank','width=900,height=700')
+  if(!win){alert('Permita popups.');return}
+  win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${title}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+  <style>*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;box-sizing:border-box}body{margin:0;background:#fff}
+  .tb{display:flex;gap:10px;padding:14px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
+  .tb button{padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;border:none}
+  .bp{background:#0f172a;color:#fff}.bc{background:#e2e8f0;color:#475569}
+  @media print{.tb{display:none!important}}</style>
+  </head><body>
+  <div class="tb"><button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="bc" onclick="window.close()">✕ Fechar</button></div>
+  ${html}</body></html>`)
+  win.document.close();win.focus()
+}
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+// ── Build Proposta (com suporte a template) ──────────────────
+function buildProposal(S,cfg,user){
+  const isC=S.closingToday===true,cd=S.clientData||{},co=S.contactData||{}
+  const today=new Date().toLocaleDateString('pt-BR')
+  const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
+  const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
+  const results=isC?S.closingData?.results:S.quoteData?.results
+  const rows=(results||[]).map(r=>{
+    const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:r.adD)
+    return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}<\/td><td style="padding:10px 14px;text-align:center">${adS}<\/td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}<\/td>`
+  }).join('')
+  const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
+  const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
 
-  useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (!session) {
-        router.push('/')
-      } else {
-        loadConfig(session.user.id)
-      }
+  // Se tiver template personalizado, substituir variáveis
+  let template = cfg.propostaTemplate || ''
+  if (template) {
+    const vars = {
+      '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
+      '{{razao}}': co.razao||cd.nome||'',
+      '{{cnpj}}': fmtDoc(S.doc||''),
+      '{{contato}}': co.contato||'',
+      '{{email}}': co.email||cd.email||'',
+      '{{telefone}}': co.telefone||cd.telefone||'',
+      '{{cidade}}': co.cidade||cd.municipio||'',
+      '{{uf}}': co.uf||cd.uf||'',
+      '{{plano}}': S.plan?getPlanLabel(S.plan,cfg.plans):'—',
+      '{{cnpjs_qty}}': S.cnpjs||'0',
+      '{{total_adesao}}': fmt(tAd),
+      '{{total_mensalidade}}': fmt(tMen),
+      '{{data_hoje}}': today,
+      '{{consultor_nome}}': user?.nome||'',
+      '{{company}}': cfg.company||'Vivanexa',
+      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th><\/tr><\/thead><tbody>${rows}<\/tbody><\/table>`
+    }
+    for (const [k, v] of Object.entries(vars)) {
+      template = template.replace(new RegExp(k, 'g'), v)
+    }
+    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">${template}</div>`
+  }
+
+  // Template padrão
+  return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
+  <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px">
+    ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">`:`<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">${cfg.company||'Vivanexa'}</div>`}
+    <div style="font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:18px">Proposta Comercial</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Data</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${today}</div></div>
+      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Validade</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${isC?'Válida até as 18h de hoje':'Válida por 7 dias'}</div></div>
+      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Plano</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${S.plan?getPlanLabel(S.plan,cfg.plans):'—'}</div></div>
+      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">CNPJs</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${S.cnpjs||'—'}</div></div>
+    </div>
+  </div>
+  <div style="padding:32px 44px">
+    <div style="margin-bottom:26px">${sec('Dados do Cliente')}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        ${field('Empresa',co.empresa||cd.fantasia||cd.nome||'')}${field('Razão Social',co.razao||cd.nome||'')}
+        ${field('CPF / CNPJ',fmtDoc(S.doc||''))}${field('Contato',co.contato||'')}
+        ${field('E-mail',co.email||cd.email||'')}${field('Telefone',co.telefone||cd.telefone||'')}
+        ${field('Cidade',co.cidade||cd.municipio||'')}${field('Estado',co.uf||cd.uf||'')}
+      </div>
+    </div>
+    <div style="margin-bottom:26px">${sec('Módulos Contratados')}
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Módulo</th><th style="padding:10px 14px;text-align:center;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Adesão</th><th style="padding:10px 14px;text-align:center;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Mensalidade</th><\/tr><\/thead>
+        <tbody>${rows}<\/tbody>
+      <\/table>
+      <div style="background:#f8fafc;border-radius:10px;padding:16px 20px;margin-top:14px">
+        <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px"><span style="color:#64748b">Total Adesão</span><span style="font-weight:600;color:#0f172a">${fmt(tAd)}</span></div>
+        <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:16px"><span style="font-weight:600;color:#0f172a">Total Mensalidade</span><span style="font-weight:700;color:#00d4ff">${fmt(tMen)}</span></div>
+      </div>
+    </div>
+    <div style="margin-bottom:26px">${sec('Condições de Pagamento — Adesão')}
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div style="border:2px solid #00d4ff;border-radius:10px;padding:14px;text-align:center"><div style="font-size:22px;margin-bottom:6px">💳</div><div style="font-size:11px;font-weight:700;color:#0f172a;text-transform:uppercase;margin-bottom:6px">Cartão de Crédito</div><div style="font-size:12px;color:#10b981;font-weight:600">em até 10× sem juros</div><div style="font-size:11px;color:#64748b;margin-top:4px">${fmt(tAd/10)} / mês</div></div>
+        <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;text-align:center"><div style="font-size:22px;margin-bottom:6px">🏦</div><div style="font-size:11px;font-weight:700;color:#0f172a;text-transform:uppercase;margin-bottom:6px">Boleto / PIX</div><div style="font-size:12px;color:#10b981;font-weight:600">${fmt(tAd)}</div><div style="font-size:11px;color:#64748b;margin-top:4px">à vista</div></div>
+        <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;text-align:center"><div style="font-size:22px;margin-bottom:6px">📄</div><div style="font-size:11px;font-weight:700;color:#0f172a;text-transform:uppercase;margin-bottom:6px">Boleto Parcelado</div><div style="font-size:12px;color:#10b981;font-weight:600">${fmt(tAd*0.5)} entrada</div><div style="font-size:11px;color:#64748b;margin-top:4px">+ ${fmt(tAd*0.25)} em 30/60 dias</div></div>
+      </div>
+    </div>
+    ${sec('Seu Consultor')}
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;display:flex;gap:12px">
+      <div style="font-size:24px">👤</div>
+      <div><div style="font-weight:700;font-size:14px;color:#14532d;margin-bottom:4px">${user?.nome||'—'}</div><div style="font-size:12px;color:#166534">${user?.email?'📧 '+user.email:''}</div></div>
+    </div>
+  </div>
+</div>`
+}
+
+// ── Build Contrato com Manifesto de Assinatura (suporte a template, produtos verticais, variáveis corretas) ──
+function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token, signedData) {
+  const cd = S.clientData || {}
+  const co = S.contactData || {}
+  const today = new Date().toLocaleDateString('pt-BR')
+  const now = new Date().toLocaleString('pt-BR')
+  const isC = S.closingToday === true
+  const results = isC ? S.closingData?.results : S.quoteData?.results
+
+  const payLabel =
+    payMethod === 'pix'
+      ? 'PIX / Boleto à vista'
+      : payMethod?.startsWith('cartao')
+        ? `Cartão em até ${payMethod.replace('cartao', '').replace('x', '×')} sem juros`
+        : payMethod?.startsWith('boleto')
+          ? `Boleto ${payMethod.replace('boleto', '').replace('x', '×')}×`
+          : payMethod
+
+  // Gera lista vertical de produtos
+  const produtosVertical = (results || [])
+    .map(r => {
+      const adS = r.isTributos || r.isEP ? '—' : fmt(isC ? r.ad : r.adD || 0)
+      const menS = fmt(isC ? r.men : r.menD || r.men || 0)
+      const planoNome = r.plan ? getPlanLabel(r.plan, cfg.plans) : ''
+      return `
+      <div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px">
+        <div style="font-weight:600;margin-bottom:6px">${r.name}${planoNome ? `<span style="font-size:11px;color:#64748b;margin-left:6px">(Plano ${planoNome})</span>` : ''}</div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px">
+          <span>Adesão:</span><span style="font-weight:600">${adS}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px">
+          <span>Mensalidade:</span><span style="font-weight:600;color:#00d4ff">${menS}</span>
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:6px">CNPJs: ${S.cnpjs || '—'}</div>
+      </div>`
     })
-    return () => authListener.subscription.unsubscribe()
-  }, [])
+    .join('')
 
-  async function loadConfig(userId) {
-    setLoading(true)
-    const { data: perfil } = await supabase.from('perfis').select('*').eq('user_id', userId).maybeSingle()
-    if (!perfil) {
-      const nome = session?.user?.user_metadata?.name || session?.user?.email?.split('@')[0] || 'Usuário';
-      const { data: novoPerfil } = await supabase.from('perfis').insert({
-        user_id: userId, nome, email: session?.user?.email,
-        empresa_id: userId, perfil: 'admin',
-      }).select().single();
-      setUserProfile(novoPerfil);
-      setEmpresaId(userId);
-    } else {
-      setUserProfile(perfil);
-      setEmpresaId(perfil.empresa_id);
-    }
+  // Funções auxiliares
+  const sec = (n, t) =>
+    `<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
 
-    const eid = perfil?.empresa_id || userId;
-    setEmpresaId(eid);
+  const row = (l, v) =>
+    `<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v || '—'}</span></div>`
 
-    const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
-    if (row?.value) {
-      const loadedCfg = JSON.parse(row.value)
-      setCfg(prev => ({ ...DEFAULT_CFG, ...loadedCfg }))
-    } else {
-      await supabase.from('vx_storage').insert({ key: `cfg:${eid}`, value: JSON.stringify(DEFAULT_CFG) })
-      setCfg(DEFAULT_CFG)
-    }
-    setLoading(false)
-  }
+  const endStr = [co.logradouro || cd.logradouro, co.bairro || cd.bairro, co.cidade || cd.municipio, co.uf || cd.uf]
+    .filter(Boolean)
+    .join(', ')
 
-  async function saveConfig(newCfg) {
-    const updatedCfg = { ...cfg, ...newCfg }
-    setCfg(updatedCfg)
-    await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(updatedCfg) }, { onConflict: 'key' })
-  }
-
-  async function handleSendMessage() {
-    if (!input.trim()) return
-
-    const userMessage = { role: 'user', content: input }
-    setMessages(prev => [...prev, userMessage])
-    setInput('')
-
-    // Limpar mensagens anteriores se for uma nova consulta
-    if (messages.length > 0 && messages[messages.length - 1].role === 'assistant' && !messages[messages.length - 1].content.includes('Olá!')) {
-      setMessages([userMessage]);
-    }
-
-    // Processar a mensagem do usuário
-    const lowerInput = input.toLowerCase()
-    let assistantResponse = ''
-
-    if (lowerInput.includes('olá') || lowerInput.includes('oi') || lowerInput.includes('bom dia') || lowerInput.includes('boa tarde')) {
-      assistantResponse = 'Olá! Como posso ajudar hoje?'
-    } else if (lowerInput.includes('configurações') || lowerInput.includes('configurar')) {
-      setShowConfigModal(true)
-      assistantResponse = 'Abrindo configurações...'
-    } else if (lowerInput.includes('clientes') || lowerInput.includes('cliente')) {
-      setShowClientSearchModal(true)
-      assistantResponse = 'Abrindo busca de clientes...'
-    } else if (lowerInput.includes('novo cliente') || lowerInput.includes('cadastrar cliente')) {
-      setEditingClient(null)
-      setShowClientModal(true)
-      assistantResponse = 'Abrindo formulário para novo cliente...'
-    } else if (lowerInput.includes('relatórios') || lowerInput.includes('relatorio')) {
-      setShowReportsModal(true)
-      assistantResponse = 'Abrindo relatórios...'
-    } else if (lowerInput.includes('admin') || lowerInput.includes('painel master')) {
-      setShowAdminPanel(true)
-      assistantResponse = 'Abrindo painel master...'
-    } else if (lowerInput.includes('limpar') || lowerInput.includes('nova consulta')) {
-      setMessages([])
-      setCurrentDoc(null)
-      setCurrentQuote(null)
-      setCurrentClient(null)
-      assistantResponse = 'Iniciando nova consulta. Como posso ajudar?'
-    } else if (lowerInput.includes('cotação') || lowerInput.includes('cotar') || lowerInput.includes('preço') || lowerInput.includes('quanto custa')) {
-      // Lógica de cotação
-      const cnpjs = parseCNPJsQty(lowerInput)
-      const users = parseUsers(lowerInput)
-      const mods = parseModules(lowerInput, cfg.productNames)
-      const ifPlan = parseIFPlan(lowerInput, cfg.plans)
-      const notas = lowerInput.includes('notas') ? parseInt(lowerInput.split('notas')[1].replace(/\D/g, '')) : 0
-
-      if (mods.length === 0) {
-        assistantResponse = 'Não consegui identificar os módulos. Por favor, especifique quais módulos você deseja cotar (ex: Gestão Fiscal, BIA, CND, XML, Inteligência Fiscal, e-PROCESSOS, Tributos).'
-      } else if (!cnpjs && !mods.some(m => IF_NO_CNPJ.includes(m))) {
-        assistantResponse = 'Por favor, informe a quantidade de CNPJs para a cotação.'
-      } else {
-        const planId = getPlan(cnpjs || 1, cfg.plans)
-        const quote = calcQuoteWithDiscount(mods, planId, ifPlan, cnpjs, notas, cfg)
-        setCurrentQuote(quote)
-        setCurrentDoc({
-          type: 'proposta',
-          data: {
-            modules: mods,
-            planId,
-            ifPlan,
-            cnpjs,
-            notas,
-            quote,
-            client: currentClient,
-            consultor: userProfile?.nome || session?.user?.email,
-            consultorEmail: userProfile?.email || session?.user?.email,
-            date: new Date().toISOString().split('T')[0],
-            status: 'draft',
-            userId: userProfile?.id,
-          }
-        })
-        setShowQuoteModal(true)
-        assistantResponse = 'Gerando cotação...'
-      }
-    } else if (lowerInput.includes('gerar contrato') || lowerInput.includes('contrato')) {
-      if (!currentQuote || !currentDoc) {
-        assistantResponse = 'Por favor, gere uma cotação primeiro.'
-      } else if (!currentClient) {
-        assistantResponse = 'Por favor, selecione ou cadastre um cliente antes de gerar o contrato.'
-      } else {
-        setShowPaymentModal(true)
-        assistantResponse = 'Configurando condições de pagamento para o contrato...'
-      }
-    } else {
-      assistantResponse = 'Desculpe, não entendi. Posso ajudar com cotações, configurações, clientes ou relatórios.'
-    }
-
-    setMessages(prev => [...prev, { role: 'assistant', content: assistantResponse }])
-  }
-
-  async function handleSaveClient(client) {
-    let updatedClients = [...cfg.clients];
-    if (client.id) {
-      // Editar cliente existente
-      const index = updatedClients.findIndex(c => c.id === client.id);
-      if (index !== -1) {
-        updatedClients[index] = client;
-      }
-    } else {
-      // Adicionar novo cliente
-      // Gerar um ID único para o cliente
-      client.id = Date.now().toString();
-      // Validar CNPJ/CPF duplicado
-      const isDuplicate = updatedClients.some(c => clean(c.cnpj) === clean(client.cnpj) && c.id !== client.id);
-      if (isDuplicate) {
-        alert('Já existe um cliente com este CNPJ/CPF.');
-        return;
-      }
-      updatedClients.push(client);
-    }
-    await saveConfig({ clients: updatedClients });
-    setShowClientModal(false);
-    setEditingClient(null);
-    setSelectedClient(client); // Seleciona o cliente salvo/editado
-    setCurrentClient(client); // Define como cliente atual para cotação/contrato
-    setMessages(prev => [...prev, { role: 'assistant', content: `Cliente "${client.nomeFantasia}" salvo e selecionado.` }]);
-  }
-
-  async function handleSelectClient(client) {
-    setSelectedClient(client);
-    setCurrentClient(client);
-    setShowClientSearchModal(false);
-    setMessages(prev => [...prev, { role: 'assistant', content: `Cliente "${client.nomeFantasia}" selecionado.` }]);
-  }
-
-  async function handleGenerateContract() {
-    if (!currentDoc || !currentClient || !currentQuote) {
-      alert('Por favor, gere uma cotação e selecione um cliente primeiro.');
-      return;
-    }
-
-    const contractData = {
-      ...currentDoc.data,
-      client: currentClient,
-      payment: paymentData,
-      type: 'contrato',
-      date: new Date().toISOString().split('T')[0],
-      dateISO: new Date().toISOString(),
-      criado: new Date().toISOString(),
-      status: 'pending', // Aguardando assinatura
-      token: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15), // Token único para assinatura
-    };
-
-    const html = buildContract(contractData, cfg, userProfile);
-    setContractHtml(html);
-    setContractToken(contractData.token);
-
-    // Salvar no histórico de documentos
-    const updatedDocHistory = [...(cfg.docHistory || []), contractData];
-    await saveConfig({ docHistory: updatedDocHistory });
-
-    // Atualizar o currentDoc com o ID gerado e o token
-    setCurrentDoc(prev => ({ ...prev, data: contractData }));
-    setContractId(contractData.id); // Armazena o ID do contrato salvo
-
-    setShowPaymentModal(false);
-    setShowContractModal(true);
-    setMessages(prev => [...prev, { role: 'assistant', content: 'Contrato gerado. Por favor, revise e envie para assinatura.' }]);
-  }
-
-  async function handleSendContractForSignature() {
-    if (!contractHtml || !currentDoc || !currentClient || !userProfile) {
-      alert('Erro: Contrato ou dados do cliente/consultor ausentes.');
-      return;
-    }
-
-    const contract = currentDoc.data;
-    const signLink = `${window.location.origin}/sign/${contract.token}`;
-
-    // 1. Gerar PDF do contrato
-    let pdfBufferBase64 = null;
-    try {
-      const pdfRes = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ htmlContent: contractHtml }),
-      });
-
-      if (!pdfRes.ok) {
-        const errorText = await pdfRes.text();
-        throw new Error(`Falha ao gerar PDF: ${errorText}`);
-      }
-
-      const pdfBlob = await pdfRes.blob();
-      const reader = new FileReader();
-      reader.readAsDataURL(pdfBlob);
-      await new Promise(resolve => {
-        reader.onloadend = () => {
-          pdfBufferBase64 = reader.result.split(',')[1]; // Pega apenas o base64
-          resolve();
-        };
-      });
-
-    } catch (error) {
-      console.error('Erro ao gerar PDF para envio:', error);
-      alert(`Erro ao gerar PDF do contrato: ${error.message}. O e-mail será enviado sem o anexo PDF.`);
-    }
-
-    // 2. Enviar e-mail
-    const emailSubject = `Contrato Vivanexa - ${currentClient.nomeFantasia}`;
-    const emailBody = `
-      Olá ${currentClient.contatoNome},<br><br>
-      Seu contrato com a Vivanexa está pronto para ser assinado.<br>
-      Por favor, clique no link abaixo para revisar e assinar eletronicamente:<br><br>
-      <a href="${signLink}">${signLink}</a><br><br>
-      Atenciosamente,<br>
-      ${userProfile.nome || 'Equipe Vivanexa'}
-    `;
-
-    const attachments = pdfBufferBase64 ? [{
-      filename: `contrato_${currentClient.cnpj || 'vivanexa'}.pdf`,
-      content: pdfBufferBase64,
-      encoding: 'base64',
-      contentType: 'application/pdf'
-    }] : [];
-
-    try {
-      const emailRes = await fetch('/api/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: currentClient.contatoEmail,
-          subject: emailSubject,
-          html: emailBody,
-          from: cfg.emailRemetente || 'noreply@vivanexa.com',
-          config: cfg.emailConfig, // Se tiver configurações SMTP salvas
-          attachments: attachments,
-        }),
-      });
-
-      if (!emailRes.ok) {
-        const errorData = await emailRes.json();
-        throw new Error(errorData.error || 'Erro ao enviar e-mail.');
-      }
-
-      alert('Contrato enviado para o cliente por e-mail com sucesso!');
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Contrato enviado para o cliente por e-mail.' }]);
-
-      // Atualizar status do contrato no histórico para 'sent'
-      const updatedDocHistory = cfg.docHistory.map(doc =>
-        doc.token === contract.token ? { ...doc, status: 'sent' } : doc
-      );
-      await saveConfig({ docHistory: updatedDocHistory });
-
-    } catch (error) {
-      console.error('Erro ao enviar e-mail do contrato:', error);
-      alert(`Falha ao enviar e-mail do contrato: ${error.message}`);
-    }
-  }
-
-  async function handleSignContract() {
-    if (!signData || !signConsent || !consultorSignature || !clientSignature) {
-      setSignError('Por favor, preencha todos os campos, concorde com os termos e garanta que ambas as partes assinaram.');
-      return;
-    }
-
-    setSignError('');
-    setSignSuccess(false);
-
-    try {
-      // Atualizar o contrato no histórico com as assinaturas e status 'signed'
-      const updatedDocHistory = cfg.docHistory.map(doc => {
-        if (doc.token === signData.token) {
-          return {
-            ...doc,
-            status: 'signed',
-            consultorSignature: consultorSignature,
-            clientSignature: clientSignature,
-            clientSignInfo: {
-              nome: signData.nome,
-              cpf: signData.cpf,
-              email: signData.email,
-              ip: signData.ip,
-              date: new Date().toISOString(),
-            },
-            signedAt: new Date().toISOString(),
-          };
-        }
-        return doc;
-      });
-
-      await saveConfig({ docHistory: updatedDocHistory });
-      setSignSuccess(true);
-      alert('Contrato assinado com sucesso!');
-
-      // Gerar o PDF final com as assinaturas e enviar por e-mail
-      const signedContract = updatedDocHistory.find(doc => doc.token === signData.token);
-      if (signedContract) {
-        const finalHtml = buildContract(signedContract, cfg, userProfile); // Reconstruir HTML com assinaturas
-        const clientEmail = signedContract.client.contatoEmail;
-        const consultorEmail = signedContract.consultorEmail;
-
-        // 1. Gerar PDF do contrato assinado
-        let pdfBufferBase64 = null;
-        try {
-          const pdfRes = await fetch('/api/generate-pdf', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ htmlContent: finalHtml }),
-          });
-
-          if (!pdfRes.ok) {
-            const errorText = await pdfRes.text();
-            throw new Error(`Falha ao gerar PDF final: ${errorText}`);
-          }
-
-          const pdfBlob = await pdfRes.blob();
-          const reader = new FileReader();
-          reader.readAsDataURL(pdfBlob);
-          await new Promise(resolve => {
-            reader.onloadend = () => {
-              pdfBufferBase64 = reader.result.split(',')[1]; // Pega apenas o base64
-              resolve();
-            };
-          });
-
-        } catch (error) {
-          console.error('Erro ao gerar PDF final para envio:', error);
-          alert(`Erro ao gerar PDF do contrato assinado: ${error.message}. O e-mail será enviado sem o anexo PDF.`);
-        }
-
-        // 2. Enviar e-mail para cliente e consultor com o PDF assinado
-        const emailSubject = `Contrato Vivanexa - ${signedContract.client.nomeFantasia} - ASSINADO`;
-        const emailBody = `
-          Olá,<br><br>
-          O contrato com a Vivanexa para ${signedContract.client.nomeFantasia} foi assinado por ambas as partes.<br>
-          Uma cópia do contrato assinado está anexada a este e-mail.<br><br>
-          Atenciosamente,<br>
-          Equipe Vivanexa
-        `;
-
-        const attachments = pdfBufferBase64 ? [{
-          filename: `contrato_assinado_${signedContract.client.cnpj || 'vivanexa'}.pdf`,
-          content: pdfBufferBase64,
-          encoding: 'base64',
-          contentType: 'application/pdf'
-        }] : [];
-
-        try {
-          // Enviar para o cliente
-          await fetch('/api/send-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              to: clientEmail,
-              subject: emailSubject,
-              html: emailBody,
-              from: cfg.emailRemetente || 'noreply@vivanexa.com',
-              config: cfg.emailConfig,
-              attachments: attachments,
-            }),
-          });
-
-          // Enviar para o consultor
-          await fetch('/api/send-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              to: consultorEmail,
-              subject: emailSubject,
-              html: emailBody,
-              from: cfg.emailRemetente || 'noreply@vivanexa.com',
-              config: cfg.emailConfig,
-              attachments: attachments,
-            }),
-          });
-
-          alert('Cópia do contrato assinado enviada por e-mail para o cliente e consultor!');
-        } catch (emailError) {
-          console.error('Erro ao enviar e-mail do contrato assinado:', emailError);
-          alert(`Falha ao enviar cópia do contrato assinado por e-mail: ${emailError.message}`);
-        }
-      }
-
-      setShowSignModal(false);
-      setSignData(null);
-      setConsultorSignature(null);
-      setClientSignature(null);
-      setSignConsent(false);
-      router.push('/chat'); // Redireciona de volta para o chat
-    } catch (error) {
-      console.error('Erro ao assinar contrato:', error);
-      setSignError(`Falha ao assinar contrato: ${error.message}`);
-    }
-  }
-
-  // Função para construir o HTML do contrato
-  function buildContract(doc, cfg, userProfile) {
-    const client = doc.client || {};
-    const quote = doc.quote || {};
-    const payment = doc.payment || {};
-    const consultor = doc.consultor || userProfile?.nome || 'Consultor Vivanexa';
-    const consultorEmail = doc.consultorEmail || userProfile?.email || 'consultor@vivanexa.com';
-    const companyName = cfg.company || 'VIVANEXA';
-    const companyLogo = cfg.logob64 ? `<img src="${cfg.logob64}" alt="${companyName}" style="max-height: 60px; margin-bottom: 20px;">` : `<h1 style="color: #00d4ff; margin-bottom: 20px;">${companyName}</h1>`;
-    const contractTemplate = cfg.contractTemplate || `
-      <p>Este é um contrato de prestação de serviços entre as partes:</p>
-      <p><strong>CONTRATADA:</strong> ${companyName}, com sede em [Endereço da Vivanexa], CNPJ [CNPJ da Vivanexa].</p>
-      <p><strong>CONTRATANTE:</strong> ${client.razaoSocial || client.nomeFantasia}, com sede em ${client.endereco}, ${client.bairro}, ${client.cidade} - ${client.estado}, CEP ${fmtDoc(client.cep)}, CNPJ ${fmtDoc(client.cnpj)}.</p>
-      <p>O presente contrato tem como objeto a prestação dos serviços e módulos de software conforme detalhado abaixo:</p>
-      <!-- PRODUTOS_TABLE -->
-      <p><strong>Condições de Pagamento:</strong></p>
-      <ul>
-        <li><strong>Adesão:</strong> ${payment.adesaoCondition === 'vista' ? 'Pagamento à vista' : payment.adesaoCondition === 'cartao' ? 'Cartão de Crédito - sem juros' : 'Boleto parcelado - sem juros'}</li>
-        <li><strong>Vencimento da Adesão:</strong> ${payment.adesaoDueDate === 'outra' ? payment.outraAdesaoDate : payment.adesaoDueDate}</li>
-        <li><strong>Vencimento da Mensalidade:</strong> ${payment.mensalidadeDueDate === 'outra' ? payment.outraMensalidadeDate : payment.mensalidadeDueDate}</li>
-      </ul>
-      <p>O valor total da adesão é de <strong>${fmt(quote.tAd)}</strong> e a mensalidade recorrente é de <strong>${fmt(quote.tMen)}</strong>.</p>
-      <p>Este contrato é regido pelas leis brasileiras e as partes elegem o foro da comarca de [Cidade da Vivanexa] para dirimir quaisquer dúvidas.</p>
-      <p>E, por estarem assim justos e contratados, as partes assinam o presente instrumento em duas vias de igual teor e forma.</p>
-      <p>Data: ${new Date().toLocaleDateString('pt-BR')}</p>
-      <!-- ASSINATURAS -->
-    `;
-
-    let productsTableHtml = `
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-        <thead>
-          <tr style="background-color: #f2f2f2;">
-            <th style="padding: 8px; border: 1px solid #ddd; text-align: left;">Módulo</th>
-            <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">Adesão</th>
-            <th style="padding: 8px; border: 1px solid #ddd; text-align: right;">Mensalidade</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-    quote.results.forEach(item => {
-      productsTableHtml += `
-        <tr>
-          <td style="padding: 8px; border: 1px solid #ddd;">${item.name}</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${fmt(item.ad)}</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${fmt(item.men)}</td>
-        </tr>
-      `;
-    });
-    productsTableHtml += `
-        <tr style="font-weight: bold;">
-          <td style="padding: 8px; border: 1px solid #ddd;">Total</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${fmt(quote.tAd)}</td>
-          <td style="padding: 8px; border: 1px solid #ddd; text-align: right;">${fmt(quote.tMen)}</td>
-        </tr>
-        </tbody>
-      </table>
-    `;
-
-    let signaturesHtml = `
-      <div style="margin-top: 50px; display: flex; justify-content: space-around; flex-wrap: wrap;">
-        <div style="text-align: center; margin: 20px;">
-          <p>___________________________________</p>
-          <p><strong>${consultor}</strong></p>
-          <p>Consultor Vivanexa</p>
-          <p>${consultorEmail}</p>
-          ${doc.consultorSignature ? `<img src="${doc.consultorSignature}" alt="Assinatura do Consultor" style="max-width: 200px; max-height: 100px; margin-top: 10px;">` : ''}
-        </div>
-        <div style="text-align: center; margin: 20px;">
-          <p>___________________________________</p>
-          <p><strong>${client.contatoNome || client.nomeFantasia}</strong></p>
-          <p>${client.razaoSocial || client.nomeFantasia}</p>
-          <p>${client.contatoCpf ? `CPF: ${fmtDoc(client.contatoCpf)}` : `CNPJ: ${fmtDoc(client.cnpj)}`}</p>
-          <p>${client.contatoEmail}</p>
-          ${doc.clientSignature ? `<img src="${doc.clientSignature}" alt="Assinatura do Cliente" style="max-width: 200px; max-height: 100px; margin-top: 10px;">` : ''}
-        </div>
+  // ── Manifesto de assinatura (preenchido dinamicamente) ──
+  const docId = token || generateToken()
+  const manifesto = `
+  <div style="margin-top:40px;border:2px solid #10b981;border-radius:12px;padding:24px;background:#f0fdf4">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <div style="font-size:24px">✅</div>
+      <div>
+        <div style="font-family:Syne,sans-serif;font-size:16px;font-weight:800;color:#065f46">MANIFESTO DE ASSINATURAS ELETRÔNICAS</div>
+        <div style="font-size:11px;color:#10b981;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:2px">DOCUMENTO VÁLIDO</div>
       </div>
-    `;
-
-    if (doc.status === 'signed' && doc.clientSignInfo) {
-      signaturesHtml += `
-        <div style="margin-top: 30px; font-size: 10px; color: #666;">
-          <p><strong>Manifesto de Assinatura Eletrônica:</strong></p>
-          <p>Este documento foi assinado eletronicamente por:</p>
-          <ul>
-            <li><strong>Consultor:</strong> ${doc.consultor || userProfile?.nome} (${doc.consultorEmail || userProfile?.email})</li>
-            <li><strong>Cliente:</strong> ${doc.clientSignInfo.nome} (CPF: ${fmtDoc(doc.clientSignInfo.cpf)}, E-mail: ${doc.clientSignInfo.email})</li>
-          </ul>
-          <p>Data e Hora da Assinatura do Cliente: ${new Date(doc.clientSignInfo.date).toLocaleString('pt-BR')}</p>
-          <p>Endereço IP do Cliente: ${doc.clientSignInfo.ip}</p>
-          <p>Token de Verificação: ${doc.token}</p>
-          <p>Assinatura válida conforme Lei nº 14.063/2020.</p>
-        </div>
-      `;
-    }
-
-    let finalHtml = `
-      <!DOCTYPE html>
-      <html lang="pt-BR">
-      <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Contrato de Prestação de Serviços - ${companyName}</title>
-          <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 40px; }
-              .container { max-width: 800px; margin: 0 auto; padding: 20px; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0,0,0,0.05); }
-              h1, h2, h3 { color: #0056b3; }
-              strong { font-weight: bold; }
-              ul { list-style-type: disc; margin-left: 20px; }
-              table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-              th { background-color: #f2f2f2; }
-              .signature-block { margin-top: 50px; text-align: center; }
-              .signature-line { border-top: 1px solid #000; width: 60%; margin: 20px auto 5px auto; }
-              .footer { margin-top: 50px; font-size: 0.8em; text-align: center; color: #777; }
-          </style>
-      </head>
-      <body>
-          <div class="container">
-              <div style="text-align: center; margin-bottom: 30px;">
-                  ${companyLogo}
-                  <h2>CONTRATO DE PRESTAÇÃO DE SERVIÇOS</h2>
-              </div>
-              ${contractTemplate
-                  .replace('<!-- PRODUTOS_TABLE -->', productsTableHtml)
-                  .replace('<!-- ASSINATURAS -->', signaturesHtml)
-              }
-          </div>
-      </body>
-      </html>
-    `;
-    return finalHtml;
-  }
-
-  // Componente para desenhar assinatura
-  function SignaturePad({ onSave, onCancel }) {
-    const canvasRef = useRef(null);
-    const [drawing, setDrawing] = useState(false);
-    const [ctx, setCtx] = useState(null);
-
-    useEffect(() => {
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      setCtx(context);
-      context.lineWidth = 2;
-      context.lineCap = 'round';
-      context.strokeStyle = '#fff'; // Cor da caneta
-    }, []);
-
-    const startDrawing = ({ nativeEvent }) => {
-      const { offsetX, offsetY } = nativeEvent;
-      ctx.beginPath();
-      ctx.moveTo(offsetX, offsetY);
-      setDrawing(true);
-    };
-
-    const draw = ({ nativeEvent }) => {
-      if (!drawing) return;
-      const { offsetX, offsetY } = nativeEvent;
-      ctx.lineTo(offsetX, offsetY);
-      ctx.stroke();
-    };
-
-    const endDrawing = () => {
-      setDrawing(false);
-      ctx.closePath();
-    };
-
-    const clearCanvas = () => {
-      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    };
-
-    const saveSignature = () => {
-      const dataURL = canvasRef.current.toDataURL('image/png');
-      onSave(dataURL);
-    };
-
-    return (
-      <div className="flex flex-col items-center p-4 bg-gray-800 rounded-lg shadow-xl">
-        <h3 className="text-xl font-bold mb-4">✍️ Desenhar Assinatura</h3>
-        <canvas
-          ref={canvasRef}
-          width={400}
-          height={200}
-          className="border border-gray-600 bg-gray-900 rounded-md cursor-crosshair"
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={endDrawing}
-          onMouseLeave={endDrawing}
-        />
-        <div className="flex space-x-4 mt-4">
-          <button onClick={saveSignature} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✅ Usar esta assinatura</button>
-          <button onClick={clearCanvas} className="px-6 py-2 bg-yellow-600 rounded-lg hover:bg-yellow-700 transition-colors">🗑 Limpar</button>
-          <button onClick={onCancel} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-900 text-gray-400">Carregando...</div>
-
-  return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 flex flex-col">
-      <Head>
-        <title>{cfg.company} – {cfg.slogan}</title>
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
-
-      {/* Orbs de fundo */}
-      <div className="fixed top-0 right-0 w-96 h-96 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob z-0"></div>
-      <div className="fixed top-0 left-0 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-2000 z-0"></div>
-      <div className="fixed bottom-0 left-0 w-96 h-96 bg-pink-500 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-blob animation-delay-4000 z-0"></div>
-
-      {/* Header */}
-      <header className="relative z-10 w-full bg-gray-800 p-4 flex items-center justify-between shadow-md">
-        <div className="flex items-center space-x-3 cursor-pointer" onClick={() => router.push('/chat')}>
-          {cfg.logob64 ? (
-            <img src={cfg.logob64} alt={cfg.company} className="h-9" />
-          ) : (
-            <h1 className="text-2xl font-bold text-blue-400">{cfg.company}</h1>
-          )}
-          <span className="text-gray-400 text-sm hidden md:block">{cfg.slogan}</span>
-        </div>
-        <div className="flex items-center space-x-4">
-          {userProfile && (
-            <span className="text-sm text-gray-300 hidden sm:block">Olá, {userProfile.nome}!</span>
-          )}
-          <button onClick={() => router.push('/reports')} className="px-3 py-1 bg-gray-700 rounded-md text-sm hover:bg-gray-600 transition-colors">📊 Relatórios</button>
-          <button onClick={() => setShowConfigModal(true)} className="px-3 py-1 bg-gray-700 rounded-md text-sm hover:bg-gray-600 transition-colors">⚙️ Config</button>
-          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} className="px-3 py-1 bg-red-600 rounded-md text-sm hover:bg-red-700 transition-colors">Sair</button>
-        </div>
-      </header>
-
-      {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col items-center p-4 relative z-10">
-        <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-lg p-6 flex flex-col space-y-4 flex-1">
-          <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-            {messages.length === 0 && (
-              <div className="text-center text-gray-400 mt-10">
-                <p className="text-lg">Olá! Sou seu assistente comercial da Vivanexa.</p>
-                <p className="text-sm mt-2">Como posso ajudar hoje? Posso gerar cotações, contratos, gerenciar clientes ou acessar configurações.</p>
-                {cfg.modChips && (
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    {ALL_MODS.map(mod => (
-                      <button
-                        key={mod}
-                        onClick={() => setInput(prev => `${prev} ${mod}`.trim())}
-                        className="px-3 py-1 bg-gray-700 rounded-full text-xs hover:bg-gray-600 transition-colors"
-                      >
-                        {prodName(mod, cfg.productNames)}
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => setInput('cotar Gestão Fiscal 50 CNPJs')}
-                      className="px-3 py-1 bg-gray-700 rounded-full text-xs hover:bg-gray-600 transition-colors"
-                    >
-                      Cotar GF 50 CNPJs
-                    </button>
-                    <button
-                      onClick={() => setInput('gerar contrato')}
-                      className="px-3 py-1 bg-gray-700 rounded-full text-xs hover:bg-gray-600 transition-colors"
-                    >
-                      Gerar Contrato
-                    </button>
-                    <button
-                      onClick={() => setInput('clientes')}
-                      className="px-3 py-1 bg-gray-700 rounded-full text-xs hover:bg-gray-600 transition-colors"
-                    >
-                      Gerenciar Clientes
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            {messages.map((msg, index) => (
-              <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`p-3 rounded-lg max-w-[70%] ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-100'}`}>
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input Area */}
-          <div className="flex items-center space-x-2 mt-4">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder="Digite sua mensagem..."
-              className="flex-1 p-3 rounded-lg bg-gray-700 border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              onClick={handleSendMessage}
-              className="p-3 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Enviar
-            </button>
-          </div>
-        </div>
-      </main>
-
-      {/* Config Modal */}
-      {showConfigModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">⚙️ Configurações</h3>
-            <button onClick={() => setShowConfigModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            {/* Configurações da Empresa */}
-            <div className="mb-8">
-              <h4 className="font-semibold mb-3 text-blue-400">🏢 Empresa</h4>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Nome da Empresa</label>
-                  <input
-                    type="text"
-                    value={cfg.company}
-                    onChange={(e) => saveConfig({ company: e.target.value })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Slogan / Subtítulo</label>
-                  <input
-                    type="text"
-                    value={cfg.slogan}
-                    onChange={(e) => saveConfig({ slogan: e.target.value })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Logomarca (Base64)</label>
-                  <input
-                    type="file"
-                    accept="image/png, image/jpeg"
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          saveConfig({ logob64: reader.result });
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                    className="mt-1 block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                  />
-                  {cfg.logob64 && <img src={cfg.logob64} alt="Logo" className="mt-2 h-16" />}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Chave API Google Gemini</label>
-                  <input
-                    type="text"
-                    value={cfg.geminiApiKey || ''}
-                    onChange={(e) => saveConfig({ geminiApiKey: e.target.value })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Chave API Groq</label>
-                  <input
-                    type="text"
-                    value={cfg.groqApiKey || ''}
-                    onChange={(e) => saveConfig({ groqApiKey: e.target.value })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Configurações de Assinatura Eletrônica */}
-            <div className="mb-8">
-              <h4 className="font-semibold mb-3 text-blue-400">✍️ Assinatura Eletrônica</h4>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">E-mail remetente (para envio)</label>
-                  <input
-                    type="email"
-                    value={cfg.emailRemetente || ''}
-                    onChange={(e) => saveConfig({ emailRemetente: e.target.value })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Host SMTP</label>
-                  <input
-                    type="text"
-                    value={cfg.emailConfig?.smtpHost || ''}
-                    onChange={(e) => saveConfig({ emailConfig: { ...cfg.emailConfig, smtpHost: e.target.value } })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Porta SMTP</label>
-                  <input
-                    type="number"
-                    value={cfg.emailConfig?.smtpPort || 587}
-                    onChange={(e) => saveConfig({ emailConfig: { ...cfg.emailConfig, smtpPort: parseInt(e.target.value) } })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Usuário SMTP</label>
-                  <input
-                    type="text"
-                    value={cfg.emailConfig?.smtpUser || ''}
-                    onChange={(e) => saveConfig({ emailConfig: { ...cfg.emailConfig, smtpUser: e.target.value } })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Senha SMTP</label>
-                  <input
-                    type="password"
-                    value={cfg.emailConfig?.smtpPass || ''}
-                    onChange={(e) => saveConfig({ emailConfig: { ...cfg.emailConfig, smtpPass: e.target.value } })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await fetch('/api/send-email', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          to: cfg.emailRemetente || userProfile?.email,
-                          subject: 'Teste de Conexão SMTP Vivanexa',
-                          html: '<p>Este é um e-mail de teste enviado do seu sistema Vivanexa.</p>',
-                          config: cfg.emailConfig,
-                        }),
-                      });
-                      if (res.ok) {
-                        alert('Conexão SMTP testada com sucesso! Verifique sua caixa de entrada.');
-                      } else {
-                        const errorData = await res.json();
-                        alert(`Falha no teste de conexão SMTP: ${errorData.error}`);
-                      }
-                    } catch (error) {
-                      alert(`Erro ao testar conexão SMTP: ${error.message}`);
-                    }
-                  }}
-                  className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  🔌 Testar Conexão SMTP
-                </button>
-              </div>
-            </div>
-
-            {/* Produtos e Planos */}
-            <div className="mb-8">
-              <h4 className="font-semibold mb-3 text-blue-400">📦 Produtos e Planos</h4>
-              <div className="space-y-4">
-                <button onClick={() => setShowAddProductModal(true)} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">➕ Novo Produto</button>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full bg-gray-700 rounded-lg">
-                    <thead>
-                      <tr>
-                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Nome</th>
-                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">ID/Chave</th>
-                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(cfg.productNames).map(([id, name]) => (
-                        <tr key={id}>
-                          <td className="py-2 px-4 border-b border-gray-600">{name}</td>
-                          <td className="py-2 px-4 border-b border-gray-600">{id}</td>
-                          <td className="py-2 px-4 border-b border-gray-600">
-                            <button onClick={() => { setEditingProduct({ id, name, prices: cfg.prices[id] || {}, noAdesao: ALL_MODS.includes(id) && cfg.prices[id]?.[Object.keys(cfg.prices[id])[0]]?.[0] === 0, basicProTopOnly: ['IF', 'EP'].includes(id) }); setShowEditProductModal(true); }} className="text-blue-400 hover:text-blue-300 mr-2">Editar</button>
-                            <button onClick={() => {
-                              if (confirm(`Tem certeza que deseja remover o produto "${name}"?`)) {
-                                const newProductNames = { ...cfg.productNames };
-                                delete newProductNames[id];
-                                const newPrices = { ...cfg.prices };
-                                delete newPrices[id];
-                                saveConfig({ productNames: newProductNames, prices: newPrices });
-                              }
-                            }} className="text-red-400 hover:text-red-300">Remover</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <button onClick={() => setShowAddPlanModal(true)} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">➕ Novo Plano</button>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full bg-gray-700 rounded-lg">
-                    <thead>
-                      <tr>
-                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Nome</th>
-                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">ID/Chave</th>
-                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Max CNPJs</th>
-                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Usuários</th>
-                        <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Ações</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cfg.plans.map(plan => (
-                        <tr key={plan.id}>
-                          <td className="py-2 px-4 border-b border-gray-600">{plan.name}</td>
-                          <td className="py-2 px-4 border-b border-gray-600">{plan.id}</td>
-                          <td className="py-2 px-4 border-b border-gray-600">{plan.maxCnpjs}</td>
-                          <td className="py-2 px-4 border-b border-gray-600">{plan.unlimitedUsers ? 'Ilimitados' : plan.users}</td>
-                          <td className="py-2 px-4 border-b border-gray-600">
-                            <button onClick={() => {
-                              if (confirm(`Tem certeza que deseja remover o plano "${plan.name}"?`)) {
-                                saveConfig({ plans: cfg.plans.filter(p => p.id !== plan.id) });
-                              }
-                            }} className="text-red-400 hover:text-red-300">Remover</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            {/* Modo de Desconto */}
-            <div className="mb-8">
-              <h4 className="font-semibold mb-3 text-blue-400">🏷️ Descontos</h4>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Modo de Desconto</label>
-                  <select
-                    value={cfg.discMode}
-                    onChange={(e) => saveConfig({ discMode: e.target.value })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  >
-                    <option value="screen">Desconto em Tela (mostra desconto após o preço cheio)</option>
-                    <option value="voucher">Somente via Voucher (desconto só é aplicado com código de voucher válido)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">% Adesão (tela)</label>
-                  <input
-                    type="number"
-                    value={cfg.discAdPct}
-                    onChange={(e) => saveConfig({ discAdPct: parseInt(e.target.value) })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">% Mensalidade (tela)</label>
-                  <input
-                    type="number"
-                    value={cfg.discMenPct}
-                    onChange={(e) => saveConfig({ discMenPct: parseInt(e.target.value) })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">% Adesão (fechamento)</label>
-                  <input
-                    type="number"
-                    value={cfg.discClosePct}
-                    onChange={(e) => saveConfig({ discClosePct: parseInt(e.target.value) })}
-                    className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Vouchers */}
-            <div className="mb-8">
-              <h4 className="font-semibold mb-3 text-blue-400">🎫 Vouchers</h4>
-              <button onClick={() => setShowVoucherModal(true)} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">➕ Gerar Novo Voucher</button>
-              <div className="overflow-x-auto mt-4">
-                <table className="min-w-full bg-gray-700 rounded-lg">
-                  <thead>
-                    <tr>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Código</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">% Adesão</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">% Mensalidade</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Expira em</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cfg.vouchers.map(voucher => (
-                      <tr key={voucher.code}>
-                        <td className="py-2 px-4 border-b border-gray-600">{voucher.code}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{voucher.discAdPct}%</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{voucher.discMenPct}%</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{voucher.expiresAt || 'Nunca'}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">
-                          <button onClick={() => {
-                            if (confirm(`Tem certeza que deseja remover o voucher "${voucher.code}"?`)) {
-                              saveConfig({ vouchers: cfg.vouchers.filter(v => v.code !== voucher.code) });
-                            }
-                          }} className="text-red-400 hover:text-red-300">Remover</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Modelos de Documentos */}
-            <div className="mb-8">
-              <h4 className="font-semibold mb-3 text-blue-400">📄 Modelos de Documentos</h4>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Modelo de Proposta Comercial</label>
-                  <button onClick={() => { setEditingDocType('proposta'); setEditingDocContent(cfg.propostaTemplate || ''); setShowEditDocModal(true); }} className="ml-2 px-3 py-1 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">✏️ Editar</button>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Modelo de Contrato</label>
-                  <button onClick={() => { setEditingDocType('contrato'); setEditingDocContent(cfg.contractTemplate || ''); setShowEditDocModal(true); }} className="ml-2 px-3 py-1 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm">✏️ Editar</button>
-                </div>
-              </div>
-            </div>
-
-            {/* Usuários */}
-            <div className="mb-8">
-              <h4 className="font-semibold mb-3 text-blue-400">👥 Usuários</h4>
-              <button onClick={() => { setNewUserData({ nome: '', email: '', telefone: '', perfil: 'padrao', password: '', signature: null, signatureImage: null }); setShowAddUserModal(true); }} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">➕ Novo Usuário</button>
-              <div className="overflow-x-auto mt-4">
-                <table className="min-w-full bg-gray-700 rounded-lg">
-                  <thead>
-                    <tr>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Nome</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">E-mail</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Perfil</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cfg.users.map(user => (
-                      <tr key={user.id}>
-                        <td className="py-2 px-4 border-b border-gray-600">{user.nome}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{user.email}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{user.perfil}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">
-                          <button onClick={() => { setEditingUser(user); setShowEditUserModal(true); }} className="text-blue-400 hover:text-blue-300 mr-2">Editar</button>
-                          <button onClick={() => {
-                            if (confirm(`Tem certeza que deseja remover o usuário "${user.nome}"?`)) {
-                              saveConfig({ users: cfg.users.filter(u => u.id !== user.id) });
-                            }
-                          }} className="text-red-400 hover:text-red-300">Remover</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Clientes */}
-            <div className="mb-8">
-              <h4 className="font-semibold mb-3 text-blue-400">🗃️ Clientes</h4>
-              <button onClick={() => { setEditingClient(null); setShowClientModal(true); }} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">➕ Novo Cliente</button>
-              <div className="overflow-x-auto mt-4">
-                <table className="min-w-full bg-gray-700 rounded-lg">
-                  <thead>
-                    <tr>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Nome Fantasia</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">CNPJ/CPF</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Contato</th>
-                      <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cfg.clients.map(client => (
-                      <tr key={client.id}>
-                        <td className="py-2 px-4 border-b border-gray-600">{client.nomeFantasia}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{fmtDoc(client.cnpj)}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">{client.contatoNome}</td>
-                        <td className="py-2 px-4 border-b border-gray-600">
-                          <button onClick={() => { setEditingClient(client); setShowClientModal(true); }} className="text-blue-400 hover:text-blue-300 mr-2">Editar</button>
-                          <button onClick={() => {
-                            if (confirm(`Tem certeza que deseja remover o cliente "${client.nomeFantasia}"?`)) {
-                              saveConfig({ clients: cfg.clients.filter(c => c.id !== client.id) });
-                            }
-                          }} className="text-red-400 hover:text-red-300">Remover</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="flex justify-end mt-6">
-              <button onClick={() => setShowConfigModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Fechar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Client Search Modal */}
-      {showClientSearchModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">🔍 Buscar / Cadastrar Cliente</h3>
-            <button onClick={() => setShowClientSearchModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="flex mb-4 space-x-2">
-              <input
-                type="text"
-                placeholder="Buscar por nome, CNPJ, CPF ou e-mail..."
-                value={clientSearchTerm}
-                onChange={(e) => {
-                  setClientSearchTerm(e.target.value);
-                  const term = e.target.value.toLowerCase();
-                  setFilteredClients(
-                    cfg.clients.filter(client =>
-                      client.nomeFantasia.toLowerCase().includes(term) ||
-                      client.cnpj.includes(clean(term)) ||
-                      client.contatoCpf.includes(clean(term)) ||
-                      client.contatoEmail.toLowerCase().includes(term)
-                    )
-                  );
-                }}
-                className="flex-1 p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-              />
-              <button onClick={() => { setEditingClient(null); setShowClientModal(true); setShowClientSearchModal(false); }} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">➕ Novo Cliente</button>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="min-w-full bg-gray-700 rounded-lg">
-                <thead>
-                  <tr>
-                    <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Nome Fantasia</th>
-                    <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">CNPJ/CPF</th>
-                    <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Contato</th>
-                    <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(clientSearchTerm ? filteredClients : cfg.clients).map(client => (
-                    <tr key={client.id}>
-                      <td className="py-2 px-4 border-b border-gray-600">{client.nomeFantasia}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{fmtDoc(client.cnpj)}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">{client.contatoNome}</td>
-                      <td className="py-2 px-4 border-b border-gray-600">
-                        <button onClick={() => handleSelectClient(client)} className="text-green-400 hover:text-green-300 mr-2">Selecionar</button>
-                        <button onClick={() => { setEditingClient(client); setShowClientModal(true); setShowClientSearchModal(false); }} className="text-blue-400 hover:text-blue-300">Editar</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex justify-end mt-6">
-              <button onClick={() => setShowClientSearchModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Fechar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Client Modal (Add/Edit) */}
-      {showClientModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto relative">
-            <button onClick={() => setShowClientModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-            <ClientForm clientData={editingClient} onSave={handleSaveClient} onCancel={() => setShowClientModal(false)} cfg={cfg} />
-          </div>
-        </div>
-      )}
-
-      {/* Quote Modal */}
-      {showQuoteModal && currentQuote && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📋 Cotação</h3>
-            <button onClick={() => setShowQuoteModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            {currentClient && (
-              <div className="mb-4 p-3 bg-gray-700 rounded-md text-sm">
-                <p><strong>Cliente:</strong> {currentClient.nomeFantasia} ({fmtDoc(currentClient.cnpj)})</p>
-                <p><strong>Contato:</strong> {currentClient.contatoNome} ({currentClient.contatoEmail})</p>
-              </div>
-            )}
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-300">Tipo de Cotação:</label>
-              <select
-                value={quoteType}
-                onChange={(e) => {
-                  setQuoteType(e.target.value);
-                  const { modules, planId, ifPlan, cnpjs, notas } = currentDoc.data;
-                  let newQuote;
-                  if (e.target.value === 'full') newQuote = calcQuoteFullPrice(modules, planId, ifPlan, cnpjs, notas, cfg);
-                  else if (e.target.value === 'discount') newQuote = calcQuoteWithDiscount(modules, planId, ifPlan, cnpjs, notas, cfg);
-                  else newQuote = calcClosing(modules, planId, ifPlan, cnpjs, notas, cfg);
-                  setCurrentQuote(newQuote);
-                  setCurrentDoc(prev => ({ ...prev, data: { ...prev.data, quote: newQuote } }));
-                }}
-                className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-              >
-                <option value="full">Preço Cheio</option>
-                <option value="discount">Com Desconto (Tela)</option>
-                <option value="closing">Fechamento (Desconto Extra)</option>
-              </select>
-            </div>
-
-            {cfg.discMode === 'voucher' && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-300">Voucher:</label>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={quoteVoucher}
-                    onChange={(e) => setQuoteVoucher(e.target.value)}
-                    placeholder="Código do Voucher"
-                    className="flex-1 p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                  <button onClick={() => {
-                    const voucher = cfg.vouchers.find(v => v.code === quoteVoucher);
-                    if (voucher) {
-                      if (voucher.expiresAt && new Date(voucher.expiresAt) < new Date()) {
-                        setQuoteVoucherError('Voucher expirado.');
-                        setQuoteVoucherData(null);
-                      } else {
-                        setQuoteVoucherData(voucher);
-                        setQuoteVoucherError('');
-                        const { modules, planId, ifPlan, cnpjs, notas } = currentDoc.data;
-                        const newCfg = { ...cfg, discAdPct: voucher.discAdPct, discMenPct: voucher.discMenPct };
-                        const newQuote = calcQuoteWithDiscount(modules, planId, ifPlan, cnpjs, notas, newCfg);
-                        setCurrentQuote(newQuote);
-                        setCurrentDoc(prev => ({ ...prev, data: { ...prev.data, quote: newQuote, voucher: voucher.code } }));
-                      }
-                    } else {
-                      setQuoteVoucherError('Voucher inválido.');
-                      setQuoteVoucherData(null);
-                    }
-                  }} className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">Aplicar</button>
-                </div>
-                {quoteVoucherError && <p className="text-red-500 text-sm mt-1">{quoteVoucherError}</p>}
-                {quoteVoucherData && <p className="text-green-500 text-sm mt-1">Voucher aplicado: {quoteVoucherData.discAdPct}% Adesão, {quoteVoucherData.discMenPct}% Mensalidade.</p>}
-              </div>
-            )}
-
-            <div className="overflow-x-auto mb-4">
-              <table className="min-w-full bg-gray-700 rounded-lg">
-                <thead>
-                  <tr>
-                    <th className="py-2 px-4 border-b border-gray-600 text-left text-sm font-medium text-gray-300">Módulo</th>
-                    <th className="py-2 px-4 border-b border-gray-600 text-right text-sm font-medium text-gray-300">Adesão</th>
-                    <th className="py-2 px-4 border-b border-gray-600 text-right text-sm font-medium text-gray-300">Mensalidade</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentQuote.results.map((item, index) => (
-                    <tr key={index}>
-                      <td className="py-2 px-4 border-b border-gray-600">{item.name}</td>
-                      <td className="py-2 px-4 border-b border-gray-600 text-right">{fmt(item.ad)}</td>
-                      <td className="py-2 px-4 border-b border-gray-600 text-right">{fmt(item.men)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="font-bold bg-gray-600">
-                    <td className="py-2 px-4 border-b border-gray-600">Total</td>
-                    <td className="py-2 px-4 border-b border-gray-600 text-right">{fmt(currentQuote.tAd)}</td>
-                    <td className="py-2 px-4 border-b border-gray-600 text-right">{fmt(currentQuote.tMen)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowQuoteModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Fechar</button>
-              <button onClick={() => {
-                if (!currentClient) {
-                  alert('Por favor, selecione um cliente antes de gerar o contrato.');
-                  setShowClientSearchModal(true);
-                  return;
-                }
-                setShowPaymentModal(true);
-                setShowQuoteModal(false);
-              }} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">📝 Gerar Contrato</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Payment Modal */}
-      {showPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📝 Configurar Contrato</h3>
-            <button onClick={() => setShowPaymentModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <p className="text-gray-300 mb-4">Preencha os dados de pagamento antes de gerar o contrato.</p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">💳 Condição de Pagamento da Adesão</label>
-                <select
-                  value={paymentData.adesaoCondition}
-                  onChange={(e) => setPaymentData({ ...paymentData, adesaoCondition: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                >
-                  <option value="vista">Pagamento à vista</option>
-                  <option value="pix_boleto">PIX ou Boleto à vista</option>
-                  <option value="cartao">Cartão de Crédito — sem juros</option>
-                  <option value="boleto_parcelado">Boleto parcelado — sem juros</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300">📅 Vencimento da Adesão</label>
-                <select
-                  value={paymentData.adesaoDueDate}
-                  onChange={(e) => setPaymentData({ ...paymentData, adesaoDueDate: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                >
-                  <option value="">Selecione...</option>
-                  {getNextDates().map(date => (
-                    <option key={date} value={date}>{date}</option>
-                  ))}
-                  <option value="outra">Outra data:</option>
-                </select>
-                {paymentData.adesaoDueDate === 'outra' && (
-                  <input
-                    type="date"
-                    value={paymentData.outraAdesaoDate}
-                    onChange={(e) => setPaymentData({ ...paymentData, outraAdesaoDate: e.target.value })}
-                    className="mt-2 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300">📅 Vencimento da Mensalidade</label>
-                <select
-                  value={paymentData.mensalidadeDueDate}
-                  onChange={(e) => setPaymentData({ ...paymentData, mensalidadeDueDate: e.target.value })}
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                >
-                  <option value="">Selecione...</option>
-                  {getNextDates().map(date => (
-                    <option key={date} value={date}>{date}</option>
-                  ))}
-                  <option value="outra">Outra data:</option>
-                </select>
-                {paymentData.mensalidadeDueDate === 'outra' && (
-                  <input
-                    type="date"
-                    value={paymentData.outraMensalidadeDate}
-                    onChange={(e) => setPaymentData({ ...paymentData, outraMensalidadeDate: e.target.value })}
-                    className="mt-2 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white"
-                  />
-                )}
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowPaymentModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={handleGenerateContract} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">Gerar Contrato</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Contract Modal (Display HTML) */}
-      {showContractModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📄 Contrato Gerado</h3>
-            <button onClick={() => setShowContractModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="bg-white p-6 rounded-lg text-gray-900 overflow-y-auto max-h-[60vh]" dangerouslySetInnerHTML={{ __html: contractHtml }}></div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowContractModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Fechar</button>
-              <button onClick={handleSendContractForSignature} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✉️ Enviar para Assinatura</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Sign Modal (for /sign/[token]) */}
-      {showSignModal && signData && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">✍️ Assinatura Eletrônica</h3>
-            <button onClick={() => setShowSignModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="bg-white p-6 rounded-lg text-gray-900 overflow-y-auto max-h-[60vh]" dangerouslySetInnerHTML={{ __html: buildContract(signData, cfg, userProfile) }}></div>
-
-            <div className="mt-6 p-4 bg-gray-700 rounded-lg space-y-4">
-              <h4 className="font-semibold text-lg text-blue-400">Dados para Assinatura do Cliente</h4>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nome Completo *</label>
-                <input type="text" value={signData.nome || ''} onChange={(e) => setSignData({ ...signData, nome: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">CPF *</label>
-                <input type="text" value={signData.cpf || ''} onChange={(e) => setSignData({ ...signData, cpf: clean(e.target.value) })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">E-mail *</label>
-                <input type="email" value={signData.email || ''} onChange={(e) => setSignData({ ...signData, email: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={signConsent}
-                  onChange={(e) => setSignConsent(e.target.checked)}
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                />
-                <label className="ml-2 block text-sm text-gray-300">
-                  Li e concordo com os termos e condições deste documento e autorizo o uso das minhas informações para fins de identificação desta assinatura eletrônica.
-                </label>
-              </div>
-
-              <h4 className="font-semibold text-lg text-blue-400 mt-6">Assinaturas</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Assinatura do Consultor</label>
-                  {consultorSignature ? (
-                    <img src={consultorSignature} alt="Assinatura do Consultor" className="mt-2 max-w-full h-24 border border-gray-600 rounded-md" />
-                  ) : (
-                    <button onClick={() => { setSignatureFor('consultor'); setShowSignaturePad(true); }} className="mt-2 px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✍️ Desenhar Assinatura</button>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Assinatura do Cliente</label>
-                  {clientSignature ? (
-                    <img src={clientSignature} alt="Assinatura do Cliente" className="mt-2 max-w-full h-24 border border-gray-600 rounded-md" />
-                  ) : (
-                    <button onClick={() => { setSignatureFor('client'); setShowSignaturePad(true); }} className="mt-2 px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✍️ Desenhar Assinatura</button>
-                  )}
-                </div>
-              </div>
-
-              {signError && <p className="text-red-500 text-sm mt-4 text-center">{signError}</p>}
-              {signSuccess && <p className="text-green-500 text-sm mt-4 text-center">Contrato assinado com sucesso!</p>}
-
-              <div className="flex justify-end space-x-4 mt-6">
-                <button onClick={() => setShowSignModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-                <button onClick={handleSignContract} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Assinar Documento</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Signature Pad Modal */}
-      {showSignaturePad && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <SignaturePad
-            onSave={(dataURL) => {
-              if (signatureFor === 'consultor') setConsultorSignature(dataURL);
-              else if (signatureFor === 'client') setClientSignature(dataURL);
-              setShowSignaturePad(false);
-            }}
-            onCancel={() => setShowSignaturePad(false)}
-          />
-        </div>
-      )}
-
-      {/* Edit Document Template Modal */}
-      {showEditDocModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">✏️ Editar Modelo de {editingDocType === 'proposta' ? 'Proposta' : 'Contrato'}</h3>
-            <button onClick={() => setShowEditDocModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <textarea
-              value={editingDocContent}
-              onChange={(e) => setEditingDocContent(e.target.value)}
-              className="w-full h-96 p-3 bg-gray-900 border border-gray-600 rounded-md text-white font-mono text-sm"
-              placeholder="Texto de abertura personalizado (HTML ou texto puro). Deixe vazio para usar o padrão."
-            ></textarea>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowEditDocModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={() => {
-                if (editingDocType === 'proposta') saveConfig({ propostaTemplate: editingDocContent });
-                else saveConfig({ contractTemplate: editingDocContent });
-                setShowEditDocModal(false);
-              }} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✅ Salvar Modelo</button>
-              <button onClick={() => {
-                if (editingDocType === 'proposta') saveConfig({ propostaTemplate: '' }); // Reset para o padrão
-                else saveConfig({ contractTemplate: '' }); // Reset para o padrão
-                setEditingDocContent('');
-                alert('Modelo restaurado para o padrão do sistema.');
-              }} className="px-6 py-2 bg-yellow-600 rounded-lg hover:bg-yellow-700 transition-colors">🔄 Usar Padrão</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add User Modal */}
-      {showAddUserModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">➕ Novo Usuário</h3>
-            <button onClick={() => setShowAddUserModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nome Completo</label>
-                <input type="text" value={newUserData.nome} onChange={(e) => setNewUserData({ ...newUserData, nome: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">E-mail</label>
-                <input type="email" value={newUserData.email} onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Telefone</label>
-                <input type="text" value={newUserData.telefone} onChange={(e) => setNewUserData({ ...newUserData, telefone: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Senha</label>
-                <input type="password" value={newUserData.password} onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Perfil</label>
-                <select value={newUserData.perfil} onChange={(e) => setNewUserData({ ...newUserData, perfil: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white">
-                  <option value="padrao">Padrão</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowAddUserModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={async () => {
-                if (!newUserData.nome || !newUserData.email || !newUserData.password) {
-                  alert('Nome, E-mail e Senha são obrigatórios.');
-                  return;
-                }
-                // Criar usuário no Supabase Auth
-                const { data: { user }, error } = await supabase.auth.signUp({
-                  email: newUserData.email,
-                  password: newUserData.password,
-                  options: {
-                    data: {
-                      nome: newUserData.nome,
-                      telefone: newUserData.telefone,
-                      perfil: newUserData.perfil,
-                      empresa_id: empresaId,
-                    }
-                  }
-                });
-
-                if (error) {
-                  alert(`Erro ao criar usuário: ${error.message}`);
-                  return;
-                }
-
-                // Salvar perfil no banco de dados (vx_storage)
-                const newUserProfile = {
-                  id: user.id,
-                  nome: newUserData.nome,
-                  email: newUserData.email,
-                  telefone: newUserData.telefone,
-                  perfil: newUserData.perfil,
-                  empresa_id: empresaId,
-                  signature: null,
-                  signatureImage: null,
-                };
-                await saveConfig({ users: [...cfg.users, newUserProfile] });
-                alert('Usuário criado com sucesso! Um e-mail de confirmação foi enviado.');
-                setShowAddUserModal(false);
-              }} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Adicionar Usuário</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit User Modal */}
-      {showEditUserModal && editingUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">✏️ Editar Usuário</h3>
-            <button onClick={() => setShowEditUserModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nome Completo</label>
-                <input type="text" value={editingUser.nome} onChange={(e) => setEditingUser({ ...editingUser, nome: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">E-mail</label>
-                <input type="email" value={editingUser.email} onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" disabled />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Telefone</label>
-                <input type="text" value={editingUser.telefone} onChange={(e) => setEditingUser({ ...editingUser, telefone: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nova Senha (vazio = manter)</label>
-                <input type="password" value={editingUser.password || ''} onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Perfil</label>
-                <select value={editingUser.perfil} onChange={(e) => setEditingUser({ ...editingUser, perfil: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white">
-                  <option value="padrao">Padrão</option>
-                  <option value="admin">Administrador</option>
-                </select>
-              </div>
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-300">✍️ Assinatura do Consultor (aparece nos contratos)</label>
-                {editingUser.signatureImage ? (
-                  <img src={editingUser.signatureImage} alt="Assinatura do Consultor" className="mt-2 max-w-full h-24 border border-gray-600 rounded-md" />
-                ) : (
-                  <button onClick={() => { setSignatureFor('userProfile'); setShowSignaturePad(true); }} className="mt-2 px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">✍️ Desenhar</button>
-                )}
-                {editingUser.signatureImage && (
-                  <button onClick={() => setEditingUser({ ...editingUser, signatureImage: null })} className="ml-2 px-3 py-1 bg-red-600 rounded-lg hover:bg-red-700 transition-colors text-sm">🗑 Limpar</button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowEditUserModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={async () => {
-                const updatedUsers = cfg.users.map(u => u.id === editingUser.id ? editingUser : u);
-                await saveConfig({ users: updatedUsers });
-
-                // Atualizar senha no Supabase Auth se fornecida
-                if (editingUser.password) {
-                  const { error } = await supabase.auth.updateUser({ password: editingUser.password });
-                  if (error) {
-                    alert(`Erro ao atualizar senha: ${error.message}`);
-                  } else {
-                    alert('Senha atualizada com sucesso!');
-                  }
-                }
-                alert('Usuário atualizado com sucesso!');
-                setShowEditUserModal(false);
-              }} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Product Modal */}
-      {showAddProductModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📦 Novo Produto</h3>
-            <button onClick={() => setShowAddProductModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nome do Produto</label>
-                <input type="text" value={newProductData.name} onChange={(e) => setNewProductData({ ...newProductData, name: e.target.value, id: e.target.value.replace(/\s/g, '') })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">ID/Chave (automático)</label>
-                <input type="text" value={newProductData.id} disabled className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-gray-400" />
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={newProductData.noAdesao}
-                  onChange={(e) => setNewProductData({ ...newProductData, noAdesao: e.target.checked })}
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                />
-                <label className="ml-2 block text-sm text-gray-300">Sem adesão (módulo como CND)</label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={newProductData.basicProTopOnly}
-                  onChange={(e) => setNewProductData({ ...newProductData, basicProTopOnly: e.target.checked })}
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                />
-                <label className="ml-2 block text-sm text-gray-300">Apenas planos Basic/Pro/Top (como IF/EP)</label>
-              </div>
-              <h4 className="font-semibold mt-4 mb-2">PREÇOS POR PLANO (Adesão | Mensalidade)</h4>
-              {cfg.plans.map(plan => (
-                <div key={plan.id} className="flex items-center space-x-2">
-                  <label className="w-24 text-sm text-gray-300">{plan.name}</label>
-                  <input
-                    type="number"
-                    placeholder="Adesão"
-                    value={newProductData.prices[plan.id]?.[0] || ''}
-                    onChange={(e) => setNewProductData(prev => ({
-                      ...prev,
-                      prices: {
-                        ...prev.prices,
-                        [plan.id]: [parseFloat(e.target.value || 0), prev.prices[plan.id]?.[1] || 0]
-                      }
-                    }))}
-                    disabled={newProductData.noAdesao}
-                    className="flex-1 p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Mensalidade"
-                    value={newProductData.prices[plan.id]?.[1] || ''}
-                    onChange={(e) => setNewProductData(prev => ({
-                      ...prev,
-                      prices: {
-                        ...prev.prices,
-                        [plan.id]: [prev.prices[plan.id]?.[0] || 0, parseFloat(e.target.value || 0)]
-                      }
-                    }))}
-                    className="flex-1 p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowAddProductModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={() => {
-                if (!newProductData.name || !newProductData.id) {
-                  alert('Nome e ID do produto são obrigatórios.');
-                  return;
-                }
-                if (cfg.productNames[newProductData.id]) {
-                  alert('Já existe um produto com este ID/Chave.');
-                  return;
-                }
-                const updatedProductNames = { ...cfg.productNames, [newProductData.id]: newProductData.name };
-                const updatedPrices = { ...cfg.prices, [newProductData.id]: newProductData.prices };
-                saveConfig({ productNames: updatedProductNames, prices: updatedPrices });
-                setShowAddProductModal(false);
-              }} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Adicionar Produto</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Product Modal */}
-      {showEditProductModal && editingProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">✏️ Editar Produto: {editingProduct.name}</h3>
-            <button onClick={() => setShowEditProductModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nome do Produto</label>
-                <input type="text" value={editingProduct.name} onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">ID/Chave</label>
-                <input type="text" value={editingProduct.id} disabled className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-gray-400" />
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={editingProduct.noAdesao}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, noAdesao: e.target.checked })}
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                />
-                <label className="ml-2 block text-sm text-gray-300">Sem adesão (módulo como CND)</label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={editingProduct.basicProTopOnly}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, basicProTopOnly: e.target.checked })}
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                />
-                <label className="ml-2 block text-sm text-gray-300">Apenas planos Basic/Pro/Top (como IF/EP)</label>
-              </div>
-              <h4 className="font-semibold mt-4 mb-2">PREÇOS POR PLANO (Adesão | Mensalidade)</h4>
-              {cfg.plans.map(plan => (
-                <div key={plan.id} className="flex items-center space-x-2">
-                  <label className="w-24 text-sm text-gray-300">{plan.name}</label>
-                  <input
-                    type="number"
-                    placeholder="Adesão"
-                    value={editingProduct.prices[plan.id]?.[0] || ''}
-                    onChange={(e) => setEditingProduct(prev => ({
-                      ...prev,
-                      prices: {
-                        ...prev.prices,
-                        [plan.id]: [parseFloat(e.target.value || 0), prev.prices[plan.id]?.[1] || 0]
-                      }
-                    }))}
-                    disabled={editingProduct.noAdesao}
-                    className="flex-1 p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Mensalidade"
-                    value={editingProduct.prices[plan.id]?.[1] || ''}
-                    onChange={(e) => setEditingProduct(prev => ({
-                      ...prev,
-                      prices: {
-                        ...prev.prices,
-                        [plan.id]: [prev.prices[plan.id]?.[0] || 0, parseFloat(e.target.value || 0)]
-                      }
-                    }))}
-                    className="flex-1 p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowEditProductModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={() => {
-                const updatedProductNames = { ...cfg.productNames, [editingProduct.id]: editingProduct.name };
-                const updatedPrices = { ...cfg.prices, [editingProduct.id]: editingProduct.prices };
-                saveConfig({ productNames: updatedProductNames, prices: updatedPrices });
-                setShowEditProductModal(false);
-              }} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Salvar Produto</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Plan Modal */}
-      {showAddPlanModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">➕ Novo Plano</h3>
-            <button onClick={() => setShowAddPlanModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Nome do Plano</label>
-                <input
-                  type="text"
-                  value={newPlanData.name}
-                  onChange={(e) => setNewPlanData({ ...newPlanData, name: e.target.value, id: e.target.value.toLowerCase().replace(/\s/g, '') })}
-                  className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">ID/Chave (automático)</label>
-                <input
-                  type="text"
-                  value={newPlanData.id}
-                  disabled
-                  className="mt-1 block w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-gray-400"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Máximo de CNPJs</label>
-                <input
-                  type="number"
-                  value={newPlanData.maxCnpjs}
-                  onChange={(e) => setNewPlanData({ ...newPlanData, maxCnpjs: parseInt(e.target.value) })}
-                  className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                />
-              </div>
-              {!newPlanData.unlimitedUsers && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">Número de Usuários</label>
-                  <input
-                    type="number"
-                    value={newPlanData.users}
-                    onChange={(e) => setNewPlanData({ ...newPlanData, users: parseInt(e.target.value) })}
-                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-              )}
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={newPlanData.unlimitedUsers}
-                  onChange={(e) => setNewPlanData({ ...newPlanData, unlimitedUsers: e.target.checked })}
-                  className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                />
-                <label className="ml-2 block text-sm text-gray-300">Usuários Ilimitados?</label>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowAddPlanModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={() => {
-                if (!newPlanData.name || !newPlanData.id || newPlanData.maxCnpjs <= 0) {
-                  alert('Nome, ID e Máximo de CNPJs (maior que 0) são obrigatórios.');
-                  return;
-                }
-                if (cfg.plans.some(p => p.id === newPlanData.id)) {
-                  alert('Já existe um plano com este ID/Chave.');
-                  return;
-                }
-                saveConfig({ plans: [...cfg.plans, newPlanData] });
-                setShowAddPlanModal(false);
-              }} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">✅ Adicionar Plano</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Voucher Modal */}
-      {showVoucherModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">🎫 Gerar Novo Voucher</h3>
-            <button onClick={() => setShowVoucherModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Prefixo do Código (opcional)</label>
-                <input type="text" value={newVoucherData.prefix} onChange={(e) => setNewVoucherData({ ...newVoucherData, prefix: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">% Adesão</label>
-                <input type="number" value={newVoucherData.discAdPct} onChange={(e) => setNewVoucherData({ ...newVoucherData, discAdPct: parseInt(e.target.value) })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">% Mensalidade</label>
-                <input type="number" value={newVoucherData.discMenPct} onChange={(e) => setNewVoucherData({ ...newVoucherData, discMenPct: parseInt(e.target.value) })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300">Expira em (opcional)</label>
-                <input type="date" value={newVoucherData.expiresAt} onChange={(e) => setNewVoucherData({ ...newVoucherData, expiresAt: e.target.value })} className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white" />
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-4 mt-6">
-              <button onClick={() => setShowVoucherModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-              <button onClick={() => {
-                const code = (newVoucherData.prefix || 'VIVANEXA') + Math.random().toString(36).substring(2, 8).toUpperCase();
-                saveConfig({ vouchers: [...cfg.vouchers, { ...newVoucherData, code }] });
-                setShowVoucherModal(false);
-              }} className="px-6 py-2 bg-green-600 rounded-lg hover:bg-green-700 transition-colors">🎫 Gerar Voucher</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Admin Panel Modal */}
-      {showAdminPanel && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-md relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">👑 Painel Master</h3>
-            <button onClick={() => setShowAdminPanel(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-
-            {!adminPassword ? (
-              <div className="space-y-4">
-                <p className="text-center text-gray-300">Acesso Master - Área restrita ao administrador do sistema</p>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300">SENHA</label>
-                  <input
-                    type="password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    className="mt-1 block w-full p-2 bg-gray-900 border border-gray-600 rounded-md text-white"
-                  />
-                </div>
-                {adminError && <p className="text-red-500 text-sm text-center">{adminError}</p>}
-                <div className="flex justify-end space-x-4 mt-6">
-                  <button onClick={() => setShowAdminPanel(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Cancelar</button>
-                  <button onClick={async () => {
-                    if (adminPassword === process.env.NEXT_PUBLIC_ADMIN_PASSWORD) { // Use uma variável de ambiente para a senha
-                      setAdminPassword('logged_in'); // Sinaliza que está logado
-                      setAdminError('');
-                    } else {
-                      setAdminError('Senha incorreta.');
-                    }
-                  }} className="px-6 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">🔐 Entrar no Painel Master</button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <h4 className="font-semibold mb-3">⚠️ Área Administrativa — Limpeza de Dados</h4>
-                <button onClick={() => { if (confirm('Tem certeza que deseja zerar o histórico de contratos e propostas? Esta ação é irreversível.')) saveConfig({ docHistory: [] }); }} className="w-full px-4 py-2 bg-red-700 rounded-lg hover:bg-red-800 transition-colors">🗑 Zerar histórico de contratos e propostas</button>
-                <button onClick={() => { if (confirm('Tem certeza que deseja zerar as metas de todos os usuários? Esta ação é irreversível.')) saveConfig({ goals: [] }); }} className="w-full px-4 py-2 bg-red-700 rounded-lg hover:bg-red-800 transition-colors">🎯 Zerar metas de todos os usuários</button>
-                <button onClick={() => { if (confirm('Tem certeza que deseja zerar o banco de clientes? Esta ação é irreversível.')) saveConfig({ clients: [] }); }} className="w-full px-4 py-2 bg-red-700 rounded-lg hover:bg-red-800 transition-colors">👥 Zerar banco de clientes</button>
-                <button onClick={() => { if (confirm('⚠️ ATENÇÃO: Esta ação apagará TODAS as configurações e dados (exceto usuários Supabase) e restaurará os padrões. Esta ação é IRREVERSÍVEL. Tem certeza?')) { saveConfig(DEFAULT_CFG); alert('Reset completo realizado.'); } }} className="w-full px-4 py-2 bg-red-900 rounded-lg hover:bg-red-950 transition-colors font-bold">⚠️ RESET COMPLETO — Apagar tudo e restaurar padrões (IRREVERSÍVEL)</button>
-                <div className="flex justify-end mt-6">
-                  <button onClick={() => { setShowAdminPanel(false); setAdminPassword(''); }} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Sair</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Reports Modal */}
-      {showReportsModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
-            <h3 className="text-2xl font-bold mb-6 text-center">📊 Relatórios</h3>
-            <button onClick={() => setShowReportsModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white text-2xl">✕</button>
-            <p>Conteúdo dos relatórios aqui. Em breve!</p>
-            <div className="flex justify-end mt-6">
-              <button onClick={() => setShowReportsModal(false)} className="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-700 transition-colors">Fechar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
-  )
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
+        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DO CONTRATANTE (CLIENTE)</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-client-name">${signedData?.signedBy || co.contato || cd.fantasia || cd.nome || 'Aguardando'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> <span id="manifest-client-cpf">${signedData?.signCPF || co.cpfContato || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-client-email">${signedData?.clientEmail || co.email || cd.email || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-client-date">${signedData?.signedAt || 'Aguardando assinatura'}</span></div>
+        <div style="font-size:11px;color:#6b7280;margin-top:6px;padding-top:6px;border-top:1px solid #d1fae5"><strong>Token:</strong> ${docId}</div>
+      </div>
+      <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
+        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DA CONTRATADA (CONSULTOR)</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-consult-name">${signedData?.consultantSignedBy || user?.nome || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-consult-date">${signedData?.consultantSignedAt || 'Aguardando assinatura'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> ${signedData?.consultantEmail || user?.email || '—'}</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;font-size:11px;color:#6b7280;line-height:1.6">
+      Assinaturas eletrônicas simples conforme <strong>Lei nº 14.063/2020</strong> e MP 2.200-2/2001.<br>
+      Documento: <strong>doc_${docId}</strong> · Verificação: <a href="https://assinatura.iti.gov.br" style="color:#10b981">assinatura.iti.gov.br</a>
+    </div>
+  </div>`
+
+  // Se tiver template personalizado, substituir variáveis e adicionar manifesto
+  let template = cfg.contratoTemplate || ''
+  if (template) {
+    const vars = {
+      '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
+      '{{razao}}': co.razao || cd.nome || '',
+      '{{cnpj}}': fmtDoc(S.doc || ''),
+      '{{contato}}': co.contato || '',
+      '{{email}}': co.email || cd.email || '',
+      '{{telefone}}': co.telefone || cd.telefone || '',
+      '{{endereco}}': endStr,
+      '{{regime}}': co.regime || '',
+      '{{plano}}': S.plan ? getPlanLabel(S.plan, cfg.plans) : '—',
+      '{{cnpjs_qty}}': S.cnpjs || '0',
+      '{{total_adesao}}': fmt(tAd),
+      '{{total_mensalidade}}': fmt(tMen),
+      '{{condicao_pagamento}}': payLabel,
+      '{{vencimento_adesao}}': dateAd || '—',
+      '{{vencimento_mensal}}': dateMen || '—',
+      '{{data_hora}}': now,
+      '{{data_hoje}}': today,
+      '{{consultor_nome}}': user?.nome || '',
+      '{{company}}': cfg.company || 'Vivanexa',
+      '{{logo}}': cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">` : '',
+      '{{produtos_tabela}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
+      '{{produtos_lista}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
+      '{{nome_financeiro}}': co.rfinNome || '',
+      '{{email_financeiro}}': co.rfinEmail || '',
+      '{{telefone_financeiro}}': co.rfinTel || '',
+      '{{nome_implementacao}}': co.rimpNome || '',
+      '{{email_implementacao}}': co.rimpEmail || '',
+      '{{telefone_implementacao}}': co.rimpTel || '',
+    }
+    for (const [k, v] of Object.entries(vars)) {
+      template = template.replace(new RegExp(k, 'g'), v)
+    }
+    // Se o manifesto não estiver no template, adiciona no final
+    if (!template.includes('MANIFESTO DE ASSINATURAS')) {
+      template += manifesto
+    }
+    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">${template}</div>`
+  }
+
+  // Template padrão (usado se nenhum template foi carregado)
+  return `
+  <div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
+    <div style="background:linear-gradient(135deg,#0f172a,#1e293b);padding:28px 44px;display:flex;align-items:center;gap:20px">
+      ${cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain">` : '<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">' + cfg.company + '</div>'}
+      <div>
+        <h1 style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">Termo de Pedido e Registro de Software</h1>
+        <p style="font-size:12px;color:#64748b">Seja bem-vindo ao ${cfg.company || 'Vivanexa'}, é um prazer tê-lo como cliente.</p>
+      </div>
+    </div>
+    <div style="padding:28px 44px">
+      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px 20px;margin-bottom:20px;border-left:4px solid #00d4ff">
+        <p style="font-size:13px;color:#0c4a6e;margin-bottom:6px">Segue abaixo os termos do pedido registrado com nosso time de vendas.</p>
+        <p style="font-size:13px;color:#0c4a6e">Confira os dados com atenção e caso esteja tudo correto, basta <strong>ASSINAR</strong> para darmos seguimento ao treinamento e implantação.</p>
+      </div>
+
+      ${sec('1', 'CONTRATADA')}
+      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
+        ${row('Nome', cfg.company || 'VIVANEXA')}
+        ${row('E-mail', cfg.emailEmpresa || 'contato@vivanexa.com.br')}
+        ${row('Responsável', user?.nome || '—')}
+      </div>
+
+      ${sec('2', 'CONTRATANTE')}
+      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
+        ${row('Razão Social', co.razao || cd.nome || '')}
+        ${row('CNPJ', fmtDoc(S.doc || ''))}
+        ${row('Endereço', endStr || '—')}
+        ${row('E-mail', co.email || cd.email || '—')}
+        ${row('Fone', co.telefone || cd.telefone || '—')}
+        ${row('Contratante', co.contato || '—')}
+        ${row('CPF', co.cpfContato || '—')}
+        ${row('Regime Tributário', co.regime || '—')}
+      </div>
+
+      ${sec('3', 'RESPONSÁVEL PELA IMPLEMENTAÇÃO')}
+      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
+        ${row('Nome', co.rimpNome || '—')}
+        ${row('E-mail', co.rimpEmail || '—')}
+        ${row('Telefone', co.rimpTel || '—')}
+      </div>
+
+      ${sec('4', 'RESPONSÁVEL PELO FINANCEIRO')}
+      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
+        ${row('Nome', co.rfinNome || '—')}
+        ${row('E-mail', co.rfinEmail || '—')}
+        ${row('Telefone', co.rfinTel || '—')}
+      </div>
+
+      ${sec('5', 'PLANO CONTRATADO E VALORES')}
+      ${row('Validade', '12 meses')}
+      <div style="margin:16px 0">
+        ${produtosVertical}
+      </div>
+      <div style="background:#f8fafc;border-radius:8px;padding:12px 16px;margin-bottom:16px">
+        ${row('Forma de Pagamento', payLabel)}
+        ${tAd > 0 ? row('Vencimento Adesão', dateAd || '—') : ''}
+        ${row('Vencimento 1ª Mensalidade', dateMen || '—')}
+        <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #e2e8f0;margin-top:8px">
+          <span style="font-weight:600">Total Adesão</span>
+          <span style="font-weight:700">${fmt(tAd)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="font-weight:600">Total Mensalidade</span>
+          <span style="font-weight:700;color:#00d4ff">${fmt(tMen)}</span>
+        </div>
+      </div>
+
+      <p style="font-size:12px;color:#475569;margin:8px 0">Nossa equipe entrará em contato <strong>em até 72 horas</strong> após a assinatura. Atendimento: 9h às 18h (Brasília).</p>
+
+      <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:12px;color:#78350f">
+        Dando o aceite, você concorda com os Termos e Condições de Uso e Política de Privacidade em <strong>www.vivanexa.com.br/termos</strong>.
+      </div>
+
+      <div style="border-top:2px solid #e2e8f0;padding-top:24px;margin-top:24px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px">
+          <div style="text-align:center">
+            <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
+            <div style="font-weight:600;font-size:13px">${cfg.company || 'Vivanexa'}</div>
+            <div style="font-size:11px;color:#64748b">CONTRATADA</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade || cd.municipio || ''} · ${today}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
+            <div style="font-weight:600;font-size:13px">${co.razao || cd.nome || 'Cliente'}</div>
+            <div style="font-size:11px;color:#64748b">CONTRATANTE</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade || cd.municipio || ''} · ${today}</div>
+          </div>
+        </div>
+      </div>
+
+      ${manifesto}
+    </div>
+  </div>`
 }
+
+// ══════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ══════════════════════════════════════════════════════════════
+export default function Chat(){
+  const router   = useRouter()
+  const msgRef   = useRef(null)
+  const [userProfile,   setUserProfile]   = useState(null)
+  const [cfg,           setCfg]           = useState(DEFAULT_CFG)
+  const cfgRef = useRef(DEFAULT_CFG)
+  const [empresaId,     setEmpresaId]     = useState(null)
+  const [messages,      setMessages]      = useState([])
+  const [input,         setInput]         = useState('')
+  const [thinking,      setThinking]      = useState(false)
+  const [timerVal,      setTimerVal]      = useState('')
+  const [timerDeadline, setTimerDeadline] = useState(null)
+
+  // Módulos chips selecionados
+  const [selectedMods,  setSelectedMods]  = useState([])
+  const [awaitingMods,  setAwaitingMods]  = useState(false)
+
+  // Painéis overlay
+  const [painel,      setPainel]      = useState(null)
+  const [histDocs,    setHistDocs]    = useState([])
+  const [histLoading, setHistLoading] = useState(false)
+
+  // Modal cliente
+  const [showClient, setShowClient] = useState(false)
+  const [clientMode, setClientMode] = useState('proposta')
+  const emptyForm={empresa:'',razao:'',contato:'',email:'',telefone:'',cep:'',logradouro:'',bairro:'',cidade:'',uf:'',cpfContato:'',regime:'',rimpNome:'',rimpEmail:'',rimpTel:'',rfinNome:'',rfinEmail:'',rfinTel:''}
+  const [cf,          setCf]          = useState(emptyForm)
+  const [buscandoCep, setBuscandoCep] = useState(false)
+
+  // Wizard contrato
+  const [showWiz,  setShowWiz]  = useState(false)
+  const [wizStep,  setWizStep]  = useState(1)
+  const [wizPay,   setWizPay]   = useState('')
+  const [wizAd,    setWizAd]    = useState('')
+  const [wizMen,   setWizMen]   = useState('')
+  const [wizTAd,   setWizTAd]   = useState(0)
+  const [wizTMen,  setWizTMen]  = useState(0)
+
+  // Modal envio assinatura
+  const [showSign,       setShowSign]       = useState(false)
+  const [signDoc,        setSignDoc]        = useState(null)
+  const [signEmailInput, setSignEmailInput] = useState('')
+
+  // Modal formulário assinatura
+  const [showSignForm, setShowSignForm] = useState(false)
+  const [signFormSide, setSignFormSide] = useState('client')
+  const [signFormDoc,  setSignFormDoc]  = useState(null)
+  const [sfNome,       setSfNome]       = useState('')
+  const [sfCpf,        setSfCpf]        = useState('')
+  const [sfEmail,      setSfEmail]      = useState('')
+  const [sfAgreed,     setSfAgreed]     = useState(false)
+  const [sfSaving,     setSfSaving]     = useState(false)
+  const [sfErro,       setSfErro]       = useState('')
+
+  // Ver documento
+  const [showDocView,    setShowDocView]    = useState(false)
+  const [docViewHtml,    setDocViewHtml]    = useState('')
+  const [docViewTitle,   setDocViewTitle]   = useState('')
+  const [docViewLoading, setDocViewLoading] = useState(false)
+
+  const S = useRef({
+    stage:'await_doc',doc:null,clientData:null,contactData:{},
+    users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,
+    quoteData:null,closingData:null,closingToday:false,
+    appliedVoucher:null,awaitingVoucher:false
+  }).current
+
+  // ── Auth ──────────────────────────────────────
+  useEffect(()=>{
+    supabase.auth.getSession().then(async({data:{session}})=>{
+      if(!session){router.replace('/');return}
+      const{data:profile}=await supabase.from('perfis').select('*').eq('id',session.user.id).single()
+      const nome=profile?.nome||session.user.email?.split('@')[0]||'Consultor'
+      const up={...session.user,nome,perfil:profile}
+      setUserProfile(up)
+      const eid=profile?.empresa_id||session.user.id
+      setEmpresaId(eid)
+      await loadCfg(eid)
+    })
+    const{data:l}=supabase.auth.onAuthStateChange((_e,s)=>{if(!s)router.replace('/')})
+    return()=>l.subscription.unsubscribe()
+  },[router])
+
+  useEffect(()=>{
+    if(!userProfile)return
+    const c=cfgRef.current
+    setTimeout(()=>addBot(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da ${c.company||'Vivanexa'}.\nPara começar, informe o **CPF ou CNPJ** do cliente:`),300)
+  },[userProfile])
+
+  // Timer
+  useEffect(()=>{
+    if(!timerDeadline){setTimerVal('');return}
+    const iv=setInterval(()=>{
+      const diff=timerDeadline-new Date()
+      if(diff<=0){setTimerVal('EXPIRADO');setTimerDeadline(null);clearInterval(iv);return}
+      const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
+      setTimerVal(`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`)
+    },1000)
+    return()=>clearInterval(iv)
+  },[timerDeadline])
+
+  useEffect(()=>{if(msgRef.current)msgRef.current.scrollTop=msgRef.current.scrollHeight},[messages,thinking])
+
+  async function loadCfg(eid){
+    try{
+      const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).single()
+      if(row?.value){
+        const saved=JSON.parse(row.value)
+        const merged={...DEFAULT_CFG,...saved,plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices}
+        cfgRef.current=merged
+        setCfg(merged)
+      }
+    }catch{}
+  }
+
+  // ── Salvar doc + cliente (com validação de duplicatas) ──────────
+  async function saveToHistory(type,clientName,html,extra={}){
+    const id='doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)
+    const token=extra.token||generateToken()
+    const _now=new Date()
+    const entry={id,type,clientName,
+      cliente:extra.clientName||(S?.contactData?.razao||S?.clientData?.nome||clientName||''),
+      date:_now.toLocaleString('pt-BR'),dateISO:_now.toISOString(),criado:_now.toISOString(),
+      status:'draft',signToken:token,signedAt:null,signedBy:null,signCPF:null,signIP:null,
+      consultantSignedAt:null,consultantSignedBy:null,
+      adesao:extra.tAd||0,mensalidade:extra.tMen||0,
+      userId:userProfile?.id||'',
+      consultor:userProfile?.nome||'',consultorEmail:userProfile?.email||'',empresaId:empresaId||'',...extra}
+    try{await supabase.from('vx_storage').upsert({key:`doc:${token}`,value:JSON.stringify({...entry,html}),updated_at:new Date().toISOString()})}catch(e){console.warn(e)}
+
+    // Salvar cliente com histórico de documentos e evitar duplicatas
+    const c=cfgRef.current
+    const docSnap=S.doc||''
+    if(docSnap){
+      const clients=c.clients||[]
+      const co=S.contactData||{},cd=S.clientData||{}
+      const novoCliente = {
+        doc:docSnap,
+        nome:co.razao||co.empresa||cd.nome||cd.fantasia||clientName,
+        fantasia:co.empresa||cd.fantasia||'',
+        email:co.email||cd.email||'',
+        telefone:co.telefone||cd.telefone||'',
+        cidade:co.cidade||cd.municipio||'',
+        uf:co.uf||cd.uf||'',
+        ultimoContato:new Date().toISOString(),
+        documentos:[{id,type,date:entry.date,status:'draft',token}]
+      }
+      // Verificar se já existe cliente com mesmo CNPJ/CPF ou e-mail
+      const existe = clients.some(cl => cl.doc === docSnap || (cl.email && cl.email === novoCliente.email))
+      if(!existe){
+        clients.push(novoCliente)
+      } else {
+        // Atualiza o cliente existente
+        const idx = clients.findIndex(cl => cl.doc === docSnap || (cl.email && cl.email === novoCliente.email))
+        if(idx !== -1){
+          if(!clients[idx].documentos) clients[idx].documentos = []
+          clients[idx].documentos.push({id,type,date:entry.date,status:'draft',token})
+          clients[idx].ultimoContato = new Date().toISOString()
+          clients[idx].nome = novoCliente.nome
+          clients[idx].fantasia = novoCliente.fantasia
+          clients[idx].email = novoCliente.email
+          clients[idx].telefone = novoCliente.telefone
+          clients[idx].cidade = novoCliente.cidade
+        }
+      }
+    }
+
+    // Atualiza cfg
+    try{
+      const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
+      const cfgData=cfgRow?.value?JSON.parse(cfgRow.value):{...c}
+      if(!cfgData.docHistory)cfgData.docHistory=[]
+      cfgData.docHistory.unshift(entry)
+      if(cfgData.docHistory.length>200)cfgData.docHistory=cfgData.docHistory.slice(0,200)
+      if(!cfgData.clients)cfgData.clients=[]
+      const docSnap2=S.doc||''
+      if(docSnap2){
+        const co=S.contactData||{},cd=S.clientData||{}
+        const novoCliente = {
+          doc:docSnap2,
+          nome:co.razao||co.empresa||cd.nome||cd.fantasia||clientName,
+          fantasia:co.empresa||cd.fantasia||'',
+          email:co.email||cd.email||'',
+          telefone:co.telefone||cd.telefone||'',
+          cidade:co.cidade||cd.municipio||'',
+          uf:co.uf||cd.uf||'',
+          ultimoContato:new Date().toISOString(),
+          documentos:[{id,type,date:entry.date,status:'draft',token}]
+        }
+        const existe = cfgData.clients.some(cl => cl.doc === docSnap2 || (cl.email && cl.email === novoCliente.email))
+        if(!existe){
+          cfgData.clients.push(novoCliente)
+        } else {
+          const idx = cfgData.clients.findIndex(cl => cl.doc === docSnap2 || (cl.email && cl.email === novoCliente.email))
+          if(idx !== -1){
+            if(!cfgData.clients[idx].documentos) cfgData.clients[idx].documentos = []
+            cfgData.clients[idx].documentos.push({id,type,date:entry.date,status:'draft',token})
+            cfgData.clients[idx].ultimoContato = new Date().toISOString()
+            cfgData.clients[idx].nome = novoCliente.nome
+            cfgData.clients[idx].fantasia = novoCliente.fantasia
+            cfgData.clients[idx].email = novoCliente.email
+            cfgData.clients[idx].telefone = novoCliente.telefone
+            cfgData.clients[idx].cidade = novoCliente.cidade
+          }
+        }
+      }
+      await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(cfgData),updated_at:new Date().toISOString()})
+      cfgRef.current=cfgData;setCfg(cfgData)
+    }catch(e){console.warn(e)}
+    return{id,token,html,type,clientName,...entry}
+  }
+
+  const addBot  =(c,h=false)=>setMessages(p=>[...p,{role:'bot',content:c,isHTML:h,id:Date.now()+Math.random()}])
+  const addUser =c           =>setMessages(p=>[...p,{role:'user',content:c,isHTML:false,id:Date.now()+Math.random()}])
+
+  const resetS=()=>{
+    Object.assign(S,{stage:'await_doc',doc:null,clientData:null,contactData:{},users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,quoteData:null,closingData:null,closingToday:false,appliedVoucher:null,awaitingVoucher:false})
+    setTimerDeadline(null);setTimerVal('');setSelectedMods([]);setAwaitingMods(false)
+    setMessages([]) // LIMPAR TELA
+  }
+
+  async function buscarCep(cep){
+    setBuscandoCep(true);const d=await fetchCEP(cep);setBuscandoCep(false)
+    if(d)setCf(f=>({...f,logradouro:d.logradouro||f.logradouro,bairro:d.bairro||f.bairro,cidade:d.municipio||f.cidade,uf:d.uf||f.uf}))
+  }
+
+  // ── Histórico ─────────────────────────────────
+  async function carregarHistorico(){
+    setHistLoading(true)
+    try{
+      const hist=(cfgRef.current.docHistory||[])
+      const enriched=await Promise.all(hist.slice(0,50).map(async h=>{
+        try{const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${h.signToken}`).single()
+          if(r?.value){const d=JSON.parse(r.value);return{...h,...d,html:d.html}}}catch{}
+        return h
+      }))
+      setHistDocs(enriched)
+    }catch{}
+    setHistLoading(false)
+  }
+
+  async function verDocumento(h){
+    setDocViewTitle((h.type==='contrato'?'📝 Contrato':'📄 Proposta')+' — '+h.clientName)
+    setDocViewHtml('');setShowDocView(true);setDocViewLoading(true)
+    try{
+      const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${h.signToken}`).single()
+      if(r?.value){const d=JSON.parse(r.value);setDocViewHtml(d.html||'<p>Sem conteúdo HTML.</p>')}
+      else setDocViewHtml('<p style="color:#64748b">Documento não encontrado.</p>')
+    }catch{setDocViewHtml('<p style="color:#ef4444">Erro ao carregar.</p>')}
+    setDocViewLoading(false)
+  }
+
+  function buildSignUrl(doc){
+    const base=typeof window!=='undefined'?(cfgRef.current.signConfig?.url||window.location.origin):'https://vivanexa-saas.vercel.app'
+    return`${base}/sign/${doc.signToken}`
+  }
+
+  function enviarWhatsApp(doc){
+    const url=buildSignUrl(doc),tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
+    const msg=encodeURIComponent(`Olá! Segue o link para assinatura eletrônica do ${tipo} – ${cfgRef.current.company||'Vivanexa'}:\n\n${url}`)
+    const wpp=(cfgRef.current.signConfig?.wpp||'').replace(/\D/g,'')
+    window.open(wpp?`https://wa.me/${wpp}?text=${msg}`:`https://wa.me/?text=${msg}`,'_blank')
+    marcarEnviado(doc)
+  }
+  function enviarEmail(doc){
+    const url=buildSignUrl(doc),tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
+    const subj=encodeURIComponent(`${tipo} – ${cfgRef.current.company||'Vivanexa'} – Aguardando sua assinatura`)
+    const body=encodeURIComponent(`Olá!\n\nLink para assinatura:\n\n${url}\n\n${cfgRef.current.company||'Vivanexa'}`)
+    window.open(`mailto:${signEmailInput||doc.clientEmail||''}?subject=${subj}&body=${body}`,'_blank')
+    marcarEnviado(doc)
+  }
+  async function marcarEnviado(doc){
+    try{const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${doc.signToken}`).single()
+      if(r?.value){const d=JSON.parse(r.value);if(d.status==='draft')d.status='sent';await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify(d),updated_at:new Date().toISOString()})}}catch{}
+  }
+
+  function abrirSignForm(doc,side){
+    setSignFormDoc(doc);setSignFormSide(side)
+    if(side==='consultant'){setSfNome(userProfile?.nome||'');setSfCpf('');setSfEmail(userProfile?.email||'')}
+    else{setSfNome(doc.clientName||'');setSfCpf('');setSfEmail(doc.clientEmail||'')}
+    setSfAgreed(false);setSfErro('');setShowSignForm(true)
+  }
+
+  async function confirmarSignForm(){
+    if(!sfNome.trim()){setSfErro('Informe o nome.');return}
+    if(!sfCpf.trim()){setSfErro('Informe o CPF.');return}
+    if(!sfEmail.trim()){setSfErro('Informe o e-mail.');return}
+    if(!sfAgreed){setSfErro('Aceite os termos.');return}
+    setSfSaving(true);setSfErro('')
+    try{
+      const now=new Date(),nowStr=now.toLocaleString('pt-BR')
+      const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${signFormDoc.signToken}`).single()
+      const docData=r?.value?JSON.parse(r.value):{...signFormDoc}
+      if(signFormSide==='consultant'){
+        docData.consultantSignedAt=nowStr;docData.consultantSignedBy=sfNome.trim()
+        docData.consultantCPF=sfCpf.trim();docData.consultantEmail=sfEmail.trim()
+      }else{
+        docData.signedAt=nowStr;docData.signedBy=sfNome.trim()
+        docData.signCPF=sfCpf.trim();docData.signEmail=sfEmail.trim()
+        docData.signIP='(web)';docData.clientEmail=sfEmail.trim()
+      }
+      const bothSigned=!!(docData.signedAt&&docData.consultantSignedAt)
+      docData.status=bothSigned?'signed':docData.signedAt?'pending':'sent'
+      await supabase.from('vx_storage').upsert({key:`doc:${signFormDoc.signToken}`,value:JSON.stringify(docData),updated_at:now.toISOString()})
+
+      const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
+      if(cfgRow?.value){
+        const c=JSON.parse(cfgRow.value)
+        if(c.docHistory){c.docHistory=c.docHistory.map(h=>h.signToken===signFormDoc.signToken?{...h,...docData,html:undefined}:h)}
+        await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(c),updated_at:now.toISOString()})
+        cfgRef.current=c;setCfg(c)
+      }
+      setShowSignForm(false)
+      if(painel==='assinaturas'||painel==='historico')await carregarHistorico()
+      if(bothSigned){
+        const tipo=docData.type==='proposta'?'Proposta Comercial':'Contrato'
+        const url=buildSignUrl(docData)
+        const clientE=docData.clientEmail||docData.signEmail||''
+        const consultorE=docData.consultorEmail||docData.consultantEmail||userProfile?.email||''
+        const dest=[clientE,consultorE].filter(Boolean)
+        if(dest.length>0){
+          const htmlEmail=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#0f172a;padding:24px;text-align:center"><h1 style="color:#00d4ff;font-size:20px;margin:0">${cfgRef.current.company||'Vivanexa'}</h1></div><div style="padding:24px;background:#f8fafc"><h2 style="color:#065f46">✅ ${tipo} Assinado por Ambas as Partes</h2><p>O documento foi assinado com sucesso.</p><table style="width:100%;border-collapse:collapse;margin:16px 0"><tr style="background:#e2e8f0"><th style="padding:8px;text-align:left">Parte</th><th style="padding:8px;text-align:left">Nome</th><th style="padding:8px;text-align:left">Data/Hora</th></tr><tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">Cliente (Contratante)</td><td style="padding:8px;border-bottom:1px solid #e2e8f0">${docData.signedBy||'—'}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0">${docData.signedAt||'—'}</td></tr><tr><td style="padding:8px">Consultor (Contratada)</td><td style="padding:8px">${docData.consultantSignedBy||'—'}</td><td style="padding:8px">${docData.consultantSignedAt||'—'}</td></tr></table><p><a href="${url}" style="display:inline-block;background:#00d4ff;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Visualizar Documento Assinado</a></p></div></div>`
+          try{
+            await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({to:dest.join(','),subject:`✅ ${tipo} – ${cfgRef.current.company||'Vivanexa'} – Assinado`,html:htmlEmail,
+                config:{smtpHost:cfgRef.current.smtpHost||'',smtpPort:Number(cfgRef.current.smtpPort||587),smtpUser:cfgRef.current.smtpUser||'',smtpPass:cfgRef.current.smtpPass||''}})
+            })
+          }catch(emailErr){console.warn('Email send error:',emailErr)}
+          addBot(`✅ Contrato totalmente assinado! E-mail enviado para: ${dest.join(', ')}`)
+        } else {
+          addBot(`✅ Contrato totalmente assinado!`)
+        }
+      }else{
+        addBot(signFormSide==='consultant'?`✅ Assinatura do consultor registrada!`:`✅ Assinatura do cliente registrada!`)
+      }
+    }catch(e){console.error(e);setSfErro('Erro ao salvar. Tente novamente.')}
+    finally{setSfSaving(false)}
+  }
+
+  // ── Lógica chat ───────────────────────────────
+  async function processInput(t){
+    const c=cfgRef.current
+    const lo=t.toLowerCase()
+    if(S.stage==='closed')return null
+    if(['valeu','obrigado','obrigada','tchau'].some(w=>lo.includes(w))&&S.stage!=='await_doc'){S.stage='closed';return{h:false,c:'Perfeito! Boas vendas! 🚀'}}
+
+    if(S.awaitingVoucher){
+      if(lo.includes('sem voucher')||lo.includes('pular')){S.awaitingVoucher=false;S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.stage='full_quoted';return{h:true,c:rFull(S.quoteData)}}
+      const code=t.trim().toUpperCase()
+      const voucher=(c.vouchers||[]).find(v=>v.codigo===code&&v.ativo!==false)
+      if(!voucher)return{h:false,c:`❌ Voucher **${code}** não encontrado.\n\n"sem voucher" para ver preço cheio:`}
+      S.appliedVoucher=voucher;S.awaitingVoucher=false;S.stage='discounted'
+      const discData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c,{discAdPct:voucher.pctAdesao,discMenPct:voucher.pctMensalidade})
+      S.quoteData=discData
+      const cn=S.clientData?.fantasia||S.clientData?.nome||fmtDoc(S.doc||'')
+      addUser(t);addBot(`✅ Voucher **${voucher.codigo}** aplicado!`)
+      setTimeout(()=>addBot(rDisc(discData,getNextDates(),cn),true),300);return null
+    }
+
+    if(S.stage==='await_doc'){
+      const doc=clean(t);if(!isCNPJ(doc)&&!isCPF(doc))return{h:false,c:'Por favor, informe o CPF ou CNPJ (somente números).'}
+      S.doc=doc
+      // Verificar se cliente já existe
+      const existing=(c.clients||[]).find(cl=>cl.doc===doc)
+      if(isCNPJ(doc)){setThinking(true);const cd=await fetchCNPJ(doc);setThinking(false)
+        if(cd){S.clientData=cd;S.stage='await_users'
+          const hist=existing?.documentos?.length?`\n\n📋 **${existing.documentos.length} documento(s)** gerado(s) anteriormente para este cliente.`:'';
+          return{h:true,c:rClientCard(cd)+`<div style="margin-top:10px;font-size:14px;color:var(--muted)">✅ Empresa encontrada!${hist}<br><br>Quantos <strong style="color:var(--text)">usuários</strong> o cliente possui?</div>`}}
+      }
+      S.clientData={nome:isCPF(doc)?'Cliente PF':'Empresa',fantasia:'',cnpj:doc,tipo:isCPF(doc)?'PF':'PJ'}
+      const hist=existing?.documentos?.length?`\n\n📋 **${existing.documentos.length} documento(s)** anteriores para este cliente.`:''
+      S.stage='await_users'
+      return{h:false,c:(isCNPJ(doc)?`⚠️ CNPJ ${fmtDoc(doc)} não localizado.\n`:'')+`Quantos usuários o cliente possui?${hist}`}
+    }
+    if(S.stage==='await_users'){const u=parseInt(t.match(/\d+/)?.[0]);if(!u||u<1)return{h:false,c:'Quantos usuários? (número)'};S.users=u;S.stage='await_modules'
+      if(c.modChips!==false){setAwaitingMods(true);return{h:false,c:`👥 ${u} usuário${u>1?'s':''}!\n\nSelecione os **módulos** desejados e clique em Confirmar:`}}
+      return{h:false,c:`👥 ${u} usuário${u>1?'s':''}!\n\nQuais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)`}}
+    if(S.stage==='await_if_plan'){const p=parseIFPlan(t,c.plans);if(!p)return{h:false,c:`Informe o plano IF:\n(${c.plans.map(x=>x.name).join(', ')})`};S.ifPlan=p;S.stage='await_modules';return checkCalc()}
+    if(S.stage==='await_notas'){const n=parseInt(t);if(!n||n<1)return{h:false,c:'Quantas notas fiscais por mês?'};S.notas=n;S.stage='await_modules';return checkCalc()}
+
+    const mods=parseMods(t,c);for(const m of mods)if(!S.modules.includes(m))S.modules.push(m)
+    const nCNPJ=S.modules.some(m=>!IF_NO_CNPJ.includes(m))
+    if(nCNPJ){const n=parseInt(t.match(/\b(\d+)\s*(cnpj[s]?)?\b/i)?.[1]);if(n&&!S.cnpjs)S.cnpjs=n}
+    return checkCalc()
+  }
+
+  function checkCalc(){
+    const c=cfgRef.current
+    if(S.modules.length===0)return{h:false,c:`Quais módulos? (Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)`}
+    if(S.modules.includes('EP')&&!S.modules.includes('Gestão Fiscal')){S.modules=S.modules.filter(m=>m!=='EP');return{h:false,c:`⚠️ EP exige Gestão Fiscal.`}}
+    if(S.modules.includes('IF')&&!S.ifPlan){S.stage='await_if_plan';return{h:false,c:`Qual o plano de IF?\n(${c.plans.map(p=>p.name).join(', ')})`}}
+    if(S.modules.includes('Tributos')&&!S.notas){S.stage='await_notas';return{h:false,c:'Quantas notas fiscais por mês?'}}
+    const nCNPJ=S.modules.some(m=>!IF_NO_CNPJ.includes(m))
+    if(nCNPJ&&!S.cnpjs)return{h:false,c:'Quantos CNPJs o cliente possui?'}
+    S.plan=nCNPJ?getPlan(S.cnpjs,c.plans):'basic'
+    if(c.discMode==='voucher'&&!S.appliedVoucher&&!S.awaitingVoucher){S.awaitingVoucher=true;return{h:false,c:`🎫 Modo voucher ativo.\n\nDigite o **código do voucher**:\n(ou "sem voucher" para ver preço cheio)`}}
+    S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.stage='full_quoted'
+    return{h:true,c:rFull(S.quoteData)}
+  }
+
+  // ── Confirmar módulos via chips ───────────────
+  function confirmarMods(){
+    if(selectedMods.length===0){addBot('Selecione pelo menos um módulo.');return}
+    setAwaitingMods(false)
+    S.modules=[...selectedMods]
+    setSelectedMods([])
+    addUser(selectedMods.join(' + '))
+    const res=checkCalc()
+    if(res){
+      if(res.h)addBot(res.c,true); else addBot(res.c)
+    }
+  }
+
+  async function send(text){
+    const txt=(text||input).trim();if(!txt)return
+    if(awaitingMods){
+      // Input de texto na área de módulos (ex: cnpjs)
+      setInput('')
+      addUser(txt)
+      setThinking(true)
+      const resp=await processInput(txt)
+      setThinking(false)
+      if(resp)addBot(resp.c,resp.h)
+      return
+    }
+    setInput('');addUser(txt)
+    setThinking(true);const resp=await processInput(txt);setThinking(false)
+    if(resp)addBot(resp.c,resp.h)
+  }
+
+  useEffect(()=>{
+    const dates=getNextDates()
+    window.vx_disc=(yes)=>{
+      const c=cfgRef.current
+      const cn=S.clientData?.fantasia||S.clientData?.nome||fmtDoc(S.doc||'')
+      if(yes){S.stage='discounted';S.quoteData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c,null);addUser('✅ Sim!');addBot(rDisc(S.quoteData,dates,cn),true)}
+      else{S.stage='closed';addUser('Não, obrigado');addBot('Sem problemas!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
+    }
+    window.vx_close=(yes)=>{
+      const c=cfgRef.current
+      if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.closingData=d;S.closingToday=true;S.stage='closing'
+        const h=c.closingHour||18;const dl=new Date();dl.setHours(h,0,0,0);setTimerDeadline(dl)
+        addUser('✅ Fechar hoje!');addBot(rClose(d),true)}
+      else{S.stage='discounted';addUser('Não por agora');addBot('Entendido!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
+    }
+    window.vx_reset=()=>{
+      resetS()
+      const c=cfgRef.current
+      setTimeout(()=>addBot(`🔄 Nova consulta!\n\nInforme o CPF ou CNPJ do próximo cliente:`),100)
+    }
+    window.vx_prop=()=>{
+      const cd=S.clientData||{},co=S.contactData||{}
+      setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
+      setClientMode('proposta');setShowClient(true)
+    }
+    window.vx_cont=()=>{
+      const cd=S.clientData||{},co=S.contactData||{}
+      setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
+      setClientMode('contrato');setShowClient(true)
+    }
+  },[cfg])
+
+  async function saveClient(){
+    S.contactData={...cf};setShowClient(false)
+    const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
+    if(clientMode==='proposta'){
+      const html=buildProposal(S,cfgRef.current,userProfile)
+      openPrint(html,'Proposta Comercial')
+      const doc=await saveToHistory('proposta',clientName,html,{tAd:S.quoteData?.tAdD||0,tMen:S.quoteData?.tMenD||0,clientEmail:cf.email,modulos:S.modules})
+      setSignDoc(doc);setSignEmailInput(cf.email||'')
+      setTimeout(()=>setShowSign(true),600)
+    }else{
+      const isC=S.closingToday===true
+      const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
+      const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
+      setWizTAd(tAd);setWizTMen(tMen);setWizStep(1);setWizPay('');setWizAd('');setWizMen('');setShowWiz(true)
+    }
+  }
+
+  function wizNext(){
+    if(wizStep===1){if(!wizPay){alert('Selecione a condição de pagamento.');return};setWizStep(2)}
+    else{
+      if(wizTAd>0&&!wizAd){alert('Selecione a data de vencimento da adesão.');return}
+      if(!wizMen){alert('Selecione a data da 1ª mensalidade.');return}
+      setShowWiz(false)
+      const token=generateToken()
+      const html=buildContract(S,cfgRef.current,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token)
+      openPrint(html,'Contrato')
+      const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
+      saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
+        setSignDoc(doc);setSignEmailInput(cf.email||'')
+        setTimeout(()=>setShowSign(true),600)
+      })
+    }
+  }
+
+  const wizDates=getNextDates()
+
+  // ── Render helpers ────────────────────────────
+  function rClientCard(cd){
+    const end=[cd.logradouro,cd.bairro,cd.municipio&&cd.uf?cd.municipio+' – '+cd.uf:cd.municipio||cd.uf].filter(Boolean).join(', ')
+    const cep=cd.cep?cd.cep.replace(/^(\d{5})(\d{3})$/,'$1-$2'):''
+    return`<div class="client-card"><div class="cl-name">${cd.fantasia||cd.nome||fmtDoc(cd.cnpj)}</div>
+      ${cd.nome&&cd.fantasia?`<div class="client-row"><span class="cl-label">Razão Social</span><span class="cl-val">${cd.nome}</span></div>`:''}
+      ${cd.cnpj?`<div class="client-row"><span class="cl-label">CNPJ</span><span class="cl-val">${fmtDoc(cd.cnpj)}</span></div>`:''}
+      ${end?`<div class="client-row"><span class="cl-label">Endereço</span><span class="cl-val">${end}</span></div>`:''}
+      ${cep?`<div class="client-row"><span class="cl-label">CEP</span><span class="cl-val">${cep}</span></div>`:''}
+      ${cd.telefone?`<div class="client-row"><span class="cl-label">Telefone</span><span class="cl-val">${cd.telefone}</span></div>`:''}
+      ${cd.email?`<div class="client-row"><span class="cl-label">E-mail</span><span class="cl-val">${cd.email}</span></div>`:''}
+    </div>`
+  }
+  function rFull(data){
+    const{results,tAd,tMen}=data;let h=''
+    for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}${r.isPrepaid?' <small style="font-size:11px;color:var(--warning)">(pré-pago)</small>':''}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div></div>`}
+    h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão total</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val">${fmt(tMen)}</span></div></div>`
+    h+=`<div class="teaser-card"><div class="teaser-title">🎫 Licenças com desconto disponíveis!</div><div class="teaser-body">Deseja ver os valores com desconto?</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_disc(true)">✅ Sim!</button><button class="yn-btn no" onclick="window.vx_disc(false)">Não, obrigado</button></div></div>`
+    h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${getNextDates().map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
+    return h
+  }
+  function rDisc(data,dates,cn){
+    const c=cfgRef.current
+    const{results,tAd,tMen,tAdD,tMenD}=data;let h=''
+    for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div><hr class="section-divider">${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(r.adD)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(r.menD)}</span></div></div>`}
+    h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(tMen)}</span></div><hr class="section-divider"><div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(tAdD)}</span></div><div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(tMenD)}</span></div>${c.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
+    const h2=c.closingHour||18
+    const textoExtra=c.closingText?`<div style="font-size:13px;color:var(--muted);margin-top:6px;font-style:italic">${c.closingText}</div>`:''
+    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${c.discClosePct||40}% OFF</strong> na adesão!<br>Oferta válida até as <strong style="color:var(--gold)">${h2}h de hoje</strong>.</div>${textoExtra}<div class="yn-row" style="margin-top:12px"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
+    h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
+    return h
+  }
+  function rClose(data){
+    const c=cfgRef.current
+    const{results,tAd,tMen}=data;let h=''
+    // Timer com texto configurável
+    const h2=c.closingHour||18
+    const textoTimer=c.closingText||`Oferta válida até as ${h2}h de hoje`
+    h+=`<div class="timer-block"><div class="timer-label">⏱ ${textoTimer}</div><div id="vx-timer" class="timer-live">--:--:--</div><div class="timer-sub">Após este horário retornam os valores com desconto padrão</div></div>`
+    for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão (fechamento)</span><span class="val closing">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val closing">${fmt(r.men)}</span></div></div>`}
+    h+=`<div class="price-card" style="border-color:rgba(251,191,36,.3)"><h4 style="color:var(--gold)">🔸 Total – Fechamento</h4><div class="price-row"><span class="label">Adesão total</span><span class="val closing">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val closing">${fmt(tMen)}</span></div>${c.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
+    h+=`<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+      <button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button>
+      <button class="prop-btn" style="background:linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08));border-color:rgba(251,191,36,.4);color:var(--gold)" onclick="window.vx_cont()">📝 Gerar Contrato</button>
+      <button class="reset-btn" onclick="window.vx_reset()">🔄 Encerrar e iniciar nova consulta</button>
+    </div>`
+    return h
+  }
+
+  function statusBadge(h){
+    if(h.status==='signed')  return{txt:'✅ Assinado',       cor:'var(--accent3)',bg:'rgba(16,185,129,.12)', border:'rgba(16,185,129,.25)'}
+    if(h.status==='pending') return{txt:'⏳ Aguardando',     cor:'var(--warning)', bg:'rgba(251,191,36,.1)',  border:'rgba(251,191,36,.25)'}
+    if(h.status==='sent')    return{txt:'📤 Enviado',         cor:'var(--accent)',  bg:'rgba(0,212,255,.1)',   border:'rgba(0,212,255,.25)'}
+    return                         {txt:'📝 Rascunho',        cor:'var(--muted)',   bg:'rgba(100,116,139,.1)',border:'rgba(100,116,139,.2)'}
+  }
+
+  function abrirPainel(p){setPainel(p);if(p==='historico'||p==='assinaturas')carregarHistorico()}
+
+  if(!userProfile)return<div style={{background:'#0a0f1e',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'#64748b',fontFamily:'DM Mono,monospace'}}>Carregando...</div>
+
+  // ── Painel overlay ────────────────────────────
+  const renderPainel=()=>{
+    if(!painel)return null
+    return(
+      <div style={{position:'fixed',inset:0,background:'var(--bg)',zIndex:200,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{background:'rgba(10,15,30,.9)',backdropFilter:'blur(12px)',borderBottom:'1px solid var(--border)',padding:'12px 20px',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
+          <button onClick={()=>setPainel(null)} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:20,padding:'4px 8px',borderRadius:8}}>✕</button>
+          <h2 style={{fontFamily:'Syne,sans-serif',fontSize:16,fontWeight:700,color:'var(--accent)'}}>
+            {painel==='historico'?'🗂️ Histórico':painel==='assinaturas'?'✍️ Assinaturas':'📄 Documentos'}
+          </h2>
+          {(painel==='historico'||painel==='assinaturas')&&<button onClick={carregarHistorico} style={{marginLeft:'auto',padding:'6px 14px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer'}}>🔄 Atualizar</button>}
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:'20px',maxWidth:900,width:'100%',margin:'0 auto'}}>
+          {painel==='historico'&&(histLoading?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Carregando...</div>
+            :histDocs.length===0?<div style={{textAlign:'center',padding:40}}><div style={{fontSize:40,marginBottom:12}}>📄</div><div style={{color:'var(--muted)',fontSize:14}}>Nenhum documento gerado ainda.</div></div>
+            :histDocs.map(h=>{
+              const sb=statusBadge(h)
+              return(
+                <div key={h.id} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'16px 20px',marginBottom:12,boxShadow:'var(--shadow)'}}>
+                  <div style={{display:'flex',alignItems:'flex-start',gap:12,marginBottom:10}}>
+                    <span style={{fontSize:22,flexShrink:0}}>{h.type==='contrato'?'📝':'📄'}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:15,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{h.clientName||'Cliente'}</div>
+                      <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{h.type==='contrato'?'Contrato':'Proposta'} · {h.date} · {h.consultor}{h.modulos?.length>0?` · ${h.modulos.join(', ')}`:''}
+                      </div>
+                      {h.signedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:2}}>✅ Cliente: {h.signedBy} em {h.signedAt}</div>}
+                      {h.consultantSignedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:1}}>✅ Consultor: {h.consultantSignedBy} em {h.consultantSignedAt}</div>}
+                    </div>
+                    <span style={{fontSize:12,fontWeight:600,color:sb.cor,background:sb.bg,border:`1px solid ${sb.border}`,padding:'4px 10px',borderRadius:20,whiteSpace:'nowrap',flexShrink:0}}>{sb.txt}</span>
+                  </div>
+                  <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                    <button onClick={()=>verDocumento(h)} style={{padding:'7px 14px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>👁 Ver documento</button>
+                    {h.status!=='signed'&&<button onClick={()=>{setSignDoc(h);setSignEmailInput(h.clientEmail||'');setShowSign(true);setPainel(null)}} style={{padding:'7px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>✍️ Reenviar para assinatura</button>}
+                  </div>
+                </div>
+              )})
+          )}
+
+          {painel==='assinaturas'&&(histLoading?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>Carregando...</div>
+            :histDocs.length===0?<div style={{textAlign:'center',padding:40}}><div style={{fontSize:40,marginBottom:12}}>✍️</div><div style={{color:'var(--muted)',fontSize:14}}>Nenhum documento.</div></div>
+            :histDocs.map(h=>{
+              const clienteAssinou=!!(h.signedAt&&h.signedBy),consultorAssinou=!!(h.consultantSignedAt&&h.consultantSignedBy)
+              const total=clienteAssinou&&consultorAssinou
+              return(
+                <div key={h.id} style={{background:'var(--surface)',border:`1px solid ${total?'rgba(16,185,129,.3)':'var(--border)'}`,borderRadius:14,padding:'18px 20px',marginBottom:14,boxShadow:'var(--shadow)'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+                    <span style={{fontSize:20}}>{h.type==='contrato'?'📝':'📄'}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:700,fontSize:15}}>{h.clientName||'Cliente'}</div>
+                      <div style={{fontSize:12,color:'var(--muted)',marginTop:1}}>{h.date} · {h.consultor}</div>
+                    </div>
+                    <span style={{fontSize:12,fontWeight:700,color:total?'var(--accent3)':'var(--warning)',background:total?'rgba(16,185,129,.1)':'rgba(251,191,36,.1)',padding:'4px 12px',borderRadius:20,border:`1px solid ${total?'rgba(16,185,129,.3)':'rgba(251,191,36,.3)'}`}}>
+                      {total?'✅ Totalmente Assinado':'⏳ Aguardando Assinaturas'}
+                    </span>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                    <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
+                      <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATADA (Consultor)</div>
+                      {consultorAssinou?<><div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.consultantSignedBy}</div><div style={{fontSize:11,color:'var(--muted)'}}>{h.consultantSignedAt}</div></>
+                        :<><div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.consultor||'—'} — aguardando</div>
+                        <button onClick={()=>abrirSignForm(h,'consultant')} style={{padding:'8px 14px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>✍️ Assinar agora</button></>}
+                    </div>
+                    <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
+                      <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATANTE (Cliente)</div>
+                      {clienteAssinou?<><div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.signedBy}</div><div style={{fontSize:11,color:'var(--muted)'}}>{h.signedAt}</div></>
+                        :<><div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.clientName||'—'} — aguardando</div>
+                        <button onClick={()=>{setSignDoc(h);setSignEmailInput(h.clientEmail||'');setShowSign(true);setPainel(null)}} style={{padding:'8px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>📤 Enviar link</button></>}
+                    </div>
+                  </div>
+                  {total&&<div style={{marginTop:12,padding:'10px 14px',background:'rgba(16,185,129,.08)',border:'1px solid rgba(16,185,129,.2)',borderRadius:8,fontSize:12,color:'var(--accent3)',display:'flex',gap:10,alignItems:'center'}}>
+                    ✅ Contrato completamente assinado.{' '}
+                    <button onClick={()=>verDocumento(h)} style={{background:'none',border:'none',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,textDecoration:'underline',padding:0}}>Ver documento</button>
+                  </div>}
+                </div>
+              )})
+          )}
+
+          {painel==='documentos'&&<div>
+            <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 24px',marginBottom:16}}>
+              <h3 style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)',marginBottom:8}}>📄 Templates de Documentos</h3>
+              <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:14}}>Para editar os templates, acesse <strong style={{color:'var(--text)'}}>Configurações → Documentos</strong>.</p>
+              <button onClick={()=>{setPainel(null);router.push('/configuracoes')}} style={{padding:'10px 20px',borderRadius:9,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:600}}>⚙️ Ir para Configurações → Documentos</button>
+            </div>
+          </div>}
+        </div>
+      </div>
+    )
+  }
+
+  // Renderizar botões de módulos quando habilitados
+  const renderModulosButtons = () => {
+    if (!cfg.modChips) return null
+    if (S.stage !== 'await_modules') return null
+    const mods = cfg.modulos || ALL_MODS
+    return (
+      <div style={{ marginTop: 8, marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {mods.map(mod => {
+          const sel = selectedMods.includes(mod)
+          return (
+            <button
+              key={mod}
+              onClick={() => setSelectedMods(prev => sel ? prev.filter(m => m !== mod) : [...prev, mod])}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 8,
+                background: sel ? 'rgba(0,212,255,.2)' : 'var(--surface2)',
+                border: `1px solid ${sel ? 'var(--accent)' : 'var(--border)'}`,
+                color: sel ? 'var(--accent)' : 'var(--muted)',
+                cursor: 'pointer',
+                fontFamily: 'DM Mono, monospace',
+                fontSize: 12,
+                transition: 'all .15s'
+              }}
+            >
+              {mod}
+            </button>
+          )
+        })}
+        <button
+          onClick={confirmarMods}
+          style={{
+            padding: '8px 14px',
+            borderRadius: 8,
+            background: 'linear-gradient(135deg,var(--accent3),#059669)',
+            border: 'none',
+            color: '#fff',
+            cursor: 'pointer',
+            fontFamily: 'DM Mono, monospace',
+            fontSize: 12,
+            fontWeight: 600
+          }}
+        >
+          ✅ Confirmar módulos
+        </button>
+        <button
+          onClick={() => { setAwaitingMods(false); addBot('Quais módulos?\n(Gestão Fiscal · BIA · CND · XML · IF · EP · Tributos)') }}
+          style={{
+            padding: '8px 14px',
+            borderRadius: 8,
+            background: 'rgba(100,116,139,.12)',
+            border: '1px solid var(--border)',
+            color: 'var(--muted)',
+            cursor: 'pointer',
+            fontFamily: 'DM Mono, monospace',
+            fontSize: 12
+          }}
+        >
+          Digitar
+        </button>
+      </div>
+    )
+  }
+
+  return(<>
+    <Head>
+      <title>{cfg.company} – Assistente Comercial</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+    </Head>
+    <style>{CSS}</style>
+    <div className="orb orb1"/><div className="orb orb2"/>
+    {renderPainel()}
+
+    {/* HEADER COM LOGO CLICÁVEL E BOTÃO RELATÓRIOS */}
+    <header>
+      <div className="header-logo" style={{cursor:'pointer'}} onClick={() => router.push('/chat')}>
+        {cfg.logob64?<img src={cfg.logob64} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
+          :<div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>}
+        {cfg.logob64&&<div style={{marginLeft:10}}><div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'var(--text)'}}>{cfg.company}</div><div style={{fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div></div>}
+        {!cfg.logob64&&<div style={{marginLeft:4,fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div>}
+      </div>
+      <div className="status-dot">online</div>
+      <nav style={{display:'flex',gap:4,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
+        <button onClick={() => router.push('/reports')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>📈 Relatórios</button>
+        {[{id:'documentos',label:'📄 Documentos'},{id:'historico',label:'🗂️ Histórico'},{id:'assinaturas',label:'✍️ Assinaturas'}].map(({id,label})=>(
+          <button key={id} onClick={()=>abrirPainel(id)} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace',transition:'all .15s'}}
+            onMouseEnter={e=>{e.currentTarget.style.color='var(--accent)';e.currentTarget.style.borderColor='rgba(0,212,255,.3)'}}
+            onMouseLeave={e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>
+            {label}
+          </button>
+        ))}
+        <button onClick={()=>router.push('/dashboard')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>📊 Dashboard</button>
+        <button onClick={()=>router.push('/configuracoes')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:15,padding:'5px 10px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>⚙️</button>
+        <span style={{fontSize:11,color:'var(--muted)'}}>👤 <span style={{color:'var(--text)',fontWeight:500}}>{userProfile.nome}</span></span>
+        <button className="logout-btn" onClick={async()=>{await supabase.auth.signOut();router.replace('/')}}>Sair</button>
+      </nav>
+    </header>
+
+    <div className="chat-wrap">
+      <div id="messages" ref={msgRef}>
+        {messages.map(m=>(
+          <div key={m.id} className={`msg ${m.role}`}>
+            <div className="msg-label">{m.role==='user'?'Você':'Assistente'}</div>
+            <div className="bubble" {...(m.isHTML?{dangerouslySetInnerHTML:{__html:m.content}}:{children:m.content})}/>
+          </div>
+        ))}
+        {thinking&&<div className="msg bot"><div className="thinking"><span/><span/><span/></div></div>}
+        {timerVal&&timerDeadline&&<div className="timer-live">{timerVal}</div>}
+      </div>
+
+      {/* MÓDULOS CLICÁVEIS */}
+      {renderModulosButtons()}
+
+      <div id="inputArea">
+        <textarea id="userInput" placeholder="Digite CPF, CNPJ, módulos..." value={input}
+          onChange={e=>{setInput(e.target.value);e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,100)+'px'}}
+          onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}} rows={1}/>
+        <button className="send-btn" onClick={()=>send()}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    {/* MODAL VER DOCUMENTO */}
+    {showDocView&&(
+      <div className="modal-overlay" style={{zIndex:300}}>
+        <div className="modal-box" style={{maxWidth:860,maxHeight:'92vh'}}>
+          <div className="modal-header"><h3 style={{fontSize:14}}>{docViewTitle}</h3><button className="modal-close" onClick={()=>setShowDocView(false)}>✕</button></div>
+          <div className="modal-body" style={{padding:0,flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+            {docViewLoading?<div style={{textAlign:'center',padding:40,color:'var(--muted)'}}>⏳ Carregando...</div>
+              :<div style={{flex:1,overflowY:'auto',background:'#fff'}}><div dangerouslySetInnerHTML={{__html:docViewHtml}}/></div>}
+          </div>
+          <div className="modal-footer">
+            <button className="btn-cancel" onClick={()=>setShowDocView(false)}>Fechar</button>
+            <button className="btn-primary" onClick={()=>openPrint(docViewHtml,docViewTitle)}>🖨 Imprimir</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* MODAL CLIENTE */}
+    {showClient&&(
+      <div className="modal-overlay">
+        <div className="modal-box" style={{maxWidth:620}}>
+          <div className="modal-header"><h3>{clientMode==='proposta'?'📄':'📝'} Confirmar Dados do Cliente</h3><button className="modal-close" onClick={()=>setShowClient(false)}>✕</button></div>
+          <div className="modal-body">
+            <div style={{padding:'9px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:13,color:'var(--muted)',fontFamily:'DM Mono,monospace',marginBottom:12}}>{fmtDoc(S.doc||'')}</div>
+            <div className="modal-grid2">
+              <div className="field"><label>Nome Fantasia</label><input value={cf.empresa} onChange={e=>setCf(f=>({...f,empresa:e.target.value}))} placeholder="Nome fantasia"/></div>
+              <div className="field"><label>Razão Social</label><input value={cf.razao} onChange={e=>setCf(f=>({...f,razao:e.target.value}))} placeholder="Razão social"/></div>
+              <div className="field"><label>Contato</label><input value={cf.contato} onChange={e=>setCf(f=>({...f,contato:e.target.value}))} placeholder="Responsável"/></div>
+              <div className="field"><label>E-mail</label><input type="email" value={cf.email} onChange={e=>setCf(f=>({...f,email:e.target.value}))} placeholder="email@empresa.com"/></div>
+              <div className="field"><label>Telefone</label><input value={cf.telefone} onChange={e=>setCf(f=>({...f,telefone:e.target.value}))} placeholder="(00) 00000-0000"/></div>
+              <div className="field"><label>CEP</label>
+                <div style={{display:'flex',gap:6}}>
+                  <input value={cf.cep} onChange={e=>setCf(f=>({...f,cep:e.target.value}))} placeholder="00000-000" style={{flex:1}} onBlur={e=>e.target.value.replace(/\D/g,'').length>=8&&buscarCep(e.target.value)}/>
+                  <button onClick={()=>buscarCep(cf.cep)} disabled={buscandoCep} style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12}}>{buscandoCep?'⏳':'📍'}</button>
+                </div>
+              </div>
+              <div className="field"><label>Endereço</label><input value={cf.logradouro} onChange={e=>setCf(f=>({...f,logradouro:e.target.value}))} placeholder="Rua, número"/></div>
+              <div className="field"><label>Bairro</label><input value={cf.bairro} onChange={e=>setCf(f=>({...f,bairro:e.target.value}))} placeholder="Bairro"/></div>
+              <div className="field"><label>Cidade</label><input value={cf.cidade} onChange={e=>setCf(f=>({...f,cidade:e.target.value}))} placeholder="Cidade"/></div>
+              <div className="field"><label>UF</label><input value={cf.uf} onChange={e=>setCf(f=>({...f,uf:e.target.value}))} placeholder="UF" maxLength={2}/></div>
+              <div className="field"><label>CPF do Contato</label><input value={cf.cpfContato} onChange={e=>setCf(f=>({...f,cpfContato:e.target.value}))} placeholder="000.000.000-00"/></div>
+              <div className="field"><label>Regime Tributário</label>
+                <select value={cf.regime} onChange={e=>setCf(f=>({...f,regime:e.target.value}))} style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono,monospace',fontSize:13,color:'var(--text)',outline:'none'}}>
+                  <option value="">Selecione...</option>
+                  <option value="Simples Nacional">Simples Nacional</option>
+                  <option value="Lucro Presumido">Lucro Presumido</option>
+                  <option value="Lucro Real">Lucro Real</option>
+                  <option value="MEI">MEI</option>
+                </select>
+              </div>
+            </div>
+            <div style={{marginTop:12,padding:14,background:'rgba(251,191,36,.06)',border:'1px solid rgba(251,191,36,.2)',borderRadius:10}}>
+              <div style={{fontSize:11,color:'var(--gold)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:10}}>🔧 Responsável pela Implantação</div>
+              <div className="modal-grid3">{[['Nome','rimpNome'],['E-mail','rimpEmail'],['Telefone','rimpTel']].map(([l,k])=><div key={k} className="field"><label>{l}</label><input value={cf[k]||''} onChange={e=>setCf(f=>({...f,[k]:e.target.value}))} placeholder={l}/></div>)}</div>
+            </div>
+            <div style={{marginTop:12,padding:14,background:'rgba(16,185,129,.06)',border:'1px solid rgba(16,185,129,.2)',borderRadius:10}}>
+              <div style={{fontSize:11,color:'var(--accent3)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:10}}>💰 Responsável Financeiro</div>
+              <div className="modal-grid3">{[['Nome','rfinNome'],['E-mail','rfinEmail'],['Telefone','rfinTel']].map(([l,k])=><div key={k} className="field"><label>{l}</label><input value={cf[k]||''} onChange={e=>setCf(f=>({...f,[k]:e.target.value}))} placeholder={l}/></div>)}</div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button className="btn-cancel" onClick={()=>setShowClient(false)}>Cancelar</button>
+            <button className="btn-primary" onClick={saveClient}>{clientMode==='proposta'?'✅ Salvar e Gerar Proposta':'📝 Avançar'}</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* WIZARD CONTRATO */}
+    {showWiz&&(
+      <div className="modal-overlay">
+        <div className="modal-box" style={{maxWidth:680}}>
+          <div className="modal-header"><h3>📝 Configurar Contrato — Passo {wizStep}/2</h3><button className="modal-close" onClick={()=>setShowWiz(false)}>✕</button></div>
+          <div className="modal-body">
+            {wizStep===1&&<>
+              <div className="wiz-title">💳 Condição de Pagamento — Adesão: <strong>{fmt(wizTAd)}</strong></div>
+              <div className="wiz-sec">À VISTA</div>
+              <div className={`pay-opt${wizPay==='pix'?' sel':''}`} onClick={()=>setWizPay('pix')}><span>🏦</span><div style={{flex:1}}><div className="po-t">PIX ou Boleto à vista</div></div><div className="po-v">{fmt(wizTAd)}</div></div>
+              <div className="wiz-sec" style={{marginTop:12}}>CARTÃO — SEM JUROS</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                {Array.from({length:10},(_,i)=>i+1).map(n=>(
+                  <div key={n} className={`pay-opt sm${wizPay===`cartao${n}x`?' sel':''}`} onClick={()=>setWizPay(`cartao${n}x`)}>
+                    <span>💳</span><div style={{flex:1}}><div className="po-t">{n}×</div></div><div className="po-v" style={{fontSize:12}}>{fmt(wizTAd/n)}/m</div>
+                  </div>
+                ))}
+              </div>
+              <div className="wiz-sec" style={{marginTop:12}}>BOLETO PARCELADO</div>
+              {[{n:2,d:`${fmt(wizTAd*0.5)} + ${fmt(wizTAd*0.5)} em 30d`},{n:3,d:`${fmt(wizTAd*0.5)} + 2× de ${fmt(wizTAd*0.25)}`}].map(o=>(
+                <div key={o.n} className={`pay-opt${wizPay===`boleto${o.n}x`?' sel':''}`} onClick={()=>setWizPay(`boleto${o.n}x`)} style={{marginBottom:8}}>
+                  <span>📄</span><div style={{flex:1}}><div className="po-t">{o.n}× Boleto</div><div className="po-s">{o.d}</div></div><div className="po-v">{fmt(wizTAd/o.n)}</div>
+                </div>
+              ))}
+            </>}
+            {wizStep===2&&<>
+              <div className="wiz-title">📅 Datas de Vencimento</div>
+              {wizTAd>0&&<>
+                <div style={{fontSize:13,color:'var(--muted)',margin:'12px 0 8px'}}>Vencimento da Adesão ({fmt(wizTAd)})</div>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{wizDates.map(d=><button key={d} className={`date-pill${wizAd===d?' chosen':''}`} onClick={()=>setWizAd(d)}>{d}</button>)}</div>
+                <input className="date-inp" placeholder="Outra data (DD/MM)" value={wizAd&&!wizDates.includes(wizAd)?wizAd:''} onChange={e=>setWizAd(e.target.value)} style={{marginBottom:16}}/>
+              </>}
+              <div style={{fontSize:13,color:'var(--muted)',margin:'4px 0 8px'}}>1ª Mensalidade ({fmt(wizTMen)}/mês)</div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{wizDates.map(d=><button key={d} className={`date-pill${wizMen===d?' chosen':''}`} onClick={()=>setWizMen(d)}>{d}</button>)}</div>
+              <input className="date-inp" placeholder="Outra data (DD/MM)" value={wizMen&&!wizDates.includes(wizMen)?wizMen:''} onChange={e=>setWizMen(e.target.value)}/>
+            </>}
+          </div>
+          <div className="modal-footer">
+            {wizStep===2&&<button className="btn-cancel" onClick={()=>setWizStep(1)}>← Voltar</button>}
+            <button className="btn-cancel" onClick={()=>setShowWiz(false)}>Cancelar</button>
+            <button className="btn-primary" onClick={wizNext}>{wizStep===1?'Próximo →':'📝 Gerar Contrato'}</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* MODAL ENVIAR ASSINATURA */}
+    {showSign&&signDoc&&(
+      <div className="modal-overlay" style={{zIndex:250}}>
+        <div className="modal-box" style={{maxWidth:500}}>
+          <div className="modal-header">
+            <h3>✍️ Enviar para Assinatura</h3>
+            <div style={{fontSize:12,color:'var(--muted)',marginTop:3}}>{signDoc.type==='proposta'?'Proposta':'Contrato'} · {signDoc.clientName}</div>
+            <button className="modal-close" onClick={()=>setShowSign(false)}>✕</button>
+          </div>
+          <div className="modal-body">
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:10,color:'var(--muted)',textTransform:'uppercase',letterSpacing:1.5,marginBottom:6}}>Link de Assinatura</div>
+              <div style={{display:'flex',gap:8}}>
+                <input readOnly value={buildSignUrl(signDoc)} style={{flex:1,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:11,color:'var(--accent)',outline:'none'}}/>
+                <button onClick={()=>navigator.clipboard?.writeText(buildSignUrl(signDoc))} style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12}}>📋</button>
+              </div>
+            </div>
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:10,color:'var(--muted)',textTransform:'uppercase',letterSpacing:1.5,marginBottom:6}}>E-mail do cliente</div>
+              <input type="email" value={signEmailInput} onChange={e=>setSignEmailInput(e.target.value)} placeholder="email do cliente" style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono,monospace',fontSize:13,color:'var(--text)',outline:'none'}}/>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              <button onClick={()=>enviarWhatsApp(signDoc)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#25d366,#128c7e)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>💬</span> Enviar via WhatsApp</button>
+              <button onClick={()=>enviarEmail(signDoc)} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,#0f172a,#1e3a5f)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>📧</span> Enviar por E-mail</button>
+              <button onClick={()=>{setShowSign(false);abrirSignForm(signDoc,'client')}} style={{padding:'13px 16px',borderRadius:12,background:'linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08))',border:'1px solid rgba(251,191,36,.4)',color:'var(--gold)',fontFamily:'DM Mono,monospace',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:10}}><span>👆</span> Assinar agora (esta tela)</button>
+              <button onClick={()=>setShowSign(false)} style={{padding:'11px',borderRadius:10,background:'rgba(100,116,139,.12)',border:'1px solid var(--border)',color:'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* MODAL FORMULÁRIO ASSINATURA */}
+    {showSignForm&&(
+      <div className="modal-overlay" style={{zIndex:300}}>
+        <div className="modal-box" style={{maxWidth:480}}>
+          <div className="modal-header">
+            <h3>✍️ {signFormSide==='consultant'?'Assinatura do Consultor':'Assinatura do Cliente'}</h3>
+            <button className="modal-close" onClick={()=>setShowSignForm(false)}>✕</button>
+          </div>
+          <div className="modal-body">
+            <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:16}}>Preencha os dados para registrar a assinatura eletrônica conforme a <strong style={{color:'var(--text)'}}>Lei nº 14.063/2020</strong>.</p>
+            <div className="field"><label>Nome completo *</label><input value={sfNome} onChange={e=>setSfNome(e.target.value)} placeholder="Nome completo"/></div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div className="field"><label>CPF *</label><input value={sfCpf} onChange={e=>setSfCpf(e.target.value)} placeholder="000.000.000-00"/></div>
+              <div className="field"><label>E-mail *</label><input type="email" value={sfEmail} onChange={e=>setSfEmail(e.target.value)} placeholder="email"/></div>
+            </div>
+            <div onClick={()=>setSfAgreed(!sfAgreed)} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',background:sfAgreed?'rgba(16,185,129,.06)':'var(--surface2)',border:`1px solid ${sfAgreed?'rgba(16,185,129,.3)':'var(--border)'}`,borderRadius:10,cursor:'pointer',marginTop:4}}>
+              <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${sfAgreed?'var(--accent3)':'var(--border)'}`,background:sfAgreed?'var(--accent3)':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',marginTop:2}}>
+                {sfAgreed&&<span style={{color:'#fff',fontSize:11,fontWeight:700}}>✓</span>}
+              </div>
+              <p style={{fontSize:12,color:'var(--muted)',lineHeight:1.6,margin:0}}>Declaro que li e concordo com todos os termos, conforme a Lei nº 14.063/2020.</p>
+            </div>
+            {sfErro&&<div style={{padding:'10px 14px',background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',borderRadius:8,fontSize:12,color:'var(--danger)',marginTop:12}}>⚠️ {sfErro}</div>}
+          </div>
+          <div className="modal-footer">
+            <button className="btn-cancel" onClick={()=>setShowSignForm(false)}>Cancelar</button>
+            <button className="btn-primary" onClick={confirmarSignForm} disabled={sfSaving}>{sfSaving?'⏳ Registrando...':'✅ Confirmar Assinatura'}</button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>)
+}
+
+const CSS=`
+  :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--user-bubble:#1e3a5f;--bot-bubble:#131f35;--danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;--card-bg:#1a2540;--shadow:0 4px 24px rgba(0,0,0,.4)}
+  *{box-sizing:border-box;margin:0;padding:0}html{font-size:15px}
+  body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+  .orb{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;opacity:.1}
+  .orb1{width:500px;height:500px;background:var(--accent);top:-200px;right:-150px}
+  .orb2{width:400px;height:400px;background:var(--accent2);bottom:-150px;left:-100px}
+  header{position:sticky;top:0;z-index:100;width:100%;max-width:960px;padding:10px 20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(10,15,30,.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+  .header-logo{display:flex;align-items:center;gap:8px}
+  .status-dot{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent3)}
+  .status-dot::before{content:'';width:7px;height:7px;background:var(--accent3);border-radius:50%;animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .logout-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:5px 9px;border-radius:8px;font-family:'DM Mono',monospace}
+  .logout-btn:hover{color:var(--danger)}
+  .chat-wrap{position:relative;z-index:10;width:100%;max-width:820px;padding:14px 20px 0;flex:1;display:flex;flex-direction:column}
+  #messages{display:flex;flex-direction:column;gap:14px;padding-bottom:10px;min-height:300px;max-height:calc(100vh - 200px);overflow-y:auto;scroll-behavior:smooth}
+  #messages::-webkit-scrollbar{width:4px}#messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+  .msg{display:flex;flex-direction:column;max-width:92%;animation:fadeUp .3s ease}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  .msg.user{align-self:flex-end;align-items:flex-end}.msg.bot{align-self:flex-start;align-items:flex-start}
+  .bubble{padding:13px 17px;border-radius:14px;font-size:15px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+  .msg.user .bubble{background:var(--user-bubble);border:1px solid rgba(0,212,255,.15);border-bottom-right-radius:4px}
+  .msg.bot .bubble{background:var(--bot-bubble);border:1px solid var(--border);border-bottom-left-radius:4px}
+  .msg-label{font-size:11px;color:var(--muted);margin-bottom:4px;letter-spacing:.5px}
+  .thinking{display:flex;gap:5px;padding:14px 18px;background:var(--bot-bubble);border:1px solid var(--border);border-radius:14px}
+  .thinking span{width:8px;height:8px;background:var(--muted);border-radius:50%;animation:bounce 1.2s infinite}
+  .thinking span:nth-child(2){animation-delay:.2s}.thinking span:nth-child(3){animation-delay:.4s}
+  @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+  .price-card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:15px 18px;margin:4px 0}
+  .price-card h4{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--accent);margin-bottom:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .price-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(128,128,128,.1)}
+  .price-row:last-child{border-bottom:none}.price-row .label{color:var(--muted);font-size:13px}.price-row .val{font-weight:600;color:var(--text);font-size:14px}
+  .price-row .val.discount{color:var(--accent3)}.price-row .val.closing{color:var(--gold)}
+  .section-divider{border:none;border-top:1px dashed var(--border);margin:8px 0}
+  .unlimited-badge{background:rgba(0,212,255,.12);color:var(--accent);padding:3px 8px;border-radius:6px;font-size:12px;font-weight:600}
+  .client-card{background:linear-gradient(135deg,rgba(0,212,255,.08),rgba(0,212,255,.03));border:1px solid rgba(0,212,255,.2);border-radius:12px;padding:14px 16px;margin:4px 0}
+  .cl-name{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--accent);margin-bottom:8px}
+  .client-row{display:flex;gap:8px;font-size:13px;padding:3px 0}.cl-label{color:var(--muted);min-width:90px;flex-shrink:0}.cl-val{color:var(--text)}
+  .teaser-card{background:linear-gradient(135deg,rgba(124,58,237,.15),rgba(124,58,237,.05));border:1px solid rgba(124,58,237,.3);border-radius:12px;padding:16px 18px;margin:8px 0}
+  .teaser-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--accent2);margin-bottom:8px}
+  .teaser-body{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:12px}
+  .yn-row{display:flex;gap:10px;flex-wrap:wrap}
+  .yn-btn{padding:9px 18px;border-radius:10px;border:none;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+  .yn-btn.yes{background:linear-gradient(135deg,var(--accent3),#059669);color:#fff}
+  .yn-btn.no{background:rgba(100,116,139,.15);border:1px solid var(--border);color:var(--muted)}
+  .opp-banner{background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04));border:1px solid rgba(251,191,36,.3);border-radius:12px;padding:16px 18px;margin:8px 0}
+  .opp-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--gold);margin-bottom:10px}
+  .opp-body{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:12px}
+  .timer-block{background:linear-gradient(135deg,rgba(239,68,68,.1),rgba(239,68,68,.04));border:1px solid rgba(239,68,68,.25);border-radius:12px;padding:20px;margin:8px 0;text-align:center}
+  .timer-label{font-size:12px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px}
+  .timer-sub{font-size:11px;color:var(--muted);margin-top:10px}
+  .timer-live{font-size:32px;font-weight:700;font-family:'Syne',sans-serif;color:#ef4444;letter-spacing:4px;padding:8px 0}
+  .section-label{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin:12px 0 6px}
+  .dates-box{display:flex;gap:8px;flex-wrap:wrap}
+  .date-chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:5px 12px;font-size:13px;color:var(--text)}
+  .prop-btn{width:100%;padding:12px;border-radius:10px;background:linear-gradient(135deg,rgba(0,212,255,.15),rgba(0,212,255,.05));border:1px solid rgba(0,212,255,.3);color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;text-align:left;margin-bottom:4px}
+  .reset-btn{width:100%;padding:10px;border-radius:10px;background:rgba(100,116,139,.1);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;margin-top:4px}
+  #inputArea{display:flex;gap:10px;align-items:flex-end;padding:14px 0 20px}
+  #userInput{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 16px;font-family:'DM Mono',monospace;font-size:15px;color:var(--text);outline:none;resize:none;line-height:1.5;transition:border-color .2s;min-height:48px}
+  #userInput:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.08)}
+  #userInput::placeholder{color:var(--muted)}
+  .send-btn{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#0099bb);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s}
+  .send-btn:hover{box-shadow:0 0 16px rgba(0,212,255,.4);transform:translateY(-1px)}
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:150;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+  .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:560px;box-shadow:var(--shadow);display:flex;flex-direction:column;max-height:90vh;position:relative}
+  .modal-header{padding:20px 24px 0;flex-shrink:0}
+  .modal-header h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--accent)}
+  .modal-close{position:absolute;top:16px;right:20px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
+  .modal-close:hover{color:var(--text)}
+  .modal-body{padding:20px 24px;overflow-y:auto;flex:1}
+  .modal-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .modal-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+  .field{margin-bottom:10px}.field label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;letter-spacing:.5px}
+  .field input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none}
+  .field input:focus{border-color:var(--accent)}
+  .modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
+  .btn-cancel{padding:10px 18px;border-radius:10px;background:rgba(100,116,139,.12);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:13px;cursor:pointer}
+  .btn-primary{padding:10px 22px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#0099bb);border:none;color:#fff;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+  .btn-primary:hover{box-shadow:0 0 16px rgba(0,212,255,.4);transform:translateY(-1px)}
+  .wiz-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--text);margin-bottom:14px}
+  .wiz-sec{font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;margin-top:8px}
+  .pay-opt{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;transition:all .2s;margin-bottom:8px;font-size:18px}
+  .pay-opt.sm{font-size:14px;padding:9px 12px;margin-bottom:0}
+  .pay-opt.sel,.pay-opt:hover{border-color:var(--accent);background:rgba(0,212,255,.08)}
+  .po-t{font-weight:700;font-size:13px;color:var(--text)}.po-s{font-size:11px;color:var(--muted);margin-top:2px}
+  .po-v{font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap}
+  .date-pill{padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:var(--surface2);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all .2s}
+  .date-pill.chosen,.date-pill:hover{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,.1)}
+  .date-inp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;margin-top:6px}
+  .date-inp:focus{border-color:var(--accent)}
+`
