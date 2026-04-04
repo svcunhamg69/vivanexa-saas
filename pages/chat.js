@@ -79,9 +79,8 @@ function calcFull(mods,plan,ifPlan,cnpjs,notas,cfg){
   return{results:res,tAd,tMen,tAdD:tAd,tMenD:tMen}
 }
 function calcDisc(mods,plan,ifPlan,cnpjs,notas,cfg,vo){
-  // Lê desconto: voucher > cfg.discAdPct/discMenPct (salvo pela aba Descontos) > padrão 50%/0%
-  const adPct=vo?Number(vo.discAdPct||0):(Number(cfg.discAdPct)||50)
-  const menPct=vo?Number(vo.discMenPct||0):(Number(cfg.discMenPct)||0)
+  const adPct=vo?Number(vo.discAdPct||0):(cfg.discAdPct!==undefined?Number(cfg.discAdPct):50)
+  const menPct=vo?Number(vo.discMenPct||0):(cfg.discMenPct!==undefined?Number(cfg.discMenPct):0)
   const res=[];let tAd=0,tMen=0,tAdD=0,tMenD=0
   for(const mod of mods){
     if(mod==='IF'){const p=ifPlan||'basic',[aB,mB]=getPrice('IF',p,cfg),ad=aB*2,men=mB*1.2,adD=ad*(1-adPct/100),menD=men*(1-menPct/100);res.push({name:pn('IF',cfg),ad,men,adD,menD,isPrepaid:true,plan:p,isIF:true});tAd+=ad;tMen+=men;tAdD+=adD;tMenD+=menD;continue}
@@ -560,9 +559,7 @@ export default function Chat(){
       let val
       if(diff<=0){val='EXPIRADO';setTimerVal('EXPIRADO');setTimerDeadline(null);clearInterval(iv)}
       else{const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000);val=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;setTimerVal(val)}
-      // Atualiza o elemento #vx-timer dentro do HTML renderizado
-      const el=document.getElementById('vx-timer')
-      if(el)el.textContent=val
+      const el=document.getElementById('vx-timer');if(el)el.textContent=val
     },1000)
     return()=>clearInterval(iv)
   },[timerDeadline])
@@ -1175,34 +1172,28 @@ export default function Chat(){
 
     {/* HEADER COM LOGO CLICÁVEL E BOTÃO RELATÓRIOS */}
     <header>
-      <div className="header-logo" style={{cursor:'pointer'}} onClick={() => {
+      <div className="header-logo" style={{cursor:'pointer'}} onClick={()=>{
         resetS()
         const c=cfgRef.current
         setTimeout(()=>addBot(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da ${c.company||'Vivanexa'}.\nPara começar, informe o **CPF ou CNPJ** do cliente:`),100)
       }}>
         {cfg.logob64
-          ? <img
-              src={cfg.logob64.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`}
-              alt={cfg.company}
-              style={{height:40,objectFit:'contain',borderRadius:8}}
-              onError={e=>e.target.style.display='none'}
-            />
-          : <div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>
-        }
+          ?<img src={cfg.logob64.startsWith('data:')?cfg.logob64:`data:image/png;base64,${cfg.logob64}`} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
+          :<div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>}
         {cfg.logob64&&<div style={{marginLeft:10}}><div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'var(--text)'}}>{cfg.company}</div><div style={{fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div></div>}
         {!cfg.logob64&&cfg.slogan&&<div style={{marginLeft:4,fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div>}
       </div>
       <div className="status-dot">online</div>
       <nav style={{display:'flex',gap:4,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
         <button onClick={() => router.push('/reports')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>📈 Relatórios</button>
-        {[{id:'documentos',label:'📄 Documentos'},{id:'historico',label:'🗂️ Histórico'},{id:'assinaturas',label:'✍️ Assinaturas'}].map(({id,label})=>(
+        <button onClick={()=>router.push('/dashboard')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>📊 Dashboard</button>
+        {[{id:'historico',label:'🗂️ Histórico'},{id:'assinaturas',label:'✍️ Assinaturas'}].map(({id,label})=>(
           <button key={id} onClick={()=>abrirPainel(id)} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace',transition:'all .15s'}}
             onMouseEnter={e=>{e.currentTarget.style.color='var(--accent)';e.currentTarget.style.borderColor='rgba(0,212,255,.3)'}}
             onMouseLeave={e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>
             {label}
           </button>
         ))}
-        <button onClick={()=>router.push('/dashboard')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>📊 Dashboard</button>
         <button onClick={()=>router.push('/configuracoes')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:15,padding:'5px 10px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>⚙️</button>
         <span style={{fontSize:11,color:'var(--muted)'}}>👤 <span style={{color:'var(--text)',fontWeight:500}}>{userProfile.nome}</span></span>
         <button className="logout-btn" onClick={async()=>{await supabase.auth.signOut();router.replace('/')}}>Sair</button>
@@ -1218,6 +1209,7 @@ export default function Chat(){
           </div>
         ))}
         {thinking&&<div className="msg bot"><div className="thinking"><span/><span/><span/></div></div>}
+        {timerVal&&timerDeadline&&<div className="timer-live">{timerVal}</div>}
       </div>
 
       {renderModulosButtons()}
