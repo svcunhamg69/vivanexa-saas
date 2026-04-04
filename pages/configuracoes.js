@@ -10,6 +10,7 @@ const TABS = [
   { id: 'empresa',    label: '🏢 Empresa' },
   { id: 'metas',      label: '🎯 Metas' },
   { id: 'kpis',       label: '📊 KPIs' },
+  { id: 'perfis',     label: '🛡️ Perfis' },
   { id: 'usuarios',   label: '👥 Usuários' },
   { id: 'produtos',   label: '📦 Produtos' },
   { id: 'descontos',  label: '🏷️ Descontos' },
@@ -97,6 +98,17 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [logoB64,      setLogoB64]      = useState(cfg.logob64      || '')
   const [closingHour,  setClosingHour]  = useState(cfg.closingHour  ?? 18)
   const [closingText,  setClosingText]  = useState(cfg.closingText  || 'Oferta válida até as 18h de hoje!')
+  // Dados cadastrais da empresa
+  const [razaoSocial,  setRazaoSocial]  = useState(cfg.razaoSocial  || '')
+  const [cnpjEmpresa,  setCnpjEmpresa]  = useState(cfg.cnpjEmpresa  || '')
+  const [telefoneEmp,  setTelefoneEmp]  = useState(cfg.telefoneEmp  || '')
+  const [emailEmp,     setEmailEmp]     = useState(cfg.emailEmp     || '')
+  const [responsavel,  setResponsavel]  = useState(cfg.responsavel  || '')
+  const [enderecoEmp,  setEnderecoEmp]  = useState(cfg.enderecoEmp  || '')
+  // Assinatura eletrônica
+  const [signEmail,    setSignEmail]    = useState(cfg.signConfig?.email || '')
+  const [signWpp,      setSignWpp]      = useState(cfg.signConfig?.wpp   || '')
+  const [signUrl,      setSignUrl]      = useState(cfg.signConfig?.url   || '')
   const [emailProvider,setEmailProvider]= useState(cfg.emailProvider|| '')
   const [smtpHost,     setSmtpHost]     = useState(cfg.smtpHost     || '')
   const [smtpPort,     setSmtpPort]     = useState(cfg.smtpPort     || '587')
@@ -105,9 +117,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [emailApiKey,  setEmailApiKey]  = useState(cfg.emailApiKey  || '')
   const [geminiApiKey, setGeminiApiKey] = useState(cfg.geminiApiKey || '')
   const [groqApiKey,   setGroqApiKey]   = useState(cfg.groqApiKey   || '')
-  const [signEmail,    setSignEmail]    = useState(cfg.signConfig?.email || '')
-  const [signWpp,      setSignWpp]      = useState(cfg.signConfig?.wpp   || '')
-  const [signUrl,      setSignUrl]      = useState(cfg.signConfig?.url   || '')
   const [saving,       setSaving]       = useState(false)
 
   useEffect(() => {
@@ -124,6 +133,12 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setEmailApiKey(cfg.emailApiKey || '')
     setGeminiApiKey(cfg.geminiApiKey || '')
     setGroqApiKey(cfg.groqApiKey || '')
+    setRazaoSocial(cfg.razaoSocial || '')
+    setCnpjEmpresa(cfg.cnpjEmpresa || '')
+    setTelefoneEmp(cfg.telefoneEmp || '')
+    setEmailEmp(cfg.emailEmp || '')
+    setResponsavel(cfg.responsavel || '')
+    setEnderecoEmp(cfg.enderecoEmp || '')
     setSignEmail(cfg.signConfig?.email || '')
     setSignWpp(cfg.signConfig?.wpp || '')
     setSignUrl(cfg.signConfig?.url || '')
@@ -146,6 +161,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
       closingHour: Number(closingHour), closingText,
       emailProvider, smtpHost, smtpPort, smtpUser, smtpPass, emailApiKey,
       geminiApiKey, groqApiKey,
+      razaoSocial, cnpjEmpresa, telefoneEmp, emailEmp, responsavel, enderecoEmp,
       signConfig: { email: signEmail, wpp: signWpp, url: signUrl }
     }
     const { error } = await salvarStorage(empresaId, novoCfg)
@@ -164,6 +180,27 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
 
   return (
     <div style={s.body}>
+      <div style={s.sec}>
+        <div style={s.secTitle}>🏢 Dados Cadastrais da Empresa</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Estes dados viram variáveis nos documentos e propostas.</p>
+        <div style={s.row2}>
+          <div style={s.field}><label style={s.label}>Nome Fantasia</label><input style={s.input} value={company} onChange={e => setCompany(e.target.value)} placeholder="Ex: Vivanexa" /></div>
+          <div style={s.field}><label style={s.label}>Razão Social</label><input style={s.input} value={razaoSocial} onChange={e => setRazaoSocial(e.target.value)} placeholder="Ex: Vivanexa Tecnologia Ltda" /></div>
+        </div>
+        <div style={s.row2}>
+          <div style={s.field}><label style={s.label}>CNPJ</label><input style={s.input} value={cnpjEmpresa} onChange={e => setCnpjEmpresa(e.target.value)} placeholder="00.000.000/0001-00" /></div>
+          <div style={s.field}><label style={s.label}>Responsável</label><input style={s.input} value={responsavel} onChange={e => setResponsavel(e.target.value)} placeholder="Nome do responsável" /></div>
+        </div>
+        <div style={s.row2}>
+          <div style={s.field}><label style={s.label}>Telefone</label><input style={s.input} value={telefoneEmp} onChange={e => setTelefoneEmp(e.target.value)} placeholder="(00) 00000-0000" /></div>
+          <div style={s.field}><label style={s.label}>E-mail da Empresa</label><input type="email" style={s.input} value={emailEmp} onChange={e => setEmailEmp(e.target.value)} placeholder="contato@empresa.com" /></div>
+        </div>
+        <div style={s.field}><label style={s.label}>Endereço Completo</label><input style={s.input} value={enderecoEmp} onChange={e => setEnderecoEmp(e.target.value)} placeholder="Rua, nº, bairro, cidade – UF" /></div>
+        <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 8, fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+          📎 Variáveis disponíveis nos documentos: <code style={{color:'var(--accent3)'}}>{'{{company}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{razao}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{cnpj_empresa}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{responsavel}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{telefone_empresa}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{email_empresa}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{endereco_empresa}}'}</code>
+        </div>
+      </div>
+
       <div style={s.sec}>
         <div style={s.secTitle}>Identidade Visual</div>
         <div style={s.row2}>
@@ -237,9 +274,8 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
 
       <div style={s.sec}>
         <div style={s.secTitle}>✍️ Assinatura Eletrônica</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>Configure os dados para envio de documentos e links de assinatura.</p>
         <div style={s.row2}>
-          <div style={s.field}><label style={s.label}>E-mail remetente</label><input type="email" style={s.input} value={signEmail} onChange={e => setSignEmail(e.target.value)} placeholder="noreply@vivanexa.com.br" /></div>
+          <div style={s.field}><label style={s.label}>E-mail remetente</label><input type="email" style={s.input} value={signEmail} onChange={e => setSignEmail(e.target.value)} placeholder="noreply@empresa.com" /></div>
           <div style={s.field}><label style={s.label}>WhatsApp da empresa</label><input style={s.input} value={signWpp} onChange={e => setSignWpp(e.target.value)} placeholder="5531984059125" /></div>
         </div>
         <div style={s.field}><label style={s.label}>URL base do sistema (para links de assinatura)</label><input style={s.input} value={signUrl} onChange={e => setSignUrl(e.target.value)} placeholder="https://seusite.com" /></div>
@@ -463,6 +499,124 @@ function TabKpis({ cfg, setCfg, empresaId }) {
   )
 }
 
+
+// ══════════════════════════════════════════════
+// ABA PERFIS
+// ══════════════════════════════════════════════
+function TabPerfis({ cfg, setCfg, empresaId }) {
+  const [perfis,  setPerfis]  = useState(cfg.perfisCustom || [])
+  const [form,    setForm]    = useState(null)
+  const [saving,  setSaving]  = useState(false)
+
+  const perfisDefault = [
+    { id: 'admin',   nome: 'Admin',    permissoes: PERMISSOES_ADMIN },
+    { id: 'vendedor',nome: 'Vendedor', permissoes: PERMISSOES_USER  },
+  ]
+  const todosOsPerfis = [...perfisDefault, ...perfis]
+
+  const emptyPerfil = { id: '', nome: '', permissoes: [] }
+
+  function togglePerm(perm) {
+    setForm(f => {
+      const perms = f.permissoes || []
+      return { ...f, permissoes: perms.includes(perm) ? perms.filter(p => p !== perm) : [...perms, perm] }
+    })
+  }
+
+  async function salvarPerfil() {
+    if (!form.nome.trim()) { toast('Nome do perfil obrigatório', 'err'); return }
+    setSaving(true)
+    const novos = form.id
+      ? perfis.map(p => p.id === form.id ? form : p)
+      : [...perfis, { ...form, id: 'p_' + Date.now() }]
+    const novoCfg = { ...cfg, perfisCustom: novos }
+    const { error } = await salvarStorage(empresaId, novoCfg)
+    setSaving(false)
+    if (error) { toast('Erro ao salvar', 'err'); return }
+    setPerfis(novos); setCfg(novoCfg); setForm(null)
+    toast('✅ Perfil salvo!')
+  }
+
+  async function removerPerfil(id) {
+    if (!confirm('Remover perfil?')) return
+    const novos   = perfis.filter(p => p.id !== id)
+    const novoCfg = { ...cfg, perfisCustom: novos }
+    await salvarStorage(empresaId, novoCfg)
+    setPerfis(novos); setCfg(novoCfg)
+    toast('🗑 Perfil removido!')
+  }
+
+  return (
+    <div style={s.body}>
+      <div style={s.sec}>
+        <div style={s.secTitle}>🛡️ Perfis de Acesso</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+          Crie perfis personalizados com permissões específicas. Os perfis Admin e Vendedor são padrão do sistema e não podem ser removidos.
+        </p>
+
+        {/* Perfis padrão (somente leitura) */}
+        {perfisDefault.map(p => (
+          <div key={p.id} style={{ padding: '12px 16px', background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14 }}>{p.nome} <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>(padrão)</span></div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{p.permissoes.length} permissões</div>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxWidth: 400 }}>
+              {p.permissoes.slice(0, 5).map(perm => {
+                const desc = PERMISSOES_DISPONIVEIS.find(x => x.id === perm)
+                return desc ? <span key={perm} style={{ fontSize: 10, padding: '2px 8px', background: 'rgba(0,212,255,.1)', borderRadius: 4, color: 'var(--accent)' }}>{desc.label}</span> : null
+              })}
+              {p.permissoes.length > 5 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>+{p.permissoes.length - 5}</span>}
+            </div>
+          </div>
+        ))}
+
+        {/* Perfis customizados */}
+        {perfis.map(p => (
+          <div key={p.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: 14 }}>{p.nome}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{(p.permissoes || []).length} permissões</div>
+            </div>
+            <button onClick={() => setForm({ ...p })} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer' }}>✏️</button>
+            <button onClick={() => removerPerfil(p.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer' }}>🗑</button>
+          </div>
+        ))}
+
+        <button onClick={() => setForm({ ...emptyPerfil })}
+          style={{ padding: '10px 18px', borderRadius: 9, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>
+          + Novo Perfil
+        </button>
+      </div>
+
+      {form && (
+        <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18 }}>
+          <div style={{ ...s.secTitle, marginBottom: 14 }}>Dados do Perfil</div>
+          <div style={s.field}>
+            <label style={s.label}>Nome do Perfil</label>
+            <input style={s.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Supervisor, Gerente..." />
+          </div>
+          <div style={s.field}>
+            <label style={s.label}>Permissões</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+              {PERMISSOES_DISPONIVEIS.map(p => (
+                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--text)', padding: '7px 10px', background: (form.permissoes || []).includes(p.id) ? 'rgba(0,212,255,.08)' : 'transparent', borderRadius: 6, border: `1px solid ${(form.permissoes || []).includes(p.id) ? 'rgba(0,212,255,.25)' : 'transparent'}` }}>
+                  <input type="checkbox" checked={(form.permissoes || []).includes(p.id)} onChange={() => togglePerm(p.id)} />
+                  {p.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+            <button style={s.saveBtn} onClick={salvarPerfil} disabled={saving}>{saving ? '⏳...' : '✅ Salvar Perfil'}</button>
+            <button onClick={() => setForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ══════════════════════════════════════════════
 // ABA USUÁRIOS
 // ══════════════════════════════════════════════
@@ -471,20 +625,15 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
   const [form,   setForm]   = useState(null)
   const [saving, setSaving] = useState(false)
 
+  // Perfis disponíveis: padrão + customizados
+  const perfisCustom = cfg.perfisCustom || []
   const perfisTipos = [
-    { id: 'admin',        label: 'Admin',        permissoes: PERMISSOES_ADMIN },
-    { id: 'vendedor',     label: 'Vendedor',     permissoes: PERMISSOES_USER  },
-    { id: 'personalizado',label: 'Personalizado',permissoes: []               },
+    { id: 'admin',   nome: 'Admin',    permissoes: PERMISSOES_ADMIN },
+    { id: 'vendedor',nome: 'Vendedor', permissoes: PERMISSOES_USER  },
+    ...perfisCustom.map(p => ({ id: p.id, nome: p.nome, permissoes: p.permissoes || [] }))
   ]
 
   const emptyUser = { id: '', nome: '', email: '', username: '', password: '', tipo: 'vendedor', permissoes: [...PERMISSOES_USER] }
-
-  function togglePermissao(perm) {
-    setForm(f => {
-      const perms = f.permissoes || []
-      return { ...f, permissoes: perms.includes(perm) ? perms.filter(p => p !== perm) : [...perms, perm] }
-    })
-  }
 
   function aplicarPerfil(tipo) {
     const p = perfisTipos.find(x => x.id === tipo)
@@ -549,24 +698,26 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
           </div>
           <div style={s.field}>
             <label style={s.label}>Perfil de Acesso</label>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {perfisTipos.map(p => (
                 <button key={p.id} onClick={() => aplicarPerfil(p.id)}
-                  style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${form.tipo === p.id ? 'var(--accent)' : 'var(--border)'}`, background: form.tipo === p.id ? 'rgba(0,212,255,.1)' : 'var(--surface)', color: form.tipo === p.id ? 'var(--accent)' : 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>
-                  {p.label}
+                  style={{ padding: '7px 16px', borderRadius: 8, border: `1.5px solid ${form.tipo === p.id ? 'var(--accent)' : 'var(--border)'}`, background: form.tipo === p.id ? 'rgba(0,212,255,.12)' : 'var(--surface)', color: form.tipo === p.id ? 'var(--accent)' : 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', fontWeight: form.tipo === p.id ? 600 : 400 }}>
+                  {p.nome}
                 </button>
               ))}
             </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+              Crie e edite perfis na aba <strong style={{color:'var(--accent)'}}>🛡️ Perfis</strong>. As permissões são aplicadas automaticamente.
+            </div>
           </div>
-          <div style={s.field}>
-            <label style={s.label}>Permissões</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              {PERMISSOES_DISPONIVEIS.map(p => (
-                <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: 'var(--text)', padding: '6px 10px', background: (form.permissoes || []).includes(p.id) ? 'rgba(0,212,255,.06)' : 'transparent', borderRadius: 6, border: `1px solid ${(form.permissoes || []).includes(p.id) ? 'rgba(0,212,255,.2)' : 'transparent'}` }}>
-                  <input type="checkbox" checked={(form.permissoes || []).includes(p.id)} onChange={() => togglePermissao(p.id)} />
-                  {p.label}
-                </label>
-              ))}
+          <div style={{ padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--muted)' }}>
+            <strong style={{color:'var(--text)'}}>Permissões do perfil "{perfisTipos.find(p => p.id === form.tipo)?.nome || form.tipo}":</strong>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+              {(form.permissoes || []).map(perm => {
+                const desc = PERMISSOES_DISPONIVEIS.find(x => x.id === perm)
+                return desc ? <span key={perm} style={{ fontSize: 11, padding: '2px 8px', background: 'rgba(0,212,255,.1)', borderRadius: 4, color: 'var(--accent)' }}>{desc.label}</span> : null
+              })}
+              {(form.permissoes || []).length === 0 && <span style={{color:'var(--muted)'}}>Nenhuma permissão</span>}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
@@ -708,23 +859,22 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
 // ABA DESCONTOS
 // ══════════════════════════════════════════════
 function TabDescontos({ cfg, setCfg, empresaId }) {
-  // Modo: 'screen' = desconto em tela automático | 'voucher' = só com voucher
   const [discMode,     setDiscMode]     = useState(cfg.discMode     || 'screen')
-  const [discAdPct,    setDiscAdPct]    = useState(Number(cfg.discAdPct)    ?? 50)
-  const [discMenPct,   setDiscMenPct]   = useState(Number(cfg.discMenPct)   ?? 0)
-  const [discClosePct, setDiscClosePct] = useState(Number(cfg.discClosePct) ?? 40)
+  const [discAdPct,    setDiscAdPct]    = useState(Number(cfg.discAdPct)    !== undefined ? Number(cfg.discAdPct) : 50)
+  const [discMenPct,   setDiscMenPct]   = useState(Number(cfg.discMenPct)   || 0)
+  const [discClosePct, setDiscClosePct] = useState(Number(cfg.discClosePct) !== undefined ? Number(cfg.discClosePct) : 40)
   const [saving,       setSaving]       = useState(false)
+
+  useEffect(() => {
+    setDiscMode(cfg.discMode || 'screen')
+    setDiscAdPct(cfg.discAdPct !== undefined ? Number(cfg.discAdPct) : 50)
+    setDiscMenPct(Number(cfg.discMenPct) || 0)
+    setDiscClosePct(cfg.discClosePct !== undefined ? Number(cfg.discClosePct) : 40)
+  }, [cfg])
 
   async function salvar() {
     setSaving(true)
-    // Salva com as chaves que o chat.js consome diretamente
-    const novoCfg = {
-      ...cfg,
-      discMode,
-      discAdPct:    Number(discAdPct),
-      discMenPct:   Number(discMenPct),
-      discClosePct: Number(discClosePct),
-    }
+    const novoCfg = { ...cfg, discMode, discAdPct: Number(discAdPct), discMenPct: Number(discMenPct), discClosePct: Number(discClosePct) }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
@@ -732,63 +882,50 @@ function TabDescontos({ cfg, setCfg, empresaId }) {
     toast('✅ Descontos salvos!')
   }
 
-  const toggle=(val,set,on,off)=>()=>{ set(prev=>prev===on?off:on); }
+  const Toggle = ({ on, onToggle, label, desc }) => (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 0', borderBottom:'1px solid var(--border)' }}>
+      <div>
+        <div style={{ fontWeight:600, color:'var(--text)', fontSize:14 }}>{label}</div>
+        <div style={{ fontSize:12, color:'var(--muted)', marginTop:3 }}>{desc}</div>
+      </div>
+      <div onClick={onToggle} style={{ width:48, height:26, borderRadius:13, background: on ? 'var(--accent3)' : 'var(--border)', cursor:'pointer', position:'relative', transition:'background .2s', flexShrink:0 }}>
+        <div style={{ position:'absolute', top:3, left: on ? 24 : 3, width:20, height:20, borderRadius:10, background:'#fff', transition:'left .2s' }}/>
+      </div>
+    </div>
+  )
 
   return (
     <div style={s.body}>
       <div style={s.sec}>
         <div style={s.secTitle}>🏷️ Modo de Desconto</div>
-
-        {/* Toggle: Desconto em Tela */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 0', borderBottom:'1px solid var(--border)' }}>
-          <div>
-            <div style={{ fontWeight:600, color:'var(--text)', fontSize:14 }}>Desconto em Tela</div>
-            <div style={{ fontSize:12, color:'var(--muted)', marginTop:3 }}>Mostra desconto após o preço cheio automaticamente</div>
-          </div>
-          <div onClick={()=>setDiscMode(discMode==='screen'?'voucher':'screen')}
-            style={{ width:48,height:26,borderRadius:13,background:discMode==='screen'?'var(--accent3)':'var(--border)',cursor:'pointer',position:'relative',transition:'background .2s',flexShrink:0 }}>
-            <div style={{ position:'absolute',top:3,left:discMode==='screen'?24:3,width:20,height:20,borderRadius:10,background:'#fff',transition:'left .2s' }}/>
-          </div>
-        </div>
-
-        {/* Toggle: Somente via Voucher */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 0', borderBottom:'1px solid var(--border)' }}>
-          <div>
-            <div style={{ fontWeight:600, color:'var(--text)', fontSize:14 }}>Somente via Voucher</div>
-            <div style={{ fontSize:12, color:'var(--muted)', marginTop:3 }}>Desconto só é aplicado com código de voucher válido</div>
-          </div>
-          <div onClick={()=>setDiscMode(discMode==='voucher'?'screen':'voucher')}
-            style={{ width:48,height:26,borderRadius:13,background:discMode==='voucher'?'var(--accent3)':'var(--border)',cursor:'pointer',position:'relative',transition:'background .2s',flexShrink:0 }}>
-            <div style={{ position:'absolute',top:3,left:discMode==='voucher'?24:3,width:20,height:20,borderRadius:10,background:'#fff',transition:'left .2s' }}/>
-          </div>
-        </div>
+        <Toggle on={discMode==='screen'} onToggle={()=>setDiscMode(discMode==='screen'?'voucher':'screen')} label="Desconto em Tela" desc="Mostra desconto após o preço cheio automaticamente no chat" />
+        <Toggle on={discMode==='voucher'} onToggle={()=>setDiscMode(discMode==='voucher'?'screen':'voucher')} label="Somente via Voucher" desc="Desconto só é aplicado com código de voucher válido" />
       </div>
 
       <div style={s.sec}>
         <div style={s.secTitle}>📊 Percentuais de Desconto</div>
-        <div style={{ fontSize:13, color:'var(--muted)', marginBottom:14, lineHeight:1.6 }}>
-          Estes percentuais são aplicados automaticamente no chat quando o modo <strong style={{color:'var(--accent)'}}>Desconto em Tela</strong> está ativo.
-        </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+        <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16, lineHeight:1.6 }}>
+          Estes percentuais são aplicados automaticamente no chat. O preço inicial exibido é sempre: <strong style={{color:'var(--text)'}}>Adesão ×2 e Mensalidade +20%</strong>. Em seguida o sistema mostra o desconto de tela e por último o de fechamento.
+        </p>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14 }}>
           <div style={s.field}>
-            <label style={s.label}>% Adesão (tela)</label>
+            <label style={s.label}>% Adesão (desconto em tela)</label>
             <input type="number" min={0} max={100} style={s.input} value={discAdPct} onChange={e=>setDiscAdPct(e.target.value)} />
-            <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Desconto na adesão exibido em tela</div>
+            <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Ex: 50 → mostra 50% OFF na adesão</div>
           </div>
           <div style={s.field}>
-            <label style={s.label}>% Mensalidade (tela)</label>
+            <label style={s.label}>% Mensalidade (desconto em tela)</label>
             <input type="number" min={0} max={100} style={s.input} value={discMenPct} onChange={e=>setDiscMenPct(e.target.value)} />
-            <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Desconto na mensalidade em tela</div>
+            <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Ex: 0 → mensalidade sem desconto em tela</div>
           </div>
           <div style={s.field}>
-            <label style={s.label}>% Adesão (fechamento)</label>
+            <label style={s.label}>% Adesão (fechamento no dia)</label>
             <input type="number" min={0} max={100} style={s.input} value={discClosePct} onChange={e=>setDiscClosePct(e.target.value)} />
-            <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Desconto exclusivo para fechar no dia</div>
+            <div style={{fontSize:11,color:'var(--muted)',marginTop:4}}>Oportunidade exclusiva para fechar hoje</div>
           </div>
         </div>
-
-        <div style={{ marginTop:16, padding:'12px 16px', background:'rgba(0,212,255,.06)', border:'1px solid rgba(0,212,255,.2)', borderRadius:8, fontSize:12, color:'var(--accent)' }}>
-          💡 <strong>Como funciona:</strong> O chat primeiro exibe o preço cheio (adesão ×2, mensalidade +20%). Depois mostra o desconto de tela configurado acima. Por último oferece o desconto de fechamento exclusivo para fechar no dia.
+        <div style={{ marginTop:14, padding:'12px 16px', background:'rgba(0,212,255,.05)', border:'1px solid rgba(0,212,255,.15)', borderRadius:8, fontSize:12, color:'var(--muted)', lineHeight:1.7 }}>
+          💡 <strong style={{color:'var(--accent)'}}>Fluxo do chat:</strong> 1) Preço inicial (adesão ×2, mensalidade +20%) → 2) "Você tem desconto!" com % adesão e mensalidade em tela → 3) "Fechar hoje!" com % adesão fechamento
         </div>
       </div>
 
@@ -904,9 +1041,6 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
 // ABA DOCUMENTOS
 // ══════════════════════════════════════════════
 function TabDocumentos({ cfg, setCfg, empresaId }) {
-  const [emailRem,          setEmailRem]          = useState(cfg.signConfig?.email || '')
-  const [wpp,               setWpp]               = useState(cfg.signConfig?.wpp   || '')
-  const [urlBase,           setUrlBase]            = useState(cfg.signConfig?.url   || '')
   const [propostaTemplate,  setPropostaTemplate]   = useState(cfg.docTemplates?.proposta  || '')
   const [contratoTemplate,  setContratoTemplate]   = useState(cfg.docTemplates?.contrato  || '')
   const [saving,            setSaving]             = useState(false)
@@ -988,53 +1122,36 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
       </div>
 
       <div style={s.sec}>
-        <div style={s.secTitle}>🤖 Prompt para Geração de Documentos com IA</div>
+        <div style={s.secTitle}>🤖 Prompt para Geração com IA</div>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
-          Copie este prompt, cole em qualquer IA (ChatGPT, Claude, Gemini etc.) junto com o documento do cliente e as variáveis do sistema. A IA gerará um HTML pronto para colar nos modelos acima.
+          Copie este prompt e cole em qualquer IA junto com o documento do cliente. A IA gera um HTML pronto para colar nos modelos acima.
         </p>
         <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, position: 'relative' }}>
-          <pre style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, lineHeight: 1.7, fontFamily: 'monospace' }}>{`Você é um especialista em documentos comerciais. Com base nos dados do cliente e variáveis abaixo, crie um HTML completo e profissional para uma [PROPOSTA / CONTRATO] comercial.
+          <pre id="prompt-ia" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, lineHeight: 1.7, fontFamily: 'monospace' }}>{`Você é especialista em documentos comerciais. Com base nos dados e variáveis abaixo, crie um HTML completo e profissional para uma [PROPOSTA / CONTRATO].
 
 VARIÁVEIS DISPONÍVEIS (use exatamente como estão):
-{{empresa}} - Nome fantasia do cliente
-{{razao}} - Razão social
-{{cnpj}} - CNPJ formatado
-{{contato}} - Nome do contato
-{{email}} - E-mail
-{{telefone}} - Telefone
-{{endereco}} - Endereço completo
-{{plano}} - Plano contratado
-{{cnpjs_qty}} - Quantidade de CNPJs
-{{total_adesao}} - Valor total de adesão
-{{total_mensal}} - Valor total mensalidade
-{{data_hora}} - Data atual
-{{vencimento_adesao}} - Vencimento da adesão
-{{vencimento_mensal}} - Vencimento da mensalidade
-{{condicao_pagamento}} - Condição de pagamento
-{{consultor_nome}} - Nome do consultor
-{{company}} - Empresa contratante (Vivanexa)
-{{produtos_tabela}} - Tabela HTML dos produtos (inserir como está)
-{{logo}} - Logo em base64 (inserir como: <img src="{{logo}}" ...>)
+{{empresa}} - Nome fantasia | {{razao}} - Razão social | {{cnpj}} - CNPJ
+{{company}} - Empresa contratante | {{razao_empresa}} - Razão social contratante
+{{cnpj_empresa}} - CNPJ da contratante | {{responsavel}} - Responsável
+{{telefone_empresa}} - Telefone | {{email_empresa}} - E-mail | {{endereco_empresa}} - Endereço
+{{contato}} - Nome do contato do cliente | {{email}} - E-mail do cliente
+{{telefone}} - Telefone do cliente | {{plano}} - Plano contratado
+{{cnpjs_qty}} - Quantidade de CNPJs | {{total_adesao}} - Total adesão
+{{total_mensal}} - Total mensalidade | {{data_hora}} - Data atual
+{{vencimento_adesao}} - Vencimento da adesão | {{vencimento_mensal}} - Vencimento mensalidade
+{{condicao_pagamento}} - Condição de pagamento | {{consultor_nome}} - Nome do consultor
+{{produtos_tabela}} - Tabela HTML dos produtos | {{logo}} - Logo em base64
 
-INSTRUÇÕES:
-- Crie um HTML completo com CSS inline (sem arquivos externos)
-- Use cores profissionais: fundo branco, texto escuro, destaques em azul
-- Inclua cabeçalho com logo e nome da empresa, dados do cliente, tabela de produtos e rodapé
-- Mantenha as variáveis {{...}} exatamente como estão — elas serão substituídas pelo sistema
-- O resultado deve ser apenas o HTML, sem explicações adicionais`}</pre>
-          <button
-            onClick={() => {
-              const txt = document.querySelector('[data-prompt-copy]')?.innerText || ''
-              navigator.clipboard?.writeText(document.querySelector('pre')?.innerText || '').then(() => toast('✅ Prompt copiado!'))
-            }}
-            style={{ position:'absolute', top:10, right:10, padding:'6px 12px', borderRadius:7, background:'rgba(0,212,255,.15)', border:'1px solid rgba(0,212,255,.3)', color:'var(--accent)', fontFamily:'DM Mono, monospace', fontSize:12, cursor:'pointer' }}
-          >📋 Copiar</button>
+INSTRUÇÕES: CSS inline, fundo branco, cores profissionais, cabeçalho com logo, dados do cliente, tabela de produtos, rodapé. Retorne APENAS o HTML.`}</pre>
+          <button onClick={() => { const el = document.getElementById('prompt-ia'); if (el) navigator.clipboard?.writeText(el.innerText).then(() => toast('✅ Prompt copiado!')) }}
+            style={{ position: 'absolute', top: 10, right: 10, padding: '6px 12px', borderRadius: 7, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>
+            📋 Copiar
+          </button>
         </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-        <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳...' : '✅ Salvar'}</button>
-        <button onClick={testarConexao} disabled={testando} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>{testando ? '⏳...' : '🔌 Testar Conexão'}</button>
+        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+          <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳...' : '✅ Salvar'}</button>
+          <button onClick={testarConexao} disabled={testando} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>{testando ? '⏳...' : '🔌 Testar Conexão'}</button>
+        </div>
       </div>
     </div>
   )
@@ -1233,6 +1350,7 @@ export default function Configuracoes() {
       case 'empresa':    return <TabEmpresa    {...props} />
       case 'metas':      return <TabMetas      {...props} />
       case 'kpis':       return <TabKpis       {...props} />
+      case 'perfis':     return <TabPerfis     {...props} />
       case 'usuarios':   return <TabUsuarios   {...props} />
       case 'produtos':   return <TabProdutos   {...props} />
       case 'descontos':  return <TabDescontos  {...props} />
