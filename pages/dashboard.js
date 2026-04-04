@@ -1,754 +1,526 @@
-// pages/dashboard.js
-import { useState, useEffect } from 'react'
+// pages/dashboard.js — Tela Principal Vivanexa SaaS
+// ====================================================
+// Esta é a primeira tela que o usuário vê após o login.
+// Inclui: Navbar global, KPIs resumidos, acesso rápido,
+// atividades do dia, atalhos e todos os módulos listados.
+// ====================================================
+
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
+import Head from 'next/head'
 import { supabase } from '../lib/supabase'
-import { fmt, planLabel, prodName } from '../lib/pricing'
+import Navbar from '../components/Navbar'
 
-// ── Helpers ──────────────────────────────────────────────────
-function fmtK(v) {
-  if (v >= 1000) return `R$ ${(v / 1000).toFixed(1)}k`
-  return fmt(v)
-}
-function mesAtual() { return new Date().toISOString().slice(0, 7) }
-function diasUteisNoMes(yearMonth) {
-  const [y, m] = yearMonth.split('-').map(Number)
-  const dias = new Date(y, m, 0).getDate()
-  let uteis = 0
-  for (let d = 1; d <= dias; d++) {
-    const dow = new Date(y, m - 1, d).getDay()
-    if (dow !== 0 && dow !== 6) uteis++
-  }
-  return uteis
-}
-function pct(real, meta) {
-  if (!meta || meta <= 0) return 0
-  return Math.min(100, Math.round((real / meta) * 100))
-}
-function dateToMonth(dateStr) {
-  if (!dateStr) return ''
-  if (dateStr.includes('/')) {
-    const parts = dateStr.split('/')
-    if (parts.length >= 3) {
-      const year = parts[2].split(',')[0].trim()
-      const month = parts[1].padStart(2, '0')
-      return `${year}-${month}`
-    }
-  }
-  try { const d = new Date(dateStr); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` } catch (e) { return '' }
-}
-function entryBelongsTo(h, userId, users) {
-  if (!h || !userId) return false
-  if (h.consultantId && h.consultantId === userId) return true
-  if (h.consultantSignedBy) {
-    const u = (users || []).find(u2 => (u2.id || u2.username) === userId)
-    if (u && (u.name === h.consultantSignedBy || u.username === h.consultantSignedBy)) return true
-  }
-  if (h.consultant) {
-    const u = (users || []).find(u2 => (u2.id || u2.username) === userId)
-    if (u && (u.name === h.consultant || u.username === h.consultant)) return true
-  }
-  return false
-}
-function entryInMonth(h, month) {
-  if (!h) return false
-  if (h.dateISO) return h.dateISO.slice(0, 7) === month
-  const signDate = h.signedAt || h.consultantSignedAt || h.date
-  return dateToMonth(signDate) === month
-}
-function computeRealized(userId, month, users, docHistory) {
-  const history = docHistory || []
-  let adReal = 0, menReal = 0, contracts = 0
-  for (const h of history) {
-    if (!h || h.type !== 'contrato') continue
-    if (!entryInMonth(h, month)) continue
-    if (!entryBelongsTo(h, userId, users)) continue
-    adReal += (h.tAd || 0)
-    menReal += (h.tMen || 0)
-    contracts++
-  }
-  return { adReal, menReal, contracts }
-}
+// ── Estrutura de módulos (espelha o Navbar) ─────────────────────
+const MODULOS = [
+  {
+    id: 'comercial', label: 'Comercial', icon: '💼', color: '#00d4ff',
+    desc: 'Vendas, propostas e relacionamento',
+    subs: [
+      { label: 'Chat / Assistente', icon: '💬', href: '/chat',                   desc: 'IA comercial de precificação' },
+      { label: 'CRM',               icon: '🤝', href: '/crm',                    desc: 'Funil de vendas e clientes' },
+      { label: 'Disparo em Massa',  icon: '📣', href: '/prospeccao?aba=disparo', desc: 'WhatsApp e e-mail em lote' },
+      { label: 'Chatbot',           icon: '🤖', href: '/prospeccao?aba=chatbot', desc: 'Atendimento automatizado' },
+      { label: 'Agente IA',         icon: '🧠', href: '/prospeccao?aba=agente',  desc: 'OpenAI, Gemini, Groq' },
+      { label: 'Script / Playbook', icon: '📋', href: '/prospeccao?aba=script',  desc: 'Roteiros de vendas' },
+    ],
+  },
+  {
+    id: 'marketing', label: 'Marketing', icon: '📣', color: '#7c3aed',
+    desc: 'Campanhas, conteúdo e publicações',
+    subs: [
+      { label: 'Campanhas IA',         icon: '🎯', href: '/marketing?aba=campanhas', desc: 'Google e Meta com IA' },
+      { label: 'Geração de Imagens',   icon: '🖼️', href: '/marketing?aba=imagens',   desc: 'Posts e criativos' },
+      { label: 'Agenda de Publicação', icon: '📅', href: '/marketing?aba=agenda',    desc: 'Instagram, TikTok, Facebook' },
+      { label: 'Script / Playbook',    icon: '📝', href: '/marketing?aba=script',    desc: 'Roteiros de marketing' },
+    ],
+  },
+  {
+    id: 'financeiro', label: 'Financeiro', icon: '💰', color: '#10b981',
+    desc: 'Controle financeiro e pagamentos',
+    subs: [
+      { label: 'Contas a Receber', icon: '💵', href: '/financeiro?aba=receber',   desc: 'Receitas e cobranças' },
+      { label: 'Contas a Pagar',   icon: '💸', href: '/financeiro?aba=pagar',     desc: 'Despesas e fornecedores' },
+      { label: 'Boleto / PIX',     icon: '🏦', href: '/financeiro?aba=boleto',    desc: 'Emissão e recebimento' },
+      { label: 'Cartão',           icon: '💳', href: '/financeiro?aba=cartao',    desc: 'Crédito e débito' },
+      { label: 'Comissões',        icon: '🏆', href: '/financeiro?aba=comissoes', desc: 'Calculadora por metas' },
+    ],
+  },
+  {
+    id: 'fiscal', label: 'Fiscal', icon: '📄', color: '#f59e0b',
+    desc: 'Notas fiscais e obrigações',
+    subs: [
+      { label: 'NF de Produto',    icon: '📦', href: '/fiscal?aba=produto',    desc: 'Nota fiscal eletrônica' },
+      { label: 'NF de Serviço',    icon: '🛠️', href: '/fiscal?aba=servico',    desc: 'Nota de serviço (NFSe)' },
+      { label: 'NF do Consumidor', icon: '🧾', href: '/fiscal?aba=consumidor', desc: 'NFC-e e cupom fiscal' },
+    ],
+  },
+  {
+    id: 'produtividade', label: 'Produtividade', icon: '⚡', color: '#06b6d4',
+    desc: 'Tarefas, MEI e tributos',
+    subs: [
+      { label: 'Captura de Notas',     icon: '📥', href: '/produtividade?aba=notas',      desc: 'XMLs e portal NF-e' },
+      { label: 'Tarefas e Obrigações', icon: '✅', href: '/produtividade?aba=tarefas',    desc: 'Gestão de prazos' },
+      { label: 'Monitoramento e-CAC',  icon: '🔍', href: '/produtividade?aba=ecac',       desc: 'VERI, Monitor Contábil' },
+      { label: 'Consulta Tributária',  icon: '📊', href: '/produtividade?aba=tributaria', desc: 'NCM, barras, tributação' },
+      { label: 'Gestão MEI',           icon: '🏪', href: '/produtividade?aba=mei',        desc: 'DAS, anuidade e obrigações' },
+      { label: 'Simples Nacional',     icon: '📈', href: '/produtividade?aba=simples',    desc: 'Apuração e PGDAS' },
+    ],
+  },
+  {
+    id: 'relatorios', label: 'Relatórios', icon: '📈', color: '#ec4899',
+    desc: 'Análises e indicadores',
+    subs: [
+      { label: 'Financeiro', icon: '💰', href: '/reports?aba=financeiro', desc: 'DRE e fluxo de caixa' },
+      { label: 'KPIs',       icon: '📊', href: '/reports?aba=kpis',       desc: 'Metas e indicadores' },
+      { label: 'Vendas',     icon: '🛒', href: '/reports?aba=vendas',     desc: 'Conversão e receita' },
+      { label: 'Produtos',   icon: '📦', href: '/reports?aba=produtos',   desc: 'Módulos e planos' },
+      { label: 'Comercial',  icon: '💼', href: '/reports?aba=comercial',  desc: 'Pipeline e funil' },
+      { label: 'Fiscal',     icon: '📄', href: '/reports?aba=fiscal',     desc: 'NFs emitidas' },
+    ],
+  },
+  {
+    id: 'configuracoes', label: 'Configurações', icon: '⚙️', color: '#64748b',
+    desc: 'Empresa, usuários e sistema',
+    subs: [
+      { label: 'Empresa',    icon: '🏢', href: '/configuracoes?tab=empresa',   desc: 'Dados e logotipo' },
+      { label: 'Metas',      icon: '🎯', href: '/configuracoes?tab=metas',     desc: 'Objetivos mensais' },
+      { label: 'KPIs',       icon: '📊', href: '/configuracoes?tab=kpis',      desc: 'Indicadores e templates' },
+      { label: 'Usuários',   icon: '👥', href: '/configuracoes?tab=usuarios',  desc: 'Acessos e comissões' },
+      { label: 'Produtos',   icon: '📦', href: '/configuracoes?tab=produtos',  desc: 'Planos e preços' },
+      { label: 'Descontos',  icon: '🏷️', href: '/configuracoes?tab=descontos', desc: 'Vouchers e condições' },
+    ],
+  },
+]
 
-// ── Barra de progresso ────────────────────────────────────────
-function BarraProgresso({ label, real, meta }) {
-  const p = pct(real, meta)
-  const cor = p >= 100 ? 'var(--accent3)' : p >= 70 ? 'var(--accent)' : p >= 40 ? 'var(--warning)' : 'var(--danger)'
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-        <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500 }}>{label}</span>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-          {fmt(real)} / {fmt(meta)}{' '}
-          <span style={{ color: cor, fontWeight: 700 }}>{p}%</span>
-        </span>
-      </div>
-      <div style={{ height: 8, background: 'var(--surface2)', borderRadius: 4, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${p}%`, background: cor, borderRadius: 4, transition: 'width .6s ease' }} />
-      </div>
-    </div>
-  )
-}
+// ── Atalhos rápidos ─────────────────────────────────────────────
+const ATALHOS = [
+  { label: 'Nova Proposta',   icon: '📄', href: '/chat' },
+  { label: 'Novo Contrato',   icon: '📝', href: '/chat' },
+  { label: 'Lançar KPIs',     icon: '📊', href: '/kpi' },
+  { label: 'Ver Relatórios',  icon: '📈', href: '/reports' },
+  { label: 'Novo Lead',       icon: '🎯', href: '/crm' },
+  { label: 'Configurações',   icon: '⚙️', href: '/configuracoes' },
+]
 
-// ── Card KPI ─────────────────────────────────────────────────
-function CardKpi({ icone, nome, realizado, meta, onClick }) {
-  const p = pct(realizado, meta)
-  const cor = p >= 100 ? 'var(--accent3)' : p >= 60 ? 'var(--accent)' : 'var(--muted)'
-  return (
-    <div onClick={onClick}
-      style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', cursor: onClick ? 'pointer' : 'default', transition: 'border-color .2s' }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(0,212,255,.4)'}
-      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-      <div style={{ fontSize: 22, marginBottom: 6 }}>{icone}</div>
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4, letterSpacing: '.5px' }}>{nome}</div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span style={{ fontSize: 26, fontWeight: 800, fontFamily: 'Syne, sans-serif', color: cor }}>{realizado}</span>
-        {meta > 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>/ {meta}</span>}
-      </div>
-      {meta > 0 && (
-        <div style={{ marginTop: 8, height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${p}%`, background: cor, borderRadius: 2, transition: 'width .6s' }} />
-        </div>
-      )}
-    </div>
-  )
-}
+// ── Utilitários ─────────────────────────────────────────────────
+const fmt = n => 'R$ ' + Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
 
-// ── Gráfico de barras SVG ────────────────────────────────────
-function GraficoBarras({ dados, altura = 130, formatarValor }) {
-  if (!dados || dados.length === 0) return (
-    <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--muted)', fontSize: 13 }}>
-      Sem dados para exibir
-    </div>
-  )
-  const maxVal = Math.max(...dados.map(d => d.valor), 1)
-  const larg = 100 / dados.length
-  const fmtV = formatarValor || (v => v > 9999 ? `${(v / 1000).toFixed(0)}k` : String(v))
-  return (
-    <svg width="100%" height={altura} style={{ overflow: 'visible' }}>
-      {dados.map((d, i) => {
-        const h = Math.max(4, (d.valor / maxVal) * (altura - 28))
-        const x = i * larg + larg * 0.1
-        const w = larg * 0.8
-        return (
-          <g key={i}>
-            <rect x={`${x}%`} y={altura - 22 - h} width={`${w}%`} height={h}
-              rx="3" fill={d.cor || 'var(--accent)'} opacity={0.85} />
-            <text x={`${x + w / 2}%`} y={altura - 4} textAnchor="middle"
-              style={{ fontSize: 9, fill: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
-              {d.label}
-            </text>
-            {d.valor > 0 && (
-              <text x={`${x + w / 2}%`} y={altura - 26 - h} textAnchor="middle"
-                style={{ fontSize: 9, fill: 'var(--text)', fontFamily: 'DM Mono, monospace' }}>
-                {fmtV(d.valor)}
-              </text>
-            )}
-          </g>
-        )
-      })}
-    </svg>
-  )
-}
-
-// ── Modal lançar KPI ─────────────────────────────────────────
-function ModalKpi({ kpi, userId, onClose, onSave }) {
-  const hoje = new Date().toISOString().slice(0, 10)
-  const [valor, setValor] = useState('')
-  const [data, setData] = useState(hoje)
-  async function salvar() {
-    if (!valor || isNaN(Number(valor))) return
-    await onSave({ kpiId: kpi.id, valor: Number(valor), data, userId })
-    onClose()
-  }
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 28, width: '100%', maxWidth: 360, boxShadow: 'var(--shadow)' }}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 20 }}>
-          {kpi.icone} Lançar {kpi.nome}
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Data</label>
-          <input type="date" value={data} onChange={e => setData(e.target.value)}
-            style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none' }} />
-        </div>
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Quantidade</label>
-          <input type="number" autoFocus min={0} value={valor} onChange={e => setValor(e.target.value)}
-            placeholder="Ex: 15"
-            style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 14, color: 'var(--text)', outline: 'none' }} />
-        </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={salvar}
-            style={{ flex: 1, padding: '11px', borderRadius: 10, background: 'linear-gradient(135deg,var(--accent),#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-            ✅ Salvar
-          </button>
-          <button onClick={onClose}
-            style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
-            Cancelar
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ══════════════════════════════════════════════════════════════
-// PÁGINA PRINCIPAL
-// ══════════════════════════════════════════════════════════════
 export default function Dashboard() {
   const router = useRouter()
+  const [user, setUser]       = useState(null)
+  const [cfg,  setCfg]        = useState({})
+  const [stats, setStats]     = useState({ receita: 0, contratos: 0, leads: 0, kpiPct: 0 })
+  const [atividades, setAtiv] = useState([])
   const [loading, setLoading] = useState(true)
-  const [perfil, setPerfil] = useState(null)
-  const [empresaId, setEmpresaId] = useState(null)
-  const [cfg, setCfg] = useState({})
-  const [mes, setMes] = useState(mesAtual())
-  const [kpiModal, setKpiModal] = useState(null)
-  const [abaAtiva, setAbaAtiva] = useState('geral')
+  const [hora, setHora]       = useState('')
 
+  // Relógio ao vivo
+  useEffect(() => {
+    const tick = () => setHora(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
+    tick()
+    const t = setInterval(tick, 30000)
+    return () => clearInterval(t)
+  }, [])
+
+  // Carrega dados do Supabase
   useEffect(() => {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { router.push('/'); return }
+      if (!session) { router.replace('/'); return }
 
-      let { data: perf } = await supabase
-        .from('perfis')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .maybeSingle()
-
-      if (!perf) {
+      let { data: perfil } = await supabase.from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
+      if (!perfil) {
         const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário'
-        const { data: novoPerfil } = await supabase
+        const { data: np } = await supabase
           .from('perfis')
-          .insert({
-            user_id: session.user.id,
-            nome: nome,
-            email: session.user.email,
-            empresa_id: session.user.id,
-            perfil: 'admin'
-          })
-          .select()
-          .single()
-        perf = novoPerfil
+          .insert({ user_id: session.user.id, nome, email: session.user.email, empresa_id: session.user.id, perfil: 'admin' })
+          .select().single()
+        perfil = np
+      }
+      setUser(perfil)
+
+      const eid = perfil?.empresa_id || session.user.id
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
+      const c = row?.value ? JSON.parse(row.value) : {}
+      setCfg(c)
+
+      // ── Calcular stats reais ──────────────────────────────────
+      const mesAtual = new Date().toISOString().slice(0, 7)
+      const historico = c.historico || []
+      const receitaMes = historico
+        .filter(h => (h.date || '').startsWith(mesAtual))
+        .reduce((acc, h) => acc + Number(h.tMenD || h.mensalidade || 0), 0)
+      const contratosMes = historico.filter(h => (h.date || '').startsWith(mesAtual)).length
+
+      const negocios = c.crm_negocios || []
+      const leads = negocios.filter(n => n.etapa !== 'fechamento' && n.etapa !== 'perdido').length
+
+      // KPI do dia
+      const hoje = new Date().toISOString().slice(0, 10)
+      const kpiLog = (c.kpiLog || []).filter(l => l.userId === session.user.id && l.date === hoje)
+      const kpiTemplates = c.kpiTemplates || []
+      let kpiPct = 0
+      if (kpiTemplates.length > 0 && kpiLog.length > 0) {
+        const metas = c.kpiDailyGoals?.[session.user.id] || {}
+        let totalMeta = 0, totalReal = 0
+        kpiTemplates.forEach(k => {
+          const meta = Number(metas[k.id] || 0)
+          const real = Number(kpiLog.find(l => l.kpiId === k.id)?.realizado || 0)
+          if (meta > 0) { totalMeta += meta; totalReal += Math.min(real, meta) }
+        })
+        kpiPct = totalMeta > 0 ? Math.round((totalReal / totalMeta) * 100) : 0
       }
 
-      setPerfil(perf)
-      const eid = perf?.empresa_id || session.user.id
-      setEmpresaId(eid)
+      setStats({ receita: receitaMes, contratos: contratosMes, leads, kpiPct })
 
-      const { data: row } = await supabase
-        .from('vx_storage')
-        .select('value')
-        .eq('key', `cfg:${eid}`)
-        .single()
+      // ── Atividades do CRM ────────────────────────────────────
+      const ativs = c.crm_atividades || []
+      const negsMap = {}
+      negocios.forEach(n => { negsMap[n.id] = n })
+      const hojeStr = new Date().toISOString().slice(0, 10)
+      const amanha = new Date(); amanha.setDate(amanha.getDate() + 1)
+      const amStr = amanha.toISOString().slice(0, 10)
 
-      if (row?.value) {
-        try {
-          const saved = JSON.parse(row.value)
-          setCfg(saved)
-          if (saved.theme) document.documentElement.setAttribute('data-theme', saved.theme)
-          else document.documentElement.setAttribute('data-theme', 'dark')
-        } catch { }
-      } else {
-        document.documentElement.setAttribute('data-theme', 'dark')
-      }
+      const ativsFormatadas = ativs
+        .filter(a => !a.concluida)
+        .map(a => {
+          const neg = negsMap[a.negocioId]
+          const prazoDia = a.prazo ? a.prazo.slice(0, 10) : null
+          let status = 'futura'
+          let prazoLabel = a.prazo ? new Date(a.prazo).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Sem prazo'
+          if (prazoDia && prazoDia < hojeStr) { status = 'atrasada'; prazoLabel = '⚠️ Atrasada' }
+          else if (prazoDia === hojeStr) { status = 'hoje'; prazoLabel = 'Hoje ' + (a.prazo?.slice(11, 16) || '') }
+          else if (prazoDia === amStr) { prazoLabel = 'Amanhã ' + (a.prazo?.slice(11, 16) || '') }
+          return { ...a, status, prazoLabel, clienteNome: neg?.fantasia || neg?.nome || neg?.titulo || '—' }
+        })
+        .sort((a, b) => {
+          const ord = { atrasada: 0, hoje: 1, futura: 2 }
+          return (ord[a.status] || 2) - (ord[b.status] || 2)
+        })
+        .slice(0, 6)
+
+      setAtiv(ativsFormatadas)
       setLoading(false)
     }
     init()
-  }, [])
+  }, [router])
 
-  async function salvarKpi({ kpiId, valor, data, userId }) {
-    const novoCfg = { ...cfg }
-    if (!novoCfg.kpiLog) novoCfg.kpiLog = []
-    novoCfg.kpiLog.push({ id: Date.now(), userId, date: data, kpiId, realizado: valor })
-    await supabase.from('vx_storage')
-      .upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novoCfg), updated_at: new Date().toISOString() })
-    setCfg(novoCfg)
+  const dataHoje = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+
+  const STATS_CARDS = [
+    { label: 'Receita do Mês',       val: fmt(stats.receita),          sub: 'Total de mensalidades',     color: '#10b981', icon: '💰' },
+    { label: 'Contratos Fechados',   val: String(stats.contratos),     sub: 'Este mês',                  color: '#00d4ff', icon: '📝' },
+    { label: 'Leads no Funil',       val: String(stats.leads),         sub: 'Negócios em andamento',     color: '#7c3aed', icon: '🎯' },
+    { label: 'KPI do Dia',           val: stats.kpiPct + '%',          sub: 'Meta diária acumulada',     color: '#f59e0b', icon: '📊' },
+  ]
+
+  if (loading) {
+    return (
+      <div style={{ background: '#0a0f1e', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontFamily: 'DM Mono, monospace', fontSize: 14 }}>
+        Carregando painel...
+      </div>
+    )
   }
-
-  // ── Dados seguros (com proteções contra undefined) ──────────
-  const isAdmin = perfil?.perfil === 'admin'
-
-  const usuarios = cfg.users || []
-  const goals = cfg.goals || []
-  const kpiTemplates = cfg.kpiTemplates || []
-  const kpiGoals = cfg.kpiDailyGoals || cfg.kpiGoals || {}
-  const kpiLog = cfg.kpiLog || []
-  const docHistory = cfg.docHistory || []
-  const productNames = cfg.productNames || {}
-
-  // Proteção crítica: nunca deixa ser undefined
-  const usuarioAtual = usuarios.find(u => u?.email === perfil?.email) || usuarios[0] || {}
-  const userId = usuarioAtual?.id || usuarioAtual?.username || perfil?.id || ''
-
-  function metasUsuario(uid) {
-    if (!uid) return {}
-    return goals.find(g => g.userId === uid && g.mes === mes) || {}
-  }
-
-  const realizedMap = {}
-  usuarios.forEach(u => {
-    if (!u) return
-    const rid = u.id || u.username || ''
-    if (rid) realizedMap[rid] = computeRealized(rid, mes, usuarios, docHistory)
-  })
-
-  const totaisGerais = (() => {
-    let ad = 0, men = 0, docs = 0
-    const usersToSum = isAdmin ? usuarios : [usuarioAtual].filter(u => u && (u.id || u.username))
-    usersToSum.forEach(u => {
-      if (!u) return
-      const rid = u.id || u.username || ''
-      const r = realizedMap[rid] || { adReal: 0, menReal: 0, contracts: 0 }
-      ad += r.adReal || 0
-      men += r.menReal || 0
-      docs += r.contracts || 0
-    })
-    return { adesao: ad, mensalidade: men, contratos: docs }
-  })()
-
-  const metasTotais = (() => {
-    let ad = 0, men = 0
-    usuarios.forEach(u => {
-      if (!u) return
-      const m = metasUsuario(u.id || u.username)
-      ad += Number(m.metaAdesao || 0)
-      men += Number(m.metaMensalidade || 0)
-    })
-    return { adesao: ad, mensalidade: men }
-  })()
-
-  const contratosMes = docHistory.filter(d => {
-    if (!d || d.status !== 'signed') return false
-    const dt = d.criado || d.dateISO || d.date || ''
-    return dt.slice(0, 7) === mes
-  })
-
-  function kpiRealizadoMes(kpiId, uid, month) {
-    return kpiLog
-      .filter(l => l && l.kpiId === kpiId && l.userId === uid && l.date && l.date.startsWith(month))
-      .reduce((acc, l) => acc + (Number(l.realizado) || 0), 0)
-  }
-
-  function kpiMetaMes(kpiId, uid, month) {
-    // kpiDailyGoals[userId][kpiId] = meta diária (sem índice de mês)
-    const diaria = Number(kpiGoals[uid]?.[kpiId] || kpiGoals[uid]?.[month]?.[kpiId] || 0)
-    return diaria * diasUteisNoMes(month)
-  }
-
-  const dadosGrafico6m = (() => {
-    const meses = []
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(); d.setMonth(d.getMonth() - i)
-      const m = d.toISOString().slice(0, 7)
-      const label = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
-      let valor = 0
-      if (isAdmin) {
-        valor = docHistory
-          .filter(d => d && d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m)
-          .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
-      } else {
-        valor = docHistory
-          .filter(d => d && d.status === 'signed' && (d.criado || d.dateISO || '').slice(0, 7) === m && entryBelongsTo(d, userId, usuarios))
-          .reduce((acc, d) => acc + (Number(d.adesao) || 0), 0)
-      }
-      meses.push({ label, valor, cor: m === mes ? 'var(--accent)' : 'rgba(0,212,255,.4)' })
-    }
-    return meses
-  })()
-
-  const CORES_MOD = ['var(--accent)', 'var(--accent3)', 'var(--accent2)', 'var(--gold)', 'var(--danger)', 'var(--warning)', '#06b6d4', '#8b5cf6']
-
-  const produtosVendidos = (() => {
-    const mapa = {}
-    const docsFiltrados = isAdmin ? contratosMes : contratosMes.filter(d => d && entryBelongsTo(d, userId, usuarios))
-    docsFiltrados.forEach(d => {
-      if (!d || !d.modulos) return
-      d.modulos.forEach(mod => {
-        if (!mod) return
-        const nomeMod = (productNames && prodName) ? prodName(mod, productNames) : mod
-        if (!mapa[nomeMod]) mapa[nomeMod] = { adesao: 0, mensalidade: 0, qtd: 0 }
-        mapa[nomeMod].adesao += Number(d.adesaoModulos?.[mod] || 0)
-        mapa[nomeMod].mensalidade += Number(d.mensalidadeModulos?.[mod] || 0)
-        mapa[nomeMod].qtd += 1
-      })
-    })
-    return Object.entries(mapa).map(([nome, v]) => ({ nome, ...v }))
-      .sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
-  })()
-
-  const dadosAdesaoPorMod = produtosVendidos.map((p, i) => ({
-    label: p.nome.length > 8 ? p.nome.slice(0, 7) + '…' : p.nome,
-    valor: p.adesao,
-    cor: CORES_MOD[i % CORES_MOD.length]
-  }))
-
-  const dadosMensalidadePorMod = produtosVendidos.map((p, i) => ({
-    label: p.nome.length > 8 ? p.nome.slice(0, 7) + '…' : p.nome,
-    valor: p.mensalidade,
-    cor: CORES_MOD[i % CORES_MOD.length]
-  }))
-
-  const ranking = (() => {
-    const usersToRank = isAdmin ? usuarios : [usuarioAtual].filter(u => u && (u.id || u.username))
-    return usersToRank
-      .filter(u => u != null)
-      .map(u => {
-        const rid = u.id || u.username || ''
-        const r = realizedMap[rid] || { adReal: 0, menReal: 0, contracts: 0 }
-        const m = metasUsuario(rid)
-        return {
-          ...u,
-          adesao: r.adReal || 0,
-          mensalidade: r.menReal || 0,
-          contratos: r.contracts || 0,
-          metaAd: Number(m.metaAdesao || 0),
-          metaMen: Number(m.metaMensalidade || 0)
-        }
-      })
-      .sort((a, b) => (b.adesao + b.mensalidade) - (a.adesao + a.mensalidade))
-  })()
-
-  if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace' }}>
-      Carregando dashboard...
-    </div>
-  )
-
-  const card = (label, val, cor, sub) => (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', boxShadow: 'var(--shadow)' }}>
-      <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: 8 }}>{label}</div>
-      <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 22, fontWeight: 800, color: cor }}>{val}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{sub}</div>}
-    </div>
-  )
 
   return (
     <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
-        [data-theme="dark"]{
-          --bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;
-          --accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;
-          --text:#e2e8f0;--muted:#64748b;
-          --danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;
-          --shadow:0 4px 24px rgba(0,0,0,.4);
-        }
-        [data-theme="light"]{
-          --bg:#f0f4f8;--surface:#ffffff;--surface2:#f8fafc;--border:#e2e8f0;
-          --accent:#0099bb;--accent2:#7c3aed;--accent3:#059669;
-          --text:#1e293b;--muted:#64748b;
-          --danger:#ef4444;--warning:#d97706;--gold:#b45309;
-          --shadow:0 4px 24px rgba(0,0,0,.1);
-        }
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
-        [data-theme="dark"] body::before{content:'';position:fixed;inset:0;
-          background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);
-          background-size:40px 40px;pointer-events:none;z-index:0}
-        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
-      `}</style>
+      <Head>
+        <title>{cfg.company || 'Vivanexa'} — Painel</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+      </Head>
 
-      <div style={{ position: 'fixed', width: 500, height: 500, background: 'var(--accent)', top: -200, right: -150, borderRadius: '50%', filter: 'blur(120px)', opacity: .05, pointerEvents: 'none', zIndex: 0 }} />
-      <div style={{ position: 'fixed', width: 400, height: 400, background: 'var(--accent2)', bottom: -150, left: -100, borderRadius: '50%', filter: 'blur(120px)', opacity: .05, pointerEvents: 'none', zIndex: 0 }} />
+      <style>{CSS}</style>
 
-      {kpiModal && <ModalKpi kpi={kpiModal} userId={userId} onClose={() => setKpiModal(null)} onSave={salvarKpi} />}
+      <div className="orb orb1" />
+      <div className="orb orb2" />
 
-      <header style={{ position: 'sticky', top: 0, zIndex: 100, width: '100%', background: 'rgba(10,15,30,.85)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '12px 20px' }}>
-        <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ cursor: 'pointer' }} onClick={() => router.push('/chat')}>
-            {cfg.logob64
-              ? <img src={cfg.logob64?.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`} alt={cfg.company} style={{ height: 36, objectFit: 'contain', borderRadius: 6 }} onError={e => e.target.style.display = 'none'} />
-              : <div>
-                  <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, letterSpacing: .5 }}>{cfg.company || 'Vivanexa'}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>📊 Dashboard de Vendas</div>
+      {/* Navbar global */}
+      <Navbar cfg={cfg} perfil={user} />
+
+      <main className="dash-main">
+
+        {/* ── Saudação ── */}
+        <div className="dash-greeting">
+          <div>
+            <div className="dash-date">{dataHoje}</div>
+            <h1 className="dash-title">Olá, {(user?.nome || 'Usuário').split(' ')[0]} 👋</h1>
+            <p className="dash-sub">Bem-vindo ao painel Vivanexa. Tudo o que precisa está aqui.</p>
+          </div>
+          <div className="dash-top-actions">
+            <button className="dash-btn-primary" onClick={() => router.push('/chat')}>
+              💬 Abrir Assistente
+            </button>
+            <button className="dash-btn-secondary" onClick={() => router.push('/kpi')}>
+              📊 Lançar KPIs
+            </button>
+          </div>
+        </div>
+
+        {/* ── Stats ── */}
+        <div className="dash-stats">
+          {STATS_CARDS.map((s, i) => (
+            <div key={i} className="stat-card" style={{ '--sc': s.color }}>
+              <div className="stat-icon">{s.icon}</div>
+              <div className="stat-val">{s.val}</div>
+              <div className="stat-label">{s.label}</div>
+              <div className="stat-sub">{s.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Grade principal ── */}
+        <div className="dash-grid">
+
+          {/* Acesso rápido por módulo */}
+          <div className="dash-card">
+            <div className="card-title">🚀 Acesso Rápido por Módulo</div>
+            <div className="mod-grid">
+              {MODULOS.map(m => (
+                <div key={m.id} className="mod-card" style={{ '--mc': m.color }}
+                  onClick={() => router.push(m.subs[0].href)}>
+                  <div className="mod-icon">{m.icon}</div>
+                  <div className="mod-name">{m.label}</div>
+                  <div className="mod-count">{m.subs.length} funções</div>
+                  <span className="mod-arrow">→</span>
                 </div>
-            }
+              ))}
+            </div>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <button onClick={() => router.push('/chat')}
-              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
-              💬 Chat
-            </button>
-            <button onClick={() => router.push('/reports')}
-              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
-              📈 Relatórios
-            </button>
-            <button onClick={() => router.push('/configuracoes')}
-              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
-              ⚙️ Config
-            </button>
-            {perfil?.nome && <span style={{ fontSize: 11, color: 'var(--muted)' }}>👤 <span style={{ color: 'var(--text)' }}>{perfil.nome}</span></span>}
-            <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 9px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>
-              Sair
-            </button>
-          </div>
-        </div>
-      </header>
 
-      <main style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: 960, margin: '20px auto 60px', padding: '0 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {[
-              { id: 'geral', label: '📊 Geral' },
-              { id: 'produtos', label: '📦 Produtos' },
-              { id: 'kpis', label: '🎯 KPIs' },
-              { id: 'ranking', label: '🏆 Ranking' },
-            ].map(t => (
-              <button key={t.id} onClick={() => setAbaAtiva(t.id)}
-                style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${abaAtiva === t.id ? 'var(--accent)' : 'var(--border)'}`, background: abaAtiva === t.id ? 'rgba(0,212,255,.1)' : 'var(--surface2)', color: abaAtiva === t.id ? 'var(--accent)' : 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', fontWeight: abaAtiva === t.id ? 600 : 400 }}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Mês:</span>
-            <input type="month" value={mes} onChange={e => setMes(e.target.value)}
-              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none' }} />
-          </div>
-        </div>
+          {/* Coluna lateral */}
+          <div className="dash-side">
 
-        {/* ── ABA GERAL ── */}
-        {abaAtiva === 'geral' && (
-          <div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-              {card('💰 Adesão Total', fmt(totaisGerais.adesao), 'var(--accent)', `Meta: ${fmt(metasTotais.adesao)}`)}
-              {card('📅 Mensalidade Total', fmt(totaisGerais.mensalidade), 'var(--accent3)', `Meta: ${fmt(metasTotais.mensalidade)}`)}
-              {card('📝 Contratos Fechados', totaisGerais.contratos + ' contrato' + (totaisGerais.contratos !== 1 ? 's' : ''), 'var(--gold)')}
+            {/* Atividades */}
+            <div className="dash-card">
+              <div className="card-title" style={{ marginBottom: 14 }}>
+                📅 Atividades
+                <button className="btn-link" onClick={() => router.push('/crm')}>Ver todas →</button>
+              </div>
+              {atividades.length === 0 ? (
+                <div style={{ color: '#64748b', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+                  Nenhuma atividade pendente
+                </div>
+              ) : atividades.map((a, i) => (
+                <div key={i} className={`ativ-row ativ-${a.status}`}>
+                  <span className="ativ-tipo-badge">{a.tipo}</span>
+                  <div className="ativ-info">
+                    <div className="ativ-cliente">{a.clienteNome}</div>
+                    {a.descricao && <div className="ativ-desc">{a.descricao}</div>}
+                  </div>
+                  <div className={`ativ-prazo ${a.status}`}>{a.prazoLabel}</div>
+                </div>
+              ))}
             </div>
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
-              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>🎯 Metas do Mês</div>
-              <BarraProgresso label="Adesão" real={totaisGerais.adesao} meta={metasTotais.adesao} />
-              <BarraProgresso label="Mensalidade" real={totaisGerais.mensalidade} meta={metasTotais.mensalidade} />
-            </div>
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 20, boxShadow: 'var(--shadow)' }}>
-              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>📈 Adesão — Últimos 6 Meses</div>
-              <GraficoBarras dados={dadosGrafico6m} altura={140} formatarValor={v => fmtK(v)} />
-            </div>
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
-              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 12 }}>🗂️ Últimos Documentos</div>
-              <div>
-                {(docHistory || []).slice(0, 6).map((d, i) => {
-                  if (!d) return null
-                  const isSigned = d.status === 'signed'
-                  const isPending = d.status === 'pending' || d.status === 'sent'
-                  return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: i < Math.min(docHistory.length, 6) - 1 ? '1px solid var(--border)' : 'none' }}>
-                      <div style={{ fontSize: 18, flexShrink: 0 }}>{d.type === 'contrato' ? '📝' : '📄'}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {d.cliente || 'Cliente não identificado'}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
-                          {d.type === 'contrato' ? 'Contrato' : 'Proposta'} · {d.criado ? new Date(d.criado).toLocaleDateString('pt-BR') : '—'}
-                          {d.adesao > 0 && ` · ${fmt(d.adesao)}`}
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: isSigned ? 'var(--accent3)' : isPending ? 'var(--warning)' : 'var(--muted)', flexShrink: 0 }}>
-                        {isSigned ? '✅' : isPending ? '⏳' : '📝'}
-                      </div>
-                    </div>
-                  )
-                })}
+
+            {/* Atalhos */}
+            <div className="dash-card">
+              <div className="card-title" style={{ marginBottom: 14 }}>⚡ Atalhos</div>
+              <div className="atalhos-grid">
+                {ATALHOS.map((a, i) => (
+                  <button key={i} className="atalho-btn" onClick={() => router.push(a.href)}>
+                    <span>{a.icon}</span>
+                    <span>{a.label}</span>
+                  </button>
+                ))}
               </div>
             </div>
-          </div>
-        )}
 
-        {/* ── ABA PRODUTOS ── */}
-        {abaAtiva === 'produtos' && (
-          <div>
-            {produtosVendidos.length === 0 ? (
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '40px 24px', textAlign: 'center', boxShadow: 'var(--shadow)' }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>📦</div>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Sem contratos assinados neste mês</div>
-                <p style={{ color: 'var(--muted)', fontSize: 13 }}>Os gráficos aparecem quando contratos forem marcados como "assinado" no histórico.</p>
-              </div>
-            ) : (
-              <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
-                  {produtosVendidos.map((p, i) => (
-                    <div key={p.nome} style={{ background: 'var(--surface)', border: `1px solid ${CORES_MOD[i % CORES_MOD.length]}40`, borderRadius: 12, padding: '16px 18px', boxShadow: 'var(--shadow)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <div style={{ width: 10, height: 10, borderRadius: 3, background: CORES_MOD[i % CORES_MOD.length], flexShrink: 0 }} />
-                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{p.nome}</div>
-                        <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>{p.qtd}×</div>
-                      </div>
-                      {p.adesao > 0 && (
-                        <div style={{ marginBottom: 4 }}>
-                          <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Adesão</div>
-                          <div style={{ fontSize: 16, fontWeight: 800, color: CORES_MOD[i % CORES_MOD.length], fontFamily: 'Syne, sans-serif' }}>{fmtK(p.adesao)}</div>
-                        </div>
-                      )}
-                      {p.mensalidade > 0 && (
-                        <div>
-                          <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Mensalidade</div>
-                          <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent3)', fontFamily: 'Syne, sans-serif' }}>{fmtK(p.mensalidade)}</div>
-                        </div>
-                      )}
-                    </div>
+          </div>
+        </div>
+
+        {/* ── Todos os módulos expandidos ── */}
+        <div className="dash-card" style={{ marginTop: 20 }}>
+          <div className="card-title">🗂 Todos os Módulos</div>
+          <div className="areas-grid">
+            {MODULOS.map(m => (
+              <div key={m.id} className="area-card" style={{ '--mc': m.color }}>
+                <div className="area-header">
+                  <span>{m.icon}</span>
+                  <div>
+                    <div className="area-name">{m.label}</div>
+                    <div className="area-desc">{m.desc}</div>
+                  </div>
+                </div>
+                <div className="area-body">
+                  {m.subs.map(s => (
+                    <button key={s.href} className="area-sub" onClick={() => router.push(s.href)}>
+                      <span style={{ fontSize: 13 }}>{s.icon}</span>
+                      <span className="area-sub-label">{s.label}</span>
+                      <span className="area-sub-arrow">›</span>
+                    </button>
                   ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
-                    <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>💰 Adesão por Módulo</div>
-                    <GraficoBarras dados={dadosAdesaoPorMod} altura={130} formatarValor={v => fmtK(v)} />
-                  </div>
-                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', boxShadow: 'var(--shadow)' }}>
-                    <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent3)', marginBottom: 14 }}>📅 Mensalidade por Módulo</div>
-                    <GraficoBarras dados={dadosMensalidadePorMod} altura={130} formatarValor={v => fmtK(v)} />
-                  </div>
-                </div>
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginTop: 16, boxShadow: 'var(--shadow)' }}>
-                  <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 14 }}>📋 Resumo Detalhado</div>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                        {['Módulo', 'Qtd', 'Adesão Total', 'Mensalidade Total', 'Receita Total'].map(h => (
-                          <th key={h} style={{ padding: '8px 12px', textAlign: h === 'Módulo' ? 'left' : 'right', fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {produtosVendidos.map((p, i) => (
-                        <tr key={p.nome} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ padding: '10px 12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ width: 8, height: 8, borderRadius: 2, background: CORES_MOD[i % CORES_MOD.length], flexShrink: 0 }} />
-                              <span style={{ fontWeight: 600 }}>{p.nome}</span>
-                            </div>
-                          </td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--muted)' }}>{p.qtd}×</td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent)', fontWeight: 600 }}>{fmt(p.adesao)}</td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent3)', fontWeight: 600 }}>{fmt(p.mensalidade)}</td>
-                          <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(p.adesao + p.mensalidade)}</td>
-                        </tr>
-                      ))}
-                      <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
-                        <td style={{ padding: '10px 12px' }}>TOTAL</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>{produtosVendidos.reduce((a, p) => a + p.qtd, 0)}×</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent)' }}>{fmt(produtosVendidos.reduce((a, p) => a + p.adesao, 0))}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--accent3)' }}>{fmt(produtosVendidos.reduce((a, p) => a + p.mensalidade, 0))}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>{fmt(produtosVendidos.reduce((a, p) => a + p.adesao + p.mensalidade, 0))}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
+              </div>
+            ))}
           </div>
-        )}
+        </div>
 
-        {/* ── ABA KPIs ── */}
-        {abaAtiva === 'kpis' && (
-          <div>
-            {kpiTemplates.length === 0 ? (
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '32px 24px', textAlign: 'center' }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>📊</div>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Nenhum KPI cadastrado</div>
-                <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>Configure seus KPIs em Configurações → KPIs</p>
-                <button onClick={() => router.push('/configuracoes')}
-                  style={{ padding: '10px 20px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
-                  ⚙️ Ir para Configurações
-                </button>
-              </div>
-            ) : (
-              <div>
-                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 16 }}>
-                  Clique em um KPI para lançar seu realizado
-                </div>
-                {isAdmin && usuarios.length > 0 ? (
-                  usuarios.map(u => {
-                    if (!u) return null
-                    return (
-                      <div key={u.id || u.username} style={{ marginBottom: 24 }}>
-                        <div style={{ fontFamily: 'Syne,sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--muted)', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
-                          👤 {u.nome}
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-                          {kpiTemplates.map(kpi => {
-                            if (!kpi) return null
-                            const real = kpiRealizadoMes(kpi.id, u.id || u.username, mes)
-                            const meta = kpiMetaMes(kpi.id, u.id || u.username, mes)
-                            return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={null} />
-                          })}
-                        </div>
-                      </div>
-                    )
-                  })
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
-                    {kpiTemplates.map(kpi => {
-                      if (!kpi) return null
-                      const real = kpiRealizadoMes(kpi.id, userId, mes)
-                      const meta = kpiMetaMes(kpi.id, userId, mes)
-                      return <CardKpi key={kpi.id} icone={kpi.icone || '📊'} nome={kpi.nome} realizado={real} meta={meta} onClick={() => setKpiModal(kpi)} />
-                    })}
-                  </div>
-                )}
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginTop: 20, boxShadow: 'var(--shadow)' }}>
-                  <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>📅 Lançamentos do Mês</div>
-                  {kpiLog.filter(l => l && l.date && l.date.startsWith(mes) && l.userId === userId).length === 0
-                    ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum lançamento neste mês.</p>
-                    : kpiLog.filter(l => l && l.date && l.date.startsWith(mes) && l.userId === userId).slice().reverse().slice(0, 10).map((l, i) => {
-                        const kpi = kpiTemplates.find(k => k && k.id === l.kpiId)
-                        return (
-                          <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
-                            <span>{kpi?.icone || '📊'}</span>
-                            <span style={{ flex: 1, fontSize: 13 }}>{kpi?.nome || 'KPI'}</span>
-                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{new Date(l.date).toLocaleDateString('pt-BR')}</span>
-                            <span style={{ fontWeight: 700, color: 'var(--accent3)', fontSize: 14 }}>+{l.realizado}</span>
-                          </div>
-                        )
-                      })
-                  }
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── ABA RANKING ── */}
-        {abaAtiva === 'ranking' && (
-          <div>
-            {usuarios.length === 0 ? (
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '32px 24px', textAlign: 'center' }}>
-                <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum usuário cadastrado. Adicione em Configurações → Usuários.</p>
-              </div>
-            ) : (
-              <div>
-                {ranking.map((u, i) => {
-                  if (!u) return null
-                  const emoji = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`
-                  return (
-                    <div key={u.id || u.username || i} style={{ background: i === 0 ? 'linear-gradient(135deg,rgba(251,191,36,.08),rgba(251,191,36,.02))' : 'var(--surface)', border: `1px solid ${i === 0 ? 'rgba(251,191,36,.3)' : 'var(--border)'}`, borderRadius: 14, padding: '18px 20px', marginBottom: 12, boxShadow: 'var(--shadow)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                        <span style={{ fontSize: 22 }}>{emoji}</span>
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: 15 }}>{u.nome}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{u.contratos} contrato{u.contratos !== 1 ? 's' : ''}</div>
-                        </div>
-                        <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
-                          <div style={{ fontSize: 16, fontWeight: 800, fontFamily: 'Syne, sans-serif', color: 'var(--accent3)' }}>{fmt(u.adesao + u.mensalidade)}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>total no mês</div>
-                        </div>
-                      </div>
-                      <BarraProgresso label="Adesão" real={u.adesao} meta={u.metaAd} />
-                      <BarraProgresso label="Mensalidade" real={u.mensalidade} meta={u.metaMen} />
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
       </main>
     </>
   )
 }
 
-// ✅ CORREÇÃO PRINCIPAL: Força SSR e evita erro de pré-renderização estática no build
-export async function getServerSideProps() {
-  return { props: {} }
-}
+const CSS = `
+  :root {
+    --bg: #0a0f1e; --surface: #111827; --surface2: #1a2540;
+    --border: #1e2d4a; --accent: #00d4ff; --accent2: #7c3aed;
+    --accent3: #10b981; --text: #e2e8f0; --muted: #64748b;
+    --danger: #ef4444; --gold: #f59e0b;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'DM Mono', monospace; min-height: 100vh; overflow-x: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(0,212,255,.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,.018) 1px, transparent 1px);
+    background-size: 44px 44px; pointer-events: none; z-index: 0;
+  }
+  .orb { position: fixed; border-radius: 50%; filter: blur(130px); pointer-events: none; z-index: 0; opacity: .07; }
+  .orb1 { width: 600px; height: 600px; background: var(--accent); top: -250px; right: -200px; }
+  .orb2 { width: 450px; height: 450px; background: var(--accent2); bottom: -180px; left: -120px; }
+
+  .dash-main { position: relative; z-index: 10; max-width: 1280px; margin: 0 auto; padding: 28px 20px 60px; }
+
+  /* Saudação */
+  .dash-greeting {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 20px; margin-bottom: 24px; flex-wrap: wrap;
+  }
+  .dash-date { font-size: 11px; color: var(--muted); text-transform: capitalize; letter-spacing: 1px; margin-bottom: 4px; }
+  .dash-title { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+  .dash-sub { font-size: 13px; color: var(--muted); }
+  .dash-top-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+  .dash-btn-primary {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 20px; background: linear-gradient(135deg, var(--accent), #0099bb);
+    border: none; border-radius: 10px; color: #fff;
+    font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: all .2s; white-space: nowrap;
+  }
+  .dash-btn-primary:hover { box-shadow: 0 0 20px rgba(0,212,255,.4); transform: translateY(-2px); }
+  .dash-btn-secondary {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 18px; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 10px; color: var(--muted);
+    font-family: 'DM Mono', monospace; font-size: 13px;
+    cursor: pointer; transition: all .2s; white-space: nowrap;
+  }
+  .dash-btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Stats */
+  .dash-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
+    padding: 18px; position: relative; overflow: hidden; transition: transform .2s;
+  }
+  .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--sc); }
+  .stat-card:hover { transform: translateY(-2px); }
+  .stat-icon { font-size: 20px; margin-bottom: 10px; }
+  .stat-val { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; color: var(--sc); margin-bottom: 4px; }
+  .stat-label { font-size: 10px; color: var(--text); font-weight: 500; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 3px; }
+  .stat-sub { font-size: 10px; color: var(--muted); }
+
+  /* Grade */
+  .dash-grid { display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; }
+  .dash-card { background: var(--surface); border: 1px solid var(--border); border-radius: 15px; padding: 20px; }
+  .card-title {
+    font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700; color: var(--text);
+    margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .btn-link { background: none; border: none; color: var(--accent); font-family: 'DM Mono', monospace; font-size: 11px; cursor: pointer; padding: 0; }
+
+  /* Módulos */
+  .mod-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .mod-card {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 11px;
+    padding: 14px 12px; cursor: pointer; transition: all .18s; position: relative; overflow: hidden;
+  }
+  .mod-card:hover { border-color: var(--mc); transform: translateY(-2px); }
+  .mod-card:hover .mod-arrow { opacity: 1; color: var(--mc); }
+  .mod-icon { font-size: 22px; margin-bottom: 8px; }
+  .mod-name { font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  .mod-count { font-size: 9px; color: var(--muted); }
+  .mod-arrow { position: absolute; top: 10px; right: 10px; font-size: 13px; color: var(--muted); opacity: 0; transition: all .18s; }
+
+  /* Side */
+  .dash-side { display: flex; flex-direction: column; gap: 14px; }
+
+  /* Atividades */
+  .ativ-row {
+    display: flex; align-items: flex-start; gap: 9px; padding: 9px;
+    border-radius: 8px; margin-bottom: 5px; border: 1px solid transparent; transition: all .12s;
+  }
+  .ativ-row:hover { background: var(--surface2); }
+  .ativ-row.ativ-hoje { border-color: rgba(245,158,11,.15); }
+  .ativ-row.ativ-atrasada { border-color: rgba(239,68,68,.2); background: rgba(239,68,68,.04); }
+  .ativ-tipo-badge {
+    font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--muted); background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 4px; padding: 2px 5px; white-space: nowrap; flex-shrink: 0; margin-top: 2px;
+  }
+  .ativ-info { flex: 1; min-width: 0; }
+  .ativ-cliente { font-size: 12px; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ativ-desc { font-size: 10px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ativ-prazo { font-size: 10px; font-weight: 600; white-space: nowrap; flex-shrink: 0; margin-top: 2px; }
+  .ativ-prazo.hoje { color: var(--gold); }
+  .ativ-prazo.atrasada { color: var(--danger); }
+  .ativ-prazo.futura { color: var(--muted); }
+
+  /* Atalhos */
+  .atalhos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .atalho-btn {
+    display: flex; align-items: center; gap: 7px; padding: 10px 11px;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 9px;
+    color: #94a3b8; font-family: 'DM Mono', monospace; font-size: 11px;
+    cursor: pointer; transition: all .14s; text-align: left;
+  }
+  .atalho-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,.07); }
+
+  /* Áreas */
+  .areas-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .area-card { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; transition: border-color .2s; }
+  .area-card:hover { border-color: var(--mc); }
+  .area-header {
+    display: flex; align-items: center; gap: 10px; padding: 12px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--mc) 6%, var(--surface2));
+    font-size: 18px;
+  }
+  .area-name { font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700; color: var(--mc); }
+  .area-desc { font-size: 9.5px; color: var(--muted); margin-top: 1px; }
+  .area-body { padding: 6px; }
+  .area-sub {
+    display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 7px;
+    cursor: pointer; font-size: 10.5px; color: #94a3b8; transition: all .12s;
+    border: none; background: none; width: 100%; text-align: left; font-family: 'DM Mono', monospace;
+  }
+  .area-sub:hover { background: rgba(255,255,255,.04); color: var(--text); }
+  .area-sub-label { flex: 1; }
+  .area-sub-arrow { font-size: 13px; color: var(--muted); opacity: 0; transition: opacity .12s; }
+  .area-sub:hover .area-sub-arrow { opacity: 1; }
+
+  /* Responsive */
+  @media (max-width: 1100px) {
+    .areas-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 900px) {
+    .dash-stats { grid-template-columns: repeat(2, 1fr); }
+    .dash-grid { grid-template-columns: 1fr; }
+    .mod-grid { grid-template-columns: repeat(3, 1fr); }
+    .areas-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .dash-title { font-size: 20px; }
+    .dash-stats { grid-template-columns: 1fr 1fr; }
+    .mod-grid { grid-template-columns: repeat(2, 1fr); }
+    .areas-grid { grid-template-columns: 1fr; }
+    .dash-greeting { flex-direction: column; }
+    .dash-top-actions { width: 100%; }
+    .dash-btn-primary, .dash-btn-secondary { flex: 1; justify-content: center; }
+  }
+`
