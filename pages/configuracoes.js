@@ -98,14 +98,12 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [logoB64,      setLogoB64]      = useState(cfg.logob64      || '')
   const [closingHour,  setClosingHour]  = useState(cfg.closingHour  ?? 18)
   const [closingText,  setClosingText]  = useState(cfg.closingText  || 'Oferta válida até as 18h de hoje!')
-  // Dados cadastrais da empresa
   const [razaoSocial,  setRazaoSocial]  = useState(cfg.razaoSocial  || '')
   const [cnpjEmpresa,  setCnpjEmpresa]  = useState(cfg.cnpjEmpresa  || '')
   const [telefoneEmp,  setTelefoneEmp]  = useState(cfg.telefoneEmp  || '')
   const [emailEmp,     setEmailEmp]     = useState(cfg.emailEmp     || '')
   const [responsavel,  setResponsavel]  = useState(cfg.responsavel  || '')
   const [enderecoEmp,  setEnderecoEmp]  = useState(cfg.enderecoEmp  || '')
-  // Assinatura eletrônica
   const [signEmail,    setSignEmail]    = useState(cfg.signConfig?.email || '')
   const [signWpp,      setSignWpp]      = useState(cfg.signConfig?.wpp   || '')
   const [signUrl,      setSignUrl]      = useState(cfg.signConfig?.url   || '')
@@ -196,7 +194,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
           <div style={s.field}><label style={s.label}>E-mail da Empresa</label><input type="email" style={s.input} value={emailEmp} onChange={e => setEmailEmp(e.target.value)} placeholder="contato@empresa.com" /></div>
         </div>
         <div style={s.field}><label style={s.label}>Endereço Completo</label><input style={s.input} value={enderecoEmp} onChange={e => setEnderecoEmp(e.target.value)} placeholder="Rua, nº, bairro, cidade – UF" /></div>
-
       </div>
 
       <div style={s.sec}>
@@ -497,7 +494,6 @@ function TabKpis({ cfg, setCfg, empresaId }) {
   )
 }
 
-
 // ══════════════════════════════════════════════
 // ABA PERFIS
 // ══════════════════════════════════════════════
@@ -510,7 +506,6 @@ function TabPerfis({ cfg, setCfg, empresaId }) {
     { id: 'admin',   nome: 'Admin',    permissoes: PERMISSOES_ADMIN },
     { id: 'vendedor',nome: 'Vendedor', permissoes: PERMISSOES_USER  },
   ]
-  const todosOsPerfis = [...perfisDefault, ...perfis]
 
   const emptyPerfil = { id: '', nome: '', permissoes: [] }
 
@@ -552,7 +547,6 @@ function TabPerfis({ cfg, setCfg, empresaId }) {
           Crie perfis personalizados com permissões específicas. Os perfis Admin e Vendedor são padrão do sistema e não podem ser removidos.
         </p>
 
-        {/* Perfis padrão (somente leitura) */}
         {perfisDefault.map(p => (
           <div key={p.id} style={{ padding: '12px 16px', background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ flex: 1 }}>
@@ -569,7 +563,6 @@ function TabPerfis({ cfg, setCfg, empresaId }) {
           </div>
         ))}
 
-        {/* Perfis customizados */}
         {perfis.map(p => (
           <div key={p.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ flex: 1 }}>
@@ -623,7 +616,6 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
   const [form,   setForm]   = useState(null)
   const [saving, setSaving] = useState(false)
 
-  // Perfis disponíveis: padrão + customizados
   const perfisCustom = cfg.perfisCustom || []
   const perfisTipos = [
     { id: 'admin',   nome: 'Admin',    permissoes: PERMISSOES_ADMIN },
@@ -732,7 +724,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 // ABA PRODUTOS
 // ══════════════════════════════════════════════
 function TabProdutos({ cfg, setCfg, empresaId }) {
-  const [subAba,   setSubAba]  = useState('tabela') // 'tabela' | 'modulos' | 'planos'
+  const [subAba,   setSubAba]  = useState('tabela')
   const [modulos,  setModulos] = useState(cfg.modulos || MODULOS_PADRAO)
   const [planos,   setPlanos]  = useState(() => {
     const ps = cfg.plans || PLANOS_PADRAO
@@ -745,13 +737,10 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
   })
   const [saving,   setSaving]  = useState(false)
 
-  // Módulo: edição inline
-  const [editMod,    setEditMod]    = useState(null)  // {old, new}
+  const [editMod,    setEditMod]    = useState(null)
   const [novoMod,    setNovoMod]    = useState('')
-  // Plano: formulário
-  const [formPlano,  setFormPlano]  = useState(null)  // null ou objeto
+  const [formPlano,  setFormPlano]  = useState(null)
 
-  // ── Módulos ──────────────────────────────────────────────
   function addModulo() {
     if (!novoMod.trim()) return
     const mod = novoMod.trim()
@@ -782,7 +771,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
     setPrecos(prev => { const n = { ...prev }; delete n[mod]; return n })
   }
 
-  // ── Planos ───────────────────────────────────────────────
   const emptyPlano = { id: '', name: '', maxCnpjs: 25, usuarios: 1 }
   function salvarPlano() {
     if (!formPlano.name.trim()) { toast('Nome do plano obrigatório', 'err'); return }
@@ -790,7 +778,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
     const novo = { ...formPlano, id, name: formPlano.name.trim(), maxCnpjs: Number(formPlano.maxCnpjs)||25, usuarios: Number(formPlano.usuarios)||1 }
     if (formPlano._isNew) {
       setPlanos(prev => [...prev, novo])
-      // Inicializar preços para o novo plano
       setPrecos(prev => {
         const n = { ...prev }
         modulos.forEach(mod => { if (!n[mod]) n[mod] = {}; n[mod][id] = [0,0] })
@@ -811,7 +798,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
     })
   }
 
-  // ── Preços ───────────────────────────────────────────────
   function updatePreco(mod, planId, idx, val) {
     setPrecos(prev => {
       const n = { ...prev }
@@ -841,14 +827,12 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
 
   return (
     <div style={s.body}>
-      {/* Sub-abas */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
         {btnSubAba('tabela',  '💰 Tabela de Preços')}
         {btnSubAba('modulos', '📦 Módulos')}
         {btnSubAba('planos',  '🗂️ Planos')}
       </div>
 
-      {/* ── SUB-ABA: TABELA DE PREÇOS ── */}
       {subAba === 'tabela' && (
         <div style={s.sec}>
           <div style={s.secTitle}>💰 Tabela de Preços (Adesão / Mensalidade)</div>
@@ -899,7 +883,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
         </div>
       )}
 
-      {/* ── SUB-ABA: MÓDULOS ── */}
       {subAba === 'modulos' && (
         <div style={s.sec}>
           <div style={s.secTitle}>📦 Módulos / Produtos</div>
@@ -927,7 +910,6 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
         </div>
       )}
 
-      {/* ── SUB-ABA: PLANOS ── */}
       {subAba === 'planos' && (
         <div style={s.sec}>
           <div style={s.secTitle}>🗂️ Planos Disponíveis</div>
@@ -1193,21 +1175,17 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
   }
 
   const VARIAVEIS = [
-    // Dados do cliente
     ['{{empresa}}','Nome fantasia do cliente'],['{{razao}}','Razão social do cliente'],['{{cnpj}}','CNPJ do cliente'],
     ['{{contato}}','Nome do contato'],['{{email}}','E-mail do cliente'],['{{telefone}}','Telefone do cliente'],
     ['{{endereco}}','Endereço do cliente'],['{{regime}}','Regime tributário'],['{{plano}}','Plano contratado'],
     ['{{cnpjs_qty}}','Qtd. CNPJs'],['{{data_hora}}','Data atual'],
-    // Financeiro
     ['{{total_adesao}}','Total adesão'],['{{total_mensal}}','Total mensalidade'],
     ['{{condicao_pagamento}}','Condição de pagamento'],['{{vencimento_adesao}}','Venc. adesão'],
     ['{{vencimento_mensal}}','Venc. mensalidade'],
-    // Empresa contratante (dados de Configurações → Empresa)
     ['{{company}}','Nome fantasia da empresa'],['{{razao_empresa}}','Razão social da empresa'],
     ['{{cnpj_empresa}}','CNPJ da empresa'],['{{responsavel}}','Responsável pela empresa'],
     ['{{telefone_empresa}}','Telefone da empresa'],['{{email_empresa}}','E-mail da empresa'],
     ['{{endereco_empresa}}','Endereço da empresa'],
-    // Consultor e produtos
     ['{{consultor_nome}}','Nome do consultor'],['{{logo}}','Logo em base64'],
     ['{{produtos_tabela}}','Tabela HTML de produtos'],['{{produtos_lista}}','Lista de produtos'],
   ]
@@ -1302,19 +1280,14 @@ function TabClientes({ cfg, setCfg, empresaId }) {
   function isDuplicate(formData) {
     return clientes.some(cl => {
       if (!cl || cl.id === formData.id) return false
-      // Verifica CNPJ/CPF (principal)
       if (formData.cnpj && cl.cnpj && cl.cnpj === formData.cnpj) return true
       if (formData.cpf  && cl.cpf  && cl.cpf  === formData.cpf)  return true
-      // Verifica doc unificado
       if (formData.doc  && cl.doc  && cl.doc  === formData.doc)  return true
-      // Verifica e-mail
       if (formData.email && cl.email && cl.email.toLowerCase() === formData.email.toLowerCase()) return true
-      // Verifica telefone (apenas dígitos)
       if (formData.telefone && cl.telefone) {
         const t1 = formData.telefone.replace(/\D/g,''), t2 = cl.telefone.replace(/\D/g,'')
         if (t1.length >= 8 && t1 === t2) return true
       }
-      // Verifica razão social (case insensitive)
       if (formData.nome && cl.nome && cl.nome.toLowerCase() === formData.nome.toLowerCase()) return true
       return false
     })
@@ -1365,7 +1338,10 @@ function TabClientes({ cfg, setCfg, empresaId }) {
           )
         })}
       </div>
+
+      {/* ── CORREÇÃO: wrapper <div> adicionado ao redor dos campos do formulário ── */}
       {form && (
+        <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 8 }}>
           <div style={{ ...s.secTitle, marginBottom: 14 }}>Dados do Cliente</div>
           <div style={s.row2}>
             <div style={s.field}><label style={s.label}>Razão Social</label><input style={s.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Razão social" /></div>
@@ -1384,7 +1360,6 @@ function TabClientes({ cfg, setCfg, empresaId }) {
             <div style={s.field}><label style={s.label}>Estado (UF)</label><input style={s.input} value={form.uf || ''} onChange={e => setForm(f => ({ ...f, uf: e.target.value }))} placeholder="UF" maxLength={2} /></div>
           </div>
           <div style={s.field}><label style={s.label}>Endereço Completo</label><input style={s.input} value={form.endereco || ''} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} placeholder="Rua, nº, bairro" /></div>
-          <div style={s.field}><label style={s.label}>Cidade / Estado</label><input style={s.input} value={form.cidade} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} /></div>
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
             <button style={s.saveBtn} onClick={salvarCliente} disabled={saving}>{saving ? '⏳...' : '✅ Salvar Cliente'}</button>
             <button onClick={() => setForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
