@@ -254,6 +254,7 @@ export default function Reports() {
           </div>
           <span style={{ fontSize: 13, color: 'var(--accent)', fontFamily: 'Syne, sans-serif', fontWeight: 700 }}>📈 Relatórios</span>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button onClick={() => router.push('/chat')} style={{ background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', cursor: 'pointer', color: 'var(--accent)', fontSize: 11, padding: '5px 11px', borderRadius: 8, fontFamily: 'DM Mono, monospace', fontWeight: 600 }}>💬 Chat</button>
             {perfil?.nome && <span style={{ fontSize: 11, color: 'var(--muted)' }}>👤 <span style={{ color: 'var(--text)' }}>{perfil.nome}</span></span>}
             <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, fontFamily: 'DM Mono, monospace' }}>Sair</button>
           </div>
