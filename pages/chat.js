@@ -477,6 +477,7 @@ export default function Chat(){
   const [cfg,           setCfg]           = useState(DEFAULT_CFG)
   const cfgRef = useRef(DEFAULT_CFG)
   const [empresaId,     setEmpresaId]     = useState(null)
+  const [cfgLoaded,     setCfgLoaded]     = useState(false)
   const [messages,      setMessages]      = useState([])
   const [input,         setInput]         = useState('')
   const [thinking,      setThinking]      = useState(false)
@@ -547,10 +548,11 @@ export default function Chat(){
   },[router])
 
   useEffect(()=>{
-    if(!userProfile)return
+    if(!userProfile||!cfgLoaded)return
     const c=cfgRef.current
-    setTimeout(()=>addBot(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da ${c.company||'Vivanexa'}.\nPara começar, informe o **CPF ou CNPJ** do cliente:`),300)
-  },[userProfile])
+    const nomeEmpresa=c.company||'Vivanexa'
+    setTimeout(()=>addBot(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da ${nomeEmpresa}.\nPara começar, informe o **CPF ou CNPJ** do cliente:`),300)
+  },[userProfile,cfgLoaded])
 
   useEffect(()=>{
     if(!timerDeadline){setTimerVal('');return}
@@ -576,6 +578,7 @@ export default function Chat(){
         setCfg(merged)
       }
     }catch{}
+    setCfgLoaded(true)
   }
 
   async function saveToHistory(type,clientName,html,extra={}){
