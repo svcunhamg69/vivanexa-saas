@@ -196,9 +196,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
           <div style={s.field}><label style={s.label}>E-mail da Empresa</label><input type="email" style={s.input} value={emailEmp} onChange={e => setEmailEmp(e.target.value)} placeholder="contato@empresa.com" /></div>
         </div>
         <div style={s.field}><label style={s.label}>Endereço Completo</label><input style={s.input} value={enderecoEmp} onChange={e => setEnderecoEmp(e.target.value)} placeholder="Rua, nº, bairro, cidade – UF" /></div>
-        <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 8, fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-          📎 Variáveis disponíveis nos documentos: <code style={{color:'var(--accent3)'}}>{'{{company}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{razao}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{cnpj_empresa}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{responsavel}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{telefone_empresa}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{email_empresa}}'}</code> · <code style={{color:'var(--accent3)'}}>{'{{endereco_empresa}}'}</code>
-        </div>
+
       </div>
 
       <div style={s.sec}>
@@ -734,40 +732,93 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
 // ABA PRODUTOS
 // ══════════════════════════════════════════════
 function TabProdutos({ cfg, setCfg, empresaId }) {
-  const [modulos,  setModulos]  = useState(cfg.modulos || MODULOS_PADRAO)
-  const [planos,   setPlanos]   = useState(() => {
+  const [subAba,   setSubAba]  = useState('tabela') // 'tabela' | 'modulos' | 'planos'
+  const [modulos,  setModulos] = useState(cfg.modulos || MODULOS_PADRAO)
+  const [planos,   setPlanos]  = useState(() => {
     const ps = cfg.plans || PLANOS_PADRAO
-    return ps.map(p => ({ ...p, name: p.name || p.nome || p.id }))
+    return ps.map(p => ({ ...p, name: p.name || p.nome || p.id, maxCnpjs: p.maxCnpjs || p.usuarios || 25, usuarios: p.usuarios || 1 }))
   })
-  const [precos,   setPrecos]   = useState(() => {
-    const p = cfg.prices || {}
+  const [precos,   setPrecos]  = useState(() => {
     const merged = { ...PRECOS_PADRAO }
-    Object.keys(p).forEach(mod => { merged[mod] = { ...PRECOS_PADRAO[mod], ...p[mod] } })
+    Object.keys(cfg.prices || {}).forEach(mod => { merged[mod] = { ...PRECOS_PADRAO[mod], ...(cfg.prices[mod] || {}) } })
     return merged
   })
-  const [novoMod,  setNovoMod]  = useState('')
-  const [saving,   setSaving]   = useState(false)
+  const [saving,   setSaving]  = useState(false)
 
+  // Módulo: edição inline
+  const [editMod,    setEditMod]    = useState(null)  // {old, new}
+  const [novoMod,    setNovoMod]    = useState('')
+  // Plano: formulário
+  const [formPlano,  setFormPlano]  = useState(null)  // null ou objeto
+
+  // ── Módulos ──────────────────────────────────────────────
   function addModulo() {
     if (!novoMod.trim()) return
     const mod = novoMod.trim()
+    if (modulos.includes(mod)) { toast('Módulo já existe', 'err'); return }
     setModulos(prev => [...prev, mod])
-    setPrecos(prev => ({ ...prev, [mod]: { basic:[0,0], pro:[0,0], top:[0,0], topplus:[0,0] } }))
+    setPrecos(prev => {
+      const n = { ...prev }
+      n[mod] = {}
+      planos.forEach(p => { n[mod][p.id] = [0,0] })
+      return n
+    })
     setNovoMod('')
   }
-
+  function renameModulo(oldName, newName) {
+    if (!newName.trim() || newName === oldName) { setEditMod(null); return }
+    setModulos(prev => prev.map(m => m === oldName ? newName.trim() : m))
+    setPrecos(prev => {
+      const n = { ...prev }
+      n[newName.trim()] = n[oldName] || {}
+      delete n[oldName]
+      return n
+    })
+    setEditMod(null)
+  }
   function removeModulo(mod) {
+    if (!confirm(`Remover módulo "${mod}"?`)) return
     setModulos(prev => prev.filter(m => m !== mod))
     setPrecos(prev => { const n = { ...prev }; delete n[mod]; return n })
   }
 
-  function updatePreco(mod, plano, idx, val) {
+  // ── Planos ───────────────────────────────────────────────
+  const emptyPlano = { id: '', name: '', maxCnpjs: 25, usuarios: 1 }
+  function salvarPlano() {
+    if (!formPlano.name.trim()) { toast('Nome do plano obrigatório', 'err'); return }
+    const id = formPlano.id || formPlano.name.trim().toLowerCase().replace(/\s+/g, '_')
+    const novo = { ...formPlano, id, name: formPlano.name.trim(), maxCnpjs: Number(formPlano.maxCnpjs)||25, usuarios: Number(formPlano.usuarios)||1 }
+    if (formPlano._isNew) {
+      setPlanos(prev => [...prev, novo])
+      // Inicializar preços para o novo plano
+      setPrecos(prev => {
+        const n = { ...prev }
+        modulos.forEach(mod => { if (!n[mod]) n[mod] = {}; n[mod][id] = [0,0] })
+        return n
+      })
+    } else {
+      setPlanos(prev => prev.map(p => p.id === formPlano.id ? novo : p))
+    }
+    setFormPlano(null)
+  }
+  function removePlano(id) {
+    if (!confirm('Remover plano?')) return
+    setPlanos(prev => prev.filter(p => p.id !== id))
+    setPrecos(prev => {
+      const n = { ...prev }
+      Object.keys(n).forEach(mod => { if (n[mod][id]) delete n[mod][id] })
+      return n
+    })
+  }
+
+  // ── Preços ───────────────────────────────────────────────
+  function updatePreco(mod, planId, idx, val) {
     setPrecos(prev => {
       const n = { ...prev }
       if (!n[mod]) n[mod] = {}
-      if (!n[mod][plano]) n[mod][plano] = [0, 0]
-      n[mod][plano] = [...n[mod][plano]]
-      n[mod][plano][idx] = Number(val) || 0
+      if (!n[mod][planId]) n[mod][planId] = [0,0]
+      n[mod][planId] = [...n[mod][planId]]
+      n[mod][planId][idx] = Number(val) || 0
       return n
     })
   }
@@ -782,74 +833,136 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
     toast('✅ Produtos salvos!')
   }
 
+  const btnSubAba = (id, label) => (
+    <button onClick={() => setSubAba(id)} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${subAba===id?'var(--accent)':'var(--border)'}`, background: subAba===id?'rgba(0,212,255,.1)':'var(--surface2)', color: subAba===id?'var(--accent)':'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', fontWeight: subAba===id?600:400 }}>
+      {label}
+    </button>
+  )
+
   return (
     <div style={s.body}>
-      <div style={s.sec}>
-        <div style={s.secTitle}>📦 Módulos / Produtos</div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <input style={{ ...s.input, flex: 1 }} value={novoMod} onChange={e => setNovoMod(e.target.value)} placeholder="Nome do novo módulo" onKeyDown={e => e.key === 'Enter' && addModulo()} />
-          <button onClick={addModulo} style={{ padding: '9px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Adicionar</button>
+      {/* Sub-abas */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        {btnSubAba('tabela',  '💰 Tabela de Preços')}
+        {btnSubAba('modulos', '📦 Módulos')}
+        {btnSubAba('planos',  '🗂️ Planos')}
+      </div>
+
+      {/* ── SUB-ABA: TABELA DE PREÇOS ── */}
+      {subAba === 'tabela' && (
+        <div style={s.sec}>
+          <div style={s.secTitle}>💰 Tabela de Preços (Adesão / Mensalidade)</div>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>Edite os valores de adesão e mensalidade por módulo e plano. Estes valores alimentam diretamente o chat.</p>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 500 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Módulo</th>
+                  {planos.map(p => (
+                    <th key={p.id} colSpan={2} style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--accent)', fontWeight: 600 }}>{p.name}</th>
+                  ))}
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <th></th>
+                  {planos.map(p => (
+                    <React.Fragment key={p.id}>
+                      <th style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Adesão R$</th>
+                      <th style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Mensal R$</th>
+                    </React.Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {modulos.map(mod => (
+                  <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13, color: 'var(--text)', whiteSpace: 'nowrap' }}>{mod}</td>
+                    {planos.map(p => (
+                      <React.Fragment key={p.id}>
+                        <td style={{ padding: '4px 6px' }}>
+                          <input type="number" min={0} value={precos[mod]?.[p.id]?.[0] ?? 0}
+                            onChange={e => updatePreco(mod, p.id, 0, e.target.value)}
+                            style={{ ...s.input, padding: '4px 8px', width: 80, fontSize: 12 }} />
+                        </td>
+                        <td style={{ padding: '4px 6px' }}>
+                          <input type="number" min={0} value={precos[mod]?.[p.id]?.[1] ?? 0}
+                            onChange={e => updatePreco(mod, p.id, 1, e.target.value)}
+                            style={{ ...s.input, padding: '4px 8px', width: 80, fontSize: 12 }} />
+                        </td>
+                      </React.Fragment>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>💡 Para adicionar módulos ou planos use as abas acima.</p>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+      )}
+
+      {/* ── SUB-ABA: MÓDULOS ── */}
+      {subAba === 'modulos' && (
+        <div style={s.sec}>
+          <div style={s.secTitle}>📦 Módulos / Produtos</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <input style={{ ...s.input, flex: 1 }} value={novoMod} onChange={e => setNovoMod(e.target.value)} placeholder="Nome do novo módulo" onKeyDown={e => e.key === 'Enter' && addModulo()} />
+            <button onClick={addModulo} style={{ padding: '9px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Adicionar</button>
+          </div>
           {modulos.map(mod => (
-            <div key={mod} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 20 }}>
-              <span style={{ fontSize: 13 }}>{mod}</span>
-              <button onClick={() => removeModulo(mod)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>×</button>
+            <div key={mod} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, marginBottom: 8 }}>
+              {editMod?.old === mod ? (
+                <>
+                  <input autoFocus style={{ ...s.input, flex: 1 }} value={editMod.new} onChange={e => setEditMod(m => ({ ...m, new: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') renameModulo(mod, editMod.new); if (e.key === 'Escape') setEditMod(null) }} />
+                  <button onClick={() => renameModulo(mod, editMod.new)} style={{ padding: '5px 12px', borderRadius: 7, background: 'rgba(16,185,129,.15)', border: '1px solid rgba(16,185,129,.3)', color: 'var(--accent3)', cursor: 'pointer', fontSize: 12 }}>✅</button>
+                  <button onClick={() => setEditMod(null)} style={{ padding: '5px 12px', borderRadius: 7, background: 'rgba(100,116,139,.1)', border: '1px solid var(--border)', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>✕</button>
+                </>
+              ) : (
+                <>
+                  <span style={{ flex: 1, fontWeight: 600, fontSize: 14 }}>{mod}</span>
+                  <button onClick={() => setEditMod({ old: mod, new: mod })} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer' }}>✏️</button>
+                  <button onClick={() => removeModulo(mod)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer' }}>🗑</button>
+                </>
+              )}
             </div>
           ))}
         </div>
-      </div>
+      )}
 
-      <div style={s.sec}>
-        <div style={s.secTitle}>💰 Tabela de Preços (Adesão / Mensalidade)</div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                <th style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--muted)', fontWeight: 500 }}>Módulo</th>
-                {planos.map(p => (
-                  <th key={p.id} colSpan={2} style={{ padding: '8px 12px', textAlign: 'center', color: 'var(--accent)', fontWeight: 600 }}>{p.name}</th>
-                ))}
-              </tr>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                <th></th>
-                {planos.map(p => (
-                  <>
-                    <th key={`${p.id}-ad`}  style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Adesão R$</th>
-                    <th key={`${p.id}-men`} style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Mensal R$</th>
-                  </>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {modulos.map(mod => (
-                <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{mod}</td>
-                  {planos.map(p => (
-                    <>
-                      <td key={`${p.id}-ad`} style={{ padding: '6px 8px' }}>
-                        <input type="number" min={0}
-                          value={precos[mod]?.[p.id]?.[0] ?? 0}
-                          onChange={e => updatePreco(mod, p.id, 0, e.target.value)}
-                          style={{ ...s.input, padding: '5px 8px', width: 85, fontSize: 12 }} />
-                      </td>
-                      <td key={`${p.id}-men`} style={{ padding: '6px 8px' }}>
-                        <input type="number" min={0}
-                          value={precos[mod]?.[p.id]?.[1] ?? 0}
-                          onChange={e => updatePreco(mod, p.id, 1, e.target.value)}
-                          style={{ ...s.input, padding: '5px 8px', width: 85, fontSize: 12 }} />
-                      </td>
-                    </>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* ── SUB-ABA: PLANOS ── */}
+      {subAba === 'planos' && (
+        <div style={s.sec}>
+          <div style={s.secTitle}>🗂️ Planos Disponíveis</div>
+          {planos.map(p => (
+            <div key={p.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--accent)' }}>{p.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Máx. {p.maxCnpjs} CNPJs · {p.usuarios} usuário{p.usuarios !== 1 ? 's' : ''} · ID: <code style={{ color: 'var(--accent3)' }}>{p.id}</code></div>
+              </div>
+              <button onClick={() => setFormPlano({ ...p, _isNew: false })} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer' }}>✏️</button>
+              <button onClick={() => removePlano(p.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)', cursor: 'pointer' }}>🗑</button>
+            </div>
+          ))}
+          <button onClick={() => setFormPlano({ ...emptyPlano, _isNew: true })} style={{ padding: '10px 18px', borderRadius: 9, background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', marginTop: 8 }}>+ Novo Plano</button>
+
+          {formPlano && (
+            <div style={{ marginTop: 16, padding: 18, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
+              <div style={{ ...s.secTitle, marginBottom: 14 }}>{formPlano._isNew ? 'Novo Plano' : `Editar: ${formPlano.name}`}</div>
+              <div style={s.row2}>
+                <div style={s.field}><label style={s.label}>Nome do Plano</label><input style={s.input} value={formPlano.name} onChange={e => setFormPlano(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Basic, Pro..." /></div>
+                <div style={s.field}><label style={s.label}>ID (chave única)</label><input style={s.input} value={formPlano.id} onChange={e => setFormPlano(f => ({ ...f, id: e.target.value.toLowerCase().replace(/\s+/g,'_') }))} placeholder="Ex: basic, pro..." disabled={!formPlano._isNew} /></div>
+              </div>
+              <div style={s.row2}>
+                <div style={s.field}><label style={s.label}>Máx. CNPJs</label><input type="number" min={1} style={s.input} value={formPlano.maxCnpjs} onChange={e => setFormPlano(f => ({ ...f, maxCnpjs: e.target.value }))} /></div>
+                <div style={s.field}><label style={s.label}>Usuários inclusos</label><input type="number" min={1} style={s.input} value={formPlano.usuarios} onChange={e => setFormPlano(f => ({ ...f, usuarios: e.target.value }))} /></div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                <button style={s.saveBtn} onClick={salvarPlano}>✅ Salvar Plano</button>
+                <button onClick={() => setFormPlano(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+              </div>
+            </div>
+          )}
         </div>
-        <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
-          💡 Os valores são usados diretamente no chat para calcular propostas e contratos.
-        </p>
-      </div>
+      )}
+
       <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar Produtos'}</button>
     </div>
   )
@@ -1080,14 +1193,23 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
   }
 
   const VARIAVEIS = [
-    ['{{empresa}}','Nome fantasia'],['{{razao}}','Razão social'],['{{cnpj}}','CNPJ'],
-    ['{{contato}}','Nome do contato'],['{{email}}','E-mail'],['{{telefone}}','Telefone'],
-    ['{{endereco}}','Endereço'],['{{regime}}','Regime tributário'],['{{plano}}','Plano contratado'],
-    ['{{total_adesao}}','Total adesão'],['{{total_mensal}}','Total mensalidade'],['{{data_hora}}','Data atual'],
+    // Dados do cliente
+    ['{{empresa}}','Nome fantasia do cliente'],['{{razao}}','Razão social do cliente'],['{{cnpj}}','CNPJ do cliente'],
+    ['{{contato}}','Nome do contato'],['{{email}}','E-mail do cliente'],['{{telefone}}','Telefone do cliente'],
+    ['{{endereco}}','Endereço do cliente'],['{{regime}}','Regime tributário'],['{{plano}}','Plano contratado'],
+    ['{{cnpjs_qty}}','Qtd. CNPJs'],['{{data_hora}}','Data atual'],
+    // Financeiro
+    ['{{total_adesao}}','Total adesão'],['{{total_mensal}}','Total mensalidade'],
     ['{{condicao_pagamento}}','Condição de pagamento'],['{{vencimento_adesao}}','Venc. adesão'],
-    ['{{vencimento_mensal}}','Venc. mensalidade'],['{{cnpjs_qty}}','Qtd. CNPJs'],
-    ['{{consultor_nome}}','Nome do consultor'],['{{company}}','Empresa contratante'],
-    ['{{produtos_tabela}}','Tabela HTML de produtos'],['{{produtos_lista}}','Lista de produtos'],['{{logo}}','Logo em base64'],
+    ['{{vencimento_mensal}}','Venc. mensalidade'],
+    // Empresa contratante (dados de Configurações → Empresa)
+    ['{{company}}','Nome fantasia da empresa'],['{{razao_empresa}}','Razão social da empresa'],
+    ['{{cnpj_empresa}}','CNPJ da empresa'],['{{responsavel}}','Responsável pela empresa'],
+    ['{{telefone_empresa}}','Telefone da empresa'],['{{email_empresa}}','E-mail da empresa'],
+    ['{{endereco_empresa}}','Endereço da empresa'],
+    // Consultor e produtos
+    ['{{consultor_nome}}','Nome do consultor'],['{{logo}}','Logo em base64'],
+    ['{{produtos_tabela}}','Tabela HTML de produtos'],['{{produtos_lista}}','Lista de produtos'],
   ]
 
   return (
@@ -1129,20 +1251,27 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
         <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, position: 'relative' }}>
           <pre id="prompt-ia" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, lineHeight: 1.7, fontFamily: 'monospace' }}>{`Você é especialista em documentos comerciais. Com base nos dados e variáveis abaixo, crie um HTML completo e profissional para uma [PROPOSTA / CONTRATO].
 
-VARIÁVEIS DISPONÍVEIS (use exatamente como estão):
+VARIÁVEIS DO CLIENTE:
 {{empresa}} - Nome fantasia | {{razao}} - Razão social | {{cnpj}} - CNPJ
-{{company}} - Empresa contratante | {{razao_empresa}} - Razão social contratante
-{{cnpj_empresa}} - CNPJ da contratante | {{responsavel}} - Responsável
-{{telefone_empresa}} - Telefone | {{email_empresa}} - E-mail | {{endereco_empresa}} - Endereço
-{{contato}} - Nome do contato do cliente | {{email}} - E-mail do cliente
-{{telefone}} - Telefone do cliente | {{plano}} - Plano contratado
-{{cnpjs_qty}} - Quantidade de CNPJs | {{total_adesao}} - Total adesão
-{{total_mensal}} - Total mensalidade | {{data_hora}} - Data atual
-{{vencimento_adesao}} - Vencimento da adesão | {{vencimento_mensal}} - Vencimento mensalidade
-{{condicao_pagamento}} - Condição de pagamento | {{consultor_nome}} - Nome do consultor
-{{produtos_tabela}} - Tabela HTML dos produtos | {{logo}} - Logo em base64
+{{contato}} - Nome do contato | {{email}} - E-mail | {{telefone}} - Telefone
+{{endereco}} - Endereço | {{regime}} - Regime tributário | {{plano}} - Plano contratado
+{{cnpjs_qty}} - Qtd. CNPJs | {{data_hora}} - Data atual
 
-INSTRUÇÕES: CSS inline, fundo branco, cores profissionais, cabeçalho com logo, dados do cliente, tabela de produtos, rodapé. Retorne APENAS o HTML.`}</pre>
+VARIÁVEIS FINANCEIRAS:
+{{total_adesao}} - Total adesão | {{total_mensal}} - Total mensalidade
+{{condicao_pagamento}} - Condição de pagamento
+{{vencimento_adesao}} - Venc. adesão | {{vencimento_mensal}} - Venc. mensalidade
+
+VARIÁVEIS DA EMPRESA CONTRATANTE (preenchidas em Configurações → Empresa):
+{{company}} - Nome fantasia | {{razao_empresa}} - Razão social
+{{cnpj_empresa}} - CNPJ | {{responsavel}} - Responsável
+{{telefone_empresa}} - Telefone | {{email_empresa}} - E-mail | {{endereco_empresa}} - Endereço
+
+VARIÁVEIS DE CONSULTOR E PRODUTOS:
+{{consultor_nome}} - Nome do consultor | {{logo}} - Logo em base64
+{{produtos_tabela}} - Tabela HTML dos produtos | {{produtos_lista}} - Lista de produtos
+
+INSTRUÇÕES: CSS inline, fundo branco, cores profissionais, cabeçalho com logo (use <img src="{{logo}}" style="height:60px">), dados do cliente, tabela de produtos, rodapé com dados da empresa contratante. Retorne APENAS o HTML.`}</pre>
           <button onClick={() => { const el = document.getElementById('prompt-ia'); if (el) navigator.clipboard?.writeText(el.innerText).then(() => toast('✅ Prompt copiado!')) }}
             style={{ position: 'absolute', top: 10, right: 10, padding: '6px 12px', borderRadius: 7, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>
             📋 Copiar
@@ -1168,14 +1297,25 @@ function TabClientes({ cfg, setCfg, empresaId }) {
   const filtrados = busca.trim()
     ? clientes.filter(c => c && (c.nome?.toLowerCase().includes(busca.toLowerCase()) || c.cnpj?.includes(busca) || c.cpf?.includes(busca)))
     : clientes
-  const emptyClient = { id: '', nome: '', cnpj: '', cpf: '', email: '', telefone: '', cidade: '' }
+  const emptyClient = { id: '', nome: '', fantasia: '', cnpj: '', cpf: '', email: '', telefone: '', cidade: '', uf: '', endereco: '', bairro: '', cep: '' }
 
   function isDuplicate(formData) {
-    return clientes.some(c => {
-      if (!c || c.id === formData.id) return false
-      if (formData.cnpj && c.cnpj === formData.cnpj) return true
-      if (formData.cpf  && c.cpf  === formData.cpf)  return true
-      if (formData.email && c.email === formData.email) return true
+    return clientes.some(cl => {
+      if (!cl || cl.id === formData.id) return false
+      // Verifica CNPJ/CPF (principal)
+      if (formData.cnpj && cl.cnpj && cl.cnpj === formData.cnpj) return true
+      if (formData.cpf  && cl.cpf  && cl.cpf  === formData.cpf)  return true
+      // Verifica doc unificado
+      if (formData.doc  && cl.doc  && cl.doc  === formData.doc)  return true
+      // Verifica e-mail
+      if (formData.email && cl.email && cl.email.toLowerCase() === formData.email.toLowerCase()) return true
+      // Verifica telefone (apenas dígitos)
+      if (formData.telefone && cl.telefone) {
+        const t1 = formData.telefone.replace(/\D/g,''), t2 = cl.telefone.replace(/\D/g,'')
+        if (t1.length >= 8 && t1 === t2) return true
+      }
+      // Verifica razão social (case insensitive)
+      if (formData.nome && cl.nome && cl.nome.toLowerCase() === formData.nome.toLowerCase()) return true
       return false
     })
   }
@@ -1226,16 +1366,24 @@ function TabClientes({ cfg, setCfg, empresaId }) {
         })}
       </div>
       {form && (
-        <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 8 }}>
           <div style={{ ...s.secTitle, marginBottom: 14 }}>Dados do Cliente</div>
           <div style={s.row2}>
-            <div style={s.field}><label style={s.label}>Nome / Razão Social</label><input style={s.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} /></div>
-            <div style={s.field}><label style={s.label}>CNPJ</label><input style={s.input} value={form.cnpj} onChange={e => setForm(f => ({ ...f, cnpj: e.target.value }))} /></div>
+            <div style={s.field}><label style={s.label}>Razão Social</label><input style={s.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Razão social" /></div>
+            <div style={s.field}><label style={s.label}>Nome Fantasia</label><input style={s.input} value={form.fantasia || ''} onChange={e => setForm(f => ({ ...f, fantasia: e.target.value }))} placeholder="Nome fantasia" /></div>
           </div>
           <div style={s.row2}>
-            <div style={s.field}><label style={s.label}>E-mail</label><input type="email" style={s.input} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></div>
-            <div style={s.field}><label style={s.label}>Telefone</label><input style={s.input} value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} /></div>
+            <div style={s.field}><label style={s.label}>CNPJ</label><input style={s.input} value={form.cnpj} onChange={e => setForm(f => ({ ...f, cnpj: e.target.value }))} placeholder="00.000.000/0001-00" /></div>
+            <div style={s.field}><label style={s.label}>CPF</label><input style={s.input} value={form.cpf || ''} onChange={e => setForm(f => ({ ...f, cpf: e.target.value }))} placeholder="000.000.000-00" /></div>
           </div>
+          <div style={s.row2}>
+            <div style={s.field}><label style={s.label}>E-mail</label><input type="email" style={s.input} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@empresa.com" /></div>
+            <div style={s.field}><label style={s.label}>Telefone</label><input style={s.input} value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" /></div>
+          </div>
+          <div style={s.row2}>
+            <div style={s.field}><label style={s.label}>Cidade</label><input style={s.input} value={form.cidade} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} placeholder="Cidade" /></div>
+            <div style={s.field}><label style={s.label}>Estado (UF)</label><input style={s.input} value={form.uf || ''} onChange={e => setForm(f => ({ ...f, uf: e.target.value }))} placeholder="UF" maxLength={2} /></div>
+          </div>
+          <div style={s.field}><label style={s.label}>Endereço Completo</label><input style={s.input} value={form.endereco || ''} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} placeholder="Rua, nº, bairro" /></div>
           <div style={s.field}><label style={s.label}>Cidade / Estado</label><input style={s.input} value={form.cidade} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} /></div>
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
             <button style={s.saveBtn} onClick={salvarCliente} disabled={saving}>{saving ? '⏳...' : '✅ Salvar Cliente'}</button>
