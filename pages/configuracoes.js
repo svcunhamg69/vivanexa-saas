@@ -1,5 +1,5 @@
 // pages/configuracoes.js
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, Fragment } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
@@ -849,10 +849,10 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
                   <th></th>
                   {planos.map(p => (
-                    <React.Fragment key={p.id}>
+                    <Fragment key={p.id}>
                       <th style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Adesão R$</th>
                       <th style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--muted)', fontSize: 10, fontWeight: 400 }}>Mensal R$</th>
-                    </React.Fragment>
+                    </Fragment>
                   ))}
                 </tr>
               </thead>
@@ -861,7 +861,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
                   <tr key={mod} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '8px 12px', fontWeight: 600, fontSize: 13, color: 'var(--text)', whiteSpace: 'nowrap' }}>{mod}</td>
                     {planos.map(p => (
-                      <React.Fragment key={p.id}>
+                      <Fragment key={p.id}>
                         <td style={{ padding: '4px 6px' }}>
                           <input type="number" min={0} value={precos[mod]?.[p.id]?.[0] ?? 0}
                             onChange={e => updatePreco(mod, p.id, 0, e.target.value)}
@@ -872,7 +872,7 @@ function TabProdutos({ cfg, setCfg, empresaId }) {
                             onChange={e => updatePreco(mod, p.id, 1, e.target.value)}
                             style={{ ...s.input, padding: '4px 8px', width: 80, fontSize: 12 }} />
                         </td>
-                      </React.Fragment>
+                      </Fragment>
                     ))}
                   </tr>
                 ))}
@@ -1182,10 +1182,10 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     ['{{total_adesao}}','Total adesão'],['{{total_mensal}}','Total mensalidade'],
     ['{{condicao_pagamento}}','Condição de pagamento'],['{{vencimento_adesao}}','Venc. adesão'],
     ['{{vencimento_mensal}}','Venc. mensalidade'],
-    ['{{company}}','Nome fantasia da empresa'],['{{razao_empresa}}','Razão social da empresa'],
-    ['{{cnpj_empresa}}','CNPJ da empresa'],['{{responsavel}}','Responsável pela empresa'],
-    ['{{telefone_empresa}}','Telefone da empresa'],['{{email_empresa}}','E-mail da empresa'],
-    ['{{endereco_empresa}}','Endereço da empresa'],
+    ['{{company}}','Nome fantasia da empresa contratada'],['{{razao_empresa}}','Razão social da empresa contratada'],
+    ['{{cnpj_empresa}}','CNPJ da empresa contratada'],['{{responsavel}}','Responsável da empresa contratada'],
+    ['{{telefone_empresa}}','Telefone da empresa contratada'],['{{email_empresa}}','E-mail da empresa contratada'],
+    ['{{endereco_empresa}}','Endereço da empresa contratada'],
     ['{{consultor_nome}}','Nome do consultor'],['{{logo}}','Logo em base64'],
     ['{{produtos_tabela}}','Tabela HTML de produtos'],['{{produtos_lista}}','Lista de produtos'],
   ]
@@ -1240,7 +1240,7 @@ VARIÁVEIS FINANCEIRAS:
 {{condicao_pagamento}} - Condição de pagamento
 {{vencimento_adesao}} - Venc. adesão | {{vencimento_mensal}} - Venc. mensalidade
 
-VARIÁVEIS DA EMPRESA CONTRATANTE (preenchidas em Configurações → Empresa):
+VARIÁVEIS DA EMPRESA CONTRATADA (preenchidas em Configurações → Empresa):
 {{company}} - Nome fantasia | {{razao_empresa}} - Razão social
 {{cnpj_empresa}} - CNPJ | {{responsavel}} - Responsável
 {{telefone_empresa}} - Telefone | {{email_empresa}} - E-mail | {{endereco_empresa}} - Endereço
@@ -1278,17 +1278,20 @@ function TabClientes({ cfg, setCfg, empresaId }) {
   const emptyClient = { id: '', nome: '', fantasia: '', cnpj: '', cpf: '', email: '', telefone: '', cidade: '', uf: '', endereco: '', bairro: '', cep: '' }
 
   function isDuplicate(formData) {
+    const cleanTel = (t) => t ? t.replace(/\D/g,'') : ''
+    const cleanDoc = (d) => d ? d.replace(/\D/g,'') : ''
     return clientes.some(cl => {
       if (!cl || cl.id === formData.id) return false
-      if (formData.cnpj && cl.cnpj && cl.cnpj === formData.cnpj) return true
-      if (formData.cpf  && cl.cpf  && cl.cpf  === formData.cpf)  return true
-      if (formData.doc  && cl.doc  && cl.doc  === formData.doc)  return true
-      if (formData.email && cl.email && cl.email.toLowerCase() === formData.email.toLowerCase()) return true
-      if (formData.telefone && cl.telefone) {
-        const t1 = formData.telefone.replace(/\D/g,''), t2 = cl.telefone.replace(/\D/g,'')
-        if (t1.length >= 8 && t1 === t2) return true
-      }
-      if (formData.nome && cl.nome && cl.nome.toLowerCase() === formData.nome.toLowerCase()) return true
+      // CNPJ ou CPF igual (prioridade máxima — mantém o já cadastrado)
+      if (formData.cnpj && cl.cnpj && cleanDoc(cl.cnpj) === cleanDoc(formData.cnpj) && cleanDoc(formData.cnpj).length >= 11) return true
+      if (formData.cpf  && cl.cpf  && cleanDoc(cl.cpf)  === cleanDoc(formData.cpf)  && cleanDoc(formData.cpf).length  >= 11) return true
+      // E-mail igual
+      if (formData.email && cl.email && cl.email.toLowerCase().trim() === formData.email.toLowerCase().trim()) return true
+      // Telefone igual (ao menos 8 dígitos)
+      const t1 = cleanTel(formData.telefone), t2 = cleanTel(cl.telefone)
+      if (t1.length >= 8 && t1 === t2) return true
+      // Razão social igual (case-insensitive)
+      if (formData.nome && cl.nome && cl.nome.toLowerCase().trim() === formData.nome.toLowerCase().trim()) return true
       return false
     })
   }
@@ -1518,7 +1521,6 @@ export default function Configuracoes() {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <button onClick={() => router.push('/chat')}      style={navBtn}>💬 Chat</button>
-          <button onClick={() => router.push('/dashboard')} style={navBtn}>📊 Dashboard</button>
           <button onClick={() => router.push('/reports')}   style={navBtn}>📈 Relatórios</button>
           <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 9px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>Sair</button>
         </div>
