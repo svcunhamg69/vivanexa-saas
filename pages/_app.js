@@ -21,7 +21,8 @@ function MyApp({ Component, pageProps }) {
 
   const publicPages = ['/', '/sign/[token]'];
   const isPublicPage = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
-  // ✅ Adicionadas todas as páginas que NÃO devem ser bloqueadas pela exigência de KPI
+
+  // Páginas que NÃO bloqueiam pelo KPI e NÃO precisam de Navbar extra
   const kpiExemptPages = ['/kpi', '/configuracoes', '/dashboard', '/reports'];
 
   useEffect(() => {
@@ -35,7 +36,8 @@ function MyApp({ Component, pageProps }) {
         verificacaoFeita.current = false;
         router.push('/');
       } else if (event === 'SIGNED_IN' && router.pathname === '/') {
-        router.push('/chat');
+        // ✅ MUDANÇA: agora redireciona para /dashboard ao invés de /chat
+        router.push('/dashboard');
       }
     });
 
@@ -89,7 +91,6 @@ function MyApp({ Component, pageProps }) {
         );
 
         if (!jaPreencheu) {
-          // ✅ Só redireciona se a rota atual NÃO for exempt
           if (!kpiExemptPages.includes(router.pathname)) {
             router.replace(`/kpi?redirect=${encodeURIComponent(router.asPath)}&date=${diaVerificar}`);
             return;
@@ -112,7 +113,11 @@ function MyApp({ Component, pageProps }) {
 
   if (checkingKpi) {
     return (
-      <div style={{ background: '#0a0f1e', color: '#64748b', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'DM Mono, monospace', fontSize: 14 }}>
+      <div style={{
+        background: '#0a0f1e', color: '#64748b', minHeight: '100vh',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'DM Mono, monospace', fontSize: 14
+      }}>
         Carregando...
       </div>
     );
