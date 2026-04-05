@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
+import Navbar from '../components/Navbar'
 
 const CSS = `
   *{box-sizing:border-box;margin:0;padding:0}
@@ -408,17 +409,7 @@ export default function Fiscal() {
       <style>{CSS}</style>
       <div className="orb orb1" /><div className="orb orb2" />
 
-      {/* NAVBAR */}
-      <header style={{ background: 'rgba(10,15,30,.97)', borderBottom: '1px solid #1e2d4a', padding: '0 16px', display: 'flex', alignItems: 'center', height: 52, position: 'sticky', top: 0, zIndex: 100, fontFamily: 'DM Mono, monospace', gap: 8 }}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: '#e2e8f0', cursor: 'pointer' }} onClick={() => router.push('/chat')}>
-          {cfg.logob64 ? <img src={cfg.logob64.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`} alt="" style={{ height: 32, objectFit: 'contain', borderRadius: 6 }} /> : (cfg.company || 'VIVANEXA')}
-        </div>
-        <div style={{ flex: 1, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {[['chat', '💬 Chat'], ['crm', '🤝 CRM'], ['marketing', '📣 Marketing'], ['financeiro', '💰 Financeiro'], ['fiscal', '📄 Fiscal'], ['produtividade', '⚡ Produtiv.'], ['reports', '📈 Relatórios'], ['configuracoes', '⚙️']].map(([page, label]) => (
-            <button key={page} onClick={() => router.push('/' + page)} style={{ background: router.pathname === '/' + page ? 'rgba(0,212,255,.1)' : 'none', border: '1px solid ' + (router.pathname === '/' + page ? 'rgba(0,212,255,.4)' : 'transparent'), color: router.pathname === '/' + page ? '#00d4ff' : '#64748b', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '4px 10px', borderRadius: 7, cursor: 'pointer' }}>{label}</button>
-          ))}
-        </div>
-        <button onClick={async () => { await supabase.auth.signOut(); router.replace('/') }} style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', color: '#ef4444', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>Sair</button>
+      <Navbar cfg={cfg} perfil={perfil} />
       </header>
 
       <div className="page-wrap">
