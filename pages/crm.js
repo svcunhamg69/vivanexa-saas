@@ -183,8 +183,8 @@ export default function CRM() {
 
       {toast&&<div style={{position:'fixed',bottom:28,left:'50%',transform:'translateX(-50%)',background:'rgba(16,185,129,.92)',color:'#fff',padding:'11px 22px',borderRadius:10,fontFamily:'DM Mono',fontSize:14,zIndex:9999}}>{toast}</div>}
 
+      {/* ── Header ── */}
       <Navbar cfg={cfg} perfil={perfil} />
-      </header>
 
       <main style={{padding:'20px 20px 60px'}}>
 
