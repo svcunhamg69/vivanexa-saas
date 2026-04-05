@@ -1485,9 +1485,7 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
           phoneId: wppPhoneId,
           token:   wppToken,
           para:    testNum,
-          texto:   '✅ Teste da integração Vivanexa SaaS!
-
-Se você recebeu esta mensagem, a integração está funcionando perfeitamente. 🚀',
+          texto:   `✅ Teste da integração Vivanexa SaaS!\n\nSe você recebeu esta mensagem, a integração está funcionando perfeitamente. 🚀`,
         }),
       })
       const data = await r.json()
