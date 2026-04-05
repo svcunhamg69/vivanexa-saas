@@ -450,8 +450,8 @@ Seja prático, use exemplos reais do nicho e crie um script que qualquer vendedo
       <style>{CSS}</style>
       <div className="orb orb1" /><div className="orb orb2" />
 
+      {/* NAVBAR */}
       <Navbar cfg={cfg} perfil={perfil} />
-      </header>
 
       <div className="page-wrap">
         <div className="page-title">📣 Marketing</div>
