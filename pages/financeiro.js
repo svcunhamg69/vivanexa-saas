@@ -154,8 +154,8 @@ export default function Financeiro() {
 
       {msgSucesso && <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: 'rgba(16,185,129,.9)', color: '#fff', padding: '12px 24px', borderRadius: 10, fontFamily: 'DM Mono', fontSize: 14, zIndex: 9999 }}>{msgSucesso}</div>}
 
+      {/* Header */}
       <Navbar cfg={cfg} perfil={perfil} />
-      </header>
 
       <main style={{ maxWidth: 1000, margin: '0 auto', padding: '20px 20px 60px' }}>
         {/* Abas */}
