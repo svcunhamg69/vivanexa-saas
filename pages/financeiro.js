@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
+import Navbar from '../components/Navbar'
 
 const ABAS = [
   { id: 'contas',    label: '💳 Contas a Pagar e Receber' },
@@ -153,20 +154,7 @@ export default function Financeiro() {
 
       {msgSucesso && <div style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', background: 'rgba(16,185,129,.9)', color: '#fff', padding: '12px 24px', borderRadius: 10, fontFamily: 'DM Mono', fontSize: 14, zIndex: 9999 }}>{msgSucesso}</div>}
 
-      {/* Header */}
-      <header style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(10,15,30,.95)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => router.push('/chat')}>
-          {logoSrc ? <img src={logoSrc} alt="" style={{ height: 32, objectFit: 'contain', borderRadius: 6 }} onError={e => e.target.style.display = 'none'} />
-            : <span style={{ fontFamily: 'Syne,sans-serif', fontSize: 15, fontWeight: 700 }}>{cfg.company || 'Vivanexa'}</span>}
-        </div>
-        <span style={{ fontSize: 13, color: 'var(--accent)', fontFamily: 'Syne,sans-serif', fontWeight: 700 }}>💰 Financeiro</span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button onClick={() => router.push('/chat')} style={navBtn}>💬 Chat</button>
-          <button onClick={() => router.push('/crm')} style={navBtn}>🎯 CRM</button>
-          <button onClick={() => router.push('/reports')} style={navBtn}>📈 Relatórios</button>
-          {perfil?.nome && <span style={{ fontSize: 11, color: 'var(--muted)' }}>👤 <span style={{ color: 'var(--text)' }}>{perfil.nome}</span></span>}
-          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, fontFamily: 'DM Mono,monospace' }}>Sair</button>
-        </div>
+      <Navbar cfg={cfg} perfil={perfil} />
       </header>
 
       <main style={{ maxWidth: 1000, margin: '0 auto', padding: '20px 20px 60px' }}>
