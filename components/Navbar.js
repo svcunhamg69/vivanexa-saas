@@ -1,8 +1,7 @@
-// components/Navbar.js — Vivanexa SaaS v4.1
-// ✅ Fix: dropdown z-index e pointer-events corrigidos
-// ✅ Submenus agrupados DENTRO do menu pai
-// ✅ Botão 🏠 Início sempre visível
-// ✅ Funciona em TODAS as páginas
+// components/Navbar.js — Vivanexa SaaS v4
+// ✅ Submenus agrupados DENTRO do menu pai (não soltos)
+// ✅ Botão 🏠 Início sempre visível — volta ao dashboard de qualquer página
+// ✅ Presente em TODAS as páginas: chat, crm, fiscal, financeiro, etc.
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
@@ -124,9 +123,8 @@ export default function Navbar({ cfg = {}, perfil = null }) {
     })
   }, [perfil])
 
-  // ✅ FIX: fecha ao clicar fora
   useEffect(() => {
-    function handler(e) {
+    const handler = (e) => {
       if (navRef.current && !navRef.current.contains(e.target)) {
         setOpen(null)
         setMobileOpen(false)
@@ -136,7 +134,6 @@ export default function Navbar({ cfg = {}, perfil = null }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // ✅ fecha ao trocar de página
   useEffect(() => {
     setOpen(null)
     setMobileOpen(false)
@@ -165,67 +162,61 @@ export default function Navbar({ cfg = {}, perfil = null }) {
     <>
       <style>{CSS}</style>
 
-      <nav className="vx-nav" ref={navRef}>
+      <nav className="nav" ref={navRef}>
 
         {/* ── Botão Início ── */}
-        <button className="vx-home" onClick={() => navigate('/dashboard')}>
+        <button className="nav-home" onClick={() => navigate('/dashboard')}>
           {logoSrc
-            ? <img src={logoSrc} alt="logo" className="vx-logo-img" />
-            : <span>🏠</span>
+            ? <img src={logoSrc} alt="logo" className="nav-logo-img" />
+            : <span className="nav-logo-icon">🏠</span>
           }
-          <span className="vx-home-label">Início</span>
+          <span className="nav-home-label">Início</span>
         </button>
 
-        <div className="vx-sep" />
+        <div className="nav-sep" />
 
-        {/* ── Menus desktop ── */}
-        <div className="vx-menus">
+        {/* ── Menus ── */}
+        <div className="nav-menus">
           {MENU.map((menu) => {
             const ativo  = isActive(menu)
             const aberto = open === menu.id
             return (
-              <div key={menu.id} className="vx-wrap">
+              <div key={menu.id} className="nav-wrap">
 
                 {/* Botão pai */}
                 <button
-                  className={`vx-btn${ativo ? ' is-active' : ''}${aberto ? ' is-open' : ''}`}
-                  style={(ativo || aberto) ? { color: menu.color, background: menu.color + '18' } : {}}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setOpen(aberto ? null : menu.id)
-                  }}
+                  className={`nav-btn${ativo ? ' is-active' : ''}${aberto ? ' is-open' : ''}`}
+                  style={(ativo || aberto) ? { color: menu.color, background: menu.color + '16' } : {}}
+                  onClick={(e) => { e.stopPropagation(); setOpen(aberto ? null : menu.id); }}
                 >
                   <span>{menu.icon}</span>
                   <span>{menu.label}</span>
-                  <span className={`vx-arr${aberto ? ' up' : ''}`}>▾</span>
+                  <span className={`nav-arr${aberto ? ' up' : ''}`}>▾</span>
                 </button>
 
                 {/* ── Dropdown ── */}
                 {aberto && (
-                  <div
-                    className="vx-dd"
-                    style={{ '--c': menu.color }}
-                    onClick={e => e.stopPropagation()}
-                  >
+                  <div className="nav-dd" style={{ '--c': menu.color }} onClick={e => e.stopPropagation()}>
+
                     {/* Título do grupo */}
-                    <div className="vx-dd-title">
+                    <div className="nav-dd-title">
                       <span>{menu.icon}</span>
                       <span style={{ color: menu.color }}>{menu.label}</span>
                     </div>
 
-                    {/* Submenus */}
+                    {/* Submenus do grupo */}
                     {menu.subs.map((sub) => {
                       const subAtivo = router.pathname === sub.href.split('?')[0]
                       return (
                         <button
                           key={sub.href}
-                          className={`vx-dd-btn${subAtivo ? ' sub-active' : ''}`}
-                          style={subAtivo ? { color: menu.color, background: menu.color + '14' } : {}}
+                          className={`nav-dd-btn${subAtivo ? ' sub-active' : ''}`}
+                          style={subAtivo ? { color: menu.color, background: menu.color + '12' } : {}}
                           onClick={() => navigate(sub.href)}
                         >
-                          <span className="vx-dd-icon">{sub.icon}</span>
-                          <span className="vx-dd-lbl">{sub.label}</span>
-                          {subAtivo && <span className="vx-dd-dot" style={{ background: menu.color }} />}
+                          <span className="nav-dd-icon">{sub.icon}</span>
+                          <span className="nav-dd-lbl">{sub.label}</span>
+                          {subAtivo && <span className="nav-dd-dot" style={{ background: menu.color }} />}
                         </button>
                       )
                     })}
@@ -237,42 +228,41 @@ export default function Navbar({ cfg = {}, perfil = null }) {
         </div>
 
         {/* ── Direita ── */}
-        <div className="vx-right">
+        <div className="nav-right">
           {user && (
-            <div className="vx-user">
-              <div className="vx-av">
+            <div className="nav-user">
+              <div className="nav-av">
                 {(user.nome || user.email || 'U')[0].toUpperCase()}
               </div>
-              <span className="vx-uname">
+              <span className="nav-uname">
                 {(user.nome || user.email || '').split(' ')[0]}
               </span>
             </div>
           )}
-          <button className="vx-sair" onClick={handleLogout}>Sair</button>
+          <button className="nav-sair" onClick={handleLogout}>Sair</button>
         </div>
 
-        {/* ── Hamburguer mobile ── */}
-        <button className="vx-mob-btn" onClick={() => setMobileOpen(!mobileOpen)}>
+        <button className="nav-mob-btn" onClick={() => setMobileOpen(!mobileOpen)}>
           {mobileOpen ? '✕' : '☰'}
         </button>
       </nav>
 
       {/* ── Menu Mobile ── */}
       {mobileOpen && (
-        <div className="vx-mob">
-          <button className="vx-mob-inicio" onClick={() => navigate('/dashboard')}>
+        <div className="mob">
+          <button className="mob-inicio" onClick={() => navigate('/dashboard')}>
             🏠 Painel Principal
           </button>
 
           {MENU.map((menu) => (
-            <div key={menu.id} className="vx-mob-grupo">
-              <div className="vx-mob-titulo" style={{ color: menu.color }}>
+            <div key={menu.id} className="mob-grupo">
+              <div className="mob-titulo" style={{ color: menu.color }}>
                 {menu.icon} {menu.label}
               </div>
-              <div className="vx-mob-itens">
+              <div className="mob-itens">
                 {menu.subs.map((sub) => (
-                  <button key={sub.href} className="vx-mob-btn-item" onClick={() => navigate(sub.href)}>
-                    <span className="vx-mob-ic">{sub.icon}</span>
+                  <button key={sub.href} className="mob-btn" onClick={() => navigate(sub.href)}>
+                    <span className="mob-ic">{sub.icon}</span>
                     {sub.label}
                   </button>
                 ))}
@@ -280,9 +270,9 @@ export default function Navbar({ cfg = {}, perfil = null }) {
             </div>
           ))}
 
-          <div className="vx-mob-rodape">
+          <div className="mob-rodape">
             <span style={{ color: '#64748b', fontSize: 12 }}>👤 {user?.nome || user?.email}</span>
-            <button className="vx-sair" onClick={handleLogout}>Sair</button>
+            <button className="nav-sair" onClick={handleLogout}>Sair</button>
           </div>
         </div>
       )}
@@ -291,164 +281,64 @@ export default function Navbar({ cfg = {}, perfil = null }) {
 }
 
 const CSS = `
-  /* ── Navbar base ── */
-  .vx-nav {
-    position: sticky; top: 0; z-index: 9000;
-    background: rgba(8,13,26,.98); backdrop-filter: blur(18px);
-    border-bottom: 1px solid #18243a;
-    display: flex; align-items: center; height: 52px; padding: 0 14px; gap: 2px;
-    font-family: 'DM Mono', monospace;
-  }
+  .nav{position:sticky;top:0;z-index:9000;overflow:visible;background:rgba(8,13,26,.98);backdrop-filter:blur(18px);border-bottom:1px solid #18243a;display:flex;align-items:center;height:52px;padding:0 14px;gap:2px;font-family:'DM Mono',monospace}
 
-  /* ── Botão Início ── */
-  .vx-home {
-    display: flex; align-items: center; gap: 7px;
-    padding: 5px 12px;
-    background: rgba(0,212,255,.1); border: 1px solid rgba(0,212,255,.28);
-    border-radius: 8px; color: #00d4ff;
-    font-family: 'DM Mono', monospace; font-size: 11.5px; font-weight: 600;
-    cursor: pointer; transition: all .15s; flex-shrink: 0; white-space: nowrap;
-  }
-  .vx-home:hover { background: rgba(0,212,255,.2); box-shadow: 0 0 16px rgba(0,212,255,.18); }
-  .vx-logo-img { height: 22px; object-fit: contain; border-radius: 4px; }
-  .vx-home-label { font-size: 11.5px; }
+  /* Botão Início */
+  .nav-home{display:flex;align-items:center;gap:7px;padding:5px 12px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.28);border-radius:8px;color:#00d4ff;font-family:'DM Mono',monospace;font-size:11.5px;font-weight:600;cursor:pointer;transition:all .15s;flex-shrink:0;white-space:nowrap}
+  .nav-home:hover{background:rgba(0,212,255,.2);box-shadow:0 0 16px rgba(0,212,255,.18)}
+  .nav-logo-img{height:22px;object-fit:contain;border-radius:4px}
+  .nav-logo-icon{font-size:15px}
+  .nav-home-label{font-size:11.5px}
 
-  /* ── Separador ── */
-  .vx-sep { width: 1px; height: 24px; background: #18243a; margin: 0 8px; flex-shrink: 0; }
+  /* Separador */
+  .nav-sep{width:1px;height:24px;background:#18243a;margin:0 8px;flex-shrink:0}
 
-  /* ── Área de menus ── */
-  .vx-menus {
-    display: flex; align-items: center; gap: 1px;
-    flex: 1; overflow-x: auto; scrollbar-width: none;
-  }
-  .vx-menus::-webkit-scrollbar { display: none; }
+  /* Área de menus */
+  .nav-menus{display:flex;align-items:center;gap:1px;flex:1;overflow:visible;}
+  
+  .nav-wrap{position:relative;overflow:visible}
 
-  /* ✅ FIX CRÍTICO: position relative no wrap para o dropdown aparecer */
-  .vx-wrap { position: relative; }
+  /* Botão do menu pai */
+  .nav-btn{display:flex;align-items:center;gap:5px;padding:6px 9px;background:none;border:none;border-radius:7px;color:#6e8099;font-family:'DM Mono',monospace;font-size:11.5px;cursor:pointer;white-space:nowrap;transition:all .14s}
+  .nav-btn:hover{background:rgba(255,255,255,.05);color:#c8d6e5}
+  .nav-btn.is-active,.nav-btn.is-open{font-weight:600}
+  .nav-arr{font-size:9px;opacity:.55;transition:transform .18s;margin-left:1px}
+  .nav-arr.up{transform:rotate(180deg)}
 
-  /* ── Botão do menu pai ── */
-  .vx-btn {
-    display: flex; align-items: center; gap: 5px; padding: 6px 9px;
-    background: none; border: none; border-radius: 7px;
-    color: #6e8099; font-family: 'DM Mono', monospace; font-size: 11.5px;
-    cursor: pointer; white-space: nowrap; transition: all .14s;
-  }
-  .vx-btn:hover { background: rgba(255,255,255,.05); color: #c8d6e5; }
-  .vx-btn.is-active, .vx-btn.is-open { font-weight: 600; }
-  .vx-arr { font-size: 9px; opacity: .55; transition: transform .18s; margin-left: 1px; display: inline-block; }
-  .vx-arr.up { transform: rotate(180deg); }
+  /* Dropdown */
+  .nav-dd{position:absolute;top:calc(100% + 7px);left:0;min-width:224px;background:#08101e;border:1px solid #18243a;border-top:2px solid var(--c,#00d4ff);border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.85);z-index:99999;pointer-events:all;animation:ddIn .13s ease}
+  @keyframes ddIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
 
-  /* ✅ FIX CRÍTICO: z-index alto + pointer-events no dropdown */
-  .vx-dd {
-    position: absolute;
-    top: calc(100% + 7px);
-    left: 0;
-    min-width: 224px;
-    background: #08101e;
-    border: 1px solid #18243a;
-    border-top: 2px solid var(--c, #00d4ff);
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 24px 64px rgba(0,0,0,.85);
-    z-index: 99999;
-    pointer-events: all;
-    animation: vxDdIn .13s ease;
-  }
-  @keyframes vxDdIn {
-    from { opacity: 0; transform: translateY(-5px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
+  /* Título do grupo no dropdown */
+  .nav-dd-title{display:flex;align-items:center;gap:8px;padding:11px 13px 10px;border-bottom:1px solid #18243a;background:rgba(255,255,255,.025);font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
 
-  /* ── Título do grupo ── */
-  .vx-dd-title {
-    display: flex; align-items: center; gap: 8px;
-    padding: 11px 13px 10px;
-    border-bottom: 1px solid #18243a;
-    background: rgba(255,255,255,.025);
-    font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700;
-    letter-spacing: 1px; text-transform: uppercase; color: #94a3b8;
-  }
+  /* Botão de submenu */
+  .nav-dd-btn{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;background:none;border:none;border-radius:8px;color:#6e8099;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;text-align:left;transition:all .1s;position:relative;margin:2px 5px;width:calc(100% - 10px)}
+  .nav-dd-btn:hover{background:rgba(255,255,255,.06);color:#e2e8f0}
+  .nav-dd-btn.sub-active{font-weight:600}
+  .nav-dd-icon{font-size:14px;width:18px;text-align:center;flex-shrink:0}
+  .nav-dd-lbl{flex:1}
+  .nav-dd-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 
-  /* ── Botão de submenu ── */
-  .vx-dd-btn {
-    display: flex; align-items: center; gap: 9px;
-    width: calc(100% - 10px); margin: 2px 5px;
-    padding: 9px 11px;
-    background: none; border: none; border-radius: 8px;
-    color: #6e8099; font-family: 'DM Mono', monospace; font-size: 12px;
-    cursor: pointer; text-align: left; transition: all .1s; position: relative;
-  }
-  .vx-dd-btn:hover { background: rgba(255,255,255,.06); color: #e2e8f0; }
-  .vx-dd-btn.sub-active { font-weight: 600; }
-  .vx-dd-icon { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
-  .vx-dd-lbl  { flex: 1; }
-  .vx-dd-dot  { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  /* Lado direito */
+  .nav-right{display:flex;align-items:center;gap:10px;flex-shrink:0;margin-left:6px}
+  .nav-user{display:flex;align-items:center;gap:8px}
+  .nav-av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#00d4ff,#0088aa);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+  .nav-uname{font-size:11px;color:#6e8099;white-space:nowrap}
+  .nav-sair{padding:4px 11px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.22);border-radius:7px;color:#ef4444;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;transition:all .14s;white-space:nowrap}
+  .nav-sair:hover{background:rgba(239,68,68,.2)}
+  .nav-mob-btn{display:none;background:none;border:1px solid #18243a;color:#6e8099;padding:6px 11px;border-radius:7px;cursor:pointer;font-size:16px;margin-left:auto}
 
-  /* ── Lado direito ── */
-  .vx-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; margin-left: 6px; }
-  .vx-user  { display: flex; align-items: center; gap: 8px; }
-  .vx-av {
-    width: 28px; height: 28px; border-radius: 50%;
-    background: linear-gradient(135deg,#00d4ff,#0088aa);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0;
-  }
-  .vx-uname { font-size: 11px; color: #6e8099; white-space: nowrap; }
-  .vx-sair {
-    padding: 4px 11px;
-    background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.22);
-    border-radius: 7px; color: #ef4444;
-    font-family: 'DM Mono', monospace; font-size: 11px; cursor: pointer;
-    transition: all .14s; white-space: nowrap;
-  }
-  .vx-sair:hover { background: rgba(239,68,68,.2); }
+  /* Mobile */
+  .mob{position:fixed;top:52px;left:0;right:0;bottom:0;background:rgba(8,13,26,.99);z-index:999;overflow-y:auto;padding:14px}
+  .mob-inicio{display:block;width:100%;padding:12px 16px;margin-bottom:14px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.25);border-radius:10px;color:#00d4ff;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;text-align:left}
+  .mob-grupo{margin-bottom:7px;border:1px solid #18243a;border-radius:10px;overflow:hidden}
+  .mob-titulo{padding:10px 14px;font-family:'Syne',sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;background:rgba(255,255,255,.02);border-bottom:1px solid #18243a}
+  .mob-itens{padding:4px}
+  .mob-btn{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;background:none;border:none;border-radius:8px;color:#6e8099;font-family:'DM Mono',monospace;font-size:13px;cursor:pointer;text-align:left;transition:all .12s}
+  .mob-btn:hover{background:rgba(255,255,255,.05);color:#e2e8f0}
+  .mob-ic{font-size:15px;width:20px;text-align:center;flex-shrink:0}
+  .mob-rodape{display:flex;align-items:center;justify-content:space-between;padding:14px 4px 4px;margin-top:8px;border-top:1px solid #18243a}
 
-  /* ── Hamburguer ── */
-  .vx-mob-btn {
-    display: none;
-    background: none; border: 1px solid #18243a; color: #6e8099;
-    padding: 6px 11px; border-radius: 7px; cursor: pointer; font-size: 16px;
-    margin-left: auto;
-  }
-
-  /* ── Mobile menu ── */
-  .vx-mob {
-    position: fixed; top: 52px; left: 0; right: 0; bottom: 0;
-    background: rgba(8,13,26,.99); z-index: 8999;
-    overflow-y: auto; padding: 14px;
-  }
-  .vx-mob-inicio {
-    display: block; width: 100%; padding: 12px 16px; margin-bottom: 14px;
-    background: rgba(0,212,255,.1); border: 1px solid rgba(0,212,255,.25);
-    border-radius: 10px; color: #00d4ff;
-    font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 600;
-    cursor: pointer; text-align: left;
-  }
-  .vx-mob-grupo { margin-bottom: 7px; border: 1px solid #18243a; border-radius: 10px; overflow: hidden; }
-  .vx-mob-titulo {
-    padding: 10px 14px;
-    font-family: 'Syne', sans-serif; font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 1px;
-    background: rgba(255,255,255,.02); border-bottom: 1px solid #18243a;
-  }
-  .vx-mob-itens { padding: 4px; }
-  .vx-mob-btn-item {
-    display: flex; align-items: center; gap: 10px;
-    width: 100%; padding: 10px 12px;
-    background: none; border: none; border-radius: 8px;
-    color: #6e8099; font-family: 'DM Mono', monospace; font-size: 13px;
-    cursor: pointer; text-align: left; transition: all .12s;
-  }
-  .vx-mob-btn-item:hover { background: rgba(255,255,255,.05); color: #e2e8f0; }
-  .vx-mob-ic { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
-  .vx-mob-rodape {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 4px 4px; margin-top: 8px; border-top: 1px solid #18243a;
-  }
-
-  @media (max-width: 768px) {
-    .vx-menus  { display: none; }
-    .vx-right  { display: none; }
-    .vx-mob-btn { display: block; }
-  }
+  @media(max-width:768px){.nav-menus{display:none}.nav-right{display:none}.nav-mob-btn{display:block}}
 `
