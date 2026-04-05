@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, Fragment } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
+import Navbar from '../components/Navbar'
 
 // ══════════════════════════════════════════════
 // CONSTANTES
@@ -1511,19 +1512,7 @@ export default function Configuracoes() {
       <div style={{ position: 'fixed', width: 500, height: 500, background: 'var(--accent)', top: -200, right: -150, borderRadius: '50%', filter: 'blur(120px)', opacity: .06, pointerEvents: 'none', zIndex: 0 }} />
       <div style={{ position: 'fixed', width: 400, height: 400, background: 'var(--accent2)', bottom: -150, left: -100, borderRadius: '50%', filter: 'blur(120px)', opacity: .06, pointerEvents: 'none', zIndex: 0 }} />
       <div id="vx-toast" style={{ position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%) translateY(20px)', background: 'rgba(16,185,129,.9)', color: '#fff', padding: '12px 24px', borderRadius: 10, fontFamily: 'DM Mono, monospace', fontSize: 14, zIndex: 9999, opacity: 0, transition: 'opacity .3s, transform .3s', boxShadow: '0 4px 20px rgba(0,0,0,.3)' }} />
-
-      <header style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: 960, margin: '0 auto', padding: '18px 20px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ cursor: 'pointer' }} onClick={() => router.push('/chat')}>
-          {cfg.logob64
-            ? <img src={`data:image/png;base64,${cfg.logob64}`} alt="Logo" style={{ height: 36, objectFit: 'contain' }} onError={e => e.target.style.display = 'none'} />
-            : <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 17, fontWeight: 700, letterSpacing: .5 }}>{cfg.company || 'Vivanexa'}</div>
-          }
-        </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={() => router.push('/chat')}      style={navBtn}>💬 Chat</button>
-          <button onClick={() => router.push('/reports')}   style={navBtn}>📈 Relatórios</button>
-          <button onClick={() => supabase.auth.signOut().then(() => router.push('/'))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, padding: '5px 9px', borderRadius: 8, fontFamily: 'DM Mono, monospace' }}>Sair</button>
-        </div>
+      <Navbar cfg={cfg} perfil={perfil} />
       </header>
 
       <main style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: 960, margin: '20px auto 60px', padding: '0 20px' }}>
