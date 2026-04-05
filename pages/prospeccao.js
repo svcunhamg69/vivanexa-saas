@@ -424,8 +424,8 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
       <style>{CSS}</style>
       <div className="orb orb1" /><div className="orb orb2" />
 
+      {/* NAVBAR */}
       <Navbar cfg={cfg} perfil={perfil} />
-      </header>
 
       <div className="page-wrap">
         <div className="page-title">📣 Ferramentas Comerciais</div>
