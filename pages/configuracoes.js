@@ -19,6 +19,7 @@ const TABS = [
   { id: 'documentos', label: '📄 Documentos' },
   { id: 'clientes',   label: '🗃️ Clientes' },
   { id: 'tema',       label: '🎨 Tema' },
+  { id: 'integracoes', label: '🔗 Integrações' },
 ]
 
 const KPI_ICONS = ['📞','📲','📧','🤝','💼','🏆','🎯','💰','📈','📊','🔥','⭐','🚀','✅','📅','🗓','👥','🏃','💡','🎤','📝','🔔','💬','🌐','🛒','📦','🔑','⚡','🎁','🏅']
@@ -1431,6 +1432,180 @@ const s = {
 // ══════════════════════════════════════════════
 // PÁGINA PRINCIPAL
 // ══════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════
+// TAB INTEGRAÇÕES — WhatsApp Cloud API (Meta)
+// ══════════════════════════════════════════════════════════════
+function TabIntegracoes({ cfg, setCfg, empresaId }) {
+  const [wppToken,   setWppToken]   = React.useState(cfg.wpp?.token   || '')
+  const [wppPhoneId, setWppPhoneId] = React.useState(cfg.wpp?.phoneId || '')
+  const [wppNumero,  setWppNumero]  = React.useState(cfg.wpp?.numero  || '')
+  const [wppAtivo,   setWppAtivo]   = React.useState(cfg.wpp?.ativo   || false)
+  const [testNum,    setTestNum]    = React.useState('')
+  const [saving,     setSaving]     = React.useState(false)
+  const [testing,    setTesting]    = React.useState(false)
+  const [msg,        setMsg]        = React.useState('')
+
+  const s = {
+    card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px', marginBottom: 16 },
+    label: { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
+    input: { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
+    btn:   { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+    btnSec:{ padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
+    h:     { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 },
+    step:  { background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', borderRadius: 10, padding: '14px 18px', marginBottom: 10, fontSize: 13, color: 'var(--text)', lineHeight: 1.7 },
+    badge: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 },
+  }
+
+  async function salvar() {
+    setSaving(true); setMsg('')
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo  = { ...atual, wpp: { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo } }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      setCfg(novo)
+      setMsg('✅ Configurações salvas!')
+    } catch (e) {
+      setMsg('❌ Erro ao salvar: ' + e.message)
+    }
+    setSaving(false)
+  }
+
+  async function testarEnvio() {
+    if (!testNum) { setMsg('⚠️ Informe o número para teste'); return }
+    if (!wppToken || !wppPhoneId) { setMsg('⚠️ Salve as credenciais primeiro'); return }
+    setTesting(true); setMsg('')
+    try {
+      const r = await fetch('/api/whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'enviar',
+          phoneId: wppPhoneId,
+          token:   wppToken,
+          para:    testNum,
+          texto:   '✅ Teste da integração Vivanexa SaaS!
+
+Se você recebeu esta mensagem, a integração está funcionando perfeitamente. 🚀',
+        }),
+      })
+      const data = await r.json()
+      setMsg(r.ok ? '✅ Mensagem de teste enviada!' : '❌ Erro: ' + (data.error || 'falhou'))
+    } catch (e) {
+      setMsg('❌ Erro: ' + e.message)
+    }
+    setTesting(false)
+  }
+
+  const webhookUrl = typeof window !== 'undefined'
+    ? window.location.origin + '/api/whatsapp'
+    : 'https://seu-dominio.vercel.app/api/whatsapp'
+
+  return (
+    <div style={{ padding: '24px' }}>
+      <div style={s.h}>🔗 Integrações</div>
+
+      {/* ── STATUS ── */}
+      <div style={{ ...s.card, borderColor: wppAtivo ? 'rgba(16,185,129,.4)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700 }}>📱 WhatsApp Business</div>
+          <div style={{ ...s.badge, background: wppAtivo ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.15)', color: wppAtivo ? '#10b981' : '#64748b', border: `1px solid ${wppAtivo ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)'}` }}>
+            {wppAtivo ? '● Ativo' : '○ Inativo'}
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
+          Integração com a <strong style={{ color: 'var(--text)' }}>WhatsApp Cloud API (Meta)</strong> — gratuita até 1.000 conversas/mês.
+          Permite envio de propostas, disparo em massa, chatbot automático e notificações internas.
+        </div>
+        <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ fontSize: 13, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={wppAtivo} onChange={e => setWppAtivo(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            Ativar integração WhatsApp
+          </label>
+        </div>
+      </div>
+
+      {/* ── PASSO A PASSO ── */}
+      <div style={s.card}>
+        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, marginBottom: 14, color: 'var(--muted)' }}>
+          📋 COMO CONFIGURAR — Passo a passo
+        </div>
+        {[
+          { n: '1', t: 'Criar conta no Meta for Developers', d: 'Acesse developers.facebook.com → clique em "Começar" → crie um App do tipo "Empresa"', link: 'https://developers.facebook.com', lbl: 'Acessar Meta Developers' },
+          { n: '2', t: 'Adicionar produto WhatsApp', d: 'No painel do App → clique em "+ Adicionar produto" → selecione WhatsApp → clique em "Configurar"', link: null },
+          { n: '3', t: 'Obter o Phone Number ID', d: 'Em WhatsApp → Introdução → copie o "ID do número de telefone" e cole no campo abaixo', link: null },
+          { n: '4', t: 'Gerar o Token de Acesso', d: 'Na mesma tela → copie o "Token de acesso temporário" (para produção, gere um token permanente em Configurações do Sistema)', link: null },
+          { n: '5', t: 'Configurar o Webhook', d: `Em WhatsApp → Configuração → Webhooks → cole a URL abaixo e o token de verificação: vivanexa_webhook_2024`, link: null, code: webhookUrl },
+          { n: '6', t: 'Adicionar número de teste', d: 'Em WhatsApp → Introdução → adicione seu número pessoal como número de teste para poder enviar mensagens', link: null },
+        ].map(({ n, t, d, link, lbl, code }) => (
+          <div key={n} style={s.step}>
+            <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>Passo {n}: {t}</div>
+            <div style={{ color: 'var(--muted)', fontSize: 12 }}>{d}</div>
+            {code && <div style={{ marginTop: 8, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 12px', fontFamily: 'DM Mono, monospace', fontSize: 12, color: '#10b981', wordBreak: 'break-all' }}>{code}</div>}
+            {link && <a href={link} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 8, fontSize: 12, color: 'var(--accent)', textDecoration: 'underline' }}>{lbl || link}</a>}
+          </div>
+        ))}
+      </div>
+
+      {/* ── CREDENCIAIS ── */}
+      <div style={s.card}>
+        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, marginBottom: 16 }}>🔑 Credenciais</div>
+
+        <label style={s.label}>Phone Number ID</label>
+        <input style={s.input} value={wppPhoneId} onChange={e => setWppPhoneId(e.target.value)}
+          placeholder="Ex: 123456789012345" />
+
+        <label style={s.label}>Token de Acesso (Access Token)</label>
+        <input style={{ ...s.input, fontFamily: 'monospace', fontSize: 11 }} value={wppToken} onChange={e => setWppToken(e.target.value)}
+          placeholder="EAAxxxxxxxxxxxxxxxx..." type="password" />
+
+        <label style={s.label}>Número WhatsApp da Empresa (com DDI)</label>
+        <input style={s.input} value={wppNumero} onChange={e => setWppNumero(e.target.value)}
+          placeholder="5531999990000" />
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          <button onClick={salvar} disabled={saving} style={s.btn}>
+            {saving ? '⏳ Salvando...' : '💾 Salvar credenciais'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── TESTE ── */}
+      <div style={s.card}>
+        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, marginBottom: 16 }}>🧪 Testar Envio</div>
+        <label style={s.label}>Número para teste (com DDI, ex: 5531999990000)</label>
+        <input style={s.input} value={testNum} onChange={e => setTestNum(e.target.value)} placeholder="5531999990000" />
+        <button onClick={testarEnvio} disabled={testing} style={s.btnSec}>
+          {testing ? '⏳ Enviando...' : '📤 Enviar mensagem de teste'}
+        </button>
+      </div>
+
+      {/* ── URL DO WEBHOOK ── */}
+      <div style={s.card}>
+        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, marginBottom: 12 }}>🔗 URL do Webhook</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+          Configure esta URL no painel da Meta (Passo 5). Token de verificação: <strong style={{ color: 'var(--accent)' }}>vivanexa_webhook_2024</strong>
+        </div>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontFamily: 'DM Mono, monospace', fontSize: 12, color: '#10b981', wordBreak: 'break-all', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <span>{webhookUrl}</span>
+          <button onClick={() => { navigator.clipboard.writeText(webhookUrl); setMsg('✅ URL copiada!') }}
+            style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--muted)', padding: '4px 10px', cursor: 'pointer', fontSize: 11, fontFamily: 'DM Mono, monospace', flexShrink: 0 }}>
+            Copiar
+          </button>
+        </div>
+      </div>
+
+      {msg && (
+        <div style={{ padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>
+          {msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Configuracoes() {
   const router    = useRouter()
   const [loading,   setLoading]   = useState(true)
@@ -1485,6 +1660,7 @@ export default function Configuracoes() {
       case 'documentos': return <TabDocumentos {...props} />
       case 'clientes':   return <TabClientes   {...props} />
       case 'tema':       return <TabTema       {...props} />
+      case 'integracoes': return <TabIntegracoes {...props} />
       default:           return null
     }
   }
