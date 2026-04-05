@@ -18,6 +18,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
+import Navbar from '../components/Navbar'
 
 // ── Config padrão ─────────────────────────────────────────────
 const DEFAULT_CFG = {
@@ -1173,34 +1174,20 @@ export default function Chat(){
     <div className="orb orb1"/><div className="orb orb2"/>
     {renderPainel()}
 
-    {/* HEADER COM LOGO CLICÁVEL E BOTÃO RELATÓRIOS */}
-    <header>
-      <div className="header-logo" style={{cursor:'pointer'}} onClick={()=>{
-        resetS()
-        const c=cfgRef.current
-        setTimeout(()=>addBot(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da ${c.company||'Vivanexa'}.\nPara começar, informe o **CPF ou CNPJ** do cliente:`),100)
-      }}>
-        {cfg.logob64
-          ?<img src={cfg.logob64.startsWith('data:')?cfg.logob64:`data:image/png;base64,${cfg.logob64}`} alt={cfg.company} style={{height:40,objectFit:'contain',borderRadius:8}} onError={e=>e.target.style.display='none'}/>
-          :<div style={{fontFamily:'Syne,sans-serif',fontSize:17,fontWeight:700,color:'var(--text)'}}>{cfg.company||'Vivanexa'}</div>}
-        {cfg.logob64&&<div style={{marginLeft:10}}><div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'var(--text)'}}>{cfg.company}</div><div style={{fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div></div>}
-        {!cfg.logob64&&cfg.slogan&&<div style={{marginLeft:4,fontSize:11,color:'var(--muted)'}}>{cfg.slogan}</div>}
-      </div>
+    {/* ✅ NAVBAR GLOBAL — substitui o header antigo */}
+    <Navbar cfg={cfg} perfil={userProfile} />
+
+    {/* Barra secundária: status + botões internos do chat */}
+    <div style={{display:'flex',gap:6,padding:'6px 20px',background:'rgba(10,15,30,.9)',borderBottom:'1px solid var(--border)',flexWrap:'wrap',alignItems:'center'}}>
       <div className="status-dot">online</div>
-      <nav style={{display:'flex',gap:4,alignItems:'center',marginLeft:'auto',flexWrap:'wrap'}}>
-        <button onClick={() => router.push('/reports')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>📈 Relatórios</button>
-        {[{id:'historico',label:'🗂️ Histórico'},{id:'assinaturas',label:'✍️ Assinaturas'}].map(({id,label})=>(
-          <button key={id} onClick={()=>abrirPainel(id)} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace',transition:'all .15s'}}
-            onMouseEnter={e=>{e.currentTarget.style.color='var(--accent)';e.currentTarget.style.borderColor='rgba(0,212,255,.3)'}}
-            onMouseLeave={e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>
-            {label}
-          </button>
-        ))}
-        <button onClick={()=>router.push('/configuracoes')} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:15,padding:'5px 10px',borderRadius:8,fontFamily:'DM Mono,monospace'}}>⚙️</button>
-        <span style={{fontSize:11,color:'var(--muted)'}}>👤 <span style={{color:'var(--text)',fontWeight:500}}>{userProfile.nome}</span></span>
-        <button className="logout-btn" onClick={async()=>{await supabase.auth.signOut();router.replace('/')}}>Sair</button>
-      </nav>
-    </header>
+      {[{id:'historico',label:'🗂️ Histórico'},{id:'assinaturas',label:'✍️ Assinaturas'}].map(({id,label})=>(
+        <button key={id} onClick={()=>abrirPainel(id)} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace',transition:'all .15s'}}
+          onMouseEnter={e=>{e.currentTarget.style.color='var(--accent)';e.currentTarget.style.borderColor='rgba(0,212,255,.3)'}}
+          onMouseLeave={e=>{e.currentTarget.style.color='var(--muted)';e.currentTarget.style.borderColor='var(--border)'}}>
+          {label}
+        </button>
+      ))}
+    </div>
 
     <div className="chat-wrap">
       <div id="messages" ref={msgRef}>
