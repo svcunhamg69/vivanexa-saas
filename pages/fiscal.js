@@ -166,6 +166,13 @@ export default function Fiscal() {
 
   const [filtro, setFiltro] = useState('')
 
+  // Certificado digital e controle de numeração
+  const [certificadoBase64, setCertificadoBase64] = useState('')
+  const [senhaCertificado, setSenhaCertificado] = useState('')
+  const [ultimoNumeroNFe, setUltimoNumeroNFe] = useState(0)
+  const [ultimoNumeroNFCe, setUltimoNumeroNFCe] = useState(0)
+  const [emitindo, setEmitindo] = useState(false)
+
   useEffect(() => {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
@@ -186,11 +193,17 @@ export default function Fiscal() {
         setNfsProduto(c.nfsProduto || [])
         setNfsServico(c.nfsServico || [])
         setNfsConsumidor(c.nfsConsumidor || [])
+        setCertificadoBase64(c.certificadoBase64 || '')
+        setSenhaCertificado(c.senhaCertificado || '')
+        setUltimoNumeroNFe(c.ultimoNumeroNFe || 0)
+        setUltimoNumeroNFCe(c.ultimoNumeroNFCe || 0)
         // Pré-preenche emitente com dados da empresa
         const emit = {
-          cnpj: c.cnpj || '', razao: c.company || '', ie: c.ie || '', cep: c.cep || '',
+          cnpj: c.cnpj || '', razao: c.company || '', razaoSocial: c.razaoSocial || c.company || '',
+          nomeFantasia: c.company || '', ie: c.ie || '', cep: c.cep || '',
           logradouro: c.logradouro || '', numero: c.numeroEnd || '', bairro: c.bairro || '',
-          municipio: c.municipio || '', uf: c.uf || ''
+          municipio: c.municipio || '', uf: c.uf || '', codigoMunicipio: c.codigoMunicipio || '',
+          telefone: c.telefoneEmpresa || '', serie: '1'
         }
         setFormProduto(f => ({ ...f, emitente: emit }))
         setFormServico(f => ({ ...f, emitente: { ...emit, im: c.im || '' } }))
@@ -316,6 +329,187 @@ export default function Fiscal() {
     setSaving(false)
   }
 
+  // ── EMISSÃO REAL NA SEFAZ ──
+  async function emitirNFeSefaz(modelo) {
+    if (!certificadoBase64) {
+      toast('Certificado digital não configurado. Acesse Configurações → Empresa.', 'err')
+      return
+    }
+
+    const emit = modelo === '65' ? formConsumidor.emitente : (modelo === '55' && aba === 'servico' ? formServico.emitente : formProduto.emitente)
+
+    let destinatario = {}
+    let produtos = []
+
+    if (modelo === '55' && aba !== 'consumidor') {
+      const form = aba === 'servico' ? formServico : formProduto
+      const itens = aba === 'servico' ? itensServico : itensProduto
+      const dest = aba === 'servico' ? form.tomador : form.destinatario
+      destinatario = {
+        cnpj: dest.cnpj, cpf: dest.cpf, nome: dest.razao,
+        isento: dest.ie === 'ISENTO', ie: dest.ie,
+        logradouro: dest.logradouro, numero: dest.numero,
+        complemento: dest.complemento, bairro: dest.bairro,
+        codigoMunicipio: dest.codigoMunicipio || '', municipio: dest.municipio,
+        uf: dest.uf, cep: dest.cep, telefone: dest.telefone
+      }
+      produtos = itens.map((it, i) => ({
+        codigoProduto: it.id || String(i + 1).padStart(6, '0'),
+        descricao: it.descricao,
+        ncm: it.ncm || '00000000',
+        cfop: it.cfop || '5102',
+        unidade: it.un || 'UN',
+        quantidade: Number(String(it.qtd).replace(',', '.')) || 1,
+        valorUnitario: Number(String(it.vlUnit).replace(',', '.')) || 0,
+        desconto: 0,
+        codigoBarras: 'SEM GTIN',
+        csosn: '400'
+      }))
+    } else {
+      // NFC-e consumidor
+      const dest = formConsumidor.destinatario
+      if (dest?.cnpj) destinatario = { cnpj: dest.cnpj, cpf: dest.cpf, nome: dest.razao || 'CONSUMIDOR NAO IDENTIFICADO' }
+      produtos = itensConsumidor.map((it, i) => ({
+        codigoProduto: it.id || String(i + 1).padStart(6, '0'),
+        descricao: it.descricao,
+        ncm: it.ncm || '00000000',
+        cfop: it.cfop || '5102',
+        unidade: it.un || 'UN',
+        quantidade: Number(String(it.qtd).replace(',', '.')) || 1,
+        valorUnitario: Number(String(it.vlUnit).replace(',', '.')) || 0,
+        codigoBarras: 'SEM GTIN',
+        csosn: '400'
+      }))
+    }
+
+    if (!emit.cnpj) { toast('Dados do emitente incompletos. Verifique Configurações.', 'err'); return }
+    if (produtos.length === 0) { toast('Adicione pelo menos um item antes de emitir.', 'err'); return }
+
+    const dadosNota = {
+      naturezaOperacao: modelo === '55' && aba === 'servico' ? 'PRESTAÇÃO DE SERVIÇO' : 'VENDA DE MERCADORIA',
+      tipoOperacao: '1',
+      dataSaida: new Date().toISOString().slice(0, 10),
+      horaSaida: '12:00:00',
+      formaPagamento: modelo === '65' ? (formConsumidor.pagamento?.forma || '01') : '01'
+    }
+
+    setEmitindo(true)
+    try {
+      const response = await fetch('/api/nfe/emitir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emitente: emit,
+          destinatario,
+          produtos,
+          dadosNota,
+          tpAmb: cfg.nfeTpAmb || '2',
+          modelo,
+          certificadoBase64,
+          senhaCertificado,
+          ultimoNumero: modelo === '55' ? ultimoNumeroNFe : ultimoNumeroNFCe
+        })
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.status === 'autorizada') {
+        const novaNota = {
+          id: String(Date.now()),
+          numero: result.numero,
+          chave: result.chave,
+          protocolo: result.protocolo,
+          xmlProtocolado: result.xml,
+          valor: produtos.reduce((s, p) => s + p.quantidade * p.valorUnitario, 0),
+          dataEmissao: new Date().toISOString().slice(0, 10),
+          status: 'Emitida',
+          destinatario: { razao: destinatario.nome || 'Consumidor' },
+          itens: produtos,
+          emitidaViaSefaz: true,
+          ambiente: cfg.nfeTpAmb === '1' ? 'Produção' : 'Homologação'
+        }
+
+        if (modelo === '55') {
+          const novas = [...nfsProduto, novaNota]
+          setNfsProduto(novas)
+          const novoNumero = parseInt(result.numero)
+          setUltimoNumeroNFe(novoNumero)
+          const novoCfg = { ...cfg, nfsProduto: novas, ultimoNumeroNFe: novoNumero }
+          setCfg(novoCfg)
+          await salvarStorage(novoCfg)
+          setShowFormProduto(false)
+          setItensProduto([])
+          setFormProduto({ ...NF_VAZIA_PRODUTO })
+        } else {
+          const novas = [...nfsConsumidor, novaNota]
+          setNfsConsumidor(novas)
+          const novoNumero = parseInt(result.numero)
+          setUltimoNumeroNFCe(novoNumero)
+          const novoCfg = { ...cfg, nfsConsumidor: novas, ultimoNumeroNFCe: novoNumero }
+          setCfg(novoCfg)
+          await salvarStorage(novoCfg)
+          setShowFormConsumidor(false)
+          setItensConsumidor([])
+          setFormConsumidor({ ...NF_VAZIA_PRODUTO, natureza: 'Venda ao Consumidor Final' })
+        }
+
+        toast(`✅ NF-e ${result.numero} autorizada! Protocolo: ${result.protocolo}`)
+      } else {
+        toast(`❌ SEFAZ: ${result.motivo || result.error} (cStat: ${result.cStat || ''})`, 'err')
+      }
+    } catch (err) {
+      console.error(err)
+      toast('Erro na emissão: ' + err.message, 'err')
+    } finally {
+      setEmitindo(false)
+    }
+  }
+
+  async function cancelarNFeSefaz(nf, tipo) {
+    const justificativa = prompt('Informe a justificativa do cancelamento (mínimo 15 caracteres):')
+    if (!justificativa || justificativa.length < 15) {
+      toast('Justificativa inválida (mínimo 15 caracteres)', 'err')
+      return
+    }
+    if (!certificadoBase64) { toast('Certificado não configurado', 'err'); return }
+
+    try {
+      const response = await fetch('/api/nfe/cancelar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chave: nf.chave,
+          protocolo: nf.protocolo,
+          justificativa,
+          emitente: formProduto.emitente,
+          tpAmb: cfg.nfeTpAmb || '2',
+          certificadoBase64,
+          senhaCertificado
+        })
+      })
+      const result = await response.json()
+      if (response.ok && result.status === 'cancelada') {
+        const atualizar = (lista, setLista, chave) => {
+          const novas = lista.map(n => n.id === nf.id ? { ...n, status: 'Cancelada' } : n)
+          setLista(novas)
+          return novas
+        }
+        if (tipo === 'produto') {
+          const novas = atualizar(nfsProduto, setNfsProduto)
+          await salvarStorage({ ...cfg, nfsProduto: novas })
+        } else {
+          const novas = atualizar(nfsConsumidor, setNfsConsumidor)
+          await salvarStorage({ ...cfg, nfsConsumidor: novas })
+        }
+        toast('✅ NF-e cancelada com sucesso!')
+      } else {
+        toast(`❌ Erro: ${result.motivo}`, 'err')
+      }
+    } catch (err) {
+      toast('Erro no cancelamento: ' + err.message, 'err')
+    }
+  }
+
   async function excluirNF(tipo, id) {
     if (!confirm('Excluir esta nota fiscal?')) return
     if (tipo === 'produto') {
@@ -379,6 +573,9 @@ export default function Fiscal() {
                         else if (tipo === 'servico') { setFormServico(nf); setItensServico(nf.itens || []); setShowFormServico(true) }
                         else { setFormConsumidor(nf); setItensConsumidor(nf.itens || []); setShowFormConsumidor(true) }
                       }}>✏️ Editar</button>
+                    {nf.emitidaViaSefaz && nf.status === 'Emitida' && (
+                      <button className="btn btn-secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={() => cancelarNFeSefaz(nf, tipo)}>❌ Cancel.</button>
+                    )}
                     <button className="btn btn-danger" style={{ fontSize: 10, padding: '3px 8px' }} onClick={() => excluirNF(tipo, nf.id)}>🗑</button>
                   </div>
                 </td>
@@ -417,7 +614,10 @@ export default function Fiscal() {
         <div className="page-sub">Emissão de notas fiscais de produto, serviço e consumidor</div>
 
         <div className="info-box info-yellow" style={{ marginBottom: 16 }}>
-          ⚠️ <strong>Atenção:</strong> Este módulo funciona como um gestor de documentos fiscais. Para emissão com validade fiscal junto à SEFAZ, configure sua chave de API de emissor (SIEG, NFe.io, etc.) em <strong>Configurações → Empresa</strong>.
+          {certificadoBase64
+            ? <>✅ <strong>Certificado digital configurado.</strong> Ambiente: <strong>{cfg.nfeTpAmb === '1' ? '🟢 Produção' : '🟡 Homologação (teste)'}</strong>. Use o botão <strong>"Emitir NF-e SEFAZ"</strong> para enviar à SEFAZ.</>
+            : <>⚠️ <strong>Certificado digital não configurado.</strong> Acesse <strong>Configurações → Empresa</strong> e faça o upload do arquivo .pfx para emitir notas com validade fiscal.</>
+          }
         </div>
 
         {/* Stats */}
@@ -598,7 +798,8 @@ export default function Fiscal() {
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
               <button className="btn btn-secondary" onClick={() => setShowFormProduto(false)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={salvarNFProduto} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar NF-e'}</button>
+              <button className="btn btn-primary" onClick={salvarNFProduto} disabled={saving}>{saving ? '⏳ Salvando...' : '💾 Salvar Rascunho'}</button>
+              <button className="btn btn-green" onClick={() => emitirNFeSefaz('55')} disabled={emitindo || saving}>{emitindo ? '⏳ Emitindo...' : '📤 Emitir NF-e SEFAZ'}</button>
             </div>
           </div>
         </div>
@@ -711,7 +912,8 @@ export default function Fiscal() {
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
               <button className="btn btn-secondary" onClick={() => setShowFormServico(false)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={salvarNFServico} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar NFS-e'}</button>
+              <button className="btn btn-primary" onClick={salvarNFServico} disabled={saving}>{saving ? '⏳ Salvando...' : '💾 Salvar Rascunho'}</button>
+              <button className="btn btn-green" onClick={() => emitirNFeSefaz('55')} disabled={emitindo || saving}>{emitindo ? '⏳ Emitindo...' : '📤 Emitir NFS-e SEFAZ'}</button>
             </div>
           </div>
         </div>
@@ -805,7 +1007,8 @@ export default function Fiscal() {
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
               <button className="btn btn-secondary" onClick={() => setShowFormConsumidor(false)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={salvarNFConsumidor} disabled={saving}>{saving ? '⏳ Salvando...' : '✅ Salvar NFC-e'}</button>
+              <button className="btn btn-primary" onClick={salvarNFConsumidor} disabled={saving}>{saving ? '⏳ Salvando...' : '💾 Salvar Rascunho'}</button>
+              <button className="btn btn-green" onClick={() => emitirNFeSefaz('65')} disabled={emitindo || saving}>{emitindo ? '⏳ Emitindo...' : '📤 Emitir NFC-e SEFAZ'}</button>
             </div>
           </div>
         </div>
