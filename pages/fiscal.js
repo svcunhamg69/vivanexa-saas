@@ -409,8 +409,8 @@ export default function Fiscal() {
       <style>{CSS}</style>
       <div className="orb orb1" /><div className="orb orb2" />
 
+      {/* NAVBAR */}
       <Navbar cfg={cfg} perfil={perfil} />
-      </header>
 
       <div className="page-wrap">
         <div className="page-title">📄 Fiscal</div>
