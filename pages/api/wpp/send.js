@@ -10,7 +10,9 @@ const supabase = createClient(
 )
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' })
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Método não permitido' })
+  }
 
   try {
     const { empresaId, numero, mensagem, tipo = 'text', mediaUrl, mediaCaption } = req.body
@@ -19,102 +21,209 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'empresaId, numero e mensagem são obrigatórios' })
     }
 
-    // Buscar config da empresa
+    // ─────────────────────────────────────────────
+    // 🔧 Buscar config da empresa (SEM QUEBRAR)
+    // ─────────────────────────────────────────────
     const { data: row } = await supabase
-      .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      .from('vx_storage')
+      .select('value')
+      .eq('key', `cfg:${empresaId}`)
+      .maybeSingle()
+
     const cfg = row?.value ? JSON.parse(row.value) : {}
 
     const wppCfg = cfg.wppInbox || {}
-    const provider = wppCfg.provider || 'evolution' // 'evolution' | 'meta'
+    const provider = wppCfg.provider || 'evolution'
 
     let result
 
-    // ── Evolution API (QR Code) ──────────────────────────────────
+    // ─────────────────────────────────────────────
+    // 🔧 NORMALIZAR NÚMERO
+    // ─────────────────────────────────────────────
+    const numeroLimpo = String(numero)
+      .replace(/\D/g, '')
+      .replace('@c.us', '')
+      .trim()
+
+    // ─────────────────────────────────────────────
+    // 🚀 EVOLUTION API
+    // ─────────────────────────────────────────────
     if (provider === 'evolution') {
-      const baseUrl = wppCfg.evolutionUrl || process.env.EVOLUTION_API_URL || ''
-      const apiKey  = wppCfg.evolutionKey || process.env.EVOLUTION_API_KEY || ''
-      const instance= wppCfg.evolutionInstance || ''
+      const baseUrl =
+        wppCfg.evolutionUrl ||
+        process.env.EVOLUTION_API_URL ||
+        ''
+
+      const apiKey =
+        wppCfg.evolutionKey ||
+        process.env.EVOLUTION_API_KEY ||
+        ''
+
+      const instance =
+        wppCfg.evolutionInstance ||
+        process.env.EVOLUTION_INSTANCE ||
+        'vivanexa-empresa' // fallback automático
 
       if (!baseUrl || !apiKey || !instance) {
-        return res.status(400).json({ error: 'Evolution API não configurada. Verifique Config → WhatsApp.' })
+        return res.status(400).json({
+          error: 'Evolution API não configurada corretamente',
+        })
       }
 
-      const numeroLimpo = numero.replace(/\D/g, '')
-      const url = `${baseUrl}/message/sendText/${instance}`
+      const endpoint =
+        tipo === 'text'
+          ? `${baseUrl}/message/sendText/${instance}`
+          : `${baseUrl}/message/sendMedia/${instance}`
 
-      const body = tipo === 'text'
-        ? { number: numeroLimpo, text: mensagem }
-        : { number: numeroLimpo, media: { mediatype: tipo, media: mediaUrl, caption: mediaCaption || mensagem } }
+      const body =
+        tipo === 'text'
+          ? {
+              number: numeroLimpo,
+              text: mensagem,
+            }
+          : {
+              number: numeroLimpo,
+              media: {
+                mediatype: tipo,
+                media: mediaUrl,
+                caption: mediaCaption || mensagem,
+              },
+            }
 
-      const endpoint = tipo === 'text'
-        ? `${baseUrl}/message/sendText/${instance}`
-        : `${baseUrl}/message/sendMedia/${instance}`
-
-      const r = await fetch(endpoint, {
+      // 🔥 TENTATIVA 1 (apikey padrão)
+      let r = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: apiKey,
+        },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(15000),
       })
+
       result = await r.json()
-      if (!r.ok) return res.status(r.status).json({ error: result?.message || 'Erro Evolution API', detail: result })
-    }
 
-    // ── Meta Cloud API (Oficial) ──────────────────────────────────
-    if (provider === 'meta') {
-      const phoneId = cfg.wpp?.phoneId || ''
-      const token   = cfg.wpp?.token   || ''
+      // 🔥 FALLBACK → caso dê token inválido
+      if (!r.ok && (result?.message?.includes('token') || result?.error)) {
+        console.log('⚠️ Tentando fallback Authorization Bearer...')
 
-      if (!phoneId || !token) {
-        return res.status(400).json({ error: 'WhatsApp Oficial não configurado. Verifique Config → Integrações.' })
+        r = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(15000),
+        })
+
+        result = await r.json()
       }
 
-      const numeroLimpo = numero.replace(/\D/g, '')
-      const r = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: numeroLimpo,
-          type: 'text',
-          text: { preview_url: false, body: mensagem },
-        }),
-      })
-      result = await r.json()
-      if (!r.ok) return res.status(r.status).json({ error: result?.error?.message || 'Erro Meta API', detail: result })
+      if (!r.ok) {
+        console.error('❌ Evolution erro:', result)
+        return res.status(r.status).json({
+          error: result?.message || 'Erro Evolution API',
+          detail: result,
+        })
+      }
     }
 
-    // ── Salvar mensagem no histórico ─────────────────────────────
+    // ─────────────────────────────────────────────
+    // 📲 META CLOUD API
+    // ─────────────────────────────────────────────
+    if (provider === 'meta') {
+      const phoneId = cfg.wpp?.phoneId || ''
+      const token = cfg.wpp?.token || ''
+
+      if (!phoneId || !token) {
+        return res.status(400).json({
+          error: 'WhatsApp Oficial não configurado',
+        })
+      }
+
+      const r = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: numeroLimpo,
+          type: 'text',
+          text: { body: mensagem },
+        }),
+      })
+
+      result = await r.json()
+
+      if (!r.ok) {
+        return res.status(r.status).json({
+          error: result?.error?.message || 'Erro Meta API',
+          detail: result,
+        })
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // 💾 SALVAR NO HISTÓRICO
+    // ─────────────────────────────────────────────
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-    const numeroLimpo = numero.replace(/\D/g, '')
     const convKey = `wpp_conv:${empresaId}:${numeroLimpo}`
 
     const { data: convRow } = await supabase
-      .from('vx_storage').select('value').eq('key', convKey).single().catch(() => ({ data: null }))
+      .from('vx_storage')
+      .select('value')
+      .eq('key', convKey)
+      .maybeSingle()
 
-    const conv = convRow?.value ? JSON.parse(convRow.value) : {
-      id: convKey, numero: numeroLimpo, empresaId,
-      status: 'atendendo', ultimaMensagem: mensagem,
-      ultimaAt: new Date().toISOString(), mensagens: [], naoLidas: 0
-    }
+    const conv = convRow?.value
+      ? JSON.parse(convRow.value)
+      : {
+          id: convKey,
+          numero: numeroLimpo,
+          empresaId,
+          status: 'atendendo',
+          mensagens: [],
+          naoLidas: 0,
+        }
 
     conv.mensagens = conv.mensagens || []
+
     conv.mensagens.push({
-      id: msgId, de: 'empresa', para: numeroLimpo,
-      texto: mensagem, tipo, mediaUrl, mediaCaption,
-      at: new Date().toISOString(), lida: true,
+      id: msgId,
+      de: 'empresa',
+      para: numeroLimpo,
+      texto: mensagem,
+      tipo,
+      mediaUrl,
+      mediaCaption,
+      at: new Date().toISOString(),
+      lida: true,
     })
+
     conv.ultimaMensagem = mensagem
     conv.ultimaAt = new Date().toISOString()
 
-    await supabase.from('vx_storage').upsert({
-      key: convKey, value: JSON.stringify(conv), updated_at: new Date().toISOString()
-    }, { onConflict: 'key' })
+    await supabase.from('vx_storage').upsert(
+      {
+        key: convKey,
+        value: JSON.stringify(conv),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'key' }
+    )
 
-    return res.status(200).json({ success: true, msgId, result })
+    return res.status(200).json({
+      success: true,
+      msgId,
+      result,
+    })
   } catch (err) {
-    console.error('Erro wpp/send:', err)
-    return res.status(500).json({ error: err.message || 'Erro interno' })
+    console.error('🔥 ERRO GERAL:', err)
+    return res.status(500).json({
+      error: err.message || 'Erro interno',
+    })
   }
 }
