@@ -5,7 +5,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data, empresaId, geminiKey, groqKey } = req.body;
+    const { data, empresaId } = req.body;
+    // Aceita ambos os nomes de chave (legado e novo)
+    const geminiKey = req.body.geminiApiKey || req.body.geminiKey || '';
+    const groqKey   = req.body.groqApiKey   || req.body.groqKey   || '';
+    const openaiKey = req.body.openaiApiKey  || req.body.openaiKey  || '';
 
     if (!data) {
       return res.status(400).json({ error: 'Dados não enviados' });
@@ -14,10 +18,11 @@ export default async function handler(req, res) {
     // Tenta chaves do ambiente primeiro, depois do cfg salvo na requisição
     const geminiKeyFinal = process.env.GEMINI_API_KEY || geminiKey || '';
     const groqKeyFinal   = process.env.GROQ_API_KEY   || groqKey   || '';
+    const openaiKeyFinal = process.env.OPENAI_API_KEY  || openaiKey || '';
 
-    if (!geminiKeyFinal && !groqKeyFinal) {
+    if (!openaiKeyFinal && !geminiKeyFinal && !groqKeyFinal) {
       return res.status(400).json({
-        error: '❌ Nenhuma chave de API configurada.\n\n✅ Acesse Configurações → Empresa e insira sua chave do Google Gemini (gratuita) ou Groq.'
+        error: '❌ Nenhuma chave de IA configurada.\n\n✅ Acesse Configurações → Empresa → 🤖 Configuração de IA e insira sua chave do OpenAI, Google Gemini ou Groq.'
       });
     }
 
@@ -34,6 +39,24 @@ Responda em português no formato:
 4. SUGESTÕES DE AÇÃO: (mínimo 3 ações concretas)
 5. META PARA O PRÓXIMO MÊS:
 `;
+
+    // Tenta OpenAI primeiro
+    if (openaiKeyFinal) {
+      try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${openaiKeyFinal}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 1500 }),
+        });
+        const result = await response.json();
+        if (response.ok && result.choices?.[0]?.message?.content) {
+          return res.status(200).json({ analysis: result.choices[0].message.content, provider: 'openai' });
+        }
+        console.warn('OpenAI falhou:', result?.error?.message || result);
+      } catch (err) {
+        console.warn('Erro OpenAI:', err.message);
+      }
+    }
 
     // Tenta Gemini
     if (geminiKeyFinal && geminiKeyFinal.startsWith('AIza')) {
