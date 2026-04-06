@@ -109,6 +109,66 @@ const TIPOS_SCRIPT = [
   { id: 'reativacao', label: '♻️ Reativação de Clientes' },
 ]
 
+
+// Helper centralizado de IA — usa OpenAI, Gemini ou Groq com fallback automático
+async function callAI(prompt, cfg, { temperature = 0.7, maxTokens = 2000, systemPrompt = null, history = null } = {}) {
+  const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
+  const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
+  const groqKey   = cfg.groqApiKey   || cfg.groqKey   || ''
+
+  if (!openaiKey && !geminiKey && !groqKey) {
+    throw new Error('Nenhuma chave de IA configurada. Acesse Configurações → Empresa → 🤖 IA.')
+  }
+
+  const messages = systemPrompt
+    ? [{ role: 'system', content: systemPrompt }, ...(history || []), { role: 'user', content: prompt }]
+    : [...(history || []), { role: 'user', content: prompt }]
+
+  // 1. OpenAI
+  if (openaiKey) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages, temperature, max_tokens: maxTokens })
+      })
+      const data = await res.json()
+      const r = data.choices?.[0]?.message?.content
+      if (r) return r
+    } catch {}
+  }
+
+  // 2. Gemini
+  if (geminiKey && geminiKey.startsWith('AIza')) {
+    try {
+      const contents = systemPrompt
+        ? [{ role: 'user', parts: [{ text: `SISTEMA: ${systemPrompt}` }] }, { role: 'model', parts: [{ text: 'Entendido.' }] },
+           ...(history || []).map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.content }] })),
+           { role: 'user', parts: [{ text: prompt }] }]
+        : [{ parts: [{ text: prompt }] }]
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents }) })
+      const data = await res.json()
+      const r = data.candidates?.[0]?.content?.parts?.[0]?.text
+      if (r) return r
+    } catch {}
+  }
+
+  // 3. Groq
+  if (groqKey) {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'llama3-70b-8192', messages, temperature })
+    })
+    const data = await res.json()
+    const r = data.choices?.[0]?.message?.content
+    if (r) return r
+  }
+
+  throw new Error('Nenhuma IA respondeu. Verifique as chaves em Configurações → Empresa.')
+}
+
 export default function Prospeccao() {
   const router = useRouter()
   const { aba: abaQuery } = router.query
@@ -245,9 +305,10 @@ export default function Prospeccao() {
 
   // ── Chatbot Config ───────────────────────────────────────────
   async function gerarConfigChatbot() {
-    const geminiKey = cfg.geminiKey || ''
-    const groqKey = cfg.groqKey || ''
-    if (!geminiKey && !groqKey) { toast('Configure a API em Configurações → Empresa', 'err'); return }
+    const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
+    const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
+    const groqKey   = cfg.groqApiKey   || cfg.groqKey   || ''
+    if (!openaiKey && !geminiKey && !groqKey) { toast('Configure a chave de IA em Configurações → Empresa', 'err'); return }
     if (!chatbotNome) { toast('Informe o nome do chatbot', 'err'); return }
 
     setGerandoChatbot(true)
@@ -272,19 +333,7 @@ O prompt deve:
 Crie um prompt profissional, completo e prático em português.`
 
     try {
-      let resultado = ''
-      if (geminiKey && geminiKey.startsWith('AIza')) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`
-        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) })
-        const data = await res.json()
-        resultado = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-      }
-      if (!resultado && groqKey) {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'llama3-70b-8192', messages: [{ role: 'user', content: prompt }], temperature: 0.7 }) })
-        const data = await res.json()
-        resultado = data.choices?.[0]?.message?.content || ''
-      }
-
+      const resultado = await callAI(prompt, cfg, { temperature: 0.7 })
       if (resultado) {
         const config = { nome: chatbotNome, personalidade: chatbotPersonalidade, objetivo: chatbotObjetivo, prompt: resultado, criadoEm: new Date().toISOString() }
         setChatbotConfig(config)
@@ -308,41 +357,21 @@ Crie um prompt profissional, completo e prático em português.`
     setAgenteMessages(prev => [...prev, { role: 'user', content: userMsg }])
     setAgenteThinking(true)
 
-    const geminiKey = cfg.geminiKey || ''
-    const groqKey = cfg.groqKey || ''
+    const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
+    const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
+    const groqKey   = cfg.groqApiKey   || cfg.groqKey   || ''
 
-    if (!geminiKey && !groqKey) {
+    if (!openaiKey && !geminiKey && !groqKey) {
       setAgenteThinking(false)
-      setAgenteMessages(prev => [...prev, { role: 'bot', content: '⚠️ Configure a API do Gemini ou Groq em Configurações → Empresa para ativar o Agente IA.' }])
+      setAgenteMessages(prev => [...prev, { role: 'bot', content: '⚠️ Configure a chave de IA em Configurações → Empresa para ativar o Agente IA.' }])
       return
     }
 
-    const systemPrompt = chatbotConfig?.prompt || `Você é um assistente comercial da empresa ${cfg.company || 'Vivanexa'}. Seja prestativo, profissional e focado em ajudar o cliente.`
-    const history = agenteMessages.slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
-    history.push({ role: 'user', content: userMsg })
+    const sysPr = chatbotConfig?.prompt || `Você é um assistente comercial da empresa ${cfg.company || 'Vivanexa'}. Seja prestativo, profissional e focado em ajudar o cliente.`
+    const hist = agenteMessages.slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
 
     try {
-      let resposta = ''
-
-      if ((providerAgente === 'gemini' || !groqKey) && geminiKey && geminiKey.startsWith('AIza')) {
-        const contents = [
-          { role: 'user', parts: [{ text: `SISTEMA: ${systemPrompt}` }] },
-          { role: 'model', parts: [{ text: 'Entendido. Vou seguir essas diretrizes.' }] },
-          ...history.map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.content }] }))
-        ]
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`
-        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents }) })
-        const data = await res.json()
-        resposta = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-      }
-
-      if (!resposta && groqKey) {
-        const msgs = [{ role: 'system', content: systemPrompt }, ...history]
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'llama3-70b-8192', messages: msgs, temperature: 0.7 }) })
-        const data = await res.json()
-        resposta = data.choices?.[0]?.message?.content || ''
-      }
-
+      const resposta = await callAI(userMsg, cfg, { temperature: 0.7, systemPrompt: sysPr, history: hist })
       setAgenteMessages(prev => [...prev, { role: 'bot', content: resposta || 'Sem resposta. Verifique as chaves de API.' }])
     } catch (e) {
       setAgenteMessages(prev => [...prev, { role: 'bot', content: 'Erro ao conectar com a IA: ' + e.message }])
@@ -352,9 +381,10 @@ Crie um prompt profissional, completo e prático em português.`
 
   // ── Script Comercial ─────────────────────────────────────────
   async function gerarScriptComercial() {
-    const geminiKey = cfg.geminiKey || ''
-    const groqKey = cfg.groqKey || ''
-    if (!geminiKey && !groqKey) { toast('Configure a API em Configurações', 'err'); return }
+    const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
+    const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
+    const groqKey   = cfg.groqApiKey   || cfg.groqKey   || ''
+    if (!openaiKey && !geminiKey && !groqKey) { toast('Configure a chave de IA em Configurações → Empresa', 'err'); return }
     if (!nichoScript || !produtoScript) { toast('Preencha o nicho e o produto', 'err'); return }
 
     setGerandoScript(true)
@@ -385,18 +415,7 @@ Inclua:
 Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
 
     try {
-      let resultado = ''
-      if (geminiKey && geminiKey.startsWith('AIza')) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`
-        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) })
-        const data = await res.json()
-        resultado = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-      }
-      if (!resultado && groqKey) {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'llama3-70b-8192', messages: [{ role: 'user', content: prompt }], temperature: 0.7 }) })
-        const data = await res.json()
-        resultado = data.choices?.[0]?.message?.content || ''
-      }
+      const resultado = await callAI(prompt, cfg, { temperature: 0.7 })
       if (resultado) {
         setScriptResultado(resultado)
         const novoCfg = { ...cfg, scripts: [...(cfg.scripts || []), { id: Date.now(), tipo: tipoScript, nicho: nichoScript, produto: produtoScript, resultado, criadoEm: new Date().toISOString() }] }
@@ -587,8 +606,8 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                 <div className="card-title" style={{ margin: 0 }}>🧠 Agente IA — Teste em tempo real</div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span style={{ fontSize: 11, color: '#64748b' }}>IA:</span>
-                  {cfg.geminiKey && <button onClick={() => setProviderAgente('gemini')} className={`btn ${providerAgente === 'gemini' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 10, padding: '3px 10px' }}>Gemini</button>}
-                  {cfg.groqKey && <button onClick={() => setProviderAgente('groq')} className={`btn ${providerAgente === 'groq' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 10, padding: '3px 10px' }}>Groq</button>}
+                  {(cfg.geminiApiKey || cfg.geminiKey) && <button onClick={() => setProviderAgente('gemini')} className={`btn ${providerAgente === 'gemini' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 10, padding: '3px 10px' }}>Gemini</button>}
+                  {(cfg.groqApiKey || cfg.groqKey) && <button onClick={() => setProviderAgente('groq')} className={`btn ${providerAgente === 'groq' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 10, padding: '3px 10px' }}>Groq</button>}
                   <button className="btn btn-secondary" style={{ fontSize: 10, padding: '3px 10px' }} onClick={() => setAgenteMessages([{ role: 'bot', content: `Olá! Sou o Agente IA da ${cfg.company || 'Vivanexa'}. Como posso ajudá-lo?` }])}>🔄 Reiniciar</button>
                 </div>
               </div>
@@ -621,7 +640,7 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
               </div>
             </div>
 
-            {(!cfg.geminiKey && !cfg.groqKey) && (
+            {(!cfg.openaiApiKey && !cfg.openaiKey && !cfg.geminiApiKey && !cfg.geminiKey && !cfg.groqApiKey && !cfg.groqKey) && (
               <div className="info-box" style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', color: '#fca5a5' }}>
                 ⚠️ Configure a chave de API do <strong>Gemini</strong> ou <strong>Groq</strong> em <strong>Configurações → Empresa</strong> para ativar o Agente IA.
               </div>
