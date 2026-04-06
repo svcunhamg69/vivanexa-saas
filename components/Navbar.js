@@ -1,7 +1,6 @@
-// components/Navbar.js — Vivanexa SaaS v4
-// ✅ Submenus agrupados DENTRO do menu pai (não soltos)
-// ✅ Botão 🏠 Início sempre visível — volta ao dashboard de qualquer página
-// ✅ Presente em TODAS as páginas: chat, crm, fiscal, financeiro, etc.
+// components/Navbar.js — Vivanexa SaaS v5
+// ✅ WhatsApp Inbox adicionado no menu Comercial
+// ✅ WhatsApp, Agente IA e Departamentos adicionados em Config
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
@@ -15,6 +14,7 @@ const MENU = [
     color: '#00d4ff',
     subs: [
       { label: 'Chat / Assistente',  icon: '💬', href: '/chat' },
+      { label: 'WhatsApp Inbox',     icon: '📱', href: '/whatsapp-inbox' },
       { label: 'CRM',                icon: '🤝', href: '/crm' },
       { label: 'Disparo em Massa',   icon: '📣', href: '/prospeccao?aba=disparo' },
       { label: 'Chatbot',            icon: '🤖', href: '/prospeccao?aba=chatbot' },
@@ -93,13 +93,16 @@ const MENU = [
     icon: '⚙️',
     color: '#94a3b8',
     subs: [
-      { label: 'Empresa',     icon: '🏢', href: '/configuracoes?tab=empresa' },
-      { label: 'Metas',       icon: '🎯', href: '/configuracoes?tab=metas' },
-      { label: 'KPIs',        icon: '📊', href: '/configuracoes?tab=kpis' },
-      { label: 'Usuários',    icon: '👥', href: '/configuracoes?tab=usuarios' },
-      { label: 'Produtos',    icon: '📦', href: '/configuracoes?tab=produtos' },
-      { label: 'Descontos',   icon: '🏷️', href: '/configuracoes?tab=descontos' },
-      { label: 'Integrações', icon: '🔗', href: '/configuracoes?tab=integracoes' },
+      { label: 'Empresa',        icon: '🏢', href: '/configuracoes?tab=empresa' },
+      { label: 'Metas',          icon: '🎯', href: '/configuracoes?tab=metas' },
+      { label: 'KPIs',           icon: '📊', href: '/configuracoes?tab=kpis' },
+      { label: 'Usuários',       icon: '👥', href: '/configuracoes?tab=usuarios' },
+      { label: 'Produtos',       icon: '📦', href: '/configuracoes?tab=produtos' },
+      { label: 'Descontos',      icon: '🏷️', href: '/configuracoes?tab=descontos' },
+      { label: 'WhatsApp',       icon: '📱', href: '/configuracoes?tab=whatsapp' },
+      { label: 'Agente IA',      icon: '🤖', href: '/configuracoes?tab=agente_ia' },
+      { label: 'Departamentos',  icon: '🏢', href: '/configuracoes?tab=departamentos' },
+      { label: 'Integrações',    icon: '🔗', href: '/configuracoes?tab=integracoes' },
     ],
   },
 ]
