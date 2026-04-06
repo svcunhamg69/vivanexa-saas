@@ -1,91 +1,108 @@
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
-
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(200).json({ ok: true })
-  }
-
+if (body?.object === 'whatsapp_business_account') {
   try {
-    console.log("🔥 WEBHOOK RECEBIDO")
-    console.log("📦 BODY:", JSON.stringify(req.body))
+    const entry   = body.entry?.[0]
+    const change  = entry?.changes?.[0]
+    const value   = change?.value
+    const message = value?.messages?.[0]
 
-    const body = req.body
+    if (!message) return res.status(200).json({ status: 'no_message' })
 
-    // só processa mensagens
-    if (body?.event !== 'messages.upsert' && body?.event !== 'MESSAGES_UPSERT') {
-      return res.status(200).json({ ok: true })
-    }
+    const from    = message.from
+    const msgText = message.text?.body || ''
+    const phoneId = value.metadata?.phone_number_id
 
-    const data = body?.data || {}
-    const key = data?.key || {}
-    const message = data?.message || {}
+    const token   = process.env.WHATSAPP_TOKEN
 
-    const remoteJid = key?.remoteJid || ''
-    if (!remoteJid) return res.status(200).json({ ok: true })
+    // 🔥 IMPORTANTE: IMPORTAR SUPABASE
+    const { createClient } = require('@supabase/supabase-js')
 
-    const numero = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
-    const texto =
-      message?.conversation ||
-      message?.extendedTextMessage?.text ||
-      'sem texto'
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    )
 
-    console.log("📞 NUMERO:", numero)
-    console.log("💬 TEXTO:", texto)
+    const empresaId = 'default' // pode melhorar depois
 
-    // 🔥 SEU EMPRESA ID FIXO
-    const empresaId = "f05e57ba-abc8-46f3-b6cb-2db28888fd56"
+    const numero = from
 
-    const agora = new Date().toISOString()
+    // ─────────────────────────────────────────────
+    // 1. SALVAR CONVERSA
+    // ─────────────────────────────────────────────
     const convKey = `wpp_conv:${empresaId}:${numero}`
 
-    console.log("🔥 SALVANDO NO SUPABASE")
-
-    // busca conversa existente
-    const { data: convRow } = await supabase
+    let { data: row } = await supabase
       .from('vx_storage')
       .select('value')
       .eq('key', convKey)
       .maybeSingle()
 
-    let conv = convRow?.value ? JSON.parse(convRow.value) : {
-      id: convKey,
+    let conv = row?.value ? JSON.parse(row.value) : {
       numero,
       nome: numero,
-      empresaId,
       mensagens: [],
-      naoLidas: 0
+      status: 'automacao',
+      naoLidas: 0,
+      criadoEm: new Date().toISOString()
     }
 
-    // adiciona mensagem
     conv.mensagens.push({
-      id: `msg_${Date.now()}`,
+      id: Date.now(),
       de: 'cliente',
-      texto,
-      at: agora
+      texto: msgText,
+      tipo: 'text',
+      at: new Date().toISOString()
     })
 
-    conv.ultimaMensagem = texto
-    conv.ultimaAt = agora
+    conv.ultimaMensagem = msgText
+    conv.updatedAt = new Date().toISOString()
     conv.naoLidas = (conv.naoLidas || 0) + 1
 
-    // salva
     await supabase.from('vx_storage').upsert({
       key: convKey,
       value: JSON.stringify(conv),
-      updated_at: agora
+      updated_at: new Date().toISOString()
     }, { onConflict: 'key' })
 
-    console.log("✅ SALVO COM SUCESSO")
+    // ─────────────────────────────────────────────
+    // 2. ATUALIZAR ÍNDICE
+    // ─────────────────────────────────────────────
+    const idxKey = `wpp_idx:${empresaId}`
 
-    return res.status(200).json({ ok: true })
+    let { data: idxRow } = await supabase
+      .from('vx_storage')
+      .select('value')
+      .eq('key', idxKey)
+      .maybeSingle()
 
+    let idx = idxRow?.value ? JSON.parse(idxRow.value) : {}
+
+    idx[numero] = {
+      numero,
+      nome: numero,
+      ultimaMensagem: msgText,
+      updatedAt: conv.updatedAt,
+      status: conv.status,
+      naoLidas: conv.naoLidas
+    }
+
+    await supabase.from('vx_storage').upsert({
+      key: idxKey,
+      value: JSON.stringify(idx),
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'key' })
+
+    // ─────────────────────────────────────────────
+    // 3. CHATBOT (igual você já tem)
+    // ─────────────────────────────────────────────
+    const resposta = gerarRespostaChatbot(msgText.toLowerCase())
+
+    if (resposta && token && phoneId) {
+      await enviarMensagem({ phoneId, token, para: from, texto: resposta })
+    }
+
+    return res.status(200).json({ status: 'ok' })
   } catch (err) {
-    console.error("❌ ERRO:", err)
-    return res.status(200).json({ ok: true })
+    console.error('Erro no webhook WhatsApp:', err)
+    return res.status(200).json({ status: 'error', message: err.message })
   }
 }
