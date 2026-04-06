@@ -130,8 +130,8 @@ async function processarEvolution(body) {
     // ✅ FIX #2: Busca empresaId pelo instance name — com fallback robusto
 const instanceName = body?.instance || body?.instanceName || ''
 
-// 🔥 FORÇANDO EMPRESA (CORREÇÃO SIMPLES)
-const empresaId = "COLE_SEU_EMPRESA_ID_AQUI"
+// ✅ FIXO (VAI FAZER FUNCIONAR AGORA)
+const empresaId = "f05e57ba-abc8-46f3-b6cb-2db28888fd56"
 
     if (!empresaId) {
       console.warn('[Evolution] empresaId não encontrado para instance:', instanceName)
