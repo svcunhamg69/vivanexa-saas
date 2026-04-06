@@ -111,6 +111,60 @@ function toast(msg, type = 'ok') {
   setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(20px)' }, 3000)
 }
 
+// Helper centralizado de IA — usa OpenAI, Gemini ou Groq com fallback automático
+async function callAI(prompt, cfg, { temperature = 0.7, maxTokens = 2000 } = {}) {
+  const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
+  const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
+  const groqKey   = cfg.groqApiKey   || cfg.groqKey   || ''
+
+  if (!openaiKey && !geminiKey && !groqKey) {
+    throw new Error('Nenhuma chave de IA configurada. Acesse Configurações → Empresa → 🤖 IA.')
+  }
+
+  // 1. Tenta OpenAI primeiro (se tiver chave)
+  if (openaiKey) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature, max_tokens: maxTokens })
+      })
+      const data = await res.json()
+      const r = data.choices?.[0]?.message?.content
+      if (r) return r
+    } catch {}
+  }
+
+  // 2. Tenta Gemini
+  if (geminiKey && geminiKey.startsWith('AIza')) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      })
+      const data = await res.json()
+      const r = data.candidates?.[0]?.content?.parts?.[0]?.text
+      if (r) return r
+    } catch {}
+  }
+
+  // 3. Fallback Groq
+  if (groqKey) {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'llama3-70b-8192', messages: [{ role: 'user', content: prompt }], temperature })
+    })
+    const data = await res.json()
+    const r = data.choices?.[0]?.message?.content
+    if (r) return r
+  }
+
+  throw new Error('Nenhuma IA respondeu. Verifique as chaves em Configurações → Empresa.')
+}
+
 export default function Marketing() {
   const router = useRouter()
   const { aba: abaQuery } = router.query
@@ -190,8 +244,8 @@ export default function Marketing() {
 
   // ── Gerador de Campanhas IA ──────────────────────────────────
   async function gerarCampanha() {
-    const geminiKey = cfg.geminiKey || ''
-    const groqKey = cfg.groqKey || ''
+    const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
+    const groqKey = cfg.groqApiKey || cfg.groqKey || ''
     if (!geminiKey && !groqKey) {
       toast('Configure a API do Gemini ou Groq em Configurações → Empresa', 'err')
       return
@@ -223,26 +277,7 @@ Crie um plano completo de campanha digital com:
 Responda em português, seja específico e prático.`
 
     try {
-      let resultado = ''
-      if (geminiKey && geminiKey.startsWith('AIza')) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-        })
-        const data = await res.json()
-        resultado = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-      }
-      if (!resultado && groqKey) {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'llama3-70b-8192', messages: [{ role: 'user', content: prompt }], temperature: 0.7 })
-        })
-        const data = await res.json()
-        resultado = data.choices?.[0]?.message?.content || ''
-      }
+      const resultado = await callAI(prompt, cfg, { temperature: 0.7 })
       if (resultado) {
         setCampResultado(resultado)
         // Salvar no histórico
@@ -261,8 +296,8 @@ Responda em português, seja específico e prático.`
 
   // ── Gerador de Posts/Imagens ─────────────────────────────────
   async function gerarPost() {
-    const geminiKey = cfg.geminiKey || ''
-    const groqKey = cfg.groqKey || ''
+    const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
+    const groqKey = cfg.groqApiKey || cfg.groqKey || ''
     if (!geminiKey && !groqKey) { toast('Configure a API em Configurações', 'err'); return }
     if (!promptImg) { toast('Descreva o post que deseja criar', 'err'); return }
 
@@ -291,19 +326,7 @@ ${plataformaImg === 'google' ? '8. 🔍 Headlines e descrições para Google Ads
 Seja criativo, use linguagem adequada para o nicho e plataforma.`
 
     try {
-      let resultado = ''
-      if (geminiKey && geminiKey.startsWith('AIza')) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`
-        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) })
-        const data = await res.json()
-        resultado = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-      }
-      if (!resultado && groqKey) {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'llama3-70b-8192', messages: [{ role: 'user', content: prompt }], temperature: 0.8 }) })
-        const data = await res.json()
-        resultado = data.choices?.[0]?.message?.content || ''
-      }
-
+      const resultado = await callAI(prompt, cfg, { temperature: 0.8 })
       if (resultado) {
         const novaImagem = {
           id: Date.now(),
@@ -372,9 +395,10 @@ Seja criativo, use linguagem adequada para o nicho e plataforma.`
 
   // ── Script/Playbook ──────────────────────────────────────────
   async function gerarScript() {
-    const geminiKey = cfg.geminiKey || ''
-    const groqKey = cfg.groqKey || ''
-    if (!geminiKey && !groqKey) { toast('Configure a API em Configurações', 'err'); return }
+    const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
+    const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
+    const groqKey   = cfg.groqApiKey   || cfg.groqKey   || ''
+    if (!openaiKey && !geminiKey && !groqKey) { toast('Configure a chave de IA em Configurações → Empresa', 'err'); return }
     if (!nichoScript) { toast('Informe o nicho de mercado', 'err'); return }
 
     setGerandoScript(true)
@@ -405,18 +429,7 @@ Tipo: ${tipos[tipoScript]}
 Seja prático, use exemplos reais do nicho e crie um script que qualquer vendedor consiga seguir.`
 
     try {
-      let resultado = ''
-      if (geminiKey && geminiKey.startsWith('AIza')) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`
-        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) })
-        const data = await res.json()
-        resultado = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-      }
-      if (!resultado && groqKey) {
-        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'llama3-70b-8192', messages: [{ role: 'user', content: prompt }], temperature: 0.7 }) })
-        const data = await res.json()
-        resultado = data.choices?.[0]?.message?.content || ''
-      }
+      const resultado = await callAI(prompt, cfg, { temperature: 0.7 })
       if (resultado) {
         setScriptResultado(resultado)
         const novoCfg = { ...cfg, mktScripts: [...(cfg.mktScripts || []), { id: Date.now(), tipo: tipoScript, nicho: nichoScript, resultado, criadoEm: new Date().toISOString() }] }
