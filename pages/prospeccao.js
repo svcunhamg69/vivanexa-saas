@@ -117,6 +117,7 @@ export default function Prospeccao() {
   const [cfg, setCfg] = useState({})
   const [empresaId, setEmpresaId] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [perfil, setPerfil] = useState(null)
 
   // Disparo em Massa
   const [contatos, setContatos] = useState([])
@@ -161,6 +162,7 @@ export default function Prospeccao() {
       }
       const eid = perf?.empresa_id || session.user.id
       setEmpresaId(eid)
+      setPerfil(perf)
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
       if (row?.value) {
         const c = JSON.parse(row.value)
