@@ -19,6 +19,9 @@ const TABS = [
   { id: 'documentos', label: '📄 Documentos' },
   { id: 'clientes',   label: '🗃️ Clientes' },
   { id: 'tema',       label: '🎨 Tema' },
+  { id: 'whatsapp',      label: '💬 WhatsApp' },
+  { id: 'agente_ia',     label: '🤖 Agente IA' },
+  { id: 'departamentos', label: '🏢 Departamentos' },
   { id: 'integracoes', label: '🔗 Integrações' },
   { id: 'erp',         label: '🗄️ Produtos/Serviços ERP' },
 ]
@@ -118,6 +121,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [emailApiKey,  setEmailApiKey]  = useState(cfg.emailApiKey  || '')
   const [geminiApiKey, setGeminiApiKey] = useState(cfg.geminiApiKey || '')
   const [groqApiKey,   setGroqApiKey]   = useState(cfg.groqApiKey   || '')
+  const [openaiApiKey, setOpenaiApiKey] = useState(cfg.openaiApiKey || '')
   const [saving,       setSaving]       = useState(false)
   // NF-e
   const [nfeCertB64,   setNfeCertB64]   = useState(cfg.certificadoBase64 || '')
@@ -151,6 +155,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setEmailApiKey(cfg.emailApiKey || '')
     setGeminiApiKey(cfg.geminiApiKey || '')
     setGroqApiKey(cfg.groqApiKey || '')
+    setOpenaiApiKey(cfg.openaiApiKey || '')
     setRazaoSocial(cfg.razaoSocial || '')
     setCnpjEmpresa(cfg.cnpjEmpresa || '')
     setTelefoneEmp(cfg.telefoneEmp || '')
@@ -194,7 +199,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
       company, slogan, logob64: logoB64,
       closingHour: Number(closingHour), closingText,
       emailProvider, smtpHost, smtpPort, smtpUser, smtpPass, emailApiKey,
-      geminiApiKey, groqApiKey,
+      geminiApiKey, groqApiKey, openaiApiKey,
       razaoSocial, cnpjEmpresa, telefoneEmp, emailEmp, responsavel, enderecoEmp,
       signConfig: { email: signEmail, wpp: signWpp, url: signUrl },
       // NF-e
@@ -307,6 +312,11 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
           <label style={s.label}>Chave API Groq (fallback)</label>
           <input style={s.input} type="password" value={groqApiKey} onChange={e => setGroqApiKey(e.target.value)} placeholder="gsk_..." />
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Opcional. Se Gemini falhar, usa Groq.</div>
+        </div>
+        <div style={s.field}>
+          <label style={s.label}>Chave API OpenAI</label>
+          <input style={s.input} type="password" value={openaiApiKey} onChange={e => setOpenaiApiKey(e.target.value)} placeholder="sk-..." />
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Obtenha em <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>platform.openai.com</a> — usada no Agente IA do WhatsApp.</div>
         </div>
       </div>
 
@@ -2054,6 +2064,480 @@ function TabErp({ cfg, setCfg, empresaId }) {
   )
 }
 
+// ══════════════════════════════════════════════
+// ABA WHATSAPP
+// ══════════════════════════════════════════════
+function TabWhatsapp({ cfg, setCfg, empresaId }) {
+  const [provider,  setProvider]  = React.useState(cfg.wppInbox?.provider  || 'evolution')
+  const [evoUrl,    setEvoUrl]    = React.useState(cfg.wppInbox?.evolutionUrl || '')
+  const [evoKey,    setEvoKey]    = React.useState(cfg.wppInbox?.evolutionKey || '')
+  const [evoInst,   setEvoInst]   = React.useState(cfg.wppInbox?.evolutionInstance || '')
+  const [evoStatus, setEvoStatus] = React.useState(null)
+  const [qrCode,    setQrCode]    = React.useState(null)
+  const [wppTags,   setWppTags]   = React.useState(cfg.wppTags || [
+    { id: 'lead_frio',    label: 'Lead Frio',    cor: '#64748b' },
+    { id: 'lead_quente',  label: 'Lead Quente',  cor: '#ef4444' },
+    { id: 'dor_demora',   label: 'Dor: Demora',  cor: '#f59e0b' },
+    { id: 'dor_controle', label: 'Dor: Controle',cor: '#7c3aed' },
+  ])
+  const [novaTagLabel, setNovaTagLabel] = React.useState('')
+  const [novaTagCor,   setNovaTagCor]   = React.useState('#10b981')
+  const [saving,    setSaving]    = React.useState(false)
+  const [checking,  setChecking]  = React.useState(false)
+  const [msg,       setMsg]       = React.useState('')
+
+  const st = {
+    card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px', marginBottom: 16 },
+    label: { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
+    input: { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
+    btn:   { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+    btnSec:{ padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
+    h:     { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 },
+    sec:   { fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 12 },
+  }
+
+  async function salvar() {
+    setSaving(true); setMsg('')
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo  = { ...atual, wppTags, wppInbox: { provider, evolutionUrl: evoUrl, evolutionKey: evoKey, evolutionInstance: evoInst } }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      setCfg(novo); setMsg('✅ Configurações salvas!')
+    } catch (e) { setMsg('❌ Erro: ' + e.message) }
+    setSaving(false)
+  }
+
+  async function verificarConexao() {
+    if (!evoUrl || !evoKey || !evoInst) { setMsg('⚠️ Preencha URL, Key e Instance primeiro'); return }
+    setChecking(true); setMsg('')
+    try {
+      const r = await fetch(`${evoUrl}/instance/connectionState/${evoInst}`, { headers: { 'apikey': evoKey } })
+      const d = await r.json()
+      const estado = d?.instance?.state || d?.state || 'unknown'
+      setEvoStatus(estado)
+      setMsg(estado === 'open' ? '✅ WhatsApp conectado!' : `⚠️ Status: ${estado}`)
+    } catch (e) { setMsg('❌ Erro: ' + e.message) }
+    setChecking(false)
+  }
+
+  async function buscarQR() {
+    if (!evoUrl || !evoKey || !evoInst) { setMsg('⚠️ Preencha URL, Key e Instance primeiro'); return }
+    setChecking(true); setMsg(''); setQrCode(null)
+    try {
+      await fetch(`${evoUrl}/instance/create`, {
+        method: 'POST', headers: { 'apikey': evoKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceName: evoInst, qrcode: true })
+      }).catch(() => {})
+      const r = await fetch(`${evoUrl}/instance/connect/${evoInst}`, { headers: { 'apikey': evoKey } })
+      const d = await r.json()
+      const qr = d?.base64 || d?.qrcode?.base64 || d?.qr
+      if (qr) setQrCode(qr)
+      else setMsg('⚠️ QR Code não disponível. A instância pode já estar conectada.')
+    } catch (e) { setMsg('❌ Erro: ' + e.message) }
+    setChecking(false)
+  }
+
+  function adicionarTag() {
+    if (!novaTagLabel.trim()) return
+    const id = novaTagLabel.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+    setWppTags(prev => [...prev, { id, label: novaTagLabel.trim(), cor: novaTagCor }])
+    setNovaTagLabel(''); setNovaTagCor('#10b981')
+  }
+
+  const webhookUrl = typeof window !== 'undefined'
+    ? window.location.origin + '/api/wpp/webhook'
+    : 'https://seu-dominio.vercel.app/api/wpp/webhook'
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={st.h}>💬 WhatsApp Inbox</div>
+
+      <div style={st.card}>
+        <div style={st.sec}>📡 Tipo de Conexão</div>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+          {[
+            { id: 'evolution', label: '📱 QR Code (Evolution API)', desc: 'Conecta qualquer número via QR Code. Ideal para uso interno da equipe.' },
+            { id: 'meta',      label: '✅ WhatsApp Oficial (Meta)',  desc: 'WhatsApp Business API oficial. Configure na aba Integrações.' },
+          ].map(p => (
+            <div key={p.id} onClick={() => setProvider(p.id)} style={{ flex: 1, padding: '14px 16px', borderRadius: 12, cursor: 'pointer', border: `2px solid ${provider === p.id ? 'var(--accent)' : 'var(--border)'}`, background: provider === p.id ? 'rgba(0,212,255,.06)' : 'var(--surface)' }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: provider === p.id ? 'var(--accent)' : 'var(--text)', marginBottom: 6 }}>{p.label}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>{p.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {provider === 'evolution' && (
+        <div style={st.card}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div style={st.sec}>⚙️ Evolution API (QR Code)</div>
+            {evoStatus && (
+              <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: evoStatus === 'open' ? 'rgba(16,185,129,.15)' : 'rgba(245,158,11,.15)', color: evoStatus === 'open' ? '#10b981' : '#f59e0b', border: `1px solid ${evoStatus === 'open' ? 'rgba(16,185,129,.3)' : 'rgba(245,158,11,.3)'}` }}>
+                {evoStatus === 'open' ? '● Conectado' : `○ ${evoStatus}`}
+              </span>
+            )}
+          </div>
+
+          <div style={{ padding: '12px 16px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 16 }}>
+            A <strong style={{ color: 'var(--text)' }}>Evolution API</strong> é um servidor open-source para conectar WhatsApp via QR Code.
+            Deploy gratuito no Railway ou Render:{' '}
+            <a href="https://github.com/EvolutionAPI/evolution-api" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>github.com/EvolutionAPI</a>
+          </div>
+
+          <label style={st.label}>URL da Evolution API</label>
+          <input style={st.input} value={evoUrl} onChange={e => setEvoUrl(e.target.value)} placeholder="https://sua-evolution-api.railway.app" />
+
+          <label style={st.label}>API Key Global</label>
+          <input style={{ ...st.input, fontFamily: 'monospace' }} type="password" value={evoKey} onChange={e => setEvoKey(e.target.value)} placeholder="sua-api-key-global" />
+
+          <label style={st.label}>Nome da Instance</label>
+          <input style={st.input} value={evoInst} onChange={e => setEvoInst(e.target.value)} placeholder="Ex: vivanexa-empresa" />
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+            <button onClick={verificarConexao} disabled={checking} style={st.btnSec}>{checking ? '⏳...' : '🔌 Verificar status'}</button>
+            <button onClick={buscarQR} disabled={checking} style={st.btnSec}>{checking ? '⏳...' : '📱 Gerar QR Code'}</button>
+          </div>
+
+          {qrCode && (
+            <div style={{ textAlign: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>WhatsApp → Dispositivos Conectados → Conectar → Escanear QR</div>
+              <img src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} alt="QR Code" style={{ width: 220, height: 220, borderRadius: 12, border: '3px solid var(--accent)', background: '#fff', padding: 8 }} />
+            </div>
+          )}
+
+          <div style={{ padding: '12px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>URL do Webhook (configure na Evolution API → Eventos: MESSAGES_UPSERT)</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ flex: 1, fontFamily: 'monospace', fontSize: 11, color: '#10b981', wordBreak: 'break-all' }}>{webhookUrl}</div>
+              <button onClick={() => { navigator.clipboard?.writeText(webhookUrl); setMsg('✅ URL copiada!') }} style={{ ...st.btnSec, padding: '5px 10px', fontSize: 11 }}>Copiar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {provider === 'meta' && (
+        <div style={{ padding: '14px 18px', background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.2)', borderRadius: 10, fontSize: 13, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 16 }}>
+          O WhatsApp Oficial (Meta) é configurado na aba <strong style={{ color: 'var(--text)' }}>🔗 Integrações</strong>. Após salvar as credenciais lá, o Inbox usará aquela conexão automaticamente.
+        </div>
+      )}
+
+      <div style={st.card}>
+        <div style={st.sec}>🏷️ Tags de Conversa</div>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>Tags para segmentar leads e clientes no Inbox WhatsApp.</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+          {wppTags.map((tag, i) => (
+            <div key={tag.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${tag.cor}55`, background: tag.cor + '15' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: tag.cor, flexShrink: 0 }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: tag.cor }}>{tag.label}</span>
+              <button onClick={() => setWppTags(prev => prev.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: tag.cor, cursor: 'pointer', fontSize: 14, padding: 0 }}>×</button>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input style={{ ...st.input, flex: 1, marginBottom: 0 }} value={novaTagLabel} onChange={e => setNovaTagLabel(e.target.value)} placeholder="Nome da tag" onKeyDown={e => e.key === 'Enter' && adicionarTag()} />
+          <input type="color" value={novaTagCor} onChange={e => setNovaTagCor(e.target.value)} style={{ width: 36, height: 36, border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', background: 'none' }} />
+          <button onClick={adicionarTag} style={{ ...st.btnSec, marginBottom: 0 }}>+ Adicionar</button>
+        </div>
+      </div>
+
+      <button onClick={salvar} disabled={saving} style={st.btn}>{saving ? '⏳ Salvando...' : '💾 Salvar configurações WhatsApp'}</button>
+
+      {msg && (
+        <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>
+          {msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════
+// ABA AGENTE IA
+// ══════════════════════════════════════════════
+function TabAgenteIA({ cfg, setCfg, empresaId }) {
+  const [agentes, setAgentes] = React.useState(cfg.wppAgentes || [])
+  const [editIdx, setEditIdx] = React.useState(null)
+  const [form, setForm]       = React.useState(null)
+  const [saving, setSaving]   = React.useState(false)
+  const [msg, setMsg]         = React.useState('')
+
+  const MODELOS = {
+    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
+    groq:   ['llama3-70b-8192', 'llama3-8b-8192', 'mixtral-8x7b-32768'],
+    gemini: ['gemini-1.5-pro', 'gemini-1.5-flash'],
+  }
+
+  const AGENTE_VAZIO = {
+    id: '', nome: 'Agente Vendas', ativo: true,
+    prompt: `Você é um assistente comercial da empresa ${cfg.company || 'Vivanexa'}.\n\nSeu objetivo é qualificar leads, responder dúvidas e conduzir o cliente até o consultor humano.\n\nTOM: Profissional, amigável e objetivo.\nRESPOSTAS: Curtas, máximo 3 linhas por mensagem.`,
+    provider: cfg.openaiApiKey ? 'openai' : cfg.groqApiKey ? 'groq' : 'openai',
+    openaiKey: '', groqKey: '', geminiKey: '',
+    model: 'gpt-4o-mini', maxTokens: 300,
+    conhecimento: [],
+  }
+
+  function novoAgente() {
+    setForm({ ...AGENTE_VAZIO, id: 'agente_' + Date.now() })
+    setEditIdx('novo')
+  }
+
+  function editarAgente(i) { setForm({ ...agentes[i] }); setEditIdx(i) }
+
+  async function salvarAgente() {
+    if (!form.nome.trim()) { setMsg('⚠️ Informe um nome'); return }
+    setSaving(true); setMsg('')
+    const novos = editIdx === 'novo' ? [...agentes, form] : agentes.map((a, i) => i === editIdx ? form : a)
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo  = { ...atual, wppAgentes: novos }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      setCfg(novo); setAgentes(novos); setEditIdx(null); setForm(null); setMsg('✅ Agente salvo!')
+    } catch (e) { setMsg('❌ Erro: ' + e.message) }
+    setSaving(false)
+  }
+
+  async function removerAgente(i) {
+    if (!confirm('Remover este agente?')) return
+    const novos = agentes.filter((_, j) => j !== i)
+    const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+    const atual = row?.value ? JSON.parse(row.value) : {}
+    await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify({ ...atual, wppAgentes: novos }), updated_at: new Date().toISOString() })
+    setCfg({ ...cfg, wppAgentes: novos }); setAgentes(novos)
+  }
+
+  const st = {
+    card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 22px', marginBottom: 14 },
+    label: { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
+    input: { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
+    btn:   { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+    btnSec:{ padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
+    h:     { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 },
+  }
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={st.h}>🤖 Agentes de IA — WhatsApp</div>
+        <button onClick={novoAgente} style={st.btn}>+ Novo Agente</button>
+      </div>
+
+      <div style={{ padding: '12px 16px', background: 'rgba(124,58,237,.08)', border: '1px solid rgba(124,58,237,.25)', borderRadius: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 20 }}>
+        🤖 Agentes respondem automaticamente conversas no status <strong style={{ color: '#7c3aed' }}>Automação</strong> do Inbox.<br />
+        As chaves globais são as de <strong style={{ color: 'var(--text)' }}>Config → Empresa → IA</strong>. Você pode definir chaves específicas por agente.
+      </div>
+
+      {agentes.length === 0 && editIdx === null && (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', fontSize: 13 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🤖</div>
+          Nenhum agente configurado. Clique em <strong>+ Novo Agente</strong>.
+        </div>
+      )}
+
+      {agentes.map((a, i) => editIdx === i ? null : (
+        <div key={a.id} style={st.card}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', marginBottom: 4 }}>🤖 {a.nome}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{a.provider === 'openai' ? 'OpenAI' : a.provider === 'groq' ? 'Groq' : 'Gemini'} · {a.model} · {a.maxTokens} tokens</div>
+            </div>
+            <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: a.ativo ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.15)', color: a.ativo ? '#10b981' : '#64748b', border: `1px solid ${a.ativo ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)'}` }}>
+              {a.ativo ? '● Ativo' : '○ Inativo'}
+            </span>
+            <button onClick={() => editarAgente(i)} style={st.btnSec}>✏️ Editar</button>
+            <button onClick={() => removerAgente(i)} style={{ ...st.btnSec, color: '#ef4444', borderColor: 'rgba(239,68,68,.3)', background: 'rgba(239,68,68,.08)' }}>🗑</button>
+          </div>
+        </div>
+      ))}
+
+      {form && editIdx !== null && (
+        <div style={{ ...st.card, border: '1px solid rgba(0,212,255,.3)', background: 'rgba(0,212,255,.03)' }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>
+            {editIdx === 'novo' ? '➕ Novo Agente' : '✏️ Editando Agente'}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={st.label}>Nome do Agente</label>
+              <input style={st.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Vendas Bot" />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', paddingTop: 18 }}>
+              <label style={{ fontSize: 13, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.ativo} onChange={e => setForm(f => ({ ...f, ativo: e.target.checked }))} style={{ width: 16, height: 16 }} />
+                Agente ativo
+              </label>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            <div>
+              <label style={st.label}>Provedor de IA</label>
+              <select value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value, model: MODELOS[e.target.value]?.[0] || '' }))} style={{ ...st.input, appearance: 'auto' }}>
+                <option value="openai">OpenAI (GPT)</option>
+                <option value="groq">Groq (Llama)</option>
+                <option value="gemini">Google Gemini</option>
+              </select>
+            </div>
+            <div>
+              <label style={st.label}>Modelo</label>
+              <select value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} style={{ ...st.input, appearance: 'auto' }}>
+                {(MODELOS[form.provider] || []).map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={st.label}>Max Tokens</label>
+              <input type="number" style={st.input} value={form.maxTokens} onChange={e => setForm(f => ({ ...f, maxTokens: Number(e.target.value) }))} placeholder="300" />
+            </div>
+          </div>
+
+          <div>
+            <label style={st.label}>API Key específica (opcional — usa a global de Config → Empresa se vazio)</label>
+            <input style={{ ...st.input, fontFamily: 'monospace' }} type="password"
+              value={form.provider === 'openai' ? (form.openaiKey || '') : form.provider === 'groq' ? (form.groqKey || '') : (form.geminiKey || '')}
+              onChange={e => {
+                const k = form.provider === 'openai' ? 'openaiKey' : form.provider === 'groq' ? 'groqKey' : 'geminiKey'
+                setForm(f => ({ ...f, [k]: e.target.value }))
+              }}
+              placeholder={form.provider === 'openai' ? 'sk-...' : form.provider === 'groq' ? 'gsk_...' : 'AIza...'} />
+          </div>
+
+          <div>
+            <label style={st.label}>Prompt do Sistema</label>
+            <textarea value={form.prompt} onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))} rows={7}
+              style={{ ...st.input, resize: 'vertical', lineHeight: 1.6 }} placeholder="Você é um assistente comercial..." />
+          </div>
+
+          <div>
+            <label style={st.label}>Base de Conhecimento (contexto adicional para a IA)</label>
+            {(form.conhecimento || []).map((k, ki) => (
+              <div key={ki} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
+                <input style={{ ...st.input, width: 180, marginBottom: 0, flexShrink: 0 }} value={k.titulo || ''} onChange={e => setForm(f => ({ ...f, conhecimento: f.conhecimento.map((x, xi) => xi === ki ? { ...x, titulo: e.target.value } : x) }))} placeholder="Título" />
+                <textarea style={{ ...st.input, flex: 1, marginBottom: 0, resize: 'vertical', minHeight: 60 }} value={k.conteudo || ''} onChange={e => setForm(f => ({ ...f, conhecimento: f.conhecimento.map((x, xi) => xi === ki ? { ...x, conteudo: e.target.value } : x) }))} placeholder="Conteúdo..." />
+                <button onClick={() => setForm(f => ({ ...f, conhecimento: f.conhecimento.filter((_, xi) => xi !== ki) }))} style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+            <button onClick={() => setForm(f => ({ ...f, conhecimento: [...(f.conhecimento || []), { titulo: '', conteudo: '' }] }))} style={{ ...st.btnSec, fontSize: 12, padding: '6px 12px' }}>+ Adicionar texto</button>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <button onClick={salvarAgente} disabled={saving} style={st.btn}>{saving ? '⏳...' : '💾 Salvar Agente'}</button>
+            <button onClick={() => { setEditIdx(null); setForm(null) }} style={st.btnSec}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {msg && (
+        <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>
+          {msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════
+// ABA DEPARTAMENTOS
+// ══════════════════════════════════════════════
+function TabDepartamentos({ cfg, setCfg, empresaId }) {
+  const [deps,    setDeps]    = React.useState(cfg.wppDeps || [
+    { id: 'vendas',    nome: 'Vendas',          cor: '#10b981', ordem: 1 },
+    { id: 'suporte',   nome: 'Suporte Técnico', cor: '#ef4444', ordem: 2 },
+    { id: 'financeiro',nome: 'Financeiro',       cor: '#00d4ff', ordem: 3 },
+  ])
+  const [editIdx, setEditIdx] = React.useState(null)
+  const [form,    setForm]    = React.useState(null)
+  const [saving,  setSaving]  = React.useState(false)
+  const [msg,     setMsg]     = React.useState('')
+
+  const st = {
+    card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 14 },
+    label: { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
+    input: { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
+    btn:   { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+    btnSec:{ padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
+    h:     { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 },
+  }
+
+  async function salvarNoBanco(novosDeps) {
+    setSaving(true); setMsg('')
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo  = { ...atual, wppDeps: novosDeps }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      setCfg(novo); setDeps(novosDeps); setMsg('✅ Departamentos salvos!')
+    } catch (e) { setMsg('❌ Erro: ' + e.message) }
+    setSaving(false)
+  }
+
+  function salvarForm() {
+    if (!form.nome.trim()) { setMsg('⚠️ Informe o nome'); return }
+    const id = form.id || form.nome.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+    const dep = { ...form, id }
+    const novos = editIdx === 'novo' ? [...deps, dep] : deps.map((d, i) => i === editIdx ? dep : d)
+    setEditIdx(null); setForm(null)
+    salvarNoBanco(novos)
+  }
+
+  return (
+    <div style={{ padding: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={st.h}>🏢 Departamentos / Filas de Atendimento</div>
+        <button onClick={() => { setForm({ id: '', nome: '', cor: '#10b981', ordem: deps.length + 1 }); setEditIdx('novo') }} style={st.btn}>+ Novo Departamento</button>
+      </div>
+
+      <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.7 }}>
+        Filas de atendimento do Inbox WhatsApp. As conversas podem ser transferidas entre departamentos e Agentes de IA podem ser vinculados a filas específicas.
+      </p>
+
+      {deps.sort((a, b) => a.ordem - b.ordem).map((d, i) => editIdx === i ? null : (
+        <div key={d.id} style={st.card}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: d.cor + '25', border: `2px solid ${d.cor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>🏢</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>{d.nome}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>ID: {d.id} · Ordem: {d.ordem}</div>
+          </div>
+          <button onClick={() => { setForm({ ...d }); setEditIdx(i) }} style={{ ...st.btnSec, padding: '6px 12px', fontSize: 12 }}>✏️</button>
+          <button onClick={() => salvarNoBanco(deps.filter((_, j) => j !== i))} style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>🗑</button>
+        </div>
+      ))}
+
+      {form && editIdx !== null && (
+        <div style={{ background: 'rgba(0,212,255,.03)', border: '1px solid rgba(0,212,255,.3)', borderRadius: 14, padding: '20px 22px', marginBottom: 14 }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>
+            {editIdx === 'novo' ? '➕ Novo Departamento' : '✏️ Editar Departamento'}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 60px', gap: 12 }}>
+            <div>
+              <label style={st.label}>Nome do Departamento</label>
+              <input style={st.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Vendas" />
+            </div>
+            <div>
+              <label style={st.label}>Ordem</label>
+              <input type="number" style={st.input} value={form.ordem} onChange={e => setForm(f => ({ ...f, ordem: Number(e.target.value) }))} />
+            </div>
+            <div>
+              <label style={st.label}>Cor</label>
+              <input type="color" value={form.cor} onChange={e => setForm(f => ({ ...f, cor: e.target.value }))} style={{ width: '100%', height: 42, border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', background: 'none' }} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={salvarForm} disabled={saving} style={st.btn}>{saving ? '⏳...' : '💾 Salvar'}</button>
+            <button onClick={() => { setEditIdx(null); setForm(null) }} style={st.btnSec}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {msg && (
+        <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>
+          {msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Configuracoes() {
   const router    = useRouter()
   const [loading,   setLoading]   = useState(true)
@@ -2108,6 +2592,9 @@ export default function Configuracoes() {
       case 'documentos': return <TabDocumentos {...props} />
       case 'clientes':   return <TabClientes   {...props} />
       case 'tema':       return <TabTema       {...props} />
+      case 'whatsapp':      return <TabWhatsapp      {...props} />
+      case 'agente_ia':     return <TabAgenteIA      {...props} />
+      case 'departamentos': return <TabDepartamentos {...props} />
       case 'integracoes': return <TabIntegracoes {...props} />
       case 'erp':        return <TabErp          {...props} />
       default:           return null
