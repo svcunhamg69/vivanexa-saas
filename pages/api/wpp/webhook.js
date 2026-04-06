@@ -92,6 +92,24 @@ async function processarEvolution(body) {
   const mensagensRaw = Array.isArray(rawData) ? rawData : [rawData]
 
   for (const data of mensagensRaw) {
+    console.log("🔥 PROCESSANDO MENSAGEM");
+
+const numero = data?.key?.remoteJid?.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+const texto = data?.message?.conversation || 'teste';
+
+console.log("📞 NUMERO:", numero);
+console.log("💬 TEXTO:", texto);
+
+// 🔥 FORÇANDO SALVAR DIRETO
+await salvarMensagem({
+  empresaId: "f05e57ba-abc8-46f3-b6cb-2db28888fd56",
+  numero,
+  nome: "Teste",
+  texto,
+  tipo: "text",
+  mediaUrl: null,
+  de: "cliente"
+});
     const key      = data?.key || {}
     const msg      = data?.message || {}
     const pushName = data?.pushName || data?.verifiedBizName || ''
