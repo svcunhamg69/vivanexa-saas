@@ -1,6 +1,10 @@
 // pages/api/wpp/webhook.js
-// Recebe eventos da Evolution API (QR Code) e da Meta Cloud API
-// Salva mensagens no vx_storage e aciona IA se configurado
+// ✅ FIXES v2:
+//   1. Suporte ao payload da Evolution API v2.3+ (estrutura atualizada)
+//   2. buscarEmpresaPorInstance mais robusto — fallback por variável de ambiente
+//   3. Processamento ANTES de responder (compatível com Vercel serverless)
+//   4. Logs detalhados para facilitar debug
+//   5. Suporte a action=sincronizar para importar conversas existentes
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -9,7 +13,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-export const config = { api: { bodyParser: { sizeLimit: '5mb' } } }
+export const config = { api: { bodyParser: { sizeLimit: '10mb' } } }
 
 export default async function handler(req, res) {
 
@@ -26,53 +30,121 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' })
 
   const body = req.body
-  res.status(200).json({ status: 'ok' }) // responde imediatamente
 
+  // ── Ação de sincronização manual ──────────────────────────────
+  // POST /api/wpp/webhook com { action: 'sincronizar', empresaId }
+  if (body?.action === 'sincronizar') {
+    try {
+      const result = await sincronizarConversasEvolution(body.empresaId)
+      return res.status(200).json({ success: true, ...result })
+    } catch (err) {
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
+  // ✅ FIX #3: Processar ANTES de responder (Vercel encerra após res.end())
   try {
     // ── Detectar provider pelo payload ────────────────────────────
-    const isEvolution = !!(body?.data?.key?.remoteJid || body?.event)
+    // Evolution API v2+ envia: { event, instance, data: {...} }
+    // Evolution API v1   envia: { event, data: { key, message } }
+    // Meta Cloud API     envia: { object: 'whatsapp_business_account', ... }
+
+    const isEvolution = !!(body?.event || body?.data?.key?.remoteJid)
     const isMeta      = body?.object === 'whatsapp_business_account'
+
+    console.log('[WPP Webhook] received:', JSON.stringify({ event: body?.event, instance: body?.instance, isEvolution, isMeta }).slice(0, 200))
 
     if (isEvolution) await processarEvolution(body)
     if (isMeta)      await processarMeta(body)
+
+    return res.status(200).json({ status: 'ok' })
   } catch (err) {
-    console.error('Webhook error:', err)
+    console.error('[WPP Webhook] error:', err)
+    return res.status(200).json({ status: 'error', message: err.message })
+    // Sempre 200 para Evolution não retentar
   }
 }
 
 // ══════════════════════════════════════════════
-// EVOLUTION API
+// EVOLUTION API v2.3+
 // ══════════════════════════════════════════════
 async function processarEvolution(body) {
-  const event = body?.event || ''
+  const event = body?.event || body?.type || ''
 
-  // Apenas mensagens recebidas
-  if (!['messages.upsert', 'messages.set'].includes(event)) return
+  console.log('[Evolution] event:', event)
 
-  const data    = body?.data || {}
-  const key     = data?.key || {}
-  const msg     = data?.message || {}
-  const pushName= data?.pushName || ''
+  // ✅ FIX #1: Evolution v2 usa 'messages.upsert', v1 também.
+  // Aceitar variações de nome de evento
+  const isMessageEvent = [
+    'messages.upsert',
+    'messages.set',
+    'message',
+    'MESSAGES_UPSERT',
+  ].includes(event)
 
-  // Ignorar mensagens enviadas por nós
-  if (key?.fromMe) return
+  if (!isMessageEvent) {
+    console.log('[Evolution] evento ignorado:', event)
+    return
+  }
 
-  const remoteJid = key?.remoteJid || ''
-  // Ignorar grupos
-  if (remoteJid.includes('@g.us')) return
+  // ✅ FIX: Evolution v2 pode mandar array ou objeto em data
+  const rawData = body?.data || {}
+  const mensagensRaw = Array.isArray(rawData) ? rawData : [rawData]
 
-  const numero   = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
-  const texto    = msg?.conversation || msg?.extendedTextMessage?.text || msg?.imageMessage?.caption || '[Mídia]'
-  const tipo     = msg?.imageMessage ? 'image' : msg?.videoMessage ? 'video' : msg?.audioMessage ? 'audio' : msg?.documentMessage ? 'document' : 'text'
-  const mediaUrl = msg?.imageMessage?.url || msg?.videoMessage?.url || msg?.audioMessage?.url || msg?.documentMessage?.url || null
+  for (const data of mensagensRaw) {
+    const key      = data?.key || {}
+    const msg      = data?.message || {}
+    const pushName = data?.pushName || data?.verifiedBizName || ''
 
-  // Tentar identificar empresaId pelo instanceId no body
-  const instanceName = body?.instance || body?.instanceName || ''
-  const empresaId    = await buscarEmpresaPorInstance(instanceName)
-  if (!empresaId) return
+    // Ignorar mensagens enviadas por nós
+    if (key?.fromMe === true) continue
 
-  await salvarMensagem({ empresaId, numero, nome: pushName, texto, tipo, mediaUrl, de: 'cliente' })
-  await verificarIAeResponder({ empresaId, numero, texto })
+    const remoteJid = key?.remoteJid || ''
+    if (!remoteJid) continue
+
+    // Ignorar grupos
+    if (remoteJid.includes('@g.us')) continue
+
+    const numero   = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
+    const texto    = (
+      msg?.conversation ||
+      msg?.extendedTextMessage?.text ||
+      msg?.imageMessage?.caption ||
+      msg?.videoMessage?.caption ||
+      msg?.documentMessage?.fileName ||
+      '[Mídia]'
+    )
+    const tipo     = msg?.imageMessage    ? 'image'
+                   : msg?.videoMessage    ? 'video'
+                   : msg?.audioMessage    ? 'audio'
+                   : msg?.documentMessage ? 'document'
+                   : 'text'
+    const mediaUrl = (
+      msg?.imageMessage?.url    ||
+      msg?.videoMessage?.url    ||
+      msg?.audioMessage?.url    ||
+      msg?.documentMessage?.url ||
+      null
+    )
+
+    // ✅ FIX #2: Busca empresaId pelo instance name — com fallback robusto
+    const instanceName = body?.instance || body?.instanceName || ''
+    const empresaId    = await buscarEmpresaPorInstance(instanceName)
+
+    if (!empresaId) {
+      console.warn('[Evolution] empresaId não encontrado para instance:', instanceName)
+      // Fallback: tenta usar variável de ambiente se só há uma empresa configurada
+      const fallbackEmpresaId = process.env.DEFAULT_EMPRESA_ID
+      if (!fallbackEmpresaId) continue
+      await salvarMensagem({ empresaId: fallbackEmpresaId, numero, nome: pushName, texto, tipo, mediaUrl, de: 'cliente' })
+      await verificarIAeResponder({ empresaId: fallbackEmpresaId, numero, texto })
+      continue
+    }
+
+    console.log('[Evolution] msg de', numero, '→ empresa', empresaId, '| texto:', texto.slice(0, 60))
+    await salvarMensagem({ empresaId, numero, nome: pushName, texto, tipo, mediaUrl, de: 'cliente' })
+    await verificarIAeResponder({ empresaId, numero, texto })
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -89,34 +161,178 @@ async function processarMeta(body) {
   const texto    = message.text?.body || '[Mídia]'
   const tipo     = message.type || 'text'
   const phoneId  = value?.metadata?.phone_number_id
-
-  // Buscar empresa pelo phoneId
-  const empresaId = await buscarEmpresaPorPhoneId(phoneId)
-  if (!empresaId) return
-
   const pushName = value?.contacts?.[0]?.profile?.name || ''
+
+  const empresaId = await buscarEmpresaPorPhoneId(phoneId)
+  if (!empresaId) {
+    console.warn('[Meta] empresaId não encontrado para phoneId:', phoneId)
+    return
+  }
 
   await salvarMensagem({ empresaId, numero, nome: pushName, texto, tipo, de: 'cliente' })
   await verificarIAeResponder({ empresaId, numero, texto })
 }
 
 // ══════════════════════════════════════════════
+// SINCRONIZAÇÃO: importa conversas existentes da Evolution
+// ══════════════════════════════════════════════
+async function sincronizarConversasEvolution(empresaId) {
+  if (!empresaId) throw new Error('empresaId obrigatório')
+
+  const { data: row } = await supabase
+    .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
+  const cfg = row?.value ? JSON.parse(row.value) : {}
+
+  const wppCfg   = cfg.wppInbox || {}
+  const baseUrl  = wppCfg.evolutionUrl  || process.env.EVOLUTION_API_URL || ''
+  const apiKey   = wppCfg.evolutionKey  || process.env.EVOLUTION_API_KEY || ''
+  const instance = wppCfg.evolutionInstance || ''
+
+  if (!baseUrl || !apiKey || !instance) {
+    throw new Error('Evolution API não configurada em Config → WhatsApp')
+  }
+
+  // Buscar lista de chats da instância
+  const r = await fetch(`${baseUrl}/chat/findChats/${instance}`, {
+    headers: { apikey: apiKey },
+    signal: AbortSignal.timeout(15000),
+  })
+
+  if (!r.ok) {
+    const txt = await r.text()
+    throw new Error(`Evolution API erro ${r.status}: ${txt.slice(0, 200)}`)
+  }
+
+  const chats = await r.json()
+  const lista  = Array.isArray(chats) ? chats : (chats?.chats || chats?.data || [])
+
+  let importados = 0
+  let erros = 0
+
+  for (const chat of lista.slice(0, 100)) { // máx 100 conversas
+    try {
+      const remoteJid = chat?.id || chat?.remoteJid || ''
+      if (!remoteJid || remoteJid.includes('@g.us')) continue // ignorar grupos
+
+      const numero  = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
+      const nome    = chat?.name || chat?.pushName || numero
+      const convKey = `wpp_conv:${empresaId}:${numero}`
+
+      // Verificar se já existe
+      const { data: existente } = await supabase
+        .from('vx_storage').select('value').eq('key', convKey).maybeSingle()
+
+      // Buscar últimas mensagens desse chat
+      let mensagens = []
+      try {
+        const mR = await fetch(`${baseUrl}/chat/findMessages/${instance}?remoteJid=${remoteJid}&limit=20`, {
+          headers: { apikey: apiKey },
+          signal: AbortSignal.timeout(10000),
+        })
+        if (mR.ok) {
+          const mData = await mR.json()
+          const rawMsgs = Array.isArray(mData) ? mData : (mData?.messages?.records || mData?.data || [])
+          mensagens = rawMsgs.map(m => {
+            const msgBody = m?.message || {}
+            const texto = (
+              msgBody?.conversation ||
+              msgBody?.extendedTextMessage?.text ||
+              msgBody?.imageMessage?.caption ||
+              '[Mídia]'
+            )
+            return {
+              id:   `msg_${m?.key?.id || Date.now()}`,
+              de:   m?.key?.fromMe ? 'empresa' : 'cliente',
+              para: m?.key?.fromMe ? numero : 'empresa',
+              texto,
+              tipo: msgBody?.imageMessage ? 'image' : msgBody?.audioMessage ? 'audio' : 'text',
+              at:   m?.messageTimestamp
+                      ? new Date(Number(m.messageTimestamp) * 1000).toISOString()
+                      : new Date().toISOString(),
+              lida: true,
+            }
+          }).filter(m => m.texto)
+        }
+      } catch {}
+
+      const ultimaMensagem = mensagens[mensagens.length - 1]?.texto || chat?.lastMessage?.conversation || ''
+      const ultimaAt = mensagens[mensagens.length - 1]?.at || new Date().toISOString()
+
+      // Mesclar com conversa existente se houver
+      let conv = existente?.value ? JSON.parse(existente.value) : null
+
+      if (conv) {
+        // Mesclar mensagens sem duplicar
+        const idsExistentes = new Set((conv.mensagens || []).map(m => m.id))
+        const novas = mensagens.filter(m => !idsExistentes.has(m.id))
+        conv.mensagens = [...(conv.mensagens || []), ...novas]
+          .sort((a, b) => new Date(a.at) - new Date(b.at))
+          .slice(-200)
+        conv.ultimaMensagem = ultimaMensagem || conv.ultimaMensagem
+        conv.ultimaAt = ultimaAt
+        if (!conv.nome && nome) conv.nome = nome
+      } else {
+        conv = {
+          id: convKey, numero, nome, empresaId,
+          status: 'automacao',
+          botPausado: false, filaId: null, agenteId: null, agenteNome: null,
+          tags: [], naoLidas: mensagens.filter(m => m.de === 'cliente').length,
+          ultimaMensagem, ultimaAt, mensagens,
+        }
+      }
+
+      await supabase.from('vx_storage').upsert({
+        key: convKey, value: JSON.stringify(conv), updated_at: new Date().toISOString()
+      }, { onConflict: 'key' })
+
+      // Atualiza índice
+      await atualizarIndice(empresaId, numero, {
+        nome, ultimaMensagem, ultimaAt,
+        status: conv.status, naoLidas: conv.naoLidas, tags: conv.tags,
+      })
+
+      importados++
+    } catch (e) {
+      console.warn('[Sync] erro no chat:', e.message)
+      erros++
+    }
+  }
+
+  return { importados, erros, total: lista.length }
+}
+
+// ══════════════════════════════════════════════
 // HELPERS
 // ══════════════════════════════════════════════
+
+// ✅ FIX #2: busca mais robusta com tratamento de erro explícito
 async function buscarEmpresaPorInstance(instanceName) {
   if (!instanceName) return null
   try {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from('vx_storage')
       .select('key, value')
       .like('key', 'cfg:%')
-    for (const row of rows || []) {
-      const cfg = row?.value ? JSON.parse(row.value) : {}
-      if (cfg?.wppInbox?.evolutionInstance === instanceName) {
-        return row.key.replace('cfg:', '')
-      }
+
+    if (error) {
+      console.error('[buscarEmpresaPorInstance] supabase error:', error.message)
+      return null
     }
-  } catch {}
+
+    for (const row of rows || []) {
+      try {
+        const cfg = row?.value ? JSON.parse(row.value) : {}
+        if (
+          cfg?.wppInbox?.evolutionInstance === instanceName ||
+          cfg?.wppInstance === instanceName
+        ) {
+          return row.key.replace('cfg:', '')
+        }
+      } catch {}
+    }
+  } catch (e) {
+    console.error('[buscarEmpresaPorInstance] error:', e.message)
+  }
   return null
 }
 
@@ -126,8 +342,10 @@ async function buscarEmpresaPorPhoneId(phoneId) {
     const { data: rows } = await supabase
       .from('vx_storage').select('key, value').like('key', 'cfg:%')
     for (const row of rows || []) {
-      const cfg = row?.value ? JSON.parse(row.value) : {}
-      if (cfg?.wpp?.phoneId === phoneId) return row.key.replace('cfg:', '')
+      try {
+        const cfg = row?.value ? JSON.parse(row.value) : {}
+        if (cfg?.wpp?.phoneId === phoneId) return row.key.replace('cfg:', '')
+      } catch {}
     }
   } catch {}
   return null
@@ -138,17 +356,17 @@ async function salvarMensagem({ empresaId, numero, nome, texto, tipo, mediaUrl, 
   const convKey = `wpp_conv:${empresaId}:${numeroLimpo}`
 
   const { data: convRow } = await supabase
-    .from('vx_storage').select('value').eq('key', convKey).single().catch(() => ({ data: null }))
+    .from('vx_storage').select('value').eq('key', convKey).maybeSingle()
 
   const agora = new Date().toISOString()
   let conv = convRow?.value ? JSON.parse(convRow.value) : {
     id: convKey, numero: numeroLimpo, nome: nome || numeroLimpo,
     empresaId, status: 'automacao', filaId: null, usuarioId: null,
+    botPausado: false, agenteId: null, agenteNome: null,
     tags: [], naoLidas: 0, ultimaMensagem: '', ultimaAt: agora, mensagens: [],
   }
 
-  // Atualiza nome se vier
-  if (nome && !conv.nome) conv.nome = nome
+  if (nome && (!conv.nome || conv.nome === conv.numero)) conv.nome = nome
 
   const msgId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`
   conv.mensagens = conv.mensagens || []
@@ -168,7 +386,6 @@ async function salvarMensagem({ empresaId, numero, nome, texto, tipo, mediaUrl, 
     key: convKey, value: JSON.stringify(conv), updated_at: agora
   }, { onConflict: 'key' })
 
-  // Atualiza índice de conversas
   await atualizarIndice(empresaId, numeroLimpo, {
     nome: conv.nome, ultimaMensagem: texto, ultimaAt: agora,
     status: conv.status, naoLidas: conv.naoLidas, tags: conv.tags,
@@ -177,8 +394,9 @@ async function salvarMensagem({ empresaId, numero, nome, texto, tipo, mediaUrl, 
 
 async function atualizarIndice(empresaId, numero, dados) {
   const idxKey = `wpp_idx:${empresaId}`
+
   const { data: row } = await supabase
-    .from('vx_storage').select('value').eq('key', idxKey).single().catch(() => ({ data: null }))
+    .from('vx_storage').select('value').eq('key', idxKey).maybeSingle()
 
   const idx = row?.value ? JSON.parse(row.value) : {}
   idx[numero] = { ...(idx[numero] || {}), numero, ...dados, updatedAt: new Date().toISOString() }
@@ -191,32 +409,30 @@ async function atualizarIndice(empresaId, numero, dados) {
 async function verificarIAeResponder({ empresaId, numero, texto }) {
   try {
     const { data: row } = await supabase
-      .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
     const cfg = row?.value ? JSON.parse(row.value) : {}
 
     const agentesCfg = cfg.wppAgentes || []
     if (!agentesCfg.length) return
 
-    // Verificar se conversa está em modo automacao
     const numeroLimpo = numero.replace(/\D/g, '')
     const convKey = `wpp_conv:${empresaId}:${numeroLimpo}`
     const { data: convRow } = await supabase
-      .from('vx_storage').select('value').eq('key', convKey).single().catch(() => ({ data: null }))
+      .from('vx_storage').select('value').eq('key', convKey).maybeSingle()
     const conv = convRow?.value ? JSON.parse(convRow.value) : {}
 
-    if (conv.status !== 'automacao') return
+    // ✅ Não responder se bot pausado ou não estiver em automação
+    if (conv.status !== 'automacao' || conv.botPausado) return
 
-    // Pega primeiro agente ativo da fila da conversa (ou qualquer ativo)
-    const agente = agentesCfg.find(a => a.ativo && (!a.filaId || a.filaId === conv.filaId)) || agentesCfg.find(a => a.ativo)
+    const agente = agentesCfg.find(a => a.ativo && (!a.filaId || a.filaId === conv.filaId))
+                || agentesCfg.find(a => a.ativo)
     if (!agente) return
 
     const apiKey   = agente.openaiKey || agente.groqKey || cfg.openaiApiKey || cfg.groqApiKey || ''
     const provider = agente.openaiKey || cfg.openaiApiKey ? 'openai' : 'groq'
     const model    = agente.model || (provider === 'openai' ? 'gpt-4o-mini' : 'llama3-70b-8192')
-
     if (!apiKey) return
 
-    // Monta histórico das últimas 10 mensagens
     const historico = (conv.mensagens || []).slice(-10).map(m => ({
       role: m.de === 'cliente' ? 'user' : 'assistant',
       content: m.texto,
@@ -228,37 +444,29 @@ async function verificarIAeResponder({ empresaId, numero, texto }) {
     ]
 
     let resposta = null
+    const baseUrl = provider === 'openai'
+      ? 'https://api.openai.com/v1/chat/completions'
+      : 'https://api.groq.com/openai/v1/chat/completions'
 
-    if (provider === 'openai') {
-      const r = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages, max_tokens: 300, temperature: 0.7 }),
-        signal: AbortSignal.timeout(20000),
-      })
-      const d = await r.json()
-      resposta = d?.choices?.[0]?.message?.content?.trim()
-    } else {
-      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages, max_tokens: 300, temperature: 0.7 }),
-        signal: AbortSignal.timeout(20000),
-      })
-      const d = await r.json()
-      resposta = d?.choices?.[0]?.message?.content?.trim()
-    }
+    const r = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, max_tokens: 300, temperature: 0.7 }),
+      signal: AbortSignal.timeout(20000),
+    })
+    const d = await r.json()
+    resposta = d?.choices?.[0]?.message?.content?.trim()
 
     if (!resposta) return
 
-    // Enviar resposta
-    await fetch(`${process.env.NEXTAUTH_URL || ''}/api/wpp/send`, {
+    const baseAppUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || ''
+    await fetch(`${baseAppUrl}/api/wpp/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ empresaId, numero: numeroLimpo, mensagem: resposta }),
-    }).catch(() => {})
+    }).catch(e => console.warn('[IA responder]', e.message))
 
   } catch (err) {
-    console.warn('IA responder error:', err.message)
+    console.warn('[verificarIAeResponder] error:', err.message)
   }
 }
