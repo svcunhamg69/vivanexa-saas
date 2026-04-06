@@ -187,6 +187,18 @@ export default function Prospeccao() {
   const [progresso, setProgresso] = useState(0)
   const [novoContato, setNovoContato] = useState({ nome: '', telefone: '', email: '' })
   const [showAddContato, setShowAddContato] = useState(false)
+  // Novos estados — disparo avançado
+  const [mensagensVariadas, setMensagensVariadas] = useState([''])
+  const [tipoMidia, setTipoMidia] = useState('text')
+  const [mediaUrl, setMediaUrl] = useState('')
+  const [mediaCaption, setMediaCaption] = useState('')
+  const [delayMin, setDelayMin] = useState(8)
+  const [delayMax, setDelayMax] = useState(20)
+  const [loteSize, setLoteSize] = useState(20)
+  const [lotePausa, setLotePausa] = useState(60)
+  const [resultadoCampanha, setResultadoCampanha] = useState(null)
+  const [erroDisparo, setErroDisparo] = useState('')
+  const [modoAvancado, setModoAvancado] = useState(false)
 
   // Chatbot
   const [chatbotNome, setChatbotNome] = useState('')
@@ -202,6 +214,7 @@ export default function Prospeccao() {
   const [agenteThinking, setAgenteThinking] = useState(false)
   const [providerAgente, setProviderAgente] = useState('gemini')
   const chatEndRef = useRef(null)
+  const fileImportRef = useRef(null)
 
   // Script Comercial
   const [tipoScript, setTipoScript] = useState('abordagem')
@@ -251,11 +264,58 @@ export default function Prospeccao() {
   }
 
   // ── Disparo em Massa ─────────────────────────────────────────
+  function parseCSVImport(text) {
+    const lines = text.trim().split('\n').filter(l => l.trim())
+    if (!lines.length) return []
+    const sep = lines[0].includes(';') ? ';' : lines[0].includes('\t') ? '\t' : ','
+    const headers = lines[0].split(sep).map(h => h.trim().toLowerCase().replace(/[^a-z]/g,''))
+    const hasHeader = headers.some(h => ['numero','telefone','phone','tel','nome','name'].includes(h))
+    if (!hasHeader) {
+      return lines.map((l, idx) => {
+        const num = l.split(sep)[0].replace(/\D/g,'').trim()
+        return num.length >= 10 ? { id: String(Date.now()+idx), nome:'', telefone: num, email:'' } : null
+      }).filter(Boolean)
+    }
+    return lines.slice(1).map((line, idx) => {
+      const cols = line.split(sep).map(c => c.trim().replace(/^"|"$/g,''))
+      const obj = {}
+      headers.forEach((h,i) => { obj[h] = cols[i] || '' })
+      const num = (obj.numero||obj.telefone||obj.phone||obj.tel||'').replace(/\D/g,'')
+      return num.length >= 10 ? { id: String(Date.now()+idx), nome: obj.nome||obj.name||obj.cliente||'', telefone: num, email: obj.email||'', empresa: obj.empresa||'', cidade: obj.cidade||'' } : null
+    }).filter(Boolean)
+  }
+
+  function onImportCSV(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const parsed = parseCSVImport(ev.target.result)
+        if (!parsed.length) { toast('Nenhum número válido encontrado', 'err'); return }
+        setContatos(prev => {
+          const nums = new Set(prev.map(c => c.telefone))
+          const novos = parsed.filter(c => !nums.has(c.telefone))
+          toast(`✅ ${novos.length} contato(s) importado(s)`)
+          return [...prev, ...novos]
+        })
+      } catch { toast('Erro ao ler arquivo', 'err') }
+    }
+    reader.readAsText(file, 'UTF-8')
+    e.target.value = ''
+  }
+
+  function baixarModeloCSV() {
+    const csv = 'telefone;nome;empresa;cidade\n5531999999999;João Silva;Empresa ABC;Belo Horizonte\n5511988888888;Maria Souza;XYZ;São Paulo'
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv],{type:'text/csv'})), download: 'modelo_contatos.csv' })
+    a.click()
+  }
+
   async function adicionarContato() {
     if (!novoContato.nome || (!novoContato.telefone && !novoContato.email)) {
       toast('Informe nome e telefone ou e-mail', 'err'); return
     }
-    const novo = { ...novoContato, id: String(Date.now()) }
+    const novo = { ...novoContato, id: String(Date.now()), telefone: novoContato.telefone.replace(/\D/g,'') }
     const novos = [...contatos, novo]
     setContatos(novos)
     const novoCfg = { ...cfg, contatos: novos }
@@ -274,33 +334,66 @@ export default function Prospeccao() {
     await salvarStorage(novoCfg)
   }
 
+  // Modo simples — abre wa.me
   async function dispararMensagens() {
     const alvos = selecionados.length > 0 ? contatos.filter(c => selecionados.includes(c.id)) : contatos
-    if (alvos.length === 0) { toast('Selecione ou adicione contatos', 'err'); return }
+    if (!alvos.length) { toast('Selecione ou adicione contatos', 'err'); return }
     if (!mensagemDisparo) { toast('Digite a mensagem', 'err'); return }
-
-    setDisparando(true)
-    setProgresso(0)
-
+    setDisparando(true); setProgresso(0)
     for (let i = 0; i < alvos.length; i++) {
-      const contato = alvos[i]
-      const msg = mensagemDisparo.replace(/\{nome\}/gi, contato.nome)
-
-      if (contato.telefone) {
-        const tel = contato.telefone.replace(/\D/g, '')
-        const url = `https://wa.me/55${tel}?text=${encodeURIComponent(msg)}`
-        window.open(url, '_blank')
-      }
-
-      setProgresso(Math.round(((i + 1) / alvos.length) * 100))
-
-      if (i < alvos.length - 1) {
-        await new Promise(r => setTimeout(r, 2000))
-      }
+      const c = alvos[i]
+      const msg = mensagemDisparo.replace(/\{nome\}/gi, c.nome||'').replace(/\{empresa\}/gi, c.empresa||'').replace(/\{cidade\}/gi, c.cidade||'')
+      if (c.telefone) window.open(`https://wa.me/55${c.telefone}?text=${encodeURIComponent(msg)}`,'_blank')
+      setProgresso(Math.round(((i+1)/alvos.length)*100))
+      if (i < alvos.length-1) await new Promise(r => setTimeout(r,2000))
     }
-
     setDisparando(false)
     toast(`✅ ${alvos.length} mensagem(ns) disparada(s)!`)
+  }
+
+  // Modo avançado — API com delays inteligentes
+  async function dispararAvancado() {
+    const msgsValidas = mensagensVariadas.filter(m => m.trim())
+    const alvos = selecionados.length > 0 ? contatos.filter(c => selecionados.includes(c.id)) : contatos
+    setErroDisparo('')
+    if (!alvos.length) { setErroDisparo('Adicione ao menos um contato'); return }
+    if (!msgsValidas.length) { setErroDisparo('Adicione ao menos uma mensagem'); return }
+    if (tipoMidia !== 'text' && !mediaUrl.trim()) { setErroDisparo('Informe a URL da mídia'); return }
+    if (delayMin >= delayMax) { setErroDisparo('Delay mínimo deve ser menor que o máximo'); return }
+    setDisparando(true); setResultadoCampanha(null); setProgresso(0)
+    const iv = setInterval(() => setProgresso(p => Math.min(p+1, 92)), ((delayMin+delayMax)/2)*1000/100)
+    try {
+      const res = await fetch('/api/wpp/disparo-massa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empresaId,
+          contatos: alvos.map(c => ({ numero: c.telefone, nome: c.nome||'', empresa: c.empresa||'', cidade: c.cidade||'' })),
+          mensagens: msgsValidas,
+          tipo: tipoMidia,
+          mediaUrl: tipoMidia !== 'text' ? mediaUrl : undefined,
+          mediaCaption: tipoMidia !== 'text' ? mediaCaption : undefined,
+          delayMinMs: delayMin*1000,
+          delayMaxMs: delayMax*1000,
+          loteSize,
+          lotePausaMs: lotePausa*1000,
+        }),
+      })
+      const data = await res.json()
+      clearInterval(iv); setProgresso(100)
+      if (res.ok) { setResultadoCampanha(data); toast(`✅ ${data.enviados} enviados, ${data.erros} erros`) }
+      else setErroDisparo(data.error || 'Erro no disparo')
+    } catch (e) { clearInterval(iv); setErroDisparo('Erro: '+e.message) }
+    finally { setDisparando(false) }
+  }
+
+  function estimarTempoDisparo() {
+    const total = selecionados.length || contatos.length
+    if (!total) return ''
+    const secs = total*(delayMin+delayMax)/2 + Math.ceil(total/loteSize)*lotePausa
+    if (secs < 60) return `~${Math.round(secs)}s`
+    if (secs < 3600) return `~${Math.round(secs/60)}min`
+    return `~${(secs/3600).toFixed(1)}h`
   }
 
   // ── Chatbot Config ───────────────────────────────────────────
@@ -480,66 +573,192 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
         {aba === 'disparo' && (
           <div>
             <div className="info-box info-blue">
-              💬 O disparo via WhatsApp abre automaticamente a conversa com cada contato. Para envios em larga escala, use a API oficial do WhatsApp Business (configure em Configurações → Empresa → API WhatsApp).
+              💬 <strong>Modo Simples</strong>: abre wa.me para cada contato (sem API). <strong>Modo Avançado</strong>: disparo direto via Evolution API com delays anti-banimento e múltiplas mensagens.
             </div>
 
+            {/* Toggle modo */}
+            <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+              <button className={`btn ${!modoAvancado ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize:11 }} onClick={() => setModoAvancado(false)}>
+                💬 Modo Simples (wa.me)
+              </button>
+              <button className={`btn ${modoAvancado ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize:11 }} onClick={() => setModoAvancado(true)}>
+                🚀 Modo Avançado (API + Anti-Banimento)
+              </button>
+            </div>
+
+            {erroDisparo && (
+              <div style={{ background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', borderRadius:8, padding:'10px 14px', marginBottom:12, color:'#fca5a5', fontSize:13 }}>
+                ⚠️ {erroDisparo}
+              </div>
+            )}
+
             <div className="grid2">
+              {/* ── COLUNA MENSAGEM ── */}
               <div className="card">
                 <div className="card-title">📝 Mensagem</div>
-                <div className="field">
-                  <label>Mensagem (use {'{nome}'} para personalizar)</label>
-                  <textarea value={mensagemDisparo} onChange={e => setMensagemDisparo(e.target.value)} placeholder={'Olá {nome}! Tudo bem?\n\nSou da ' + (cfg.company || 'Vivanexa') + ' e gostaria de apresentar nossa solução...'} style={{ minHeight: 120 }} />
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-wpp" onClick={dispararMensagens} disabled={disparando || !mensagemDisparo}>
-                    {disparando ? '⏳ Disparando...' : '🚀 Disparar via WhatsApp'}
+
+                {!modoAvancado ? (
+                  // Modo simples — 1 mensagem
+                  <div className="field">
+                    <label>Mensagem (use {'{nome}'}, {'{empresa}'} para personalizar)</label>
+                    <textarea value={mensagemDisparo} onChange={e => setMensagemDisparo(e.target.value)}
+                      placeholder={'Olá {nome}! Tudo bem?\n\nSou da ' + (cfg.company||'Vivanexa') + ' e gostaria de apresentar nossa solução...'}
+                      style={{ minHeight:120 }} />
+                  </div>
+                ) : (
+                  // Modo avançado — até 10 mensagens + mídia
+                  <div>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                      <span style={{ fontSize:11, color:'#64748b' }}>Até 10 variações — escolha aleatória por contato (anti-spam)</span>
+                      <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 10px' }}
+                        onClick={() => mensagensVariadas.length < 10 && setMensagensVariadas(p => [...p,''])}>
+                        + Variação
+                      </button>
+                    </div>
+                    <div style={{ background:'rgba(0,212,255,.05)', border:'1px solid rgba(0,212,255,.15)', borderRadius:6, padding:'6px 10px', fontSize:11, color:'#64748b', marginBottom:10 }}>
+                      Variáveis: <code style={{color:'#00d4ff'}}>{'{nome}'}</code> <code style={{color:'#00d4ff'}}>{'{empresa}'}</code> <code style={{color:'#00d4ff'}}>{'{cidade}'}</code>
+                    </div>
+                    {mensagensVariadas.map((msg, i) => (
+                      <div key={i} style={{ display:'flex', gap:6, marginBottom:8, alignItems:'flex-start' }}>
+                        <span style={{ background:'#1a2540', color:'#64748b', borderRadius:4, padding:'2px 7px', fontSize:11, marginTop:10, flexShrink:0 }}>{i+1}</span>
+                        <textarea className="field" style={{ flex:1, background:'#1a2540', border:'1px solid #1e2d4a', borderRadius:8, padding:'9px 12px', fontFamily:'DM Mono,monospace', fontSize:13, color:'#e2e8f0', outline:'none', resize:'vertical', minHeight:72, margin:0 }}
+                          placeholder={`Mensagem ${i+1}...`} value={msg}
+                          onChange={e => setMensagensVariadas(p => p.map((m,j) => j===i ? e.target.value : m))} />
+                        {mensagensVariadas.length > 1 && (
+                          <button onClick={() => setMensagensVariadas(p => p.filter((_,j) => j!==i))}
+                            style={{ background:'none', border:'none', color:'#ef4444', cursor:'pointer', marginTop:10, padding:'2px 6px', fontSize:14 }}>✕</button>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Tipo mídia */}
+                    <div style={{ borderTop:'1px solid #1e2d4a', paddingTop:12, marginTop:4 }}>
+                      <div style={{ fontSize:11, color:'#64748b', marginBottom:8, textTransform:'uppercase', letterSpacing:'.5px' }}>Tipo de conteúdo</div>
+                      <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:10 }}>
+                        {[['text','💬 Texto'],['image','🖼️ Imagem'],['video','🎥 Vídeo'],['audio','🎵 Áudio'],['document','📄 Doc']].map(([val,label]) => (
+                          <button key={val} onClick={() => setTipoMidia(val)}
+                            className={`btn ${tipoMidia===val ? 'btn-primary' : 'btn-secondary'}`}
+                            style={{ fontSize:11, padding:'4px 12px' }}>{label}</button>
+                        ))}
+                      </div>
+                      {tipoMidia !== 'text' && (
+                        <div>
+                          <div className="field"><label>URL da mídia *</label><input value={mediaUrl} onChange={e => setMediaUrl(e.target.value)} placeholder="https://..." /></div>
+                          {tipoMidia !== 'audio' && <div className="field"><label>Legenda (opcional)</label><input value={mediaCaption} onChange={e => setMediaCaption(e.target.value)} placeholder="Legenda..." /></div>}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Anti-banimento */}
+                    <div style={{ borderTop:'1px solid #1e2d4a', paddingTop:12, marginTop:8 }}>
+                      <div style={{ fontSize:11, color:'#10b981', marginBottom:8, display:'flex', gap:6, alignItems:'center' }}>
+                        🛡️ <strong>Anti-Banimento</strong> — delays aleatórios + rotação de mensagens
+                      </div>
+                      <div className="grid2" style={{ gap:8 }}>
+                        <div className="field"><label>Delay mínimo (seg)</label><input type="number" value={delayMin} min={3} max={120} onChange={e => setDelayMin(+e.target.value)} /></div>
+                        <div className="field"><label>Delay máximo (seg)</label><input type="number" value={delayMax} min={5} max={300} onChange={e => setDelayMax(+e.target.value)} /></div>
+                        <div className="field"><label>Envios por lote</label><input type="number" value={loteSize} min={5} max={100} onChange={e => setLoteSize(+e.target.value)} /></div>
+                        <div className="field"><label>Pausa entre lotes (seg)</label><input type="number" value={lotePausa} min={10} max={600} onChange={e => setLotePausa(+e.target.value)} /></div>
+                      </div>
+                      {contatos.length > 0 && (
+                        <div style={{ background:'#0a0f1e', borderRadius:6, padding:'8px 12px', fontSize:11, color:'#64748b', display:'flex', gap:16, flexWrap:'wrap' }}>
+                          <span>👥 <strong style={{color:'#e2e8f0'}}>{selecionados.length||contatos.length}</strong> contatos</span>
+                          <span>⏱ <strong style={{color:'#e2e8f0'}}>{estimarTempoDisparo()}</strong> estimado</span>
+                          <span>📦 <strong style={{color:'#e2e8f0'}}>{Math.ceil((selecionados.length||contatos.length)/loteSize)}</strong> lotes</span>
+                          <span>🔀 <strong style={{color:'#e2e8f0'}}>{mensagensVariadas.filter(m=>m.trim()).length}</strong> variações</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Botão disparar */}
+                <div style={{ marginTop:14 }}>
+                  <button
+                    className={`btn ${modoAvancado ? 'btn-primary' : 'btn-wpp'}`}
+                    style={{ width:'100%', justifyContent:'center', fontSize:13, padding:'11px' }}
+                    onClick={modoAvancado ? dispararAvancado : dispararMensagens}
+                    disabled={disparando || (!modoAvancado && !mensagemDisparo)}>
+                    {disparando
+                      ? `⏳ Disparando... ${progresso}%`
+                      : modoAvancado
+                        ? `🚀 Disparar via API (${selecionados.length||contatos.length} contatos)`
+                        : '💬 Disparar via WhatsApp'}
                   </button>
+                  {disparando && (
+                    <div style={{ marginTop:8 }}>
+                      <div className="progress-bar"><div className="progress-fill" style={{ width:progresso+'%' }} /></div>
+                      {modoAvancado && <div style={{ fontSize:11, color:'#64748b', marginTop:4, textAlign:'center' }}>Delays inteligentes — não feche a janela</div>}
+                    </div>
+                  )}
                 </div>
-                {disparando && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{progresso}% concluído</div>
-                    <div className="progress-bar"><div className="progress-fill" style={{ width: progresso + '%' }} /></div>
+
+                {/* Resultado campanha avançada */}
+                {resultadoCampanha && (
+                  <div style={{ marginTop:12, background:'#0a0f1e', borderRadius:8, padding:12, border:'1px solid #1e2d4a' }}>
+                    <div style={{ fontSize:12, color:'#00d4ff', marginBottom:8 }}>✅ Campanha {resultadoCampanha.campanhaId}</div>
+                    <div style={{ display:'flex', gap:12 }}>
+                      <div style={{ flex:1, textAlign:'center' }}><div style={{ fontSize:22, fontWeight:800, color:'#10b981' }}>{resultadoCampanha.enviados}</div><div style={{ fontSize:10, color:'#64748b' }}>Enviados</div></div>
+                      <div style={{ flex:1, textAlign:'center' }}><div style={{ fontSize:22, fontWeight:800, color:'#ef4444' }}>{resultadoCampanha.erros}</div><div style={{ fontSize:10, color:'#64748b' }}>Erros</div></div>
+                      <div style={{ flex:1, textAlign:'center' }}><div style={{ fontSize:22, fontWeight:800, color:'#64748b' }}>{resultadoCampanha.total}</div><div style={{ fontSize:10, color:'#64748b' }}>Total</div></div>
+                    </div>
                   </div>
                 )}
               </div>
 
+              {/* ── COLUNA CONTATOS ── */}
               <div className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <div className="card-title" style={{ margin: 0 }}>👥 Contatos ({contatos.length})</div>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                  <div className="card-title" style={{ margin:0 }}>👥 Contatos ({contatos.length})</div>
+                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                     {selecionados.length > 0 && <span className="badge badge-blue">{selecionados.length} sel.</span>}
-                    <button className="btn btn-secondary" style={{ fontSize: 10, padding: '4px 10px' }} onClick={() => setSelecionados(selecionados.length === contatos.length ? [] : contatos.map(c => c.id))}>
-                      {selecionados.length === contatos.length ? 'Desmarcar' : 'Marcar todos'}
+                    <button className="btn btn-secondary" style={{ fontSize:10, padding:'4px 10px' }}
+                      onClick={() => setSelecionados(selecionados.length===contatos.length ? [] : contatos.map(c=>c.id))}>
+                      {selecionados.length===contatos.length ? 'Desmarcar' : 'Marcar todos'}
                     </button>
-                    <button className="btn btn-primary" style={{ fontSize: 10, padding: '4px 10px' }} onClick={() => setShowAddContato(true)}>+</button>
+                    <button className="btn btn-secondary" style={{ fontSize:10, padding:'4px 10px' }} onClick={() => fileImportRef.current?.click()}>
+                      ⬆ CSV
+                    </button>
+                    <button className="btn btn-secondary" style={{ fontSize:10, padding:'4px 10px' }} onClick={baixarModeloCSV}>
+                      ⬇ Modelo
+                    </button>
+                    <button className="btn btn-primary" style={{ fontSize:10, padding:'4px 10px' }} onClick={() => setShowAddContato(true)}>+</button>
+                    <input ref={fileImportRef} type="file" accept=".csv,.txt" style={{ display:'none' }} onChange={onImportCSV} />
                   </div>
                 </div>
 
-                <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                <div style={{ fontSize:11, color:'#64748b', marginBottom:8 }}>
+                  CSV aceita colunas: telefone, nome, empresa, cidade — ou lista pura de números
+                </div>
+
+                <div style={{ maxHeight:300, overflowY:'auto' }}>
                   {contatos.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: '#64748b', padding: 20, fontSize: 12 }}>Nenhum contato. Clique em + para adicionar.</div>
+                    <div style={{ textAlign:'center', color:'#64748b', padding:20, fontSize:12 }}>
+                      Nenhum contato. Clique em <strong>⬆ CSV</strong> para importar ou <strong>+</strong> para adicionar.
+                    </div>
                   ) : contatos.map(c => (
                     <div key={c.id} className="contact-row">
-                      <input type="checkbox" className="contact-check" checked={selecionados.includes(c.id)} onChange={() => setSelecionados(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>{c.nome}</div>
-                        <div style={{ fontSize: 11, color: '#64748b' }}>{c.telefone}{c.email ? ' · ' + c.email : ''}</div>
+                      <input type="checkbox" className="contact-check" checked={selecionados.includes(c.id)}
+                        onChange={() => setSelecionados(prev => prev.includes(c.id) ? prev.filter(x=>x!==c.id) : [...prev,c.id])} />
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:13, color:'#e2e8f0', fontWeight:600 }}>{c.nome||c.telefone}</div>
+                        <div style={{ fontSize:11, color:'#64748b' }}>{c.telefone}{c.empresa ? ' · '+c.empresa : ''}{c.email ? ' · '+c.email : ''}</div>
                       </div>
-                      <button onClick={() => removerContato(c.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                      <button onClick={() => removerContato(c.id)} style={{ background:'none', border:'none', color:'#ef4444', cursor:'pointer', fontSize:14 }}>✕</button>
                     </div>
                   ))}
                 </div>
 
                 {showAddContato && (
-                  <div style={{ marginTop: 12, padding: 12, background: '#0a0f1e', borderRadius: 10, border: '1px solid #1e2d4a' }}>
+                  <div style={{ marginTop:12, padding:12, background:'#0a0f1e', borderRadius:10, border:'1px solid #1e2d4a' }}>
                     <div className="grid2">
-                      <div className="field"><label>Nome</label><input value={novoContato.nome} onChange={e => setNovoContato(f => ({ ...f, nome: e.target.value }))} /></div>
-                      <div className="field"><label>Telefone</label><input value={novoContato.telefone} onChange={e => setNovoContato(f => ({ ...f, telefone: e.target.value }))} placeholder="(11) 99999-0000" /></div>
+                      <div className="field"><label>Nome</label><input value={novoContato.nome} onChange={e => setNovoContato(f=>({...f,nome:e.target.value}))} /></div>
+                      <div className="field"><label>Telefone (com DDI)</label><input value={novoContato.telefone} onChange={e => setNovoContato(f=>({...f,telefone:e.target.value}))} placeholder="5531999999999" /></div>
                     </div>
-                    <div className="field"><label>E-mail (opcional)</label><input value={novoContato.email} onChange={e => setNovoContato(f => ({ ...f, email: e.target.value }))} /></div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn btn-primary" style={{ fontSize: 11 }} onClick={adicionarContato}>Adicionar</button>
-                      <button className="btn btn-secondary" style={{ fontSize: 11 }} onClick={() => setShowAddContato(false)}>Cancelar</button>
+                    <div className="field"><label>E-mail (opcional)</label><input value={novoContato.email} onChange={e => setNovoContato(f=>({...f,email:e.target.value}))} /></div>
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button className="btn btn-primary" style={{ fontSize:11 }} onClick={adicionarContato}>Adicionar</button>
+                      <button className="btn btn-secondary" style={{ fontSize:11 }} onClick={() => setShowAddContato(false)}>Cancelar</button>
                     </div>
                   </div>
                 )}
