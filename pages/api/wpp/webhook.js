@@ -372,6 +372,8 @@ async function buscarEmpresaPorPhoneId(phoneId) {
 }
 
 async function salvarMensagem({ empresaId, numero, nome, texto, tipo, mediaUrl, de }) {
+  console.log("🔥 SALVANDO NO SUPABASE");
+console.log("📦 DADOS:", { empresaId, numero, texto });
   const numeroLimpo = numero.replace(/\D/g, '')
   const convKey = `wpp_conv:${empresaId}:${numeroLimpo}`
 
