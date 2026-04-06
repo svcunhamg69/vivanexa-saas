@@ -1,8 +1,14 @@
 // pages/whatsapp-inbox.js
-// Inbox WhatsApp Vivanexa — inspirado no HelfZap
-// Split: lista de conversas (esq) + chat aberto (dir)
-// Abas: Automação / Aguardando / Atendendo / Finalizados
-// Tags, busca, Agente IA, transferência de fila
+// ✅ FIXES:
+//   1. Aba padrão muda para 'automacao' (onde as msgs chegam pelo webhook)
+//   2. carregarIndice corrigido — usa .maybeSingle() e trata null corretamente
+//   3. Polling agora força refresh do índice e da conversa ativa
+//   4. Webhook salva com status 'automacao' → inbox agora exibe nessa aba
+// ✅ NOVOS RECURSOS:
+//   - Pausar bot / Assumir atendimento manualmente
+//   - Transferir atendimento entre agentes
+//   - Encerrar com geração de protocolo (filas de suporte)
+//   - Indicador "Bot ativo" no header do chat
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/router'
@@ -10,7 +16,6 @@ import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 
-// ── Status labels ─────────────────────────────────────────────
 const STATUS = {
   automacao:  { label: 'Automação',  cor: '#7c3aed', bg: 'rgba(124,58,237,.15)' },
   aguardando: { label: 'Aguardando', cor: '#f59e0b', bg: 'rgba(245,158,11,.15)' },
@@ -28,6 +33,12 @@ const TAGS_PADRAO = [
   { id: 'proposta',     label: 'Proposta',     cor: '#00d4ff' },
   { id: 'contrato',     label: 'Contrato',     cor: '#10b981' },
 ]
+
+function gerarProtocolo(tipo = 'SUP') {
+  const now = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  return `${tipo}-${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${Math.floor(Math.random()*90000+10000)}`
+}
 
 function fmtHora(iso) {
   if (!iso) return ''
@@ -64,22 +75,35 @@ export default function WhatsappInbox() {
   const [empresaId, setEmpresaId] = useState(null)
   const [loading, setLoading]     = useState(true)
 
-  // Conversas
-  const [idx, setIdx]               = useState({}) // índice { numero: {...} }
-  const [convAtiva, setConvAtiva]   = useState(null) // numero
-  const [conv, setConv]             = useState(null) // conversa completa
-  const [abaAtiva, setAbaAtiva]     = useState('atendendo')
+  const [idx, setIdx]               = useState({})
+  const [convAtiva, setConvAtiva]   = useState(null)
+  const [conv, setConv]             = useState(null)
+  // ✅ FIX #1: aba padrão = 'automacao' (onde o webhook salva as msgs)
+  const [abaAtiva, setAbaAtiva]     = useState('automacao')
   const [busca, setBusca]           = useState('')
   const [enviando, setEnviando]     = useState(false)
   const [msgInput, setMsgInput]     = useState('')
   const [loadingConv, setLoadingConv] = useState(false)
-
-  // Sidebar direita
   const [sidebarAberta, setSidebarAberta] = useState(false)
 
-  // Polling
+  // Transferência
+  const [showTransferir, setShowTransferir] = useState(false)
+  const [agentes, setAgentes]               = useState([])
+
+  // Protocolo
+  const [protocolo, setProtocolo] = useState(null)
+
+  // Toast
+  const [toast, setToast] = useState(null)
+
   const pollingRef = useRef(null)
   const msgEndRef  = useRef(null)
+  const idxRef     = useRef({})
+
+  function showToast(msg, tipo = 'ok') {
+    setToast({ msg, tipo })
+    setTimeout(() => setToast(null), 3000)
+  }
 
   // ── Auth + load ───────────────────────────────────────────────
   useEffect(() => {
@@ -97,62 +121,91 @@ export default function WhatsappInbox() {
       setEmpresaId(eid)
       setUser({ ...session.user, ...profile })
 
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).maybeSingle()
       const c = row?.value ? JSON.parse(row.value) : {}
       setCfg(c)
+
+      // Carregar lista de agentes (perfis da empresa)
+      const { data: perfis } = await supabase.from('perfis').select('user_id, nome, email').eq('empresa_id', eid)
+      setAgentes(perfis || [])
+
       await carregarIndice(eid)
       setLoading(false)
     })
     return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
   }, [router])
 
-  // ── Polling 5s ───────────────────────────────────────────────
+  // ── Polling 4s ───────────────────────────────────────────────
   useEffect(() => {
     if (!empresaId) return
-    pollingRef.current = setInterval(() => {
-      carregarIndice(empresaId, true)
-      if (convAtiva) carregarConv(empresaId, convAtiva, true)
-    }, 5000)
+    pollingRef.current = setInterval(async () => {
+      const novoIdx = await carregarIndice(empresaId, true)
+      // ✅ FIX #2: só recarrega conv ativa se houve atualização
+      if (convAtiva) {
+        const ultimaAt = novoIdx?.[convAtiva]?.updatedAt
+        const atualAt  = idxRef.current?.[convAtiva]?.updatedAt
+        if (!atualAt || ultimaAt !== atualAt) {
+          await carregarConv(empresaId, convAtiva, true)
+        }
+      }
+    }, 4000)
     return () => clearInterval(pollingRef.current)
   }, [empresaId, convAtiva])
 
-  // ── Scroll to bottom ─────────────────────────────────────────
   useEffect(() => {
     msgEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [conv?.mensagens])
+  }, [conv?.mensagens?.length])
 
+  // ✅ FIX #3: carregarIndice retorna o novo índice para o polling comparar
   async function carregarIndice(eid, silencioso = false) {
     try {
+      // ✅ FIX #4: usa .maybeSingle() para não lançar erro quando vazio
       const { data: row } = await supabase
-        .from('vx_storage').select('value').eq('key', `wpp_idx:${eid}`).single()
-      if (row?.value) setIdx(JSON.parse(row.value))
-    } catch {}
+        .from('vx_storage').select('value').eq('key', `wpp_idx:${eid}`).maybeSingle()
+      if (row?.value) {
+        const parsed = JSON.parse(row.value)
+        idxRef.current = parsed
+        setIdx(parsed)
+        return parsed
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar índice:', e)
+    }
     if (!silencioso) setLoading(false)
+    return {}
   }
 
   async function carregarConv(eid, numero, silencioso = false) {
     if (!silencioso) setLoadingConv(true)
     try {
       const { data: row } = await supabase
-        .from('vx_storage').select('value').eq('key', `wpp_conv:${eid}:${numero}`).single()
+        .from('vx_storage').select('value').eq('key', `wpp_conv:${eid}:${numero}`).maybeSingle()
       if (row?.value) {
         const c = JSON.parse(row.value)
         setConv(c)
+        if (c.protocolo) setProtocolo(c.protocolo)
         // Zerar não lidas
         if (c.naoLidas > 0) {
           c.naoLidas = 0
           await supabase.from('vx_storage').upsert({
             key: `wpp_conv:${eid}:${numero}`, value: JSON.stringify(c), updated_at: new Date().toISOString()
           }, { onConflict: 'key' })
-          setIdx(prev => ({ ...prev, [numero]: { ...(prev[numero] || {}), naoLidas: 0 } }))
+          setIdx(prev => {
+            const n = { ...prev, [numero]: { ...(prev[numero] || {}), naoLidas: 0 } }
+            idxRef.current = n
+            return n
+          })
         }
       }
-    } catch {}
+    } catch (e) {
+      console.warn('Erro ao carregar conversa:', e)
+    }
     if (!silencioso) setLoadingConv(false)
   }
 
   async function abrirConv(numero) {
     setConvAtiva(numero)
+    setProtocolo(null)
     await carregarConv(empresaId, numero)
     if (window.innerWidth < 768) setSidebarAberta(false)
   }
@@ -163,7 +216,6 @@ export default function WhatsappInbox() {
     if (!txt || !convAtiva || enviando) return
     setEnviando(true)
     setMsgInput('')
-
     try {
       const r = await fetch('/api/wpp/send', {
         method: 'POST',
@@ -174,21 +226,71 @@ export default function WhatsappInbox() {
       if (!r.ok) throw new Error(data.error || 'Erro ao enviar')
       await carregarConv(empresaId, convAtiva, true)
     } catch (err) {
-      alert('Erro ao enviar: ' + err.message)
+      showToast('Erro ao enviar: ' + err.message, 'erro')
     }
     setEnviando(false)
   }
 
-  // ── Mudar status da conversa ──────────────────────────────────
-  async function mudarStatus(novoStatus) {
+  // ── Mudar status ──────────────────────────────────────────────
+  async function mudarStatus(novoStatus, extra = {}) {
     if (!conv || !empresaId) return
-    const c = { ...conv, status: novoStatus }
+    const c = { ...conv, status: novoStatus, ...extra }
     setConv(c)
     await supabase.from('vx_storage').upsert({
       key: `wpp_conv:${empresaId}:${convAtiva}`,
       value: JSON.stringify(c), updated_at: new Date().toISOString()
     }, { onConflict: 'key' })
-    setIdx(prev => ({ ...prev, [convAtiva]: { ...(prev[convAtiva] || {}), status: novoStatus } }))
+    // Atualizar índice
+    const novoIdx = { ...idxRef.current, [convAtiva]: { ...(idxRef.current[convAtiva] || {}), status: novoStatus, updatedAt: new Date().toISOString() } }
+    idxRef.current = novoIdx
+    setIdx(novoIdx)
+    await supabase.from('vx_storage').upsert({
+      key: `wpp_idx:${empresaId}`, value: JSON.stringify(novoIdx), updated_at: new Date().toISOString()
+    }, { onConflict: 'key' })
+  }
+
+  // ✅ NOVO: Pausar bot e assumir manualmente
+  async function assumirAtendimento() {
+    await mudarStatus('atendendo', { botPausado: true, agenteId: user?.user_id, agenteNome: user?.nome })
+    showToast('✅ Bot pausado. Você assumiu o atendimento.')
+  }
+
+  // ✅ NOVO: Reativar bot
+  async function reativarBot() {
+    await mudarStatus('automacao', { botPausado: false, agenteId: null, agenteNome: null })
+    showToast('🤖 Bot reativado.')
+  }
+
+  // ✅ NOVO: Finalizar com protocolo
+  async function finalizarComProtocolo() {
+    const fila = conv?.filaId || 'GERAL'
+    const tipo = fila.toLowerCase().includes('suporte') ? 'SUP' : 'ATD'
+    const prot = gerarProtocolo(tipo)
+    setProtocolo(prot)
+
+    // Envia mensagem de encerramento com protocolo
+    const msgEncerramento = `✅ Atendimento encerrado.\n\n📋 *Protocolo: ${prot}*\n\nObrigado por entrar em contato! Se precisar de mais ajuda, estamos à disposição.`
+
+    await mudarStatus('finalizado', { protocolo: prot, finalizadoEm: new Date().toISOString() })
+
+    // Envia msg de encerramento
+    try {
+      await fetch('/api/wpp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresaId, numero: convAtiva, mensagem: msgEncerramento }),
+      })
+      await carregarConv(empresaId, convAtiva, true)
+    } catch {}
+
+    showToast(`Protocolo gerado: ${prot}`, 'ok')
+  }
+
+  // ✅ NOVO: Transferir atendimento
+  async function transferirPara(agente) {
+    await mudarStatus('aguardando', { agenteId: agente.user_id, agenteNome: agente.nome, botPausado: true })
+    setShowTransferir(false)
+    showToast(`Transferido para ${agente.nome}`)
   }
 
   // ── Toggle tag ────────────────────────────────────────────────
@@ -202,7 +304,11 @@ export default function WhatsappInbox() {
       key: `wpp_conv:${empresaId}:${convAtiva}`,
       value: JSON.stringify(c), updated_at: new Date().toISOString()
     }, { onConflict: 'key' })
-    setIdx(prev => ({ ...prev, [convAtiva]: { ...(prev[convAtiva] || {}), tags: novasTags } }))
+    setIdx(prev => {
+      const n = { ...prev, [convAtiva]: { ...(prev[convAtiva] || {}), tags: novasTags } }
+      idxRef.current = n
+      return n
+    })
   }
 
   // ── Filtros ───────────────────────────────────────────────────
@@ -221,6 +327,7 @@ export default function WhatsappInbox() {
   }
 
   const tagsDisponiveis = cfg.wppTags?.length ? cfg.wppTags : TAGS_PADRAO
+  const botAtivo = conv && !conv.botPausado && (conv.status === 'automacao')
 
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0f1e', color: '#64748b', fontFamily: 'DM Mono, monospace' }}>
@@ -239,26 +346,76 @@ export default function WhatsappInbox() {
 
       <Navbar cfg={cfg} perfil={user} />
 
+      {/* ── Toast ─────────────────────────────────────────────── */}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: toast.tipo === 'erro' ? '#ef444422' : '#10b98122',
+          border: `1px solid ${toast.tipo === 'erro' ? '#ef4444' : '#10b981'}`,
+          color: toast.tipo === 'erro' ? '#ef4444' : '#10b981',
+          padding: '10px 20px', borderRadius: 10, fontSize: 13, zIndex: 9999,
+          fontFamily: 'DM Mono, monospace', backdropFilter: 'blur(8px)',
+          boxShadow: '0 4px 24px rgba(0,0,0,.4)',
+        }}>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* ── Modal: Transferir atendimento ─────────────────────── */}
+      {showTransferir && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setShowTransferir(false)}>
+          <div style={{
+            background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16,
+            padding: 24, minWidth: 300, maxWidth: 400,
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#e2e8f0', marginBottom: 16 }}>
+              🔀 Transferir Atendimento
+            </div>
+            {agentes.length === 0 ? (
+              <div style={{ color: '#64748b', fontSize: 13 }}>Nenhum agente disponível.</div>
+            ) : agentes.map(ag => (
+              <button
+                key={ag.user_id}
+                onClick={() => transferirPara(ag)}
+                style={{
+                  width: '100%', padding: '10px 14px', marginBottom: 8, borderRadius: 10,
+                  background: '#1a2540', border: '1px solid #1e2d4a', color: '#e2e8f0',
+                  fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer',
+                  textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+                }}
+              >
+                <Avatar nome={ag.nome} size={28} />
+                <div>
+                  <div style={{ fontWeight: 600 }}>{ag.nome}</div>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>{ag.email}</div>
+                </div>
+              </button>
+            ))}
+            <button
+              onClick={() => setShowTransferir(false)}
+              style={{ marginTop: 8, width: '100%', padding: '8px', background: 'none', border: '1px solid #1e2d4a', color: '#64748b', borderRadius: 8, cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="inbox-wrap">
 
-        {/* ══════════════════════════════════════════
-            COLUNA ESQUERDA — Lista de conversas
-        ═══════════════════════════════════════════ */}
-        <div className={`conv-list ${convAtiva && window?.innerWidth < 768 ? 'hidden-mobile' : ''}`}>
-
-          {/* Header lista */}
+        {/* ══ LISTA ═══════════════════════════════════════════════ */}
+        <div className="conv-list">
           <div className="list-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 20 }}>💬</span>
               <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>WhatsApp Inbox</span>
             </div>
-            <button
-              onClick={() => router.push('/configuracoes?tab=whatsapp')}
-              className="btn-icon" title="Configurações WhatsApp"
-            >⚙️</button>
+            <button onClick={() => router.push('/configuracoes?tab=whatsapp')} className="btn-icon" title="Configurações">⚙️</button>
           </div>
 
-          {/* Busca */}
           <div className="busca-wrap">
             <span className="busca-icon">🔍</span>
             <input
@@ -269,7 +426,6 @@ export default function WhatsappInbox() {
             />
           </div>
 
-          {/* Abas */}
           <div className="abas-list">
             {ABAS.map(aba => (
               <button
@@ -285,15 +441,14 @@ export default function WhatsappInbox() {
             ))}
           </div>
 
-          {/* Lista */}
           <div className="conv-items">
             {listaFiltrada.length === 0 ? (
               <div className="empty-list">
                 <div style={{ fontSize: 36, marginBottom: 10 }}>💬</div>
                 <div>Nenhuma conversa em <strong>{STATUS[abaAtiva].label}</strong></div>
-                {abaAtiva === 'atendendo' && (
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
-                    Configure o WhatsApp em Config → WhatsApp
+                {abaAtiva === 'automacao' && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, lineHeight: 1.6 }}>
+                    As mensagens recebidas via WhatsApp<br/>aparecem aqui automaticamente.
                   </div>
                 )}
               </div>
@@ -312,7 +467,7 @@ export default function WhatsappInbox() {
                   <div className="conv-preview">{c.ultimaMensagem || '...'}</div>
                   {(c.tags || []).length > 0 && (
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-                      {(c.tags || []).slice(0, 3).map(tagId => {
+                      {(c.tags || []).slice(0, 2).map(tagId => {
                         const t = tagsDisponiveis.find(x => x.id === tagId)
                         return t ? (
                           <span key={tagId} className="tag-chip" style={{ borderColor: t.cor + '55', color: t.cor, background: t.cor + '15' }}>
@@ -331,26 +486,19 @@ export default function WhatsappInbox() {
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════
-            COLUNA DIREITA — Chat aberto
-        ═══════════════════════════════════════════ */}
-        <div className="chat-area">
+        {/* ══ CHAT ════════════════════════════════════════════════ */}
+        <div className={`chat-area ${convAtiva ? 'aberta' : ''}`}>
           {!convAtiva ? (
             <div className="chat-vazio">
               <div style={{ fontSize: 56, marginBottom: 16 }}>💬</div>
               <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Atendimentos</div>
               <div style={{ fontSize: 13, color: 'var(--muted)' }}>Selecione uma conversa para visualizar ou inicie um novo atendimento</div>
-              <button
-                onClick={() => router.push('/configuracoes?tab=whatsapp')}
-                className="btn-primary" style={{ marginTop: 20 }}
-              >
+              <button onClick={() => router.push('/configuracoes?tab=whatsapp')} className="btn-primary" style={{ marginTop: 20 }}>
                 ⚙️ Configurar WhatsApp
               </button>
             </div>
           ) : loadingConv ? (
-            <div className="chat-vazio">
-              <div style={{ color: 'var(--muted)', fontSize: 14 }}>Carregando conversa...</div>
-            </div>
+            <div className="chat-vazio"><div style={{ color: 'var(--muted)', fontSize: 14 }}>Carregando conversa...</div></div>
           ) : conv ? (
             <>
               {/* Header chat */}
@@ -361,8 +509,23 @@ export default function WhatsappInbox() {
                   <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {conv.nome || conv.numero}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{conv.numero}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    {conv.numero}
+                    {conv.agenteNome && <span style={{ color: '#00d4ff', marginLeft: 8 }}>· {conv.agenteNome}</span>}
+                  </div>
                 </div>
+
+                {/* Indicador bot */}
+                {botAtivo && (
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 20,
+                    background: 'rgba(124,58,237,.2)', color: '#7c3aed',
+                    border: '1px solid rgba(124,58,237,.4)', display: 'flex', alignItems: 'center', gap: 4,
+                  }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#7c3aed', display: 'inline-block', animation: 'pulse 1.5s infinite' }} />
+                    BOT ATIVO
+                  </div>
+                )}
 
                 {/* Status badge */}
                 <div style={{
@@ -374,40 +537,86 @@ export default function WhatsappInbox() {
                 </div>
 
                 {/* Ações rápidas */}
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {conv.status !== 'atendendo' && (
-                    <button onClick={() => mudarStatus('atendendo')} className="btn-acao verde">
-                      ▶ Atender
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {/* Assumir / Reativar bot */}
+                  {(conv.status === 'automacao' || botAtivo) ? (
+                    <button onClick={assumirAtendimento} className="btn-acao verde" title="Pausar bot e assumir">
+                      🙋 Assumir
                     </button>
+                  ) : (
+                    <button onClick={reativarBot} className="btn-acao cinza" title="Reativar bot">
+                      🤖 Bot
+                    </button>
+                  )}
+
+                  {conv.status !== 'atendendo' && conv.status !== 'finalizado' && (
+                    <button onClick={() => mudarStatus('atendendo')} className="btn-acao verde">▶ Atender</button>
                   )}
                   {conv.status !== 'aguardando' && conv.status !== 'finalizado' && (
-                    <button onClick={() => mudarStatus('aguardando')} className="btn-acao amarelo">
-                      ⏸ Aguardar
+                    <button onClick={() => mudarStatus('aguardando')} className="btn-acao amarelo">⏸ Aguardar</button>
+                  )}
+
+                  {/* Transferir */}
+                  {conv.status !== 'finalizado' && (
+                    <button onClick={() => setShowTransferir(true)} className="btn-acao cinza" title="Transferir atendimento">
+                      🔀 Transferir
                     </button>
                   )}
+
+                  {/* Finalizar com protocolo */}
                   {conv.status !== 'finalizado' && (
-                    <button onClick={() => mudarStatus('finalizado')} className="btn-acao cinza">
+                    <button onClick={finalizarComProtocolo} className="btn-acao cinza">
                       ✓ Finalizar
                     </button>
                   )}
-                  <button onClick={() => setSidebarAberta(!sidebarAberta)} className="btn-icon" title="Detalhes">
-                    ℹ️
-                  </button>
+
+                  <button onClick={() => setSidebarAberta(!sidebarAberta)} className="btn-icon" title="Detalhes">ℹ️</button>
                 </div>
               </div>
 
-              {/* Área de mensagens */}
+              {/* Banner protocolo */}
+              {protocolo && (
+                <div style={{
+                  padding: '8px 16px', background: 'rgba(16,185,129,.1)', borderBottom: '1px solid rgba(16,185,129,.2)',
+                  fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  📋 Protocolo gerado: <strong>{protocolo}</strong>
+                </div>
+              )}
+
+              {/* Agente responsável */}
+              {conv.agenteNome && conv.status !== 'automacao' && (
+                <div style={{
+                  padding: '6px 16px', background: 'rgba(0,212,255,.05)', borderBottom: '1px solid rgba(0,212,255,.1)',
+                  fontSize: 11, color: '#64748b',
+                }}>
+                  👤 Atendido por: <span style={{ color: '#00d4ff' }}>{conv.agenteNome}</span>
+                </div>
+              )}
+
+              {/* Mensagens */}
               <div className="mensagens">
-                {(conv.mensagens || []).map(m => (
-                  <div
-                    key={m.id}
-                    className={`msg-wrap ${m.de === 'empresa' ? 'enviada' : 'recebida'}`}
-                  >
+                {(conv.mensagens || []).length === 0 ? (
+                  <div style={{ textAlign: 'center', color: '#64748b', fontSize: 13, marginTop: 40 }}>
+                    Nenhuma mensagem ainda.
+                  </div>
+                ) : (conv.mensagens || []).map(m => (
+                  <div key={m.id} className={`msg-wrap ${m.de === 'empresa' ? 'enviada' : 'recebida'}`}>
                     <div className={`msg-bubble ${m.de === 'empresa' ? 'enviada' : 'recebida'}`}>
                       {m.tipo === 'image' && m.mediaUrl && (
                         <img src={m.mediaUrl} alt="imagem" style={{ maxWidth: 220, borderRadius: 8, display: 'block', marginBottom: 4 }} />
                       )}
-                      <div style={{ fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {m.tipo === 'audio' && m.mediaUrl && (
+                        <audio controls style={{ width: '100%', marginBottom: 4 }}>
+                          <source src={m.mediaUrl} />
+                        </audio>
+                      )}
+                      {m.tipo === 'video' && m.mediaUrl && (
+                        <video controls style={{ maxWidth: 220, borderRadius: 8, display: 'block', marginBottom: 4 }}>
+                          <source src={m.mediaUrl} />
+                        </video>
+                      )}
+                      <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                         {m.texto}
                       </div>
                       <div className="msg-hora">{fmtHora(m.at)}</div>
@@ -417,22 +626,18 @@ export default function WhatsappInbox() {
                 <div ref={msgEndRef} />
               </div>
 
-              {/* Input de mensagem */}
+              {/* Input */}
               {conv.status !== 'finalizado' ? (
                 <div className="input-area">
                   <textarea
                     className="msg-input"
-                    placeholder="Digite uma mensagem..."
+                    placeholder="Digite uma mensagem... (Enter para enviar)"
                     value={msgInput}
                     onChange={e => setMsgInput(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar() } }}
                     rows={1}
                   />
-                  <button
-                    onClick={enviar}
-                    disabled={enviando || !msgInput.trim()}
-                    className="btn-send"
-                  >
+                  <button onClick={enviar} disabled={enviando || !msgInput.trim()} className="btn-send">
                     {enviando ? '⏳' : (
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <line x1="22" y1="2" x2="11" y2="13" />
@@ -443,7 +648,7 @@ export default function WhatsappInbox() {
                 </div>
               ) : (
                 <div className="conv-finalizada">
-                  ✅ Conversa finalizada ·{' '}
+                  ✅ Conversa finalizada{protocolo ? ` · Protocolo: ${protocolo}` : ''} ·{' '}
                   <button onClick={() => mudarStatus('atendendo')} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'underline' }}>
                     Reabrir
                   </button>
@@ -453,9 +658,7 @@ export default function WhatsappInbox() {
           ) : null}
         </div>
 
-        {/* ══════════════════════════════════════════
-            SIDEBAR DIREITA — Detalhes / Tags / Ações
-        ═══════════════════════════════════════════ */}
+        {/* ══ SIDEBAR DETALHES ══════════════════════════════════ */}
         {conv && sidebarAberta && (
           <div className="sidebar-det">
             <div className="sidebar-header">
@@ -464,12 +667,17 @@ export default function WhatsappInbox() {
             </div>
 
             <div style={{ padding: '16px' }}>
-              {/* Info do contato */}
               <div className="det-card">
                 <Avatar nome={conv.nome} size={48} />
                 <div style={{ marginTop: 10, textAlign: 'center' }}>
                   <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>{conv.nome || conv.numero}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>📱 {conv.numero}</div>
+                  {conv.agenteNome && (
+                    <div style={{ fontSize: 11, color: '#00d4ff', marginTop: 4 }}>👤 {conv.agenteNome}</div>
+                  )}
+                  {protocolo && (
+                    <div style={{ fontSize: 11, color: '#10b981', marginTop: 4, fontWeight: 700 }}>📋 {protocolo}</div>
+                  )}
                 </div>
               </div>
 
@@ -498,7 +706,7 @@ export default function WhatsappInbox() {
                 </div>
               </div>
 
-              {/* Mudar status */}
+              {/* Status */}
               <div style={{ marginTop: 16 }}>
                 <div className="det-label">📌 Status</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
@@ -525,39 +733,23 @@ export default function WhatsappInbox() {
               <div style={{ marginTop: 16 }}>
                 <div className="det-label">⚡ Ações Rápidas</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                  <button
-                    onClick={() => {
-                      const msg = `Olá! Aqui é da equipe ${cfg.company || 'Vivanexa'}. Como posso ajudá-lo hoje? 😊`
-                      setMsgInput(msg)
-                      setSidebarAberta(false)
-                    }}
-                    className="btn-acao-full"
-                  >
+                  <button onClick={assumirAtendimento} className="btn-acao-full">🙋 Assumir (pausar bot)</button>
+                  <button onClick={() => setShowTransferir(true)} className="btn-acao-full">🔀 Transferir atendimento</button>
+                  <button onClick={finalizarComProtocolo} className="btn-acao-full">📋 Finalizar c/ Protocolo</button>
+                  <button onClick={() => { const msg = `Olá! Aqui é da equipe ${cfg.company || 'Vivanexa'}. Como posso ajudá-lo hoje? 😊`; setMsgInput(msg); setSidebarAberta(false) }} className="btn-acao-full">
                     👋 Saudação padrão
                   </button>
-                  <button
-                    onClick={() => router.push(`/crm?busca=${conv.numero}`)}
-                    className="btn-acao-full"
-                  >
-                    🤝 Abrir no CRM
-                  </button>
-                  <button
-                    onClick={() => router.push(`/chat`)}
-                    className="btn-acao-full"
-                  >
-                    💬 Gerar Proposta
-                  </button>
+                  <button onClick={() => router.push(`/crm?busca=${conv.numero}`)} className="btn-acao-full">🤝 Abrir no CRM</button>
+                  <button onClick={() => router.push(`/chat`)} className="btn-acao-full">💬 Gerar Proposta</button>
                 </div>
               </div>
 
-              {/* Total de mensagens */}
               <div style={{ marginTop: 16, padding: '10px 14px', background: 'var(--surface2)', borderRadius: 8, fontSize: 12, color: 'var(--muted)' }}>
                 📊 {(conv.mensagens || []).length} mensagens nesta conversa
               </div>
             </div>
           </div>
         )}
-
       </div>
     </>
   )
@@ -567,18 +759,18 @@ const CSS = `
   :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--danger:#ef4444;--warning:#f59e0b;--shadow:0 4px 24px rgba(0,0,0,.4)}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
   .inbox-wrap{display:flex;height:calc(100vh - 48px);overflow:hidden;position:relative}
 
-  /* ── LISTA ── */
-  .conv-list{width:320px;min-width:280px;max-width:340px;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface);flex-shrink:0;height:100%;overflow:hidden}
+  .conv-list{width:300px;min-width:260px;max-width:320px;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface);flex-shrink:0;height:100%;overflow:hidden}
   .list-header{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:var(--surface2)}
   .busca-wrap{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border)}
   .busca-icon{font-size:14px;color:var(--muted);flex-shrink:0}
-  .busca-input{flex:1;background:var(--surface2);border:1px solid var(--border);borderRadius:8px;padding:7px 10px;font-family:DM Mono,monospace;font-size:12px;color:var(--text);outline:none;border-radius:8px}
+  .busca-input{flex:1;background:var(--surface2);border:1px solid var(--border);padding:7px 10px;font-family:DM Mono,monospace;font-size:12px;color:var(--text);outline:none;border-radius:8px}
   .busca-input:focus{border-color:var(--accent)}
-  .abas-list{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--surface2);overflow-x:auto}
-  .aba-btn{flex:1;padding:9px 6px;border:none;background:none;color:var(--muted);font-family:DM Mono,monospace;font-size:10px;cursor:pointer;border-bottom:2px solid transparent;position:relative;top:1px;display:flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap;transition:color .2s}
+  .abas-list{display:flex;border-bottom:1px solid var(--border);background:var(--surface2);overflow-x:auto}
+  .aba-btn{flex:1;padding:9px 4px;border:none;background:none;color:var(--muted);font-family:DM Mono,monospace;font-size:10px;cursor:pointer;border-bottom:2px solid transparent;position:relative;top:1px;display:flex;align-items:center;justify-content:center;gap:3px;white-space:nowrap;transition:color .2s}
   .aba-btn.ativa{color:var(--accent);border-bottom-color:var(--accent)}
   .aba-count{padding:1px 5px;border-radius:10px;font-size:9px;color:#fff;font-weight:700}
   .conv-items{flex:1;overflow-y:auto}
@@ -593,10 +785,9 @@ const CSS = `
   .badge-naoLidas{position:absolute;top:12px;right:12px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;min-width:18px;text-align:center}
   .empty-list{text-align:center;padding:40px 20px;color:var(--muted);font-size:13px}
 
-  /* ── CHAT ── */
   .chat-area{flex:1;display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--bg);min-width:0}
   .chat-vazio{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--muted);font-size:13px;padding:40px}
-  .chat-header{padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap}
+  .chat-header{padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface2);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;gap:6px}
   .mensagens{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}
   .mensagens::-webkit-scrollbar{width:4px}.mensagens::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
   .msg-wrap{display:flex}.msg-wrap.enviada{justify-content:flex-end}.msg-wrap.recebida{justify-content:flex-start}
@@ -612,28 +803,25 @@ const CSS = `
   .btn-send:disabled{opacity:.5;cursor:not-allowed}
   .conv-finalizada{padding:12px 16px;text-align:center;font-size:12px;color:var(--muted);border-top:1px solid var(--border);background:var(--surface2);flex-shrink:0}
 
-  /* ── SIDEBAR DETALHES ── */
-  .sidebar-det{width:260px;min-width:240px;border-left:1px solid var(--border);background:var(--surface);overflow-y:auto;flex-shrink:0;height:100%}
+  .sidebar-det{width:250px;min-width:220px;border-left:1px solid var(--border);background:var(--surface);overflow-y:auto;flex-shrink:0;height:100%}
   .sidebar-header{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:var(--surface2)}
   .det-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;align-items:center}
   .det-label{font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase}
 
-  /* ── BOTÕES ── */
   .btn-primary{padding:10px 20px;border-radius:10px;background:linear-gradient(135deg,#00d4ff,#0099bb);border:none;color:#fff;font-family:DM Mono,monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
   .btn-primary:hover{box-shadow:0 0 16px rgba(0,212,255,.4);transform:translateY(-1px)}
   .btn-icon{background:none;border:1px solid var(--border);color:var(--muted);padding:6px 10px;border-radius:8px;cursor:pointer;font-size:14px;transition:all .15s;flex-shrink:0}
   .btn-icon:hover{color:var(--accent);border-color:rgba(0,212,255,.3)}
   .btn-back{display:none;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;padding:4px 8px}
-  .btn-acao{padding:6px 12px;border-radius:8px;font-family:DM Mono,monospace;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid;transition:all .15s;flex-shrink:0}
+  .btn-acao{padding:5px 10px;border-radius:8px;font-family:DM Mono,monospace;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid;transition:all .15s;flex-shrink:0;white-space:nowrap}
   .btn-acao.verde{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35);color:#10b981}
   .btn-acao.amarelo{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35);color:#f59e0b}
   .btn-acao.cinza{background:rgba(100,116,139,.12);border-color:rgba(100,116,139,.3);color:#64748b}
   .btn-acao-full{width:100%;padding:9px 14px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-family:DM Mono,monospace;font-size:12px;cursor:pointer;text-align:left;transition:all .15s}
   .btn-acao-full:hover{color:var(--accent);border-color:rgba(0,212,255,.3)}
 
-  /* ── MOBILE ── */
   @media(max-width:768px){
-    .conv-list{width:100%!important;max-width:100%!important}
+    .conv-list{width:100%!important;max-width:100%!important;position:absolute;inset:0;z-index:1}
     .chat-area{position:absolute;inset:0;z-index:10;display:none}
     .chat-area.aberta{display:flex}
     .btn-back{display:block}
