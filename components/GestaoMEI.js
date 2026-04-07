@@ -219,8 +219,8 @@ function SubDashboard({ dados, onSalvar, saving }) {
   const p = pct(receitaAno, LIMITE_MEI_ANUAL)
   const cor = corLimite(p)
 
-  const dasAtrasados = (dados.das || []).filter(d =>
-    d.ano === ano && d.status !== 'pago' && d.mes < mes
+  const dasAtrasados = (dados.das?.[ano] || []).filter(d =>
+    d.status !== 'pago' && d.mes < mes
   ).length
 
   const docsObrigatorios = ['ccmei', 'das_ultimo', 'dasn_ultimo']
@@ -328,8 +328,7 @@ function SubReceitas({ dados, onSalvar, saving }) {
   }
 
   function salvarReceitas() {
-    const receitasAtuais = dados.receitas || {}
-    receitasAtuais[anoSel] = receitasMes
+    const receitasAtuais = { ...(dados.receitas || {}), [anoSel]: receitasMes }
     onSalvar({ ...dados, receitas: receitasAtuais })
   }
 
@@ -448,8 +447,7 @@ function SubDAS({ dados, onSalvar, saving }) {
   }
 
   function salvarDAS() {
-    const dasAtual = dados.das || {}
-    dasAtual[anoSel] = das
+    const dasAtual = { ...(dados.das || {}), [anoSel]: das }
     onSalvar({ ...dados, das: dasAtual })
   }
 
