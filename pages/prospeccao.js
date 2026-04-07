@@ -101,14 +101,13 @@ function toast(msg, type = 'ok') {
 }
 
 const TIPOS_SCRIPT = [
-  { id: 'abordagem', label: '👋 Abordagem Inicial' },
+  { id: 'abordagem',    label: '👋 Abordagem Inicial' },
   { id: 'apresentacao', label: '💼 Apresentação do Produto' },
-  { id: 'objecao', label: '🛡️ Contorno de Objeções' },
-  { id: 'followup', label: '🔄 Follow-up' },
-  { id: 'fechamento', label: '🔥 Fechamento' },
-  { id: 'reativacao', label: '♻️ Reativação de Clientes' },
+  { id: 'objecao',      label: '🛡️ Contorno de Objeções' },
+  { id: 'followup',     label: '🔄 Follow-up' },
+  { id: 'fechamento',   label: '🔥 Fechamento' },
+  { id: 'reativacao',   label: '♻️ Reativação de Clientes' },
 ]
-
 
 // Helper centralizado de IA — usa OpenAI, Gemini ou Groq com fallback automático
 async function callAI(prompt, cfg, { temperature = 0.7, maxTokens = 2000, systemPrompt = null, history = null } = {}) {
@@ -172,53 +171,53 @@ async function callAI(prompt, cfg, { temperature = 0.7, maxTokens = 2000, system
 export default function Prospeccao() {
   const router = useRouter()
   const { aba: abaQuery } = router.query
-  const [aba, setAba] = useState('disparo')
-  const [loading, setLoading] = useState(true)
-  const [cfg, setCfg] = useState({})
+  const [aba, setAba]           = useState('disparo')
+  const [loading, setLoading]   = useState(true)
+  const [cfg, setCfg]           = useState({})
   const [empresaId, setEmpresaId] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [perfil, setPerfil] = useState(null)
+  const [saving, setSaving]     = useState(false)
+  const [perfil, setPerfil]     = useState(null)
 
   // Disparo em Massa
-  const [contatos, setContatos] = useState([])
+  const [contatos, setContatos]         = useState([])
   const [selecionados, setSelecionados] = useState([])
   const [mensagemDisparo, setMensagemDisparo] = useState('')
-  const [disparando, setDisparando] = useState(false)
-  const [progresso, setProgresso] = useState(0)
-  const [novoContato, setNovoContato] = useState({ nome: '', telefone: '', email: '' })
+  const [disparando, setDisparando]     = useState(false)
+  const [progresso, setProgresso]       = useState(0)
+  const [novoContato, setNovoContato]   = useState({ nome: '', telefone: '', email: '' })
   const [showAddContato, setShowAddContato] = useState(false)
-  // Novos estados — disparo avançado
+  // Disparo avançado
   const [mensagensVariadas, setMensagensVariadas] = useState([''])
-  const [tipoMidia, setTipoMidia] = useState('text')
-  const [mediaUrl, setMediaUrl] = useState('')
+  const [tipoMidia, setTipoMidia]       = useState('text')
+  const [mediaUrl, setMediaUrl]         = useState('')
   const [mediaCaption, setMediaCaption] = useState('')
-  const [delayMin, setDelayMin] = useState(8)
-  const [delayMax, setDelayMax] = useState(20)
-  const [loteSize, setLoteSize] = useState(20)
-  const [lotePausa, setLotePausa] = useState(60)
+  const [delayMin, setDelayMin]         = useState(8)
+  const [delayMax, setDelayMax]         = useState(20)
+  const [loteSize, setLoteSize]         = useState(20)
+  const [lotePausa, setLotePausa]       = useState(60)
   const [resultadoCampanha, setResultadoCampanha] = useState(null)
-  const [erroDisparo, setErroDisparo] = useState('')
+  const [erroDisparo, setErroDisparo]   = useState('')
   const [modoAvancado, setModoAvancado] = useState(false)
 
   // Chatbot
-  const [chatbotNome, setChatbotNome] = useState('')
+  const [chatbotNome, setChatbotNome]               = useState('')
   const [chatbotPersonalidade, setChatbotPersonalidade] = useState('profissional')
-  const [chatbotObjetivo, setChatbotObjetivo] = useState('vendas')
-  const [chatbotPrompt, setChatbotPrompt] = useState('')
-  const [gerandoChatbot, setGerandoChatbot] = useState(false)
-  const [chatbotConfig, setChatbotConfig] = useState(null)
+  const [chatbotObjetivo, setChatbotObjetivo]       = useState('vendas')
+  const [chatbotPrompt, setChatbotPrompt]           = useState('')
+  const [gerandoChatbot, setGerandoChatbot]         = useState(false)
+  const [chatbotConfig, setChatbotConfig]           = useState(null)
 
-  // Agente IA — chat de teste
+  // Agente IA
   const [agenteMessages, setAgenteMessages] = useState([])
-  const [agenteInput, setAgenteInput] = useState('')
+  const [agenteInput, setAgenteInput]       = useState('')
   const [agenteThinking, setAgenteThinking] = useState(false)
   const [providerAgente, setProviderAgente] = useState('gemini')
-  const chatEndRef = useRef(null)
+  const chatEndRef  = useRef(null)
   const fileImportRef = useRef(null)
 
   // Script Comercial
-  const [tipoScript, setTipoScript] = useState('abordagem')
-  const [nichoScript, setNichoScript] = useState('')
+  const [tipoScript, setTipoScript]       = useState('abordagem')
+  const [nichoScript, setNichoScript]     = useState('')
   const [produtoScript, setProdutoScript] = useState('')
   const [gerandoScript, setGerandoScript] = useState(false)
   const [scriptResultado, setScriptResultado] = useState('')
@@ -245,7 +244,6 @@ export default function Prospeccao() {
         setChatbotNome(c.chatbotConfig?.nome || c.company || '')
         setNichoScript(c.nicho || '')
         setProdutoScript(c.company || '')
-        // Inicializa agente
         setAgenteMessages([{
           role: 'bot',
           content: `Olá! Sou o Agente IA da ${c.company || 'Vivanexa'}. Como posso ajudá-lo hoje?`
@@ -342,7 +340,10 @@ export default function Prospeccao() {
     setDisparando(true); setProgresso(0)
     for (let i = 0; i < alvos.length; i++) {
       const c = alvos[i]
-      const msg = mensagemDisparo.replace(/\{nome\}/gi, c.nome||'').replace(/\{empresa\}/gi, c.empresa||'').replace(/\{cidade\}/gi, c.cidade||'')
+      const msg = mensagemDisparo
+        .replace(/\{nome\}/gi, c.nome||'')
+        .replace(/\{empresa\}/gi, c.empresa||'')
+        .replace(/\{cidade\}/gi, c.cidade||'')
       if (c.telefone) window.open(`https://wa.me/55${c.telefone}?text=${encodeURIComponent(msg)}`,'_blank')
       setProgresso(Math.round(((i+1)/alvos.length)*100))
       if (i < alvos.length-1) await new Promise(r => setTimeout(r,2000))
@@ -356,42 +357,71 @@ export default function Prospeccao() {
     const msgsValidas = mensagensVariadas.filter(m => m.trim())
     const alvos = selecionados.length > 0 ? contatos.filter(c => selecionados.includes(c.id)) : contatos
     setErroDisparo('')
-    if (!alvos.length) { setErroDisparo('Adicione ao menos um contato'); return }
+    if (!alvos.length)   { setErroDisparo('Adicione ao menos um contato'); return }
     if (!msgsValidas.length) { setErroDisparo('Adicione ao menos uma mensagem'); return }
     if (tipoMidia !== 'text' && !mediaUrl.trim()) { setErroDisparo('Informe a URL da mídia'); return }
     if (delayMin >= delayMax) { setErroDisparo('Delay mínimo deve ser menor que o máximo'); return }
+
     setDisparando(true); setResultadoCampanha(null); setProgresso(0)
     const iv = setInterval(() => setProgresso(p => Math.min(p+1, 92)), ((delayMin+delayMax)/2)*1000/100)
+
     try {
       const res = await fetch('/api/wpp/disparo-massa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           empresaId,
-          contatos: alvos.map(c => ({ numero: c.telefone, nome: c.nome||'', empresa: c.empresa||'', cidade: c.cidade||'' })),
-          mensagens: msgsValidas,
-          tipo: tipoMidia,
-          mediaUrl: tipoMidia !== 'text' ? mediaUrl : undefined,
+          contatos: alvos.map(c => ({
+            numero:  c.telefone,
+            nome:    c.nome    || '',
+            empresa: c.empresa || '',
+            cidade:  c.cidade  || '',
+          })),
+          mensagens:   msgsValidas,
+          tipo:        tipoMidia,
+          mediaUrl:    tipoMidia !== 'text' ? mediaUrl    : undefined,
           mediaCaption: tipoMidia !== 'text' ? mediaCaption : undefined,
-          delayMinMs: delayMin*1000,
-          delayMaxMs: delayMax*1000,
+          delayMinMs:  delayMin  * 1000,
+          delayMaxMs:  delayMax  * 1000,
           loteSize,
-          lotePausaMs: lotePausa*1000,
+          lotePausaMs: lotePausa * 1000,
         }),
       })
       const data = await res.json()
       clearInterval(iv); setProgresso(100)
-      if (res.ok) { setResultadoCampanha(data); toast(`✅ ${data.enviados} enviados, ${data.erros} erros`) }
-      else setErroDisparo(data.error || 'Erro no disparo')
-    } catch (e) { clearInterval(iv); setErroDisparo('Erro: '+e.message) }
-    finally { setDisparando(false) }
+      if (res.ok) {
+        setResultadoCampanha(data)
+        toast(`✅ ${data.enviados} enviados, ${data.erros} erros`)
+      } else {
+        setErroDisparo(data.error || 'Erro no disparo')
+      }
+    } catch (e) {
+      clearInterval(iv)
+      setErroDisparo('Erro: ' + e.message)
+    } finally {
+      setDisparando(false)
+    }
+  }
+
+  function exportarRelatorioCSV(campanha) {
+    const rows = [
+      'numero,nome,status,motivo,horario',
+      ...(campanha.resultados || []).map(r =>
+        `${r.numero},"${r.nome || ''}",${r.status},"${r.motivo || ''}",${r.at || ''}`
+      )
+    ]
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' })),
+      download: `campanha_${campanha.campanhaId}.csv`
+    })
+    a.click()
   }
 
   function estimarTempoDisparo() {
     const total = selecionados.length || contatos.length
     if (!total) return ''
     const secs = total*(delayMin+delayMax)/2 + Math.ceil(total/loteSize)*lotePausa
-    if (secs < 60) return `~${Math.round(secs)}s`
+    if (secs < 60)   return `~${Math.round(secs)}s`
     if (secs < 3600) return `~${Math.round(secs/60)}min`
     return `~${(secs/3600).toFixed(1)}h`
   }
@@ -461,7 +491,7 @@ Crie um prompt profissional, completo e prático em português.`
     }
 
     const sysPr = chatbotConfig?.prompt || `Você é um assistente comercial da empresa ${cfg.company || 'Vivanexa'}. Seja prestativo, profissional e focado em ajudar o cliente.`
-    const hist = agenteMessages.slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
+    const hist  = agenteMessages.slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
 
     try {
       const resposta = await callAI(userMsg, cfg, { temperature: 0.7, systemPrompt: sysPr, history: hist })
@@ -538,7 +568,6 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
       <style>{CSS}</style>
       <div className="orb orb1" /><div className="orb orb2" />
 
-      {/* NAVBAR */}
       <Navbar cfg={cfg} perfil={perfil} />
 
       <div className="page-wrap">
@@ -563,10 +592,10 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
 
         {/* Tabs */}
         <div className="tabs">
-          <button className={`tab-btn ${aba === 'disparo' ? 'active' : ''}`} onClick={() => setAba('disparo')}>💬 Disparo em Massa</button>
-          <button className={`tab-btn ${aba === 'chatbot' ? 'active' : ''}`} onClick={() => setAba('chatbot')}>🤖 Chatbot</button>
-          <button className={`tab-btn ${aba === 'agente' ? 'active' : ''}`} onClick={() => setAba('agente')}>🧠 Agente IA</button>
-          <button className={`tab-btn ${aba === 'script' ? 'active' : ''}`} onClick={() => setAba('script')}>📋 Script/Playbook</button>
+          <button className={`tab-btn ${aba === 'disparo' ? 'active' : ''}`}  onClick={() => setAba('disparo')}>💬 Disparo em Massa</button>
+          <button className={`tab-btn ${aba === 'chatbot' ? 'active' : ''}`}  onClick={() => setAba('chatbot')}>🤖 Chatbot</button>
+          <button className={`tab-btn ${aba === 'agente'  ? 'active' : ''}`}  onClick={() => setAba('agente')}>🧠 Agente IA</button>
+          <button className={`tab-btn ${aba === 'script'  ? 'active' : ''}`}  onClick={() => setAba('script')}>📋 Script/Playbook</button>
         </div>
 
         {/* ── ABA DISPARO ── */}
@@ -598,7 +627,6 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                 <div className="card-title">📝 Mensagem</div>
 
                 {!modoAvancado ? (
-                  // Modo simples — 1 mensagem
                   <div className="field">
                     <label>Mensagem (use {'{nome}'}, {'{empresa}'} para personalizar)</label>
                     <textarea value={mensagemDisparo} onChange={e => setMensagemDisparo(e.target.value)}
@@ -606,7 +634,6 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                       style={{ minHeight:120 }} />
                   </div>
                 ) : (
-                  // Modo avançado — até 10 mensagens + mídia
                   <div>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                       <span style={{ fontSize:11, color:'#64748b' }}>Até 10 variações — escolha aleatória por contato (anti-spam)</span>
@@ -621,8 +648,10 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                     {mensagensVariadas.map((msg, i) => (
                       <div key={i} style={{ display:'flex', gap:6, marginBottom:8, alignItems:'flex-start' }}>
                         <span style={{ background:'#1a2540', color:'#64748b', borderRadius:4, padding:'2px 7px', fontSize:11, marginTop:10, flexShrink:0 }}>{i+1}</span>
-                        <textarea className="field" style={{ flex:1, background:'#1a2540', border:'1px solid #1e2d4a', borderRadius:8, padding:'9px 12px', fontFamily:'DM Mono,monospace', fontSize:13, color:'#e2e8f0', outline:'none', resize:'vertical', minHeight:72, margin:0 }}
-                          placeholder={`Mensagem ${i+1}...`} value={msg}
+                        <textarea
+                          style={{ flex:1, background:'#1a2540', border:'1px solid #1e2d4a', borderRadius:8, padding:'9px 12px', fontFamily:'DM Mono,monospace', fontSize:13, color:'#e2e8f0', outline:'none', resize:'vertical', minHeight:72, margin:0 }}
+                          placeholder={`Mensagem ${i+1}... Use {nome}, {empresa}, {cidade}`}
+                          value={msg}
                           onChange={e => setMensagensVariadas(p => p.map((m,j) => j===i ? e.target.value : m))} />
                         {mensagensVariadas.length > 1 && (
                           <button onClick={() => setMensagensVariadas(p => p.filter((_,j) => j!==i))}
@@ -693,15 +722,64 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                   )}
                 </div>
 
-                {/* Resultado campanha avançada */}
+                {/* ── RELATÓRIO DE ENTREGA ── */}
                 {resultadoCampanha && (
-                  <div style={{ marginTop:12, background:'#0a0f1e', borderRadius:8, padding:12, border:'1px solid #1e2d4a' }}>
-                    <div style={{ fontSize:12, color:'#00d4ff', marginBottom:8 }}>✅ Campanha {resultadoCampanha.campanhaId}</div>
-                    <div style={{ display:'flex', gap:12 }}>
-                      <div style={{ flex:1, textAlign:'center' }}><div style={{ fontSize:22, fontWeight:800, color:'#10b981' }}>{resultadoCampanha.enviados}</div><div style={{ fontSize:10, color:'#64748b' }}>Enviados</div></div>
-                      <div style={{ flex:1, textAlign:'center' }}><div style={{ fontSize:22, fontWeight:800, color:'#ef4444' }}>{resultadoCampanha.erros}</div><div style={{ fontSize:10, color:'#64748b' }}>Erros</div></div>
-                      <div style={{ flex:1, textAlign:'center' }}><div style={{ fontSize:22, fontWeight:800, color:'#64748b' }}>{resultadoCampanha.total}</div><div style={{ fontSize:10, color:'#64748b' }}>Total</div></div>
+                  <div style={{ marginTop:14, background:'#0a0f1e', borderRadius:10, padding:14, border:'1px solid #1e2d4a' }}>
+
+                    {/* Cabeçalho */}
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                      <div style={{ fontSize:13, color:'#00d4ff', fontWeight:700 }}>📊 Relatório da Campanha</div>
+                      <div style={{ fontSize:10, color:'#64748b' }}>{resultadoCampanha.campanhaId}</div>
                     </div>
+
+                    {/* Totais */}
+                    <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                      <div style={{ flex:1, textAlign:'center', background:'rgba(16,185,129,.1)', border:'1px solid rgba(16,185,129,.3)', borderRadius:8, padding:'10px 0' }}>
+                        <div style={{ fontSize:22, fontWeight:800, color:'#10b981', fontFamily:'Syne,sans-serif' }}>{resultadoCampanha.enviados}</div>
+                        <div style={{ fontSize:10, color:'#64748b', marginTop:2 }}>✅ Enviados</div>
+                      </div>
+                      <div style={{ flex:1, textAlign:'center', background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', borderRadius:8, padding:'10px 0' }}>
+                        <div style={{ fontSize:22, fontWeight:800, color:'#ef4444', fontFamily:'Syne,sans-serif' }}>{resultadoCampanha.erros}</div>
+                        <div style={{ fontSize:10, color:'#64748b', marginTop:2 }}>❌ Erros</div>
+                      </div>
+                      <div style={{ flex:1, textAlign:'center', background:'rgba(0,212,255,.08)', border:'1px solid rgba(0,212,255,.2)', borderRadius:8, padding:'10px 0' }}>
+                        <div style={{ fontSize:22, fontWeight:800, color:'#00d4ff', fontFamily:'Syne,sans-serif' }}>{resultadoCampanha.total}</div>
+                        <div style={{ fontSize:10, color:'#64748b', marginTop:2 }}>📦 Total</div>
+                      </div>
+                    </div>
+
+                    {/* Detalhamento por contato */}
+                    <div style={{ fontSize:11, color:'#64748b', marginBottom:6, textTransform:'uppercase', letterSpacing:'.5px' }}>
+                      Detalhamento por contato
+                    </div>
+                    <div style={{ maxHeight:220, overflowY:'auto', display:'flex', flexDirection:'column', gap:4 }}>
+                      {(resultadoCampanha.resultados || []).map((r, i) => (
+                        <div key={i} style={{
+                          display:'flex', alignItems:'center', justifyContent:'space-between',
+                          background: r.status === 'enviado' ? 'rgba(16,185,129,.06)' : 'rgba(239,68,68,.06)',
+                          border: `1px solid ${r.status === 'enviado' ? 'rgba(16,185,129,.2)' : 'rgba(239,68,68,.2)'}`,
+                          borderRadius:6, padding:'7px 10px', fontSize:12
+                        }}>
+                          <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                            <span style={{ color:'#e2e8f0', fontWeight:600 }}>
+                              {r.status === 'enviado' ? '✅' : '❌'} {r.nome || r.numero}
+                            </span>
+                            {r.nome && <span style={{ color:'#64748b', fontSize:10 }}>{r.numero}</span>}
+                          </div>
+                          <span style={{ color: r.status === 'enviado' ? '#10b981' : '#ef4444', fontSize:11, textAlign:'right', maxWidth:140 }}>
+                            {r.status === 'enviado' ? 'Enviado' : (r.motivo || 'Erro desconhecido')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Exportar CSV */}
+                    <button
+                      className="btn btn-secondary"
+                      style={{ width:'100%', marginTop:10, fontSize:11, justifyContent:'center' }}
+                      onClick={() => exportarRelatorioCSV(resultadoCampanha)}>
+                      ⬇ Exportar relatório CSV
+                    </button>
                   </div>
                 )}
               </div>
@@ -771,47 +849,65 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
         {aba === 'chatbot' && (
           <div>
             <div className="card">
-              <div className="card-title">🤖 Configuração do Chatbot</div>
+              <div className="card-title">🤖 Configurar Chatbot</div>
               <div className="grid2">
                 <div className="field">
                   <label>Nome do Chatbot</label>
-                  <input value={chatbotNome} onChange={e => setChatbotNome(e.target.value)} placeholder="Ex: Sofia da Vivanexa" />
+                  <input value={chatbotNome} onChange={e => setChatbotNome(e.target.value)} placeholder="Ex: Ana, Carlos, Assistente..." />
                 </div>
                 <div className="field">
                   <label>Personalidade</label>
-                  <select value={chatbotPersonalidade} onChange={e => setChatbotPersonalidade(e.target.value)} style={{ width: '100%', background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#e2e8f0', outline: 'none' }}>
-                    <option value="profissional">Profissional e direto</option>
-                    <option value="amigavel">Amigável e descontraído</option>
-                    <option value="consultivo">Consultivo e técnico</option>
-                    <option value="entusiasmado">Entusiasmado e vendedor</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <label>Objetivo Principal</label>
-                  <select value={chatbotObjetivo} onChange={e => setChatbotObjetivo(e.target.value)} style={{ width: '100%', background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#e2e8f0', outline: 'none' }}>
-                    <option value="vendas">Vendas diretas</option>
-                    <option value="suporte">Suporte ao cliente</option>
-                    <option value="leads">Qualificação de leads</option>
-                    <option value="agendamento">Agendamento de reuniões</option>
+                  <select value={chatbotPersonalidade} onChange={e => setChatbotPersonalidade(e.target.value)}>
+                    <option value="profissional">Profissional e Formal</option>
+                    <option value="amigavel">Amigável e Descontraído</option>
+                    <option value="consultivo">Consultivo e Técnico</option>
+                    <option value="vendedor">Vendedor Persuasivo</option>
+                    <option value="suporte">Suporte ao Cliente</option>
                   </select>
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={gerarConfigChatbot} disabled={gerandoChatbot} style={{ marginTop: 4 }}>
-                {gerandoChatbot ? '⏳ Gerando...' : '✨ Gerar Configuração com IA'}
+              <div className="field">
+                <label>Objetivo Principal</label>
+                <select value={chatbotObjetivo} onChange={e => setChatbotObjetivo(e.target.value)}>
+                  <option value="vendas">Vender produtos/serviços</option>
+                  <option value="qualificacao">Qualificar leads</option>
+                  <option value="suporte">Suporte técnico</option>
+                  <option value="agendamento">Agendar reuniões/demos</option>
+                  <option value="informacoes">Fornecer informações</option>
+                </select>
+              </div>
+              <button className="btn btn-primary" onClick={gerarConfigChatbot} disabled={gerandoChatbot}>
+                {gerandoChatbot ? '⏳ Gerando prompt...' : '✨ Gerar Configuração com IA'}
               </button>
-              {gerandoChatbot && <div className="thinking" style={{ marginTop: 12 }}><span /><span /><span /></div>}
+              {gerandoChatbot && <div className="thinking" style={{ marginTop:12 }}><span /><span /><span /></div>}
+              {chatbotPrompt && (
+                <div>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginTop:16, marginBottom:8 }}>
+                    <span style={{ fontSize:12, color:'#00d4ff' }}>✅ Prompt gerado para <strong>{chatbotNome}</strong></span>
+                    <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px' }} onClick={() => navigator.clipboard.writeText(chatbotPrompt)}>📋 Copiar</button>
+                  </div>
+                  <div className="result-box">{chatbotPrompt}</div>
+                </div>
+              )}
             </div>
 
-            {(chatbotConfig || chatbotPrompt) && (
+            {chatbotConfig && (
               <div className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <div className="card-title" style={{ margin: 0 }}>✅ Prompt do Chatbot — {chatbotConfig?.nome}</div>
-                  <button className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => navigator.clipboard.writeText(chatbotConfig?.prompt || chatbotPrompt)}>📋 Copiar</button>
+                <div className="card-title">✅ Chatbot Ativo: {chatbotConfig.nome}</div>
+                <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+                  <span className="badge badge-blue">🎭 {chatbotConfig.personalidade}</span>
+                  <span className="badge badge-green">🎯 {chatbotConfig.objetivo}</span>
+                  <span className="badge badge-yellow">📅 {new Date(chatbotConfig.criadoEm).toLocaleDateString('pt-BR')}</span>
                 </div>
-                <div className="result-box">{chatbotConfig?.prompt || chatbotPrompt}</div>
-                <div className="info-box info-blue" style={{ marginTop: 12 }}>
-                  💡 Copie este prompt e configure-o na plataforma de chatbot de sua preferência (ManyChat, ChatGuru, WhatsApp Business API, etc.)
+                <div style={{ marginTop:10, fontSize:12, color:'#64748b' }}>
+                  Este prompt será usado automaticamente pelo Agente IA e pelo Webhook do WhatsApp.
                 </div>
+              </div>
+            )}
+
+            {(!cfg.openaiApiKey && !cfg.openaiKey && !cfg.geminiApiKey && !cfg.geminiKey && !cfg.groqApiKey && !cfg.groqKey) && (
+              <div className="info-box" style={{ background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)', color:'#fca5a5' }}>
+                ⚠️ Configure a chave de API do <strong>OpenAI</strong>, <strong>Gemini</strong> ou <strong>Groq</strong> em <strong>Configurações → Empresa</strong> para usar o Chatbot.
               </div>
             )}
           </div>
@@ -821,18 +917,21 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
         {aba === 'agente' && (
           <div>
             <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <div className="card-title" style={{ margin: 0 }}>🧠 Agente IA — Teste em tempo real</div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>IA:</span>
-                  {(cfg.geminiApiKey || cfg.geminiKey) && <button onClick={() => setProviderAgente('gemini')} className={`btn ${providerAgente === 'gemini' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 10, padding: '3px 10px' }}>Gemini</button>}
-                  {(cfg.groqApiKey || cfg.groqKey) && <button onClick={() => setProviderAgente('groq')} className={`btn ${providerAgente === 'groq' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: 10, padding: '3px 10px' }}>Groq</button>}
-                  <button className="btn btn-secondary" style={{ fontSize: 10, padding: '3px 10px' }} onClick={() => setAgenteMessages([{ role: 'bot', content: `Olá! Sou o Agente IA da ${cfg.company || 'Vivanexa'}. Como posso ajudá-lo?` }])}>🔄 Reiniciar</button>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                <div className="card-title" style={{ margin:0 }}>🧠 Agente IA — Teste em tempo real</div>
+                <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                  <span style={{ fontSize:11, color:'#64748b' }}>IA:</span>
+                  {(cfg.geminiApiKey || cfg.geminiKey) && <button onClick={() => setProviderAgente('gemini')} className={`btn ${providerAgente === 'gemini' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize:10, padding:'3px 10px' }}>Gemini</button>}
+                  {(cfg.groqApiKey   || cfg.groqKey)   && <button onClick={() => setProviderAgente('groq')}   className={`btn ${providerAgente === 'groq'   ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize:10, padding:'3px 10px' }}>Groq</button>}
+                  <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 10px' }}
+                    onClick={() => setAgenteMessages([{ role:'bot', content:`Olá! Sou o Agente IA da ${cfg.company || 'Vivanexa'}. Como posso ajudá-lo?` }])}>
+                    🔄 Reiniciar
+                  </button>
                 </div>
               </div>
 
               {chatbotConfig && (
-                <div style={{ padding: '6px 10px', background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 8, fontSize: 11, color: '#10b981', marginBottom: 10 }}>
+                <div style={{ padding:'6px 10px', background:'rgba(16,185,129,.08)', border:'1px solid rgba(16,185,129,.2)', borderRadius:8, fontSize:11, color:'#10b981', marginBottom:10 }}>
                   ✅ Usando prompt do chatbot: <strong>{chatbotConfig.nome}</strong>
                 </div>
               )}
@@ -860,7 +959,7 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
             </div>
 
             {(!cfg.openaiApiKey && !cfg.openaiKey && !cfg.geminiApiKey && !cfg.geminiKey && !cfg.groqApiKey && !cfg.groqKey) && (
-              <div className="info-box" style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', color: '#fca5a5' }}>
+              <div className="info-box" style={{ background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)', color:'#fca5a5' }}>
                 ⚠️ Configure a chave de API do <strong>Gemini</strong> ou <strong>Groq</strong> em <strong>Configurações → Empresa</strong> para ativar o Agente IA.
               </div>
             )}
@@ -884,44 +983,43 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
               </div>
               <div className="field">
                 <label>Tipo de Script</label>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:4 }}>
                   {TIPOS_SCRIPT.map(t => (
                     <button key={t.id} onClick={() => setTipoScript(t.id)}
                       className={`btn ${tipoScript === t.id ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{ fontSize: 11 }}>
+                      style={{ fontSize:11 }}>
                       {t.label}
                     </button>
                   ))}
                 </div>
               </div>
-              <button className="btn btn-primary" onClick={gerarScriptComercial} disabled={gerandoScript} style={{ marginTop: 8 }}>
+              <button className="btn btn-primary" onClick={gerarScriptComercial} disabled={gerandoScript} style={{ marginTop:8 }}>
                 {gerandoScript ? '⏳ Gerando...' : '✨ Gerar Script com IA'}
               </button>
-              {gerandoScript && <div className="thinking" style={{ marginTop: 12 }}><span /><span /><span /></div>}
+              {gerandoScript && <div className="thinking" style={{ marginTop:12 }}><span /><span /><span /></div>}
               {scriptResultado && (
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, color: '#00d4ff' }}>✅ Script: {TIPOS_SCRIPT.find(t => t.id === tipoScript)?.label}</span>
-                    <button className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => navigator.clipboard.writeText(scriptResultado)}>📋 Copiar</button>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginTop:16, marginBottom:8 }}>
+                    <span style={{ fontSize:12, color:'#00d4ff' }}>✅ Script: {TIPOS_SCRIPT.find(t => t.id === tipoScript)?.label}</span>
+                    <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px' }} onClick={() => navigator.clipboard.writeText(scriptResultado)}>📋 Copiar</button>
                   </div>
                   <div className="result-box">{scriptResultado}</div>
                 </div>
               )}
             </div>
 
-            {/* Histórico */}
             {(cfg.scripts || []).length > 0 && (
               <div className="card">
                 <div className="card-title">📜 Scripts Anteriores</div>
                 {[...(cfg.scripts || [])].reverse().slice(0, 5).map(s => (
-                  <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: '#1a2540', borderRadius: 8, marginBottom: 6 }}>
+                  <div key={s.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', background:'#1a2540', borderRadius:8, marginBottom:6 }}>
                     <div>
-                      <div style={{ fontSize: 13, color: '#e2e8f0', fontWeight: 600 }}>{TIPOS_SCRIPT.find(t => t.id === s.tipo)?.label} — {s.nicho}</div>
-                      <div style={{ fontSize: 11, color: '#64748b' }}>{s.produto} · {new Date(s.criadoEm).toLocaleDateString('pt-BR')}</div>
+                      <div style={{ fontSize:13, color:'#e2e8f0', fontWeight:600 }}>{TIPOS_SCRIPT.find(t => t.id === s.tipo)?.label} — {s.nicho}</div>
+                      <div style={{ fontSize:11, color:'#64748b' }}>{s.produto} · {new Date(s.criadoEm).toLocaleDateString('pt-BR')}</div>
                     </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn btn-secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={() => setScriptResultado(s.resultado)}>👁 Ver</button>
-                      <button className="btn btn-secondary" style={{ fontSize: 10, padding: '3px 8px' }} onClick={() => navigator.clipboard.writeText(s.resultado)}>📋</button>
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => setScriptResultado(s.resultado)}>👁 Ver</button>
+                      <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => navigator.clipboard.writeText(s.resultado)}>📋</button>
                     </div>
                   </div>
                 ))}
