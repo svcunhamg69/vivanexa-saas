@@ -797,7 +797,7 @@ export default function Produtividade() {
                                       <input value={meiFormRec.obs} onChange={e => setMeiFormRec(f=>({...f,obs:e.target.value}))} className="field-input" placeholder="Opcional..." />
                                     </div>
                                   </div>
-                                  <div style={{display:'flex',gap:8'}}>
+                                  <div style={{display:'flex',gap:8}}>
                                     <button className="btn-primary" style={{fontSize:12}} onClick={() => salvarReceitaMei(meiAno, mes, { comercio: Number(meiFormRec.comercio)||0, servicos: Number(meiFormRec.servicos)||0, obs: meiFormRec.obs })}>💾 Salvar</button>
                                     <button className="btn-cancel" style={{fontSize:12}} onClick={() => setMeiMesEdit(null)}>Cancelar</button>
                                   </div>
