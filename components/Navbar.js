@@ -1,7 +1,4 @@
 // components/Navbar.js — Vivanexa SaaS v6
-// ✅ Menu Fiscal mantido (NF Produto, NF Serviço, NF Consumidor)
-// ✅ Produtividade expandido com Gestão MEI completa (Dashboard, Receitas, DAS, Documentos, DASN, Portais)
-// ✅ Todos os submenus originais preservados integralmente
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
@@ -54,52 +51,6 @@ const MENU = [
     ],
   },
 
-  // ─── FISCAL ───────────────────────────────────────────────────────────────
-  {
-    id: 'fiscal',
-    label: 'Fiscal',
-    icon: '📄',
-    color: '#f59e0b',
-    subs: [
-      { label: 'NF de Produto',    icon: '📦', href: '/fiscal?aba=produto' },
-      { label: 'NF de Serviço',    icon: '🛠️', href: '/fiscal?aba=servico' },
-      { label: 'NF do Consumidor', icon: '🧾', href: '/fiscal?aba=consumidor' },
-    ],
-  },
-
-  // ─── PRODUTIVIDADE ────────────────────────────────────────────────────────
-  {
-    id: 'produtividade',
-    label: 'Produtividade',
-    icon: '⚡',
-    color: '#06b6d4',
-    subs: [
-      // ── Seção original ──
-      { label: 'Tarefas e Obrigações', icon: '✅', href: '/produtividade?aba=tarefas' },
-
-      // ── Gestão MEI — Dashboard ──
-      { label: 'MEI · Dashboard',      icon: '🏪', href: '/produtividade?aba=mei&sub=dashboard',   grupo: 'Gestão MEI' },
-
-      // ── Gestão MEI — Receitas ──
-      { label: 'MEI · Receitas Mensais',icon: '📊', href: '/produtividade?aba=mei&sub=receitas',   grupo: 'Gestão MEI' },
-
-      // ── Gestão MEI — DAS-MEI ──
-      { label: 'MEI · Controle DAS',   icon: '💰', href: '/produtividade?aba=mei&sub=das',         grupo: 'Gestão MEI' },
-
-      // ── Gestão MEI — Documentos ──
-      { label: 'MEI · Documentos',     icon: '📁', href: '/produtividade?aba=mei&sub=documentos',  grupo: 'Gestão MEI' },
-
-      // ── Gestão MEI — DASN Anual ──
-      { label: 'MEI · DASN Anual',     icon: '📋', href: '/produtividade?aba=mei&sub=dasn',        grupo: 'Gestão MEI' },
-
-      // ── Gestão MEI — Portais Gov ──
-      { label: 'MEI · Portais Gov',    icon: '🏛️', href: '/produtividade?aba=mei&sub=portais',    grupo: 'Gestão MEI' },
-
-      // ── Gestão MEI — Alertas ──
-      { label: 'MEI · Alertas',        icon: '🔔', href: '/produtividade?aba=mei&sub=alertas',     grupo: 'Gestão MEI' },
-    ],
-  },
-
   // ─── RELATÓRIOS ───────────────────────────────────────────────────────────
   {
     id: 'relatorios',
@@ -113,7 +64,6 @@ const MENU = [
       { label: 'Vendas',            icon: '🛒', href: '/reports?aba=vendas' },
       { label: 'Produtos',          icon: '📦', href: '/reports?aba=produtos' },
       { label: 'Comercial',         icon: '💼', href: '/reports?aba=comercial' },
-      { label: 'Fiscal',            icon: '📄', href: '/reports?aba=fiscal' },
     ],
   },
 
