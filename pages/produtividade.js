@@ -635,6 +635,12 @@ export default function Produtividade() {
 
         {/* ══ GESTÃO MEI ══ */}
         {aba === 'mei' && (
+  <GestaoMEI
+    empresaId={empresaId}
+    sub={sub}
+    supabase={supabase}
+  />
+)}
           <div>
             {/* Seleção de cliente MEI */}
             <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:20,flexWrap:'wrap'}}>
