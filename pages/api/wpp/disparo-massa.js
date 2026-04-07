@@ -29,15 +29,16 @@ function escolherMensagem(mensagens) {
 }
 
 // ─────────────────────────────────────────────
-// Substitui variáveis na mensagem: {{nome}}, {{empresa}} etc
+// Substitui variáveis na mensagem
+// Aceita tanto {nome} quanto {{nome}} (compatibilidade com frontend)
 // ─────────────────────────────────────────────
 function interpolarMensagem(texto, contato) {
   if (!texto) return texto
   return texto
-    .replace(/\{\{nome\}\}/gi, contato.nome || '')
-    .replace(/\{\{empresa\}\}/gi, contato.empresa || '')
-    .replace(/\{\{cidade\}\}/gi, contato.cidade || '')
-    .replace(/\{\{numero\}\}/gi, contato.numero || '')
+    .replace(/\{\{nome\}\}|\{nome\}/gi,     contato.nome    || '')
+    .replace(/\{\{empresa\}\}|\{empresa\}/gi, contato.empresa || '')
+    .replace(/\{\{cidade\}\}|\{cidade\}/gi,   contato.cidade  || '')
+    .replace(/\{\{numero\}\}|\{numero\}/gi,   contato.numero  || '')
 }
 
 // ─────────────────────────────────────────────
@@ -98,16 +99,16 @@ export default async function handler(req, res) {
   try {
     const {
       empresaId,
-      instanceKey,        // chave da instância WPP a usar (suporta múltiplas)
-      contatos,           // array de { numero, nome?, empresa?, cidade? }
-      mensagens,          // array de strings (escolhe aleatório por contato)
-      tipo = 'text',      // text | image | video | audio | document
-      mediaUrl,           // URL da mídia (se tipo != text)
-      mediaCaption,       // legenda da mídia
-      delayMinMs = 8000,  // delay mínimo entre disparos (ms)
-      delayMaxMs = 20000, // delay máximo entre disparos (ms)
-      loteSize = 20,      // pausar a cada N envios
-      lotePausaMs = 60000,// pausa entre lotes (ms)
+      instanceKey,         // chave da instância WPP a usar (suporta múltiplas)
+      contatos,            // array de { numero, nome?, empresa?, cidade? }
+      mensagens,           // array de strings (escolhe aleatório por contato)
+      tipo = 'text',       // text | image | video | audio | document
+      mediaUrl,            // URL da mídia (se tipo != text)
+      mediaCaption,        // legenda da mídia
+      delayMinMs = 8000,   // delay mínimo entre disparos (ms)
+      delayMaxMs = 20000,  // delay máximo entre disparos (ms)
+      loteSize = 20,       // pausar a cada N envios
+      lotePausaMs = 60000, // pausa entre lotes (ms)
     } = req.body
 
     if (!empresaId || !contatos?.length || !mensagens?.length) {
@@ -132,9 +133,9 @@ export default async function handler(req, res) {
       instanciaCfg = cfg.wppInstancias[instanceKey]
     }
 
-    const baseUrl = instanciaCfg.evolutionUrl || process.env.EVOLUTION_API_URL || ''
-    const apiKey  = instanciaCfg.evolutionKey  || process.env.EVOLUTION_API_KEY  || ''
-    const instance = instanciaCfg.evolutionInstance || process.env.EVOLUTION_INSTANCE || ''
+    const baseUrl  = instanciaCfg.evolutionUrl      || process.env.EVOLUTION_API_URL  || ''
+    const apiKey   = instanciaCfg.evolutionKey       || process.env.EVOLUTION_API_KEY  || ''
+    const instance = instanciaCfg.evolutionInstance  || process.env.EVOLUTION_INSTANCE || ''
 
     if (!baseUrl || !apiKey || !instance) {
       return res.status(400).json({ error: 'Instância WhatsApp não configurada corretamente' })
@@ -142,21 +143,21 @@ export default async function handler(req, res) {
 
     // ID único para esta campanha
     const campanhaId = `camp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-    const iniciou = new Date().toISOString()
+    const iniciou    = new Date().toISOString()
 
     const resultados = []
     let enviados = 0
-    let erros = 0
+    let erros    = 0
 
     // ─────────────────────────────────────────────
     // Loop de disparo com delays inteligentes
     // ─────────────────────────────────────────────
     for (let i = 0; i < contatos.length; i++) {
       const contato = contatos[i]
-      const numero = contato.numero || contato
+      const numero  = contato.numero || contato
 
       // Escolhe mensagem aleatória e interpola variáveis
-      const msgBase = escolherMensagem(mensagens)
+      const msgBase       = escolherMensagem(mensagens)
       const mensagemFinal = interpolarMensagem(msgBase, { ...contato, numero })
 
       try {
@@ -173,14 +174,32 @@ export default async function handler(req, res) {
 
         if (ok) {
           enviados++
-          resultados.push({ numero: numeroLimpo, status: 'enviado', at: new Date().toISOString() })
+          resultados.push({
+            numero: numeroLimpo,
+            nome: contato.nome || '',
+            status: 'enviado',
+            mensagemEnviada: mensagemFinal,
+            at: new Date().toISOString(),
+          })
         } else {
           erros++
-          resultados.push({ numero, status: 'erro', motivo: result?.message || `HTTP ${status}`, at: new Date().toISOString() })
+          resultados.push({
+            numero,
+            nome: contato.nome || '',
+            status: 'erro',
+            motivo: result?.message || `HTTP ${status}`,
+            at: new Date().toISOString(),
+          })
         }
       } catch (err) {
         erros++
-        resultados.push({ numero, status: 'erro', motivo: err.message, at: new Date().toISOString() })
+        resultados.push({
+          numero,
+          nome: contato.nome || '',
+          status: 'erro',
+          motivo: err.message,
+          at: new Date().toISOString(),
+        })
       }
 
       // Pausa entre lotes
