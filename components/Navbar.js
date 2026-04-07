@@ -1,13 +1,14 @@
-// components/Navbar.js — Vivanexa SaaS v5
-// ✅ WhatsApp Inbox adicionado no menu Comercial
-// ✅ WhatsApp, Agente IA e Departamentos adicionados em Config
-// ✅ Menu Produtividade simplificado: apenas Tarefas e Gestão MEI
+// components/Navbar.js — Vivanexa SaaS v6
+// ✅ Menu Fiscal mantido (NF Produto, NF Serviço, NF Consumidor)
+// ✅ Produtividade expandido com Gestão MEI completa (Dashboard, Receitas, DAS, Documentos, DASN, Portais)
+// ✅ Todos os submenus originais preservados integralmente
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
 const MENU = [
+  // ─── COMERCIAL ────────────────────────────────────────────────────────────
   {
     id: 'comercial',
     label: 'Comercial',
@@ -23,6 +24,8 @@ const MENU = [
       { label: 'Script / Playbook',  icon: '📋', href: '/prospeccao?aba=script' },
     ],
   },
+
+  // ─── MARKETING ────────────────────────────────────────────────────────────
   {
     id: 'marketing',
     label: 'Marketing',
@@ -35,6 +38,8 @@ const MENU = [
       { label: 'Script / Playbook',    icon: '📝', href: '/marketing?aba=script' },
     ],
   },
+
+  // ─── FINANCEIRO ───────────────────────────────────────────────────────────
   {
     id: 'financeiro',
     label: 'Financeiro',
@@ -48,6 +53,8 @@ const MENU = [
       { label: 'Comissões',        icon: '🏆', href: '/financeiro?aba=comissoes' },
     ],
   },
+
+  // ─── FISCAL ───────────────────────────────────────────────────────────────
   {
     id: 'fiscal',
     label: 'Fiscal',
@@ -59,16 +66,41 @@ const MENU = [
       { label: 'NF do Consumidor', icon: '🧾', href: '/fiscal?aba=consumidor' },
     ],
   },
+
+  // ─── PRODUTIVIDADE ────────────────────────────────────────────────────────
   {
     id: 'produtividade',
     label: 'Produtividade',
     icon: '⚡',
     color: '#06b6d4',
     subs: [
+      // ── Seção original ──
       { label: 'Tarefas e Obrigações', icon: '✅', href: '/produtividade?aba=tarefas' },
-      { label: 'Gestão MEI',           icon: '🏪', href: '/produtividade?aba=mei'     },
+
+      // ── Gestão MEI — Dashboard ──
+      { label: 'MEI · Dashboard',      icon: '🏪', href: '/produtividade?aba=mei&sub=dashboard',   grupo: 'Gestão MEI' },
+
+      // ── Gestão MEI — Receitas ──
+      { label: 'MEI · Receitas Mensais',icon: '📊', href: '/produtividade?aba=mei&sub=receitas',   grupo: 'Gestão MEI' },
+
+      // ── Gestão MEI — DAS-MEI ──
+      { label: 'MEI · Controle DAS',   icon: '💰', href: '/produtividade?aba=mei&sub=das',         grupo: 'Gestão MEI' },
+
+      // ── Gestão MEI — Documentos ──
+      { label: 'MEI · Documentos',     icon: '📁', href: '/produtividade?aba=mei&sub=documentos',  grupo: 'Gestão MEI' },
+
+      // ── Gestão MEI — DASN Anual ──
+      { label: 'MEI · DASN Anual',     icon: '📋', href: '/produtividade?aba=mei&sub=dasn',        grupo: 'Gestão MEI' },
+
+      // ── Gestão MEI — Portais Gov ──
+      { label: 'MEI · Portais Gov',    icon: '🏛️', href: '/produtividade?aba=mei&sub=portais',    grupo: 'Gestão MEI' },
+
+      // ── Gestão MEI — Alertas ──
+      { label: 'MEI · Alertas',        icon: '🔔', href: '/produtividade?aba=mei&sub=alertas',     grupo: 'Gestão MEI' },
     ],
   },
+
+  // ─── RELATÓRIOS ───────────────────────────────────────────────────────────
   {
     id: 'relatorios',
     label: 'Relatórios',
@@ -84,6 +116,8 @@ const MENU = [
       { label: 'Fiscal',            icon: '📄', href: '/reports?aba=fiscal' },
     ],
   },
+
+  // ─── CONFIGURAÇÕES ────────────────────────────────────────────────────────
   {
     id: 'configuracoes',
     label: 'Config',
@@ -108,9 +142,9 @@ export { MENU }
 
 export default function Navbar({ cfg = {}, perfil = null }) {
   const router = useRouter()
-  const [open, setOpen] = useState(null)
+  const [open, setOpen]           = useState(null)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [user, setUser] = useState(perfil)
+  const [user, setUser]           = useState(perfil)
   const navRef = useRef(null)
 
   useEffect(() => {
@@ -180,6 +214,20 @@ export default function Navbar({ cfg = {}, perfil = null }) {
           {MENU.map((menu) => {
             const ativo  = isActive(menu)
             const aberto = open === menu.id
+
+            // Agrupa submenus por "grupo" (para separadores visuais)
+            const grupos = []
+            let grupoAtual = { titulo: null, items: [] }
+            menu.subs.forEach((sub) => {
+              const g = sub.grupo || null
+              if (g !== grupoAtual.titulo) {
+                if (grupoAtual.items.length) grupos.push(grupoAtual)
+                grupoAtual = { titulo: g, items: [] }
+              }
+              grupoAtual.items.push(sub)
+            })
+            if (grupoAtual.items.length) grupos.push(grupoAtual)
+
             return (
               <div key={menu.id} className="nav-wrap">
 
@@ -187,7 +235,7 @@ export default function Navbar({ cfg = {}, perfil = null }) {
                 <button
                   className={`nav-btn${ativo ? ' is-active' : ''}${aberto ? ' is-open' : ''}`}
                   style={(ativo || aberto) ? { color: menu.color, background: menu.color + '16' } : {}}
-                  onClick={(e) => { e.stopPropagation(); setOpen(aberto ? null : menu.id); }}
+                  onClick={(e) => { e.stopPropagation(); setOpen(aberto ? null : menu.id) }}
                 >
                   <span>{menu.icon}</span>
                   <span>{menu.label}</span>
@@ -196,30 +244,46 @@ export default function Navbar({ cfg = {}, perfil = null }) {
 
                 {/* ── Dropdown ── */}
                 {aberto && (
-                  <div className="nav-dd" style={{ '--c': menu.color }} onClick={e => e.stopPropagation()}>
-
+                  <div
+                    className="nav-dd"
+                    style={{ '--c': menu.color }}
+                    onClick={e => e.stopPropagation()}
+                  >
                     {/* Título do grupo */}
                     <div className="nav-dd-title">
                       <span>{menu.icon}</span>
                       <span style={{ color: menu.color }}>{menu.label}</span>
                     </div>
 
-                    {/* Submenus do grupo */}
-                    {menu.subs.map((sub) => {
-                      const subAtivo = router.pathname === sub.href.split('?')[0]
-                      return (
-                        <button
-                          key={sub.href}
-                          className={`nav-dd-btn${subAtivo ? ' sub-active' : ''}`}
-                          style={subAtivo ? { color: menu.color, background: menu.color + '12' } : {}}
-                          onClick={() => navigate(sub.href)}
-                        >
-                          <span className="nav-dd-icon">{sub.icon}</span>
-                          <span className="nav-dd-lbl">{sub.label}</span>
-                          {subAtivo && <span className="nav-dd-dot" style={{ background: menu.color }} />}
-                        </button>
-                      )
-                    })}
+                    {/* Renderiza grupos com separadores */}
+                    {grupos.map((grupo, gi) => (
+                      <div key={gi}>
+                        {/* Separador de grupo com título (ex: Gestão MEI) */}
+                        {grupo.titulo && (
+                          <div className="nav-dd-grupo" style={{ color: menu.color }}>
+                            <span className="nav-dd-grupo-linha" />
+                            <span className="nav-dd-grupo-label">{grupo.titulo}</span>
+                            <span className="nav-dd-grupo-linha" />
+                          </div>
+                        )}
+
+                        {grupo.items.map((sub) => {
+                          const subAtivo = router.pathname === sub.href.split('?')[0]
+                          return (
+                            <button
+                              key={sub.href}
+                              className={`nav-dd-btn${subAtivo ? ' sub-active' : ''}`}
+                              style={subAtivo ? { color: menu.color, background: menu.color + '12' } : {}}
+                              onClick={() => navigate(sub.href)}
+                            >
+                              <span className="nav-dd-icon">{sub.icon}</span>
+                              <span className="nav-dd-lbl">{sub.label}</span>
+                              {subAtivo && <span className="nav-dd-dot" style={{ background: menu.color }} />}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -295,7 +359,6 @@ const CSS = `
 
   /* Área de menus */
   .nav-menus{display:flex;align-items:center;gap:1px;flex:1;overflow:visible;}
-  
   .nav-wrap{position:relative;overflow:visible}
 
   /* Botão do menu pai */
@@ -306,14 +369,19 @@ const CSS = `
   .nav-arr.up{transform:rotate(180deg)}
 
   /* Dropdown */
-  .nav-dd{position:absolute;top:calc(100% + 7px);left:0;min-width:224px;background:#08101e;border:1px solid #18243a;border-top:2px solid var(--c,#00d4ff);border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.85);z-index:99999;pointer-events:all;animation:ddIn .13s ease}
+  .nav-dd{position:absolute;top:calc(100% + 7px);left:0;min-width:240px;background:#08101e;border:1px solid #18243a;border-top:2px solid var(--c,#00d4ff);border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.85);z-index:99999;pointer-events:all;animation:ddIn .13s ease}
   @keyframes ddIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
 
   /* Título do grupo no dropdown */
   .nav-dd-title{display:flex;align-items:center;gap:8px;padding:11px 13px 10px;border-bottom:1px solid #18243a;background:rgba(255,255,255,.025);font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
 
+  /* Separador de subgrupo (ex: Gestão MEI) */
+  .nav-dd-grupo{display:flex;align-items:center;gap:7px;padding:8px 11px 4px;font-family:'Syne',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;opacity:.8}
+  .nav-dd-grupo-linha{flex:1;height:1px;background:currentColor;opacity:.2}
+  .nav-dd-grupo-label{white-space:nowrap;flex-shrink:0}
+
   /* Botão de submenu */
-  .nav-dd-btn{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;background:none;border:none;border-radius:8px;color:#6e8099;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;text-align:left;transition:all .1s;position:relative;margin:2px 5px;width:calc(100% - 10px)}
+  .nav-dd-btn{display:flex;align-items:center;gap:9px;width:calc(100% - 10px);padding:8px 11px;background:none;border:none;border-radius:8px;color:#6e8099;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;text-align:left;transition:all .1s;position:relative;margin:2px 5px}
   .nav-dd-btn:hover{background:rgba(255,255,255,.06);color:#e2e8f0}
   .nav-dd-btn.sub-active{font-weight:600}
   .nav-dd-icon{font-size:14px;width:18px;text-align:center;flex-shrink:0}
