@@ -1,5 +1,5 @@
-// pages/crm.js — CRM Vivanexa v2
-// Funil Kanban + Timeline de Atividades + Visão do Dia + Prazos
+// pages/crm.js — CRM Vivanexa v3
+// Funil Kanban + Timeline de Atividades + 🆕 Gestão de Clientes (cadastro, edição, exclusão, CNPJ/CEP auto)
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
@@ -18,27 +18,58 @@ const ETAPAS_PADRAO = [
 ]
 
 const TIPO_ATIVIDADE = ['Ligação','Reunião','E-mail','WhatsApp','Proposta','Follow-up','Visita','Outro']
-const EMPTY_NEG  = { id:'',titulo:'',etapa:'lead',nome:'',fantasia:'',cnpj:'',cpf:'',email:'',telefone:'',endereco:'',cidade:'',uf:'',responsavel:'',adesao:'',mensalidade:'',modulos:'',observacoes:'',origem:'manual',criadoEm:'',atualizadoEm:'' }
+const EMPTY_NEG  = { id:'',titulo:'',etapa:'lead',nome:'',fantasia:'',cnpj:'',cpf:'',email:'',telefone:'',endereco:'',cep:'',bairro:'',cidade:'',uf:'',responsavel:'',adesao:'',mensalidade:'',modulos:'',observacoes:'',origem:'manual',criadoEm:'',atualizadoEm:'' }
 const EMPTY_ATIV = { id:'',negocioId:'',tipo:'Ligação',descricao:'',prazo:'',concluida:false,criadoEm:'' }
+const EMPTY_CLI  = { id:'',doc:'',fantasia:'',razao:'',contato:'',email:'',tel:'',cep:'',end:'',numero:'',complemento:'',bairro:'',cidade:'',uf:'',cpfContato:'',regime:'',rimpNome:'',rimpEmail:'',rimpTel:'',rfinNome:'',rfinEmail:'',rfinTel:'',updatedAt:'' }
 
 const fmt    = n => (!n&&n!==0)?'—':'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2})
 const fmtDoc = s => { if(!s)return''; const d=s.replace(/\D/g,''); if(d.length===14)return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5'); if(d.length===11)return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/,'$1.$2.$3-$4'); return s }
+const fmtCEP = s => { if(!s)return''; const d=s.replace(/\D/g,''); return d.length===8?d.replace(/^(\d{5})(\d{3})$/,'$1-$2'):s }
 const fmtDT  = s => { if(!s)return'—'; try{ return new Date(s).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) }catch{return s} }
 const hoje   = () => new Date().toISOString().slice(0,10)
 const isAtrasada = a => !a.concluida&&!!a.prazo&&new Date(a.prazo)<new Date()
 const isHoje     = a => !a.concluida&&!!a.prazo&&a.prazo.slice(0,10)===hoje()
 const isFutura   = a => !a.concluida&&!!a.prazo&&new Date(a.prazo)>new Date()&&a.prazo.slice(0,10)!==hoje()
 
+// ── APIs externas ──────────────────────────────────
 async function fetchCNPJDados(cnpj) {
   try {
     const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj.replace(/\D/g,'')}`)
     if(!r.ok) return null
     const d = await r.json()
-    const f = (d.ddd_telefone_1||'').replace(/\D/g,'')
-    return { nome:d.razao_social||'', fantasia:d.nome_fantasia||d.razao_social||'', email:d.email||'', telefone:f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'', cidade:d.municipio||'', uf:d.uf||'', endereco:[d.descricao_tipo_logradouro,d.logradouro,d.numero,d.bairro].filter(Boolean).join(' ') }
+    const f = (d.ddd_telefone_1||d.ddd_telefone_2||'').replace(/\D/g,'')
+    const cep = (d.cep||'').replace(/\D/g,'')
+    return {
+      razao:     d.razao_social||'',
+      fantasia:  d.nome_fantasia||d.razao_social||'',
+      email:     d.email||'',
+      tel:       f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'',
+      cidade:    d.municipio||'',
+      uf:        d.uf||'',
+      cep,
+      end:       [d.descricao_tipo_logradouro,d.logradouro].filter(Boolean).join(' '),
+      numero:    d.numero&&d.numero!=='S/N'?d.numero:'',
+      complemento: d.complemento||'',
+      bairro:    d.bairro||'',
+      // retrocompat para crm_negocios
+      nome:      d.razao_social||'',
+      endereco:  [d.descricao_tipo_logradouro,d.logradouro,d.numero,d.bairro].filter(Boolean).join(' '),
+      telefone:  f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'',
+    }
   } catch { return null }
 }
 
+async function fetchCEPDados(cep) {
+  try {
+    const r = await fetch(`https://viacep.com.br/ws/${cep.replace(/\D/g,'')}/json/`)
+    if(!r.ok) return null
+    const d = await r.json()
+    if(d.erro) return null
+    return { end:d.logradouro||'', bairro:d.bairro||'', cidade:d.localidade||'', uf:d.uf||'' }
+  } catch { return null }
+}
+
+// ── Componente principal ────────────────────────────
 export default function CRM() {
   const router = useRouter()
   const [loading,      setLoading]      = useState(true)
@@ -47,17 +78,25 @@ export default function CRM() {
   const [perfil,       setPerfil]       = useState(null)
   const [negocios,     setNegocios]     = useState([])
   const [atividades,   setAtividades]   = useState([])
+  const [clientes,     setClientes]     = useState([])
   const [etapas,       setEtapas]       = useState(ETAPAS_PADRAO)
-  const [visao,        setVisao]        = useState('funil') // funil | atividades
+  const [visao,        setVisao]        = useState('funil') // funil | atividades | clientes
   const [negSel,       setNegSel]       = useState(null)
   const [showFormNeg,  setShowFormNeg]  = useState(false)
   const [formNeg,      setFormNeg]      = useState({...EMPTY_NEG})
   const [showFormAtiv, setShowFormAtiv] = useState(false)
   const [formAtiv,     setFormAtiv]     = useState({...EMPTY_ATIV})
+  const [showFormCli,  setShowFormCli]  = useState(false)
+  const [formCli,      setFormCli]      = useState({...EMPTY_CLI})
+  const [cliSel,       setCliSel]       = useState(null)
   const [busca,        setBusca]        = useState('')
+  const [buscaCli,     setBuscaCli]     = useState('')
   const [filtroEtapa,  setFiltroEtapa]  = useState('todas')
   const [filtroAtiv,   setFiltroAtiv]   = useState('todas')
   const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
+  const [buscandoCNPJCli, setBuscandoCNPJCli] = useState(false)
+  const [buscandoCEP,  setBuscandoCEP]  = useState(false)
+  const [cnpjMsg,      setCnpjMsg]      = useState('')
   const [saving,       setSaving]       = useState(false)
   const [toast,        setToast]        = useState('')
   const [dragging,     setDragging]     = useState(null)
@@ -72,20 +111,24 @@ export default function CRM() {
       if(!perf){ const nm=session.user.email?.split('@')[0]||'Usuário'; const{data:np}=await supabase.from('perfis').insert({user_id:session.user.id,nome:nm,email:session.user.email,empresa_id:session.user.id,perfil:'admin'}).select().single(); perf=np }
       setPerfil(perf)
       const eid = perf?.empresa_id||session.user.id; setEmpresaId(eid)
-      const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).single()
-      if(row?.value){ const c=JSON.parse(row.value); setCfg(c); setNegocios(c.crm_negocios||[]); setAtividades(c.crm_atividades||[]); if(c.crm_etapas?.length)setEtapas(c.crm_etapas) }
+      const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).maybeSingle()
+      if(row?.value){ const c=JSON.parse(row.value); setCfg(c); setNegocios(c.crm_negocios||[]); setAtividades(c.crm_atividades||[]); setClientes(c.clients||[]); if(c.crm_etapas?.length)setEtapas(c.crm_etapas) }
       setLoading(false)
     }
     init()
   },[router])
 
-  const save = async nc => { await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(nc),updated_at:new Date().toISOString()},{onConflict:'key'}) }
+  const save = async nc => {
+    await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(nc),updated_at:new Date().toISOString()},{onConflict:'key'})
+  }
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3000) }
 
+  // ── Negócios ─────────────────────────────────────
   async function salvarNeg() {
     if(!formNeg.titulo.trim()){ alert('Informe o título.'); return }
     setSaving(true)
-    const now=new Date().toISOString(); const novo={...formNeg,id:formNeg.id||'neg_'+Date.now(),criadoEm:formNeg.criadoEm||now,atualizadoEm:now}
+    const now=new Date().toISOString()
+    const novo={...formNeg,id:formNeg.id||'neg_'+Date.now(),criadoEm:formNeg.criadoEm||now,atualizadoEm:now}
     const lista=formNeg.id?negocios.map(n=>n.id===formNeg.id?novo:n):[...negocios,novo]
     const nc={...cfg,crm_negocios:lista}; await save(nc); setNegocios(lista); setCfg(nc)
     if(negSel?.id===novo.id)setNegSel(novo)
@@ -105,6 +148,7 @@ export default function CRM() {
     if(negSel?.id===negId)setNegSel(s=>({...s,etapa:novaEtapa}))
   }
 
+  // ── Atividades ────────────────────────────────────
   async function salvarAtiv() {
     if(!formAtiv.descricao.trim()){ alert('Informe a descrição.'); return }
     setSaving(true)
@@ -126,18 +170,92 @@ export default function CRM() {
     await save(nc); setAtividades(lista); setCfg(nc); showToast('🗑 Removida!')
   }
 
+  // ── Clientes ──────────────────────────────────────
+  async function salvarCliente() {
+    const data = { ...formCli }
+    if(!data.doc&&!data.fantasia&&!data.razao){ alert('Informe ao menos o CNPJ/CPF ou o nome.'); return }
+    setSaving(true)
+    const now = new Date().toLocaleDateString('pt-BR')
+    if(!data.id) {
+      // checar duplicata
+      if(data.doc && clientes.find(c=>c.doc===data.doc.replace(/\D/g,''))) {
+        alert('Já existe um cliente com este CNPJ/CPF.'); setSaving(false); return
+      }
+      data.id = 'cli_'+Date.now()
+      data.doc = data.doc.replace(/\D/g,'')
+      data.updatedAt = now
+      const lista = [...clientes, data]
+      const nc = {...cfg, clients: lista}; await save(nc); setClientes(lista); setCfg(nc)
+    } else {
+      data.doc = data.doc.replace(/\D/g,'')
+      data.updatedAt = now
+      const lista = clientes.map(c=>c.id===data.id?data:c)
+      const nc = {...cfg, clients: lista}; await save(nc); setClientes(lista); setCfg(nc)
+    }
+    setShowFormCli(false); setFormCli({...EMPTY_CLI}); setCnpjMsg(''); setSaving(false); showToast('✅ Cliente salvo!')
+  }
+
+  async function excluirCliente(id) {
+    if(!confirm('Excluir este cliente?'))return
+    const lista = clientes.filter(c=>c.id!==id)
+    const nc = {...cfg, clients: lista}; await save(nc); setClientes(lista); setCfg(nc)
+    if(cliSel?.id===id) setCliSel(null)
+    showToast('🗑 Cliente removido!')
+  }
+
+  async function buscarCNPJNeg() {
+    const cnpj=formNeg.cnpj.replace(/\D/g,''); if(cnpj.length!==14){alert('CNPJ inválido.');return}
+    setBuscandoCNPJ(true); const d=await fetchCNPJDados(cnpj)
+    if(d) setFormNeg(f=>({...f,...d})); else alert('CNPJ não encontrado.')
+    setBuscandoCNPJ(false); showToast(d?'✅ CNPJ carregado!':'❌ Não encontrado')
+  }
+
+  async function buscarCNPJCli() {
+    const cnpj = formCli.doc.replace(/\D/g,'')
+    if(cnpj.length!==14){ setCnpjMsg('⚠️ CNPJ inválido.'); return }
+    setBuscandoCNPJCli(true); setCnpjMsg('⏳ Consultando Receita Federal...')
+    // verificar base local primeiro
+    const local = clientes.find(c=>c.doc===cnpj)
+    if(local) {
+      setFormCli(f=>({...f,...local}))
+      setCnpjMsg('✅ Dados encontrados na base local!')
+      setBuscandoCNPJCli(false); return
+    }
+    const d = await fetchCNPJDados(cnpj)
+    if(d) {
+      setFormCli(f=>({
+        ...f,
+        razao: f.razao||d.razao, fantasia: f.fantasia||d.fantasia,
+        email: f.email||d.email, tel: f.tel||d.tel,
+        cep: f.cep||d.cep, end: f.end||d.end, numero: f.numero||d.numero,
+        complemento: f.complemento||d.complemento, bairro: f.bairro||d.bairro,
+        cidade: f.cidade||d.cidade, uf: f.uf||d.uf,
+      }))
+      setCnpjMsg('✅ Dados da Receita Federal carregados!')
+      // se veio CEP, busca endereço completo caso end esteja vazio
+      if(d.cep && !d.end) { const ce = await fetchCEPDados(d.cep); if(ce) setFormCli(f=>({...f,...ce})) }
+    } else {
+      setCnpjMsg('❌ CNPJ não localizado na Receita Federal.')
+    }
+    setBuscandoCNPJCli(false)
+  }
+
+  async function buscarCEPCli() {
+    const cep = formCli.cep.replace(/\D/g,'')
+    if(cep.length!==8){ return }
+    setBuscandoCEP(true)
+    const d = await fetchCEPDados(cep)
+    if(d) setFormCli(f=>({...f, end:f.end||d.end, bairro:f.bairro||d.bairro, cidade:f.cidade||d.cidade, uf:f.uf||d.uf}))
+    setBuscandoCEP(false)
+  }
+
+  // ── DnD ──────────────────────────────────────────
   function onDragStart(e,neg){ setDragging(neg.id); dragNode.current=e.target; setTimeout(()=>{ if(dragNode.current)dragNode.current.style.opacity='0.4' },0) }
   function onDragEnd(){ if(dragNode.current)dragNode.current.style.opacity='1'; setDragging(null); setDragOver(null) }
   function onDragOver(e,id){ e.preventDefault(); setDragOver(id) }
   function onDrop(e,id){ e.preventDefault(); if(dragging)moverEtapa(dragging,id); setDragging(null); setDragOver(null) }
 
-  async function buscarCNPJ() {
-    const cnpj=formNeg.cnpj.replace(/\D/g,''); if(cnpj.length!==14){alert('CNPJ inválido.');return}
-    setBuscandoCNPJ(true); const d=await fetchCNPJDados(cnpj)
-    if(d)setFormNeg(f=>({...f,...d})); else alert('CNPJ não encontrado.')
-    setBuscandoCNPJ(false); showToast(d?'✅ CNPJ carregado!':'❌ Não encontrado')
-  }
-
+  // ── Filtros ───────────────────────────────────────
   const negFiltrados = negocios.filter(n=>{
     const ob=!busca.trim()||n.titulo?.toLowerCase().includes(busca.toLowerCase())||n.nome?.toLowerCase().includes(busca.toLowerCase())||n.cnpj?.includes(busca)||n.email?.includes(busca)
     const oe=filtroEtapa==='todas'||n.etapa===filtroEtapa
@@ -152,10 +270,17 @@ export default function CRM() {
     return true
   })
 
+  const cliFiltrados = clientes.filter(c => {
+    if(!buscaCli.trim()) return true
+    const q = buscaCli.toLowerCase()
+    return (c.fantasia||'').toLowerCase().includes(q) || (c.razao||'').toLowerCase().includes(q) ||
+           (c.doc||'').includes(q) || (c.email||'').toLowerCase().includes(q) ||
+           (c.cidade||'').toLowerCase().includes(q)
+  })
+
   const atrasadas  = atividades.filter(isAtrasada).length
   const parHoje    = atividades.filter(isHoje).length
   const parFutura  = atividades.filter(isFutura).length
-  const negDeAtiv  = a => negocios.find(n=>n.id===a.negocioId)
   const ativsDeNeg = id => atividades.filter(a=>a.negocioId===id).sort((a,b)=>new Date(b.criadoEm)-new Date(a.criadoEm))
   const logoSrc    = cfg.logob64?(cfg.logob64.startsWith('data:')?cfg.logob64:`data:image/png;base64,${cfg.logob64}`):null
 
@@ -178,31 +303,48 @@ export default function CRM() {
         .tl-item{display:flex;gap:12px;margin-bottom:16px;position:relative}
         .tl-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:4px}
         .tl-line{position:absolute;left:4px;top:14px;bottom:-16px;width:2px;background:var(--border)}
+        .cli-row{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:border-color .2s}
+        .cli-row:hover{border-color:rgba(0,212,255,.3)}
         input:focus,textarea:focus,select:focus{border-color:var(--accent)!important;outline:none}
       `}</style>
 
       {toast&&<div style={{position:'fixed',bottom:28,left:'50%',transform:'translateX(-50%)',background:'rgba(16,185,129,.92)',color:'#fff',padding:'11px 22px',borderRadius:10,fontFamily:'DM Mono',fontSize:14,zIndex:9999}}>{toast}</div>}
 
-      {/* ── Header ── */}
       <Navbar cfg={cfg} perfil={perfil} />
 
       <main style={{padding:'20px 20px 60px'}}>
 
         {/* ── Barra de visão ── */}
         <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap',alignItems:'center'}}>
-          {[['funil','🗂️ Funil de Vendas'],['atividades','📅 Atividades']].map(([v,l])=>(
-            <button key={v} onClick={()=>{setVisao(v);setNegSel(null)}}
+          {[
+            ['funil','🗂️ Funil de Vendas'],
+            ['atividades','📅 Atividades'],
+            ['clientes','👥 Clientes'],
+          ].map(([v,l])=>(
+            <button key={v} onClick={()=>{setVisao(v);setNegSel(null);setCliSel(null)}}
               style={{padding:'9px 16px',borderRadius:9,border:`1.5px solid ${visao===v&&!negSel?'var(--accent)':'var(--border)'}`,background:visao===v&&!negSel?'rgba(0,212,255,.12)':'var(--surface2)',color:visao===v&&!negSel?'var(--accent)':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:visao===v&&!negSel?700:400}}>
               {l}
             </button>
           ))}
           {negSel&&<span style={{fontSize:13,color:'var(--accent)',padding:'9px 16px',background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.25)',borderRadius:9}}>📋 {negSel.titulo}</span>}
           <div style={{marginLeft:'auto',display:'flex',gap:8}}>
-            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:180}}/>
-            <button onClick={()=>{setFormNeg({...EMPTY_NEG});setShowFormNeg(true)}}
-              style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
-              + Novo Negócio
-            </button>
+            {visao==='clientes' ? (
+              <>
+                <input value={buscaCli} onChange={e=>setBuscaCli(e.target.value)} placeholder="🔍 Buscar cliente..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:200}}/>
+                <button onClick={()=>{setFormCli({...EMPTY_CLI,id:''});setCnpjMsg('');setShowFormCli(true)}}
+                  style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+                  + Novo Cliente
+                </button>
+              </>
+            ) : (
+              <>
+                <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:180}}/>
+                <button onClick={()=>{setFormNeg({...EMPTY_NEG});setShowFormNeg(true)}}
+                  style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+                  + Novo Negócio
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -229,7 +371,6 @@ export default function CRM() {
           <div>
             <button onClick={()=>{setNegSel(null);setVisao('funil')}} style={{...S.nb,marginBottom:16}}>← Voltar ao Funil</button>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
-              {/* Dados */}
               <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 22px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
                   <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)'}}>🏢 Dados do Cliente</div>
@@ -255,7 +396,6 @@ export default function CRM() {
                 {negSel.observacoes&&<div style={{marginTop:12,padding:'10px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:12,color:'var(--muted)',lineHeight:1.6}}>{negSel.observacoes}</div>}
               </div>
 
-              {/* Timeline */}
               <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 22px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
                   <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)'}}>📋 Timeline de Atividades</div>
@@ -281,14 +421,11 @@ export default function CRM() {
                               {ehH&&!a.concluida&&<span style={{fontSize:10,color:'var(--warning)',fontWeight:700}}>📅 Hoje</span>}
                             </div>
                             <div style={{fontSize:13,color:a.concluida?'var(--muted)':'var(--text)',marginTop:4,fontWeight:500,textDecoration:a.concluida?'line-through':'none'}}>{a.descricao}</div>
-                            <div style={{fontSize:11,color:'var(--muted)',marginTop:3}}>
-                              {a.prazo&&<span style={{color:atr?'var(--danger)':ehH?'var(--warning)':'var(--muted)'}}>⏰ {fmtDT(a.prazo)} · </span>}
-                              {fmtDT(a.criadoEm)}
-                            </div>
-                            <div style={{display:'flex',gap:4,marginTop:6}}>
-                              <button onClick={()=>toggleConcluida(a)} style={{padding:'3px 8px',borderRadius:5,background:a.concluida?'rgba(100,116,139,.1)':'rgba(16,185,129,.12)',border:`1px solid ${a.concluida?'var(--border)':'rgba(16,185,129,.3)'}`,color:a.concluida?'var(--muted)':'var(--accent3)',fontSize:11,cursor:'pointer'}}>{a.concluida?'↩ Reabrir':'✓ Concluir'}</button>
-                              <button onClick={()=>{setFormAtiv({...a});setShowFormAtiv(true)}} style={{padding:'3px 7px',borderRadius:5,background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.2)',color:'var(--accent)',fontSize:11,cursor:'pointer'}}>✏️</button>
-                              <button onClick={()=>excluirAtiv(a.id)} style={{padding:'3px 7px',borderRadius:5,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.2)',color:'var(--danger)',fontSize:11,cursor:'pointer'}}>🗑</button>
+                            <div style={{display:'flex',gap:8,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+                              {a.prazo&&<span style={{fontSize:10,color:'var(--muted)'}}>{fmtDT(a.prazo)}</span>}
+                              <button onClick={()=>toggleConcluida(a)} style={{fontSize:10,background:a.concluida?'rgba(16,185,129,.1)':'rgba(0,212,255,.08)',border:`1px solid ${a.concluida?'rgba(16,185,129,.3)':'rgba(0,212,255,.2)'}`,color:a.concluida?'var(--accent3)':'var(--accent)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>{a.concluida?'↩ Reabrir':'✅ Concluir'}</button>
+                              <button onClick={()=>{setFormAtiv({...a});setShowFormAtiv(true)}} style={{fontSize:10,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️</button>
+                              <button onClick={()=>excluirAtiv(a.id)} style={{fontSize:10,background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
                             </div>
                           </div>
                         </div>
@@ -301,103 +438,214 @@ export default function CRM() {
           </div>
         )}
 
-        {/* ══════════ FUNIL KANBAN ══════════ */}
-        {visao==='funil'&&!negSel&&(
-          <>
-            <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
-              <button onClick={()=>setFiltroEtapa('todas')} style={{...S.chip,borderColor:filtroEtapa==='todas'?'var(--accent)':'var(--border)',color:filtroEtapa==='todas'?'var(--accent)':'var(--muted)',background:filtroEtapa==='todas'?'rgba(0,212,255,.1)':'var(--surface2)'}}>Todas</button>
-              {etapas.map(e=>(
-                <button key={e.id} onClick={()=>setFiltroEtapa(e.id)} style={{...S.chip,borderColor:filtroEtapa===e.id?e.cor:'var(--border)',color:filtroEtapa===e.id?e.cor:'var(--muted)',background:filtroEtapa===e.id?`${e.cor}18`:'var(--surface2)'}}>
-                  {e.label} <span style={{fontSize:10,opacity:.7}}>({negocios.filter(n=>n.etapa===e.id).length})</span>
+        {/* ══════════ FUNIL ══════════ */}
+        {!negSel&&visao==='funil'&&(
+          <div>
+            <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+              {[['todas','Todas'],  ...etapas.map(e=>[e.id,e.label])].map(([id,label])=>(
+                <button key={id} onClick={()=>setFiltroEtapa(id)}
+                  style={{padding:'5px 12px',borderRadius:20,border:`1px solid ${filtroEtapa===id?'var(--accent)':'var(--border)'}`,background:filtroEtapa===id?'rgba(0,212,255,.1)':'var(--surface2)',color:filtroEtapa===id?'var(--accent)':'var(--muted)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace',whiteSpace:'nowrap'}}>
+                  {label} {id!=='todas'?`(${negocios.filter(n=>n.etapa===id).length})`:``}
                 </button>
               ))}
             </div>
             <div className="kb-wrap">
-              {etapas.map(etapa=>{
-                const cards=negFiltrados.filter(n=>n.etapa===etapa.id); const isDO=dragOver===etapa.id
+              {etapas.filter(e=>filtroEtapa==='todas'||e.id===filtroEtapa).map(etapa=>{
+                const cols=negFiltrados.filter(n=>n.etapa===etapa.id)
                 return(
-                  <div key={etapa.id} className="kb-col" onDragOver={e=>onDragOver(e,etapa.id)} onDrop={e=>onDrop(e,etapa.id)}>
-                    <div style={{padding:'8px 12px',borderRadius:8,marginBottom:8,background:isDO?'rgba(0,212,255,.06)':'var(--surface2)',border:`1px solid ${isDO?'rgba(0,212,255,.3)':'var(--border)'}`,transition:'all .2s'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:6}}>
-                        <div style={{width:8,height:8,borderRadius:2,background:etapa.cor,flexShrink:0}}/>
-                        <span style={{fontSize:11,fontWeight:700,color:'var(--text)',flex:1}}>{etapa.label}</span>
-                        <span style={{fontSize:10,background:'rgba(0,212,255,.1)',color:'var(--accent)',borderRadius:10,padding:'1px 7px',fontWeight:700}}>{cards.length}</span>
+                  <div key={etapa.id} className="kb-col"
+                    onDragOver={e=>onDragOver(e,etapa.id)} onDrop={e=>onDrop(e,etapa.id)}>
+                    <div style={{marginBottom:10}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                        <div style={{width:8,height:8,borderRadius:'50%',background:etapa.cor,flexShrink:0}}/>
+                        <span style={{fontSize:11,fontWeight:700,color:etapa.cor,letterSpacing:.5}}>{etapa.label}</span>
+                        <span style={{marginLeft:'auto',fontSize:10,color:'var(--muted)',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'1px 7px'}}>{cols.length}</span>
                       </div>
-                      <div style={{fontSize:10,color:'var(--muted)',marginTop:3}}>{fmt(cards.reduce((a,n)=>a+(Number(n.adesao)||0),0))}</div>
+                      <div style={{fontSize:10,color:'var(--muted)'}}>R$ {cols.reduce((a,n)=>a+(Number(n.adesao)||0),0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
                     </div>
-                    <div className={isDO?'drop-ok':''} style={{minHeight:80,borderRadius:8,padding:isDO?4:0,transition:'all .2s'}}>
-                      {cards.map(neg=>{
-                        const qA=atividades.filter(a=>a.negocioId===neg.id).length
-                        const qR=atividades.filter(a=>a.negocioId===neg.id&&isAtrasada(a)).length
-                        const qH=atividades.filter(a=>a.negocioId===neg.id&&isHoje(a)).length
-                        return(
-                          <div key={neg.id} className="neg-card" draggable onDragStart={e=>onDragStart(e,neg)} onDragEnd={onDragEnd}>
-                            <div style={{fontWeight:700,fontSize:12,color:'var(--text)',marginBottom:3,lineHeight:1.3}}>{neg.titulo||neg.nome}</div>
-                            {neg.nome&&neg.titulo!==neg.nome&&<div style={{fontSize:10,color:'var(--muted)',marginBottom:2}}>{neg.nome}</div>}
-                            {neg.cnpj&&<div style={{fontSize:10,color:'var(--muted)'}}>{fmtDoc(neg.cnpj)}</div>}
-                            {(neg.adesao||neg.mensalidade)&&<div style={{marginTop:5,display:'flex',gap:5,flexWrap:'wrap'}}>{neg.adesao&&<span style={{fontSize:10,color:'var(--gold)'}}>Ad:{fmt(neg.adesao)}</span>}{neg.mensalidade&&<span style={{fontSize:10,color:'var(--accent3)'}}>Men:{fmt(neg.mensalidade)}</span>}</div>}
-                            {qA>0&&<div style={{display:'flex',gap:4,marginTop:5,flexWrap:'wrap'}}>{qR>0&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:4,background:'rgba(239,68,68,.15)',color:'var(--danger)',fontWeight:700}}>⚠️{qR}</span>}{qH>0&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:4,background:'rgba(245,158,11,.12)',color:'var(--warning)',fontWeight:700}}>📅{qH}</span>}{!qR&&!qH&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:4,background:'rgba(0,212,255,.08)',color:'var(--accent)'}}>{qA} atv.</span>}</div>}
-                            <div style={{display:'flex',gap:4,marginTop:8}}>
-                              <button onClick={()=>{setNegSel(neg)}} style={{flex:1,padding:'4px 0',borderRadius:6,background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.2)',color:'var(--accent)',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>📋 Ver</button>
-                              <button onClick={()=>{setFormNeg({...neg});setShowFormNeg(true)}} style={{padding:'4px 7px',borderRadius:6,background:'rgba(100,116,139,.08)',border:'1px solid var(--border)',color:'var(--muted)',fontSize:10,cursor:'pointer'}}>✏️</button>
-                              <button onClick={()=>excluirNeg(neg.id)} style={{padding:'4px 7px',borderRadius:6,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.2)',color:'var(--danger)',fontSize:10,cursor:'pointer'}}>🗑</button>
-                            </div>
+                    <div className={dragOver===etapa.id?'drop-ok':''} style={{minHeight:60,borderRadius:8,padding:dragOver===etapa.id?'4px':0,transition:'all .2s'}}>
+                      {cols.map(neg=>(
+                        <div key={neg.id} className="neg-card"
+                          draggable onDragStart={e=>onDragStart(e,neg)} onDragEnd={onDragEnd}
+                          onClick={()=>{setNegSel(neg);setVisao('detalhe')}}>
+                          <div style={{fontSize:13,fontWeight:600,color:'var(--text)',marginBottom:4}}>{neg.titulo}</div>
+                          {neg.nome&&<div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>{neg.nome}</div>}
+                          {neg.cnpj&&<div style={{fontSize:10,color:'var(--muted)',marginBottom:4}}>{fmtDoc(neg.cnpj)}</div>}
+                          {neg.email&&<div style={{fontSize:10,color:'var(--muted)',marginBottom:4}}>{neg.email}</div>}
+                          {neg.adesao&&<div style={{fontSize:11,color:'var(--gold)',fontWeight:700,marginBottom:4}}>{fmt(neg.adesao)}</div>}
+                          <div style={{display:'flex',gap:6,marginTop:8}}>
+                            <button onClick={e=>{e.stopPropagation();setFormNeg({...neg});setShowFormNeg(true)}}
+                              style={{flex:1,padding:'4px 0',borderRadius:6,background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.15)',color:'var(--accent)',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>
+                              ✏️ Ver
+                            </button>
+                            <button onClick={e=>{e.stopPropagation();excluirNeg(neg.id)}}
+                              style={{padding:'4px 8px',borderRadius:6,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.15)',color:'var(--danger)',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>
+                              🗑
+                            </button>
                           </div>
-                        )
-                      })}
-                      {!cards.length&&<div style={{fontSize:11,color:'var(--muted)',textAlign:'center',padding:'18px 0',borderRadius:8,border:'1px dashed rgba(100,116,139,.2)'}}>Arrastar aqui</div>}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{marginTop:6,fontSize:10,color:'var(--muted)',textAlign:'center',padding:'8px',border:'1px dashed var(--border)',borderRadius:8,cursor:'default'}}>
+                      Arrastar aqui
                     </div>
                   </div>
                 )
               })}
             </div>
-          </>
+          </div>
         )}
 
-        {/* ══════════ VISÃO ATIVIDADES ══════════ */}
-        {visao==='atividades'&&!negSel&&(
+        {/* ══════════ ATIVIDADES ══════════ */}
+        {!negSel&&visao==='atividades'&&(
           <div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:20}}>
-              {[{l:'⚠️ Atrasadas',v:atrasadas,c:'var(--danger)',f:'atrasada'},{l:'📅 Para Hoje',v:parHoje,c:'var(--warning)',f:'hoje'},{l:'🔜 Futuras',v:parFutura,c:'var(--accent)',f:'futura'},{l:'✅ Concluídas',v:atividades.filter(a=>a.concluida).length,c:'var(--accent3)',f:'concluida'}].map(k=>(
-                <div key={k.f} onClick={()=>setFiltroAtiv(filtroAtiv===k.f?'todas':k.f)}
-                  style={{background:filtroAtiv===k.f?`${k.c}18`:'var(--surface)',border:`1px solid ${filtroAtiv===k.f?k.c:'var(--border)'}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',transition:'all .2s'}}>
-                  <div style={{fontSize:9,color:'var(--muted)',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>{k.l}</div>
-                  <div style={{fontFamily:'Syne,sans-serif',fontSize:22,fontWeight:800,color:k.c}}>{k.v}</div>
-                </div>
+            <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+              {[['todas','Todas'],['hoje','📅 Hoje'],['atrasada','⚠️ Atrasadas'],['futura','🔜 Futuras'],['concluida','✅ Concluídas']].map(([id,label])=>(
+                <button key={id} onClick={()=>setFiltroAtiv(id)}
+                  style={{padding:'6px 14px',borderRadius:20,border:`1px solid ${filtroAtiv===id?'var(--accent)':'var(--border)'}`,background:filtroAtiv===id?'rgba(0,212,255,.1)':'var(--surface2)',color:filtroAtiv===id?'var(--accent)':'var(--muted)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>
+                  {label}
+                </button>
               ))}
-            </div>
-            <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
-              <button onClick={()=>{setFormAtiv({...EMPTY_ATIV});setShowFormAtiv(true)}} style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer'}}>+ Nova Atividade</button>
+              <button onClick={()=>{setFormAtiv({...EMPTY_ATIV});setShowFormAtiv(true)}}
+                style={{marginLeft:'auto',padding:'7px 16px',borderRadius:8,background:'rgba(0,212,255,.12)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',fontWeight:600}}>
+                + Nova Atividade
+              </button>
             </div>
             {ativFiltradas.length===0
-              ?<div style={{textAlign:'center',padding:'40px 0',color:'var(--muted)',fontSize:13}}>Nenhuma atividade.</div>
-              :ativFiltradas.sort((a,b)=>{if(!a.prazo&&!b.prazo)return 0;if(!a.prazo)return 1;if(!b.prazo)return -1;return new Date(a.prazo)-new Date(b.prazo)}).map(a=>{
-                const neg=negDeAtiv(a),atr=isAtrasada(a),ehH=isHoje(a)
+              ?<div style={{textAlign:'center',padding:'50px 0',color:'var(--muted)',fontSize:14}}>Nenhuma atividade encontrada.</div>
+              :<div>{ativFiltradas.sort((a,b)=>new Date(a.prazo||0)-new Date(b.prazo||0)).map(a=>{
+                const neg=negocios.find(n=>n.id===a.negocioId)
+                const atr=isAtrasada(a),ehH=isHoje(a)
                 return(
-                  <div key={a.id} style={{background:'var(--surface)',border:`1px solid ${atr?'rgba(239,68,68,.3)':ehH?'rgba(245,158,11,.3)':'var(--border)'}`,borderRadius:10,padding:'14px 16px',marginBottom:8,display:'flex',gap:12,alignItems:'flex-start'}}>
-                    <div onClick={()=>toggleConcluida(a)} style={{width:22,height:22,borderRadius:6,border:`2px solid ${a.concluida?'var(--accent3)':atr?'var(--danger)':ehH?'var(--warning)':'var(--border)'}`,background:a.concluida?'var(--accent3)':'transparent',cursor:'pointer',flexShrink:0,marginTop:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                      {a.concluida&&<span style={{color:'#fff',fontSize:12,fontWeight:700}}>✓</span>}
-                    </div>
+                  <div key={a.id} style={{background:'var(--surface)',border:`1px solid ${atr?'rgba(239,68,68,.3)':ehH?'rgba(245,158,11,.3)':'var(--border)'}`,borderRadius:12,padding:'14px 16px',marginBottom:10,display:'flex',gap:12,alignItems:'flex-start'}}>
+                    <div style={{width:10,height:10,borderRadius:'50%',background:a.concluida?'var(--accent3)':atr?'var(--danger)':ehH?'var(--warning)':'var(--accent)',flexShrink:0,marginTop:3}}/>
                     <div style={{flex:1}}>
-                      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:4}}>
-                        <span style={{fontSize:11,padding:'2px 7px',borderRadius:5,background:'rgba(0,212,255,.1)',color:'var(--accent)'}}>{a.tipo}</span>
-                        {neg&&<span onClick={()=>setNegSel(neg)} style={{fontSize:11,color:'var(--accent2)',cursor:'pointer',textDecoration:'underline'}}>{neg.titulo||neg.nome}</span>}
+                      <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:4}}>
+                        <span style={{fontSize:11,padding:'1px 7px',borderRadius:4,background:'rgba(0,212,255,.1)',color:'var(--accent)'}}>{a.tipo}</span>
+                        {neg&&<span style={{fontSize:11,color:'var(--muted)'}}>↗ {neg.titulo}</span>}
                         {atr&&!a.concluida&&<span style={{fontSize:10,color:'var(--danger)',fontWeight:700}}>⚠️ Atrasada</span>}
                         {ehH&&!a.concluida&&<span style={{fontSize:10,color:'var(--warning)',fontWeight:700}}>📅 Hoje</span>}
+                        {a.concluida&&<span style={{fontSize:10,color:'var(--accent3)'}}>✅ Concluída</span>}
                       </div>
-                      <div style={{fontSize:13,color:a.concluida?'var(--muted)':'var(--text)',fontWeight:500,textDecoration:a.concluida?'line-through':'none'}}>{a.descricao}</div>
-                      {a.prazo&&<div style={{fontSize:11,color:atr?'var(--danger)':ehH?'var(--warning)':'var(--muted)',marginTop:3}}>⏰ {fmtDT(a.prazo)}</div>}
+                      <div style={{fontSize:13,color:a.concluida?'var(--muted)':'var(--text)',textDecoration:a.concluida?'line-through':'none'}}>{a.descricao}</div>
+                      {a.prazo&&<div style={{fontSize:10,color:'var(--muted)',marginTop:4}}>{fmtDT(a.prazo)}</div>}
                     </div>
-                    <div style={{display:'flex',gap:4,flexShrink:0}}>
-                      <button onClick={()=>{setFormAtiv({...a});setShowFormAtiv(true)}} style={{padding:'5px 9px',borderRadius:6,background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.2)',color:'var(--accent)',fontSize:12,cursor:'pointer'}}>✏️</button>
-                      <button onClick={()=>excluirAtiv(a.id)} style={{padding:'5px 9px',borderRadius:6,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.2)',color:'var(--danger)',fontSize:12,cursor:'pointer'}}>🗑</button>
+                    <div style={{display:'flex',gap:6,flexShrink:0}}>
+                      <button onClick={()=>toggleConcluida(a)} style={{fontSize:10,padding:'4px 8px',borderRadius:6,background:a.concluida?'rgba(16,185,129,.1)':'rgba(0,212,255,.08)',border:`1px solid ${a.concluida?'rgba(16,185,129,.3)':'rgba(0,212,255,.2)'}`,color:a.concluida?'var(--accent3)':'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>{a.concluida?'↩':'✅'}</button>
+                      <button onClick={()=>{setFormAtiv({...a});setShowFormAtiv(true)}} style={{fontSize:10,padding:'4px 8px',borderRadius:6,background:'rgba(0,212,255,.05)',border:'1px solid var(--border)',color:'var(--muted)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️</button>
+                      <button onClick={()=>excluirAtiv(a.id)} style={{fontSize:10,padding:'4px 8px',borderRadius:6,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.15)',color:'var(--danger)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
                     </div>
                   </div>
                 )
-              })
+              })}</div>
             }
           </div>
         )}
+
+        {/* ══════════ CLIENTES ══════════ */}
+        {!negSel&&visao==='clientes'&&(
+          <div>
+            {/* Detalhe do cliente selecionado */}
+            {cliSel ? (
+              <div>
+                <button onClick={()=>setCliSel(null)} style={{...S.nb,marginBottom:16}}>← Voltar à lista</button>
+                <div style={{background:'var(--surface)',border:'1px solid rgba(0,212,255,.2)',borderRadius:14,padding:'22px 24px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+                    <div>
+                      <div style={{fontFamily:'Syne,sans-serif',fontSize:18,fontWeight:800,color:'var(--accent)'}}>{cliSel.fantasia||cliSel.razao||'—'}</div>
+                      {cliSel.razao&&cliSel.fantasia&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.razao}</div>}
+                    </div>
+                    <div style={{display:'flex',gap:8}}>
+                      <button onClick={()=>{setFormCli({...cliSel});setCnpjMsg('');setShowFormCli(true)}} style={{...S.nb,color:'var(--accent)',borderColor:'rgba(0,212,255,.3)'}}>✏️ Editar</button>
+                      <button onClick={()=>excluirCliente(cliSel.id)} style={{...S.nb,color:'var(--danger)',borderColor:'rgba(239,68,68,.3)'}}>🗑 Excluir</button>
+                    </div>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:0}}>
+                    {[
+                      ['CNPJ/CPF', fmtDoc(cliSel.doc)],
+                      ['Nome Fantasia', cliSel.fantasia],
+                      ['Razão Social', cliSel.razao],
+                      ['Contato Principal', cliSel.contato],
+                      ['E-mail', cliSel.email],
+                      ['Telefone', cliSel.tel],
+                      ['CEP', fmtCEP(cliSel.cep)],
+                      ['Endereço', [cliSel.end, cliSel.numero, cliSel.complemento].filter(Boolean).join(', ')],
+                      ['Bairro', cliSel.bairro],
+                      ['Cidade/UF', [cliSel.cidade, cliSel.uf].filter(Boolean).join(' – ')],
+                      ['Regime Tributário', cliSel.regime],
+                      ['Atualizado em', cliSel.updatedAt],
+                    ].filter(([,v])=>v).map(([l,v])=>(
+                      <div key={l} style={{display:'flex',gap:8,padding:'9px 0',borderBottom:'1px solid var(--border)',fontSize:13}}>
+                        <span style={{color:'var(--muted)',minWidth:140,flexShrink:0}}>{l}</span>
+                        <span style={{color:'var(--text)',fontWeight:500}}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Responsáveis */}
+                  {(cliSel.rimpNome||cliSel.rfinNome)&&(
+                    <div style={{marginTop:16,display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                      {cliSel.rimpNome&&(
+                        <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
+                          <div style={{fontSize:10,color:'var(--accent)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:8}}>Resp. Implantação</div>
+                          <div style={{fontSize:13,color:'var(--text)',fontWeight:600}}>{cliSel.rimpNome}</div>
+                          {cliSel.rimpEmail&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rimpEmail}</div>}
+                          {cliSel.rimpTel&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rimpTel}</div>}
+                        </div>
+                      )}
+                      {cliSel.rfinNome&&(
+                        <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
+                          <div style={{fontSize:10,color:'var(--gold)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:8}}>Resp. Financeiro</div>
+                          <div style={{fontSize:13,color:'var(--text)',fontWeight:600}}>{cliSel.rfinNome}</div>
+                          {cliSel.rfinEmail&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rfinEmail}</div>}
+                          {cliSel.rfinTel&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rfinTel}</div>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* Lista de clientes */
+              <div>
+                {cliFiltrados.length===0
+                  ?<div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)',fontSize:14}}>
+                    {clientes.length===0?'Nenhum cliente cadastrado.':'Nenhum cliente encontrado para a busca.'}
+                    <br/><br/>
+                    <button onClick={()=>{setFormCli({...EMPTY_CLI,id:''});setCnpjMsg('');setShowFormCli(true)}} style={{padding:'10px 20px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>
+                      + Cadastrar primeiro cliente
+                    </button>
+                  </div>
+                  :<div>
+                    <div style={{fontSize:12,color:'var(--muted)',marginBottom:12}}>{cliFiltrados.length} cliente{cliFiltrados.length!==1?'s':''} encontrado{cliFiltrados.length!==1?'s':''}</div>
+                    {cliFiltrados.map(cl=>(
+                      <div key={cl.id} className="cli-row" style={{cursor:'pointer'}} onClick={()=>setCliSel(cl)}>
+                        <div style={{width:40,height:40,borderRadius:'50%',background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>
+                          {(cl.fantasia||cl.razao||'?').slice(0,1).toUpperCase()}
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:'var(--text)'}}>{cl.fantasia||cl.razao||'—'}</div>
+                          {cl.razao&&cl.fantasia&&<div style={{fontSize:11,color:'var(--muted)'}}>{cl.razao}</div>}
+                          <div style={{fontSize:11,color:'var(--muted)',marginTop:2,display:'flex',gap:12,flexWrap:'wrap'}}>
+                            {cl.doc&&<span>{fmtDoc(cl.doc)}</span>}
+                            {cl.cidade&&cl.uf&&<span>{cl.cidade} – {cl.uf}</span>}
+                            {cl.email&&<span>{cl.email}</span>}
+                          </div>
+                        </div>
+                        <div style={{display:'flex',gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                          <button onClick={()=>{setFormCli({...cl});setCnpjMsg('');setShowFormCli(true)}}
+                            style={{padding:'5px 10px',borderRadius:7,background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.2)',color:'var(--accent)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️</button>
+                          <button onClick={()=>excluirCliente(cl.id)}
+                            style={{padding:'5px 10px',borderRadius:7,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.2)',color:'var(--danger)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                }
+              </div>
+            )}
+          </div>
+        )}
+
       </main>
 
       {/* ════ MODAL NEGÓCIO ════ */}
@@ -410,7 +658,7 @@ export default function CRM() {
                 <div style={{fontSize:10,color:'var(--accent)',marginBottom:8,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>🔍 Buscar por CNPJ</div>
                 <div style={{display:'flex',gap:8}}>
                   <input value={formNeg.cnpj} onChange={e=>setFormNeg(f=>({...f,cnpj:e.target.value}))} placeholder="00.000.000/0001-00" style={S.ip}/>
-                  <button onClick={buscarCNPJ} disabled={buscandoCNPJ} style={{padding:'9px 14px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontSize:12,cursor:'pointer',whiteSpace:'nowrap',fontFamily:'DM Mono,monospace'}}>{buscandoCNPJ?'⏳...':'🔍 Buscar'}</button>
+                  <button onClick={buscarCNPJNeg} disabled={buscandoCNPJ} style={{padding:'9px 14px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontSize:12,cursor:'pointer',whiteSpace:'nowrap',fontFamily:'DM Mono,monospace'}}>{buscandoCNPJ?'⏳...':'🔍 Buscar'}</button>
                 </div>
               </div>
               <F l="Título *"><input value={formNeg.titulo} onChange={e=>setFormNeg(f=>({...f,titulo:e.target.value}))} placeholder="Ex: Escritório Silva" style={S.ip}/></F>
@@ -461,6 +709,95 @@ export default function CRM() {
           </div>
         </div>
       )}
+
+      {/* ════ MODAL CLIENTE ════ */}
+      {showFormCli&&(
+        <div style={S.ov}>
+          <div style={{...S.md,maxWidth:680}}>
+            <div style={S.mh}>
+              <h3 style={S.mt}>{formCli.id?'✏️ Editar Cliente':'➕ Novo Cliente'}</h3>
+              <button onClick={()=>setShowFormCli(false)} style={S.mc}>✕</button>
+            </div>
+            <div style={S.mb}>
+
+              {/* Bloco CNPJ lookup */}
+              <div style={{background:'var(--surface2)',border:'1px solid rgba(0,212,255,.2)',borderRadius:10,padding:14,marginBottom:16}}>
+                <div style={{fontSize:10,color:'var(--accent)',marginBottom:8,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>🔍 Buscar CNPJ — preenchimento automático</div>
+                <div style={{display:'flex',gap:8}}>
+                  <input value={formCli.doc} onChange={e=>setFormCli(f=>({...f,doc:e.target.value}))} placeholder="00.000.000/0001-00 ou CPF" style={S.ip}/>
+                  <button onClick={buscarCNPJCli} disabled={buscandoCNPJCli} style={{padding:'9px 14px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontSize:12,cursor:'pointer',whiteSpace:'nowrap',fontFamily:'DM Mono,monospace'}}>
+                    {buscandoCNPJCli?'⏳ Buscando...':'🔍 Buscar'}
+                  </button>
+                </div>
+                {cnpjMsg&&<div style={{marginTop:8,fontSize:12,color:cnpjMsg.startsWith('✅')?'var(--accent3)':cnpjMsg.startsWith('❌')?'var(--danger)':'var(--muted)'}}>{cnpjMsg}</div>}
+              </div>
+
+              {/* Dados principais */}
+              <div style={{fontSize:11,color:'var(--accent)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:10,paddingBottom:6,borderBottom:'1px solid var(--border)'}}>Dados da Empresa</div>
+              <div style={S.g2}>
+                <F l="Nome Fantasia"><input value={formCli.fantasia} onChange={e=>setFormCli(f=>({...f,fantasia:e.target.value}))} style={S.ip}/></F>
+                <F l="Razão Social"><input value={formCli.razao} onChange={e=>setFormCli(f=>({...f,razao:e.target.value}))} style={S.ip}/></F>
+                <F l="E-mail"><input type="email" value={formCli.email} onChange={e=>setFormCli(f=>({...f,email:e.target.value}))} style={S.ip}/></F>
+                <F l="Telefone"><input value={formCli.tel} onChange={e=>setFormCli(f=>({...f,tel:e.target.value}))} style={S.ip}/></F>
+                <F l="Contato Principal (nome)"><input value={formCli.contato} onChange={e=>setFormCli(f=>({...f,contato:e.target.value}))} style={S.ip}/></F>
+                <F l="CPF do Contato"><input value={formCli.cpfContato} onChange={e=>setFormCli(f=>({...f,cpfContato:e.target.value}))} style={S.ip}/></F>
+                <F l="Regime Tributário">
+                  <select value={formCli.regime} onChange={e=>setFormCli(f=>({...f,regime:e.target.value}))} style={{...S.ip,cursor:'pointer'}}>
+                    <option value="">— Selecionar —</option>
+                    <option>Simples Nacional</option>
+                    <option>Lucro Presumido</option>
+                    <option>Lucro Real</option>
+                    <option>MEI</option>
+                  </select>
+                </F>
+              </div>
+
+              {/* Endereço */}
+              <div style={{fontSize:11,color:'var(--accent)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',margin:'14px 0 10px',paddingBottom:6,borderBottom:'1px solid var(--border)'}}>Endereço</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8,marginBottom:12}}>
+                <F l="CEP"><input value={formCli.cep} onChange={e=>setFormCli(f=>({...f,cep:e.target.value}))} onBlur={buscarCEPCli} placeholder="00000-000" style={S.ip}/></F>
+                <div style={{paddingTop:18}}>
+                  {buscandoCEP&&<span style={{fontSize:11,color:'var(--muted)'}}>🔍</span>}
+                </div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:12}}>
+                <F l="Logradouro / Rua"><input value={formCli.end} onChange={e=>setFormCli(f=>({...f,end:e.target.value}))} style={S.ip}/></F>
+                <F l="Número"><input value={formCli.numero} onChange={e=>setFormCli(f=>({...f,numero:e.target.value}))} style={S.ip}/></F>
+                <F l="Complemento"><input value={formCli.complemento} onChange={e=>setFormCli(f=>({...f,complemento:e.target.value}))} style={S.ip}/></F>
+              </div>
+              <div style={S.g2}>
+                <F l="Bairro"><input value={formCli.bairro} onChange={e=>setFormCli(f=>({...f,bairro:e.target.value}))} style={S.ip}/></F>
+                <div style={S.g2}>
+                  <F l="Cidade"><input value={formCli.cidade} onChange={e=>setFormCli(f=>({...f,cidade:e.target.value}))} style={S.ip}/></F>
+                  <F l="UF"><input value={formCli.uf} onChange={e=>setFormCli(f=>({...f,uf:e.target.value}))} maxLength={2} style={S.ip}/></F>
+                </div>
+              </div>
+
+              {/* Responsáveis */}
+              <div style={{fontSize:11,color:'var(--accent)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',margin:'14px 0 10px',paddingBottom:6,borderBottom:'1px solid var(--border)'}}>Responsáveis</div>
+              <div style={S.g2}>
+                <div>
+                  <div style={{fontSize:11,color:'var(--gold)',fontWeight:700,marginBottom:8}}>Implantação</div>
+                  <F l="Nome"><input value={formCli.rimpNome} onChange={e=>setFormCli(f=>({...f,rimpNome:e.target.value}))} style={S.ip}/></F>
+                  <F l="E-mail"><input value={formCli.rimpEmail} onChange={e=>setFormCli(f=>({...f,rimpEmail:e.target.value}))} style={S.ip}/></F>
+                  <F l="Telefone"><input value={formCli.rimpTel} onChange={e=>setFormCli(f=>({...f,rimpTel:e.target.value}))} style={S.ip}/></F>
+                </div>
+                <div>
+                  <div style={{fontSize:11,color:'var(--gold)',fontWeight:700,marginBottom:8}}>Financeiro</div>
+                  <F l="Nome"><input value={formCli.rfinNome} onChange={e=>setFormCli(f=>({...f,rfinNome:e.target.value}))} style={S.ip}/></F>
+                  <F l="E-mail"><input value={formCli.rfinEmail} onChange={e=>setFormCli(f=>({...f,rfinEmail:e.target.value}))} style={S.ip}/></F>
+                  <F l="Telefone"><input value={formCli.rfinTel} onChange={e=>setFormCli(f=>({...f,rfinTel:e.target.value}))} style={S.ip}/></F>
+                </div>
+              </div>
+
+            </div>
+            <div style={S.mf}>
+              <button onClick={()=>setShowFormCli(false)} style={S.bc}>Cancelar</button>
+              <button onClick={salvarCliente} disabled={saving} style={S.bp}>{saving?'⏳ Salvando...':'✅ Salvar Cliente'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -474,7 +811,7 @@ const S = {
   chip: { padding:'5px 10px', borderRadius:7, border:'1px solid var(--border)', fontSize:11, cursor:'pointer', fontFamily:'DM Mono,monospace' },
   ip:   { width:'100%', background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:8, padding:'9px 12px', fontFamily:'DM Mono,monospace', fontSize:13, color:'var(--text)', outline:'none' },
   g2:   { display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 },
-  ov:   { position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20, overflowY:'auto' },
+  ov:   { position:'fixed', inset:0, background:'rgba(0,0,0,.80)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20, overflowY:'auto' },
   md:   { background:'var(--surface)', border:'1px solid var(--border)', borderRadius:16, width:'100%', maxWidth:640, boxShadow:'0 8px 40px rgba(0,0,0,.5)', maxHeight:'92vh', display:'flex', flexDirection:'column' },
   mh:   { padding:'20px 24px 0', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between' },
   mt:   { fontFamily:'Syne,sans-serif', fontSize:16, fontWeight:700, color:'var(--accent)' },
