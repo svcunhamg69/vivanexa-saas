@@ -934,8 +934,22 @@ export default function Chat(){
     window.vx_close=(yes)=>{
       const c=cfgRef.current
       if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.closingData=d;S.closingToday=true;S.stage='closing'
-        const h=c.closingHour||18;const dl=new Date();dl.setHours(h,0,0,0);setTimerDeadline(dl)
-        addUser('✅ Fechar hoje!');addBot(rClose(d),true)}
+        const h=c.closingHour||18;const dl=new Date();dl.setHours(h,0,0,0);
+        addUser('✅ Fechar hoje!');addBot(rClose(d),true)
+        // Aguarda o DOM renderizar a bolha antes de ativar o timer
+        setTimeout(()=>{
+          setTimerDeadline(dl)
+          // Força atualização imediata no DOM (evita condição de corrida com dangerouslySetInnerHTML)
+          const diff=dl-new Date()
+          if(diff>0){
+            const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
+            const val=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
+            document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent=val})
+          } else {
+            document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent='EXPIRADO'})
+          }
+        },300)
+      }
       else{S.stage='discounted';addUser('Não por agora');addBot('Entendido!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
     }
     window.vx_reset=()=>{
