@@ -8,6 +8,7 @@ import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
+import TabChatbotFlow from '../components/TabChatbotFlow'
 
 const CSS = `
   *{box-sizing:border-box;margin:0;padding:0}
@@ -923,70 +924,7 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
 
         {/* ── ABA CHATBOT ── */}
         {aba === 'chatbot' && (
-          <div>
-            <div className="card">
-              <div className="card-title">🤖 Configurar Chatbot</div>
-              <div className="grid2">
-                <div className="field">
-                  <label>Nome do Chatbot</label>
-                  <input value={chatbotNome} onChange={e => setChatbotNome(e.target.value)} placeholder="Ex: Ana, Carlos, Assistente..." />
-                </div>
-                <div className="field">
-                  <label>Personalidade</label>
-                  <select value={chatbotPersonalidade} onChange={e => setChatbotPersonalidade(e.target.value)}>
-                    <option value="profissional">Profissional e Formal</option>
-                    <option value="amigavel">Amigável e Descontraído</option>
-                    <option value="consultivo">Consultivo e Técnico</option>
-                    <option value="vendedor">Vendedor Persuasivo</option>
-                    <option value="suporte">Suporte ao Cliente</option>
-                  </select>
-                </div>
-              </div>
-              <div className="field">
-                <label>Objetivo Principal</label>
-                <select value={chatbotObjetivo} onChange={e => setChatbotObjetivo(e.target.value)}>
-                  <option value="vendas">Vender produtos/serviços</option>
-                  <option value="qualificacao">Qualificar leads</option>
-                  <option value="suporte">Suporte técnico</option>
-                  <option value="agendamento">Agendar reuniões/demos</option>
-                  <option value="informacoes">Fornecer informações</option>
-                </select>
-              </div>
-              <button className="btn btn-primary" onClick={gerarConfigChatbot} disabled={gerandoChatbot}>
-                {gerandoChatbot ? '⏳ Gerando prompt...' : '✨ Gerar Configuração com IA'}
-              </button>
-              {gerandoChatbot && <div className="thinking" style={{ marginTop:12 }}><span /><span /><span /></div>}
-              {chatbotPrompt && (
-                <div>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginTop:16, marginBottom:8 }}>
-                    <span style={{ fontSize:12, color:'#00d4ff' }}>✅ Prompt gerado para <strong>{chatbotNome}</strong></span>
-                    <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px' }} onClick={() => navigator.clipboard.writeText(chatbotPrompt)}>📋 Copiar</button>
-                  </div>
-                  <div className="result-box">{chatbotPrompt}</div>
-                </div>
-              )}
-            </div>
-
-            {chatbotConfig && (
-              <div className="card">
-                <div className="card-title">✅ Chatbot Ativo: {chatbotConfig.nome}</div>
-                <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
-                  <span className="badge badge-blue">🎭 {chatbotConfig.personalidade}</span>
-                  <span className="badge badge-green">🎯 {chatbotConfig.objetivo}</span>
-                  <span className="badge badge-yellow">📅 {new Date(chatbotConfig.criadoEm).toLocaleDateString('pt-BR')}</span>
-                </div>
-                <div style={{ marginTop:10, fontSize:12, color:'#64748b' }}>
-                  Este prompt será usado automaticamente pelo Agente IA e pelo Webhook do WhatsApp.
-                </div>
-              </div>
-            )}
-
-            {(!cfg.openaiApiKey && !cfg.openaiKey && !cfg.geminiApiKey && !cfg.geminiKey && !cfg.groqApiKey && !cfg.groqKey) && (
-              <div className="info-box" style={{ background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)', color:'#fca5a5' }}>
-                ⚠️ Configure a chave de API do <strong>OpenAI</strong>, <strong>Gemini</strong> ou <strong>Groq</strong> em <strong>Configurações → Empresa</strong> para usar o Chatbot.
-              </div>
-            )}
-          </div>
+          <TabChatbotFlow empresaId={empresaId} cfg={cfg} />
         )}
 
         {/* ── ABA AGENTE IA ── */}
