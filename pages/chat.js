@@ -557,12 +557,33 @@ export default function Chat(){
 
   useEffect(()=>{
     if(!timerDeadline){setTimerVal('');return}
-    const iv=setInterval(()=>{
+    const updateTimer=()=>{
       const diff=timerDeadline-new Date()
       let val
-      if(diff<=0){val='EXPIRADO';setTimerVal('EXPIRADO');setTimerDeadline(null);clearInterval(iv)}
-      else{const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000);val=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;setTimerVal(val)}
-      const el=document.getElementById('vx-timer');if(el)el.textContent=val
+      if(diff<=0){
+        val='EXPIRADO'
+        setTimerVal('EXPIRADO')
+        setTimerDeadline(null)
+      } else {
+        const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
+        val=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
+        setTimerVal(val)
+      }
+      // Atualiza dentro do dangerouslySetInnerHTML (pode estar em qualquer bolha)
+      document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent=val})
+    }
+    updateTimer()
+    const iv=setInterval(()=>{
+      const diff=timerDeadline-new Date()
+      if(diff<=0){
+        document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent='EXPIRADO'})
+        setTimerVal('EXPIRADO');setTimerDeadline(null);clearInterval(iv)
+      } else {
+        const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
+        const val=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
+        setTimerVal(val)
+        document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent=val})
+      }
     },1000)
     return()=>clearInterval(iv)
   },[timerDeadline])
@@ -764,6 +785,21 @@ export default function Chat(){
       }
       const bothSigned=!!(docData.signedAt&&docData.consultantSignedAt)
       docData.status=bothSigned?'signed':docData.signedAt?'pending':'sent'
+
+      // Atualiza o HTML do manifesto com os dados reais de assinatura
+      if(docData.html){
+        let html=docData.html
+        // Substitui campos do manifesto do cliente
+        html=html.replace(/<span id="manifest-client-name">[^<]*<\/span>/,`<span id="manifest-client-name">${docData.signedBy||'—'}</span>`)
+        html=html.replace(/<span id="manifest-client-cpf">[^<]*<\/span>/,`<span id="manifest-client-cpf">${docData.signCPF||'—'}</span>`)
+        html=html.replace(/<span id="manifest-client-email">[^<]*<\/span>/,`<span id="manifest-client-email">${docData.clientEmail||docData.signEmail||'—'}</span>`)
+        html=html.replace(/<span id="manifest-client-date">[^<]*<\/span>/,`<span id="manifest-client-date">${docData.signedAt||'Aguardando assinatura'}</span>`)
+        // Substitui campos do manifesto do consultor
+        html=html.replace(/<span id="manifest-consult-name">[^<]*<\/span>/,`<span id="manifest-consult-name">${docData.consultantSignedBy||'—'}</span>`)
+        html=html.replace(/<span id="manifest-consult-date">[^<]*<\/span>/,`<span id="manifest-consult-date">${docData.consultantSignedAt||'Aguardando assinatura'}</span>`)
+        docData.html=html
+      }
+
       await supabase.from('vx_storage').upsert({key:`doc:${signFormDoc.signToken}`,value:JSON.stringify(docData),updated_at:now.toISOString()})
 
       const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
@@ -1198,7 +1234,6 @@ export default function Chat(){
           </div>
         ))}
         {thinking&&<div className="msg bot"><div className="thinking"><span/><span/><span/></div></div>}
-        {timerVal&&timerDeadline&&<div className="timer-live">{timerVal}</div>}
       </div>
 
       {renderModulosButtons()}
