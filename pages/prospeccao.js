@@ -198,6 +198,7 @@ export default function Prospeccao() {
   const [resultadoCampanha, setResultadoCampanha] = useState(null)
   const [erroDisparo, setErroDisparo]   = useState('')
   const [modoAvancado, setModoAvancado] = useState(false)
+  const [modoOficial, setModoOficial]   = useState(false) // 🆕 Modo API Oficial (Meta Cloud API)
 
   // Chatbot
   const [chatbotNome, setChatbotNome]               = useState('')
@@ -403,6 +404,55 @@ export default function Prospeccao() {
     }
   }
 
+  // ── Modo API Oficial (Meta WhatsApp Cloud API) ──────────────
+  async function dispararOficial() {
+    const wpp = cfg.wpp || {}
+    if (!wpp.ativo)   { setErroDisparo('API Oficial inativa. Ative em Configurações → Integrações.'); return }
+    if (!wpp.token)   { setErroDisparo('Token não configurado. Acesse Configurações → Integrações.'); return }
+    if (!wpp.phoneId) { setErroDisparo('Phone ID não configurado. Acesse Configurações → Integrações.'); return }
+
+    const msgsValidas = mensagensVariadas.filter(m => m.trim())
+    const alvos = selecionados.length > 0 ? contatos.filter(c => selecionados.includes(c.id)) : contatos
+    setErroDisparo('')
+    if (!alvos.length)       { setErroDisparo('Adicione ao menos um contato'); return }
+    if (!msgsValidas.length) { setErroDisparo('Adicione ao menos uma mensagem'); return }
+
+    setDisparando(true); setResultadoCampanha(null); setProgresso(0)
+    const resultados = []
+    const total = alvos.length
+
+    for (let i = 0; i < total; i++) {
+      const c = alvos[i]
+      const msgBase = msgsValidas[Math.floor(Math.random() * msgsValidas.length)]
+      const texto = msgBase
+        .replace(/\{nome\}/gi,    c.nome    || 'Cliente')
+        .replace(/\{empresa\}/gi, c.empresa || '')
+        .replace(/\{cidade\}/gi,  c.cidade  || '')
+      try {
+        const r = await fetch('/api/whatsapp', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action:'enviar', phoneId:wpp.phoneId, token:wpp.token, para:c.telefone, texto }),
+        })
+        const data = await r.json()
+        resultados.push({ numero:c.telefone, nome:c.nome||'', status:r.ok?'enviado':'erro', motivo:r.ok?'':data.error||'falhou', at:new Date().toISOString() })
+      } catch(e) {
+        resultados.push({ numero:c.telefone, nome:c.nome||'', status:'erro', motivo:e.message, at:new Date().toISOString() })
+      }
+      setProgresso(Math.round(((i+1)/total)*100))
+      if (i < total-1) {
+        const delay = (delayMin + Math.random()*(delayMax-delayMin))*1000
+        await new Promise(r=>setTimeout(r,delay))
+        if ((i+1)%loteSize===0) await new Promise(r=>setTimeout(r,lotePausa*1000))
+      }
+    }
+    const enviados = resultados.filter(r=>r.status==='enviado').length
+    const erros    = resultados.filter(r=>r.status==='erro').length
+    setResultadoCampanha({ campanhaId:`OFC-${Date.now()}`, enviados, erros, total, resultados })
+    toast(`✅ ${enviados} enviados via API Oficial, ${erros} erros`)
+    setDisparando(false)
+  }
+
   function exportarRelatorioCSV(campanha) {
     const rows = [
       'numero,nome,status,motivo,horario',
@@ -602,16 +652,26 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
         {aba === 'disparo' && (
           <div>
             <div className="info-box info-blue">
-              💬 <strong>Modo Simples</strong>: abre wa.me para cada contato (sem API). <strong>Modo Avançado</strong>: disparo direto via Evolution API com delays anti-banimento e múltiplas mensagens.
+              💬 <strong>Modo Simples</strong>: abre wa.me para cada contato (sem API). <strong>Modo Avançado</strong>: disparo via Evolution API com delays anti-banimento. <strong>API Oficial</strong>: usa sua integração Meta (WhatsApp Cloud API) configurada em Integrações.
             </div>
 
             {/* Toggle modo */}
-            <div style={{ display:'flex', gap:8, marginBottom:16 }}>
-              <button className={`btn ${!modoAvancado ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize:11 }} onClick={() => setModoAvancado(false)}>
+            <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+              <button className={`btn ${!modoAvancado && !modoOficial ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize:11 }}
+                onClick={() => { setModoAvancado(false); setModoOficial(false) }}>
                 💬 Modo Simples (wa.me)
               </button>
-              <button className={`btn ${modoAvancado ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize:11 }} onClick={() => setModoAvancado(true)}>
+              <button className={`btn ${modoAvancado && !modoOficial ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize:11 }}
+                onClick={() => { setModoAvancado(true); setModoOficial(false) }}>
                 🚀 Modo Avançado (API + Anti-Banimento)
+              </button>
+              <button className={`btn ${modoOficial ? 'btn-green' : 'btn-secondary'}`} style={{ fontSize:11 }}
+                onClick={() => { setModoOficial(true); setModoAvancado(false) }}>
+                📱 API Oficial (Meta)
+                {cfg.wpp?.ativo
+                  ? <span style={{ marginLeft:6, padding:'1px 6px', borderRadius:10, background:'rgba(16,185,129,.25)', color:'#10b981', fontSize:9, fontWeight:700 }}>● ATIVO</span>
+                  : <span style={{ marginLeft:6, padding:'1px 6px', borderRadius:10, background:'rgba(239,68,68,.2)', color:'#ef4444', fontSize:9 }}>○ Inativo</span>
+                }
               </button>
             </div>
 
@@ -626,7 +686,7 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
               <div className="card">
                 <div className="card-title">📝 Mensagem</div>
 
-                {!modoAvancado ? (
+                {!modoAvancado && !modoOficial ? (
                   <div className="field">
                     <label>Mensagem (use {'{nome}'}, {'{empresa}'} para personalizar)</label>
                     <textarea value={mensagemDisparo} onChange={e => setMensagemDisparo(e.target.value)}
@@ -635,6 +695,11 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                   </div>
                 ) : (
                   <div>
+                    {modoOficial && (
+                      <div style={{ background:'rgba(16,185,129,.06)', border:'1px solid rgba(16,185,129,.2)', borderRadius:8, padding:'10px 14px', marginBottom:12, fontSize:12, color:'#10b981' }}>
+                        📱 <strong>API Oficial Meta</strong> — Número: <code style={{ color:'#00d4ff', background:'rgba(0,212,255,.1)', padding:'1px 6px', borderRadius:4 }}>{cfg.wpp?.numero || cfg.wpp?.phoneId || 'configurado'}</code>
+                      </div>
+                    )}
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                       <span style={{ fontSize:11, color:'#64748b' }}>Até 10 variações — escolha aleatória por contato (anti-spam)</span>
                       <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 10px' }}
@@ -703,16 +768,27 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
 
                 {/* Botão disparar */}
                 <div style={{ marginTop:14 }}>
+                  {/* ── Aviso API Oficial sem config ── */}
+                  {modoOficial && !cfg.wpp?.ativo && (
+                    <div style={{ background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)', borderRadius:8, padding:'10px 14px', marginBottom:12, fontSize:12, color:'#fca5a5' }}>
+                      ⚠️ A integração com WhatsApp Cloud API está inativa.{' '}
+                      <button onClick={() => router.push('/configuracoes?tab=integracoes')} style={{ background:'none', border:'none', color:'#00d4ff', cursor:'pointer', fontFamily:'DM Mono,monospace', fontSize:12, textDecoration:'underline' }}>
+                        Configurar agora →
+                      </button>
+                    </div>
+                  )}
                   <button
-                    className={`btn ${modoAvancado ? 'btn-primary' : 'btn-wpp'}`}
+                    className={`btn ${modoOficial ? 'btn-green' : modoAvancado ? 'btn-primary' : 'btn-wpp'}`}
                     style={{ width:'100%', justifyContent:'center', fontSize:13, padding:'11px' }}
-                    onClick={modoAvancado ? dispararAvancado : dispararMensagens}
-                    disabled={disparando || (!modoAvancado && !mensagemDisparo)}>
+                    onClick={modoOficial ? dispararOficial : modoAvancado ? dispararAvancado : dispararMensagens}
+                    disabled={disparando || (!modoAvancado && !modoOficial && !mensagemDisparo)}>
                     {disparando
                       ? `⏳ Disparando... ${progresso}%`
-                      : modoAvancado
-                        ? `🚀 Disparar via API (${selecionados.length||contatos.length} contatos)`
-                        : '💬 Disparar via WhatsApp'}
+                      : modoOficial
+                        ? `📱 Disparar via API Oficial (${selecionados.length||contatos.length} contatos)`
+                        : modoAvancado
+                          ? `🚀 Disparar via API (${selecionados.length||contatos.length} contatos)`
+                          : '💬 Disparar via WhatsApp'}
                   </button>
                   {disparando && (
                     <div style={{ marginTop:8 }}>
