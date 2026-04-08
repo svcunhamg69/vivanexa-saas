@@ -469,6 +469,25 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
 }
 
 // ══════════════════════════════════════════════════════════════
+// TIMER GLOBAL (fora do React para não ser afetado por re-renders)
+// Mesma lógica do HTML local que funciona
+// ══════════════════════════════════════════════════════════════
+function startTimerGlobal(deadline){
+  if(window._vxTimerInt){clearInterval(window._vxTimerInt);window._vxTimerInt=null}
+  window._vxTimerDeadline=deadline
+  function tick(){
+    const el=document.getElementById('vx-timer')
+    if(!el) return // não encerra o interval — espera o React recriar o elemento
+    const diff=deadline-new Date()
+    if(diff<=0){el.textContent='EXPIRADO';el.style.color='var(--muted)';clearInterval(window._vxTimerInt);window._vxTimerInt=null;window._vxTimerDeadline=null;return}
+    const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
+    el.textContent=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
+  }
+  tick()
+  window._vxTimerInt=setInterval(tick,100) // 100ms: minimiza o flash após re-renders do React
+}
+
+// ══════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ══════════════════════════════════════════════════════════════
 export default function Chat(){
@@ -482,8 +501,6 @@ export default function Chat(){
   const [messages,      setMessages]      = useState([])
   const [input,         setInput]         = useState('')
   const [thinking,      setThinking]      = useState(false)
-  const [timerVal,      setTimerVal]      = useState('')
-  const [timerDeadline, setTimerDeadline] = useState(null)
 
   const [selectedMods,  setSelectedMods]  = useState([])
   const [awaitingMods,  setAwaitingMods]  = useState(false)
@@ -555,38 +572,23 @@ export default function Chat(){
     setTimeout(()=>addBot(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da ${nomeEmpresa}.\nPara começar, informe o **CPF ou CNPJ** do cliente:`),300)
   },[userProfile,cfgLoaded])
 
+  // Timer gerenciado fora do React (igual ao HTML local) para evitar
+  // que re-renders do dangerouslySetInnerHTML resetem o textContent
+  useEffect(()=>{ return()=>{ if(window._vxTimerInt){clearInterval(window._vxTimerInt);window._vxTimerInt=null} } },[])
+
+  // Após cada re-render das mensagens, reaplicar o timer imediatamente no elemento recriado
   useEffect(()=>{
-    if(!timerDeadline){setTimerVal('');return}
-    const updateTimer=()=>{
-      const diff=timerDeadline-new Date()
-      let val
-      if(diff<=0){
-        val='EXPIRADO'
-        setTimerVal('EXPIRADO')
-        setTimerDeadline(null)
-      } else {
-        const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
-        val=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
-        setTimerVal(val)
+    if(window._vxTimerDeadline){
+      const el=document.getElementById('vx-timer')
+      if(el){
+        const diff=window._vxTimerDeadline-new Date()
+        if(diff>0){
+          const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
+          el.textContent=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
+        } else {el.textContent='EXPIRADO';el.style.color='var(--muted)'}
       }
-      // Atualiza dentro do dangerouslySetInnerHTML (pode estar em qualquer bolha)
-      document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent=val})
     }
-    updateTimer()
-    const iv=setInterval(()=>{
-      const diff=timerDeadline-new Date()
-      if(diff<=0){
-        document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent='EXPIRADO'})
-        setTimerVal('EXPIRADO');setTimerDeadline(null);clearInterval(iv)
-      } else {
-        const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
-        const val=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
-        setTimerVal(val)
-        document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent=val})
-      }
-    },1000)
-    return()=>clearInterval(iv)
-  },[timerDeadline])
+  },[messages]) 
 
   useEffect(()=>{if(msgRef.current)msgRef.current.scrollTop=msgRef.current.scrollHeight},[messages,thinking])
 
@@ -700,7 +702,10 @@ export default function Chat(){
 
   const resetS=()=>{
     Object.assign(S,{stage:'await_doc',doc:null,clientData:null,contactData:{},users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,quoteData:null,closingData:null,closingToday:false,appliedVoucher:null,awaitingVoucher:false})
-    setTimerDeadline(null);setTimerVal('');setSelectedMods([]);setAwaitingMods(false)
+    // Limpar timer global
+    if(window._vxTimerInt){clearInterval(window._vxTimerInt);window._vxTimerInt=null}
+    window._vxTimerDeadline=null
+    setSelectedMods([]);setAwaitingMods(false)
     setMessages([])
   }
 
@@ -936,19 +941,8 @@ export default function Chat(){
       if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.closingData=d;S.closingToday=true;S.stage='closing'
         const h=c.closingHour||18;const dl=new Date();dl.setHours(h,0,0,0);
         addUser('✅ Fechar hoje!');addBot(rClose(d),true)
-        // Aguarda o DOM renderizar a bolha antes de ativar o timer
-        setTimeout(()=>{
-          setTimerDeadline(dl)
-          // Força atualização imediata no DOM (evita condição de corrida com dangerouslySetInnerHTML)
-          const diff=dl-new Date()
-          if(diff>0){
-            const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
-            const val=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
-            document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent=val})
-          } else {
-            document.querySelectorAll('#vx-timer').forEach(el=>{el.textContent='EXPIRADO'})
-          }
-        },300)
+        // Inicia timer após DOM renderizar a bolha — igual ao HTML local
+        setTimeout(()=>startTimerGlobal(dl),200)
       }
       else{S.stage='discounted';addUser('Não por agora');addBot('Entendido!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
     }
