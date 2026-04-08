@@ -1,10 +1,8 @@
-// pages/api/wpp/webhook.js — v4
+// pages/api/wpp/webhook.js — v3
 // ✅ NÃO reseta status quando agente assumiu (botPausado=true ou atendendo/aguardando)
-// ✅ Executa fluxo visual de chatbot (criado no TabChatbotFlow) quando bot está em automação
 import { createClient } from '@supabase/supabase-js'
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } }
-
 export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { 'hub.mode': mode, 'hub.verify_token': token, 'hub.challenge': challenge } = req.query
@@ -24,7 +22,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ status: 'error', message: err.message })
   }
 }
-
 async function processarEvolution(body) {
   const event = (body?.event || '').toLowerCase()
   const isMsg = ['messages.upsert','messages_upsert','message','messages.set'].includes(event)
@@ -44,10 +41,9 @@ async function processarEvolution(body) {
     const empresaId = await buscarEmpresaPorInstance(instanceName)
     if (!empresaId) { console.warn('[Webhook] instance não encontrada:', instanceName); continue }
     await salvarMensagem({ empresaId, numero, nome: data?.pushName || '', texto, tipo, mediaUrl, de: 'cliente' })
-    await verificarEResponder({ empresaId, numero, texto })
+    await verificarIAeResponder({ empresaId, numero, texto })
   }
 }
-
 async function processarMeta(body) {
   const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]
   if (!message) return
@@ -58,9 +54,8 @@ async function processarMeta(body) {
   const texto = message.text?.body || '[Mídia]'
   const nome = body?.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name || ''
   await salvarMensagem({ empresaId, numero, nome, texto, tipo: message.type || 'text', de: 'cliente' })
-  await verificarEResponder({ empresaId, numero, texto })
+  await verificarIAeResponder({ empresaId, numero, texto })
 }
-
 async function salvarMensagem({ empresaId, numero, nome, texto, tipo, mediaUrl, de }) {
   const num = numero.replace(/\D/g,'')
   const key = `wpp_conv:${empresaId}:${num}`
@@ -88,7 +83,6 @@ async function salvarMensagem({ empresaId, numero, nome, texto, tipo, mediaUrl, 
   await supabase.from('vx_storage').upsert({ key, value: JSON.stringify(conv), updated_at: agora }, { onConflict: 'key' })
   await atualizarIndice(empresaId, num, { nome: conv.nome, ultimaMensagem: texto, ultimaAt: agora, status: conv.status, naoLidas: conv.naoLidas, tags: conv.tags || [] })
 }
-
 async function atualizarIndice(empresaId, numero, dados) {
   const idxKey = `wpp_idx:${empresaId}`
   const { data: row } = await supabase.from('vx_storage').select('value').eq('key', idxKey).maybeSingle()
@@ -96,7 +90,6 @@ async function atualizarIndice(empresaId, numero, dados) {
   idx[numero] = { ...(idx[numero] || {}), numero, nome: dados.nome || idx[numero]?.nome || numero, ultimaMensagem: dados.ultimaMensagem || '', ultimaAt: dados.ultimaAt || new Date().toISOString(), status: dados.status, naoLidas: dados.naoLidas ?? 0, tags: dados.tags || [], updatedAt: new Date().toISOString() }
   await supabase.from('vx_storage').upsert({ key: idxKey, value: JSON.stringify(idx), updated_at: new Date().toISOString() }, { onConflict: 'key' })
 }
-
 async function buscarEmpresaPorInstance(instanceName) {
   if (!instanceName) return null
   try {
@@ -107,7 +100,6 @@ async function buscarEmpresaPorInstance(instanceName) {
   } catch {}
   return null
 }
-
 async function buscarEmpresaPorPhoneId(phoneId) {
   if (!phoneId) return null
   try {
@@ -118,110 +110,101 @@ async function buscarEmpresaPorPhoneId(phoneId) {
   } catch {}
   return null
 }
+// ── Sessões do fluxo em memória ──────────────────────────────────
+// { 'empresaId:numero': { nodeId, vars, waitingAnswer, variable, updatedAt } }
+const FLOW_SESSIONS = new Map()
+const FLOW_TTL = 15 * 60 * 1000 // 15 min sem resposta encerra sessão
 
-// ════════════════════════════════════════════════════════════════════
-// DECISOR: fluxo visual OU agente IA
-// Prioridade: 1º tenta fluxo visual, 2º tenta agente IA
-// ════════════════════════════════════════════════════════════════════
-async function verificarEResponder({ empresaId, numero, texto }) {
-  try {
-    const num = numero.replace(/\D/g,'')
-    const { data: convRow } = await supabase.from('vx_storage').select('value').eq('key', `wpp_conv:${empresaId}:${num}`).maybeSingle()
-    const conv = convRow?.value ? JSON.parse(convRow.value) : {}
-
-    // Se agente humano assumiu → não responde
-    if (conv.botPausado || conv.status === 'atendendo' || conv.status === 'aguardando') return
-
-    // 1️⃣ Tentar executar fluxo visual
-    const executouFluxo = await executarFluxo({ empresaId, numero: num, texto, conv })
-    if (executouFluxo) return
-
-    // 2️⃣ Fallback: agente IA (lógica original)
-    await verificarIAeResponder({ empresaId, numero: num, texto })
-  } catch (err) {
-    console.warn('[Responder]', err.message)
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════
-// EXECUTOR DO FLUXO VISUAL
-// ════════════════════════════════════════════════════════════════════
-
-// Sessões em memória: { [empresaId:numero]: { nodeId, vars, waitingAnswer, variable, updatedAt } }
-const SESSIONS = new Map()
-const SESSION_TTL = 15 * 60 * 1000 // 15 minutos sem resposta encerra a sessão
-
-function getSession(empresaId, numero) {
+function getFlowSession(empresaId, numero) {
   const k = `${empresaId}:${numero}`
-  const s = SESSIONS.get(k)
+  const s = FLOW_SESSIONS.get(k)
   if (!s) return null
-  if (Date.now() - s.updatedAt > SESSION_TTL) { SESSIONS.delete(k); return null }
+  if (Date.now() - s.updatedAt > FLOW_TTL) { FLOW_SESSIONS.delete(k); return null }
   return s
 }
-
-function setSession(empresaId, numero, data) {
-  SESSIONS.set(`${empresaId}:${numero}`, { ...data, updatedAt: Date.now() })
+function setFlowSession(empresaId, numero, data) {
+  FLOW_SESSIONS.set(`${empresaId}:${numero}`, { ...data, updatedAt: Date.now() })
+}
+function clearFlowSession(empresaId, numero) {
+  FLOW_SESSIONS.delete(`${empresaId}:${numero}`)
 }
 
-function clearSession(empresaId, numero) {
-  SESSIONS.delete(`${empresaId}:${numero}`)
+// ── Decisor principal: fluxo visual → IA ────────────────────────
+async function verificarIAeResponder({ empresaId, numero, texto }) {
+  try {
+    const num = numero.replace(/\D/g,'')
+
+    // Verificar se agente humano assumiu — não responde nada
+    const { data: convRow } = await supabase.from('vx_storage').select('value').eq('key', `wpp_conv:${empresaId}:${num}`).maybeSingle()
+    const conv = convRow?.value ? JSON.parse(convRow.value) : {}
+    if (conv.botPausado || conv.status === 'atendendo' || conv.status === 'aguardando') return
+
+    // 1️⃣ Tentar fluxo visual
+    const usouFluxo = await executarFluxo({ empresaId, numero: num, texto, conv })
+    if (usouFluxo) return
+
+    // 2️⃣ Fallback: Agente IA (lógica original preservada)
+    await executarAgenteIA({ empresaId, numero: num, texto, conv })
+  } catch (err) { console.warn('[Responder]', err.message) }
 }
 
+// ── Executor do fluxo visual ─────────────────────────────────────
 async function executarFluxo({ empresaId, numero, texto, conv }) {
-  // Carregar config de fluxos
-  const { data: flowRow } = await supabase.from('vx_storage').select('value')
-    .eq('key', `chatbot_flows:${empresaId}`).maybeSingle()
+  const { data: flowRow } = await supabase.from('vx_storage').select('value').eq('key', `chatbot_flows:${empresaId}`).maybeSingle()
   if (!flowRow?.value) return false
 
   const flowData = JSON.parse(flowRow.value)
   if (!flowData.botAtivo) return false
 
   const fluxoAtivo = (flowData.flows || []).find(f => f.id === flowData.activeFlowId || f.active)
-  if (!fluxoAtivo) return false
+  if (!fluxoAtivo || !fluxoAtivo.nodes?.length) return false
 
-  // Buscar cfg para Evolution API
+  // Buscar credenciais Evolution API do cfg
   const { data: cfgRow } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
   const cfg = cfgRow?.value ? JSON.parse(cfgRow.value) : {}
-  const evoUrl = cfg.wppInbox?.evolutionUrl || cfg.evolutionApiUrl || ''
-  const evoKey = cfg.wppInbox?.evolutionKey || cfg.evolutionApiKey || ''
-  const evoInst = cfg.wppInbox?.evolutionInstance || cfg.evolutionInstance || ''
+  const evoUrl  = cfg.wppInbox?.evolutionUrl  || ''
+  const evoKey  = cfg.wppInbox?.evolutionKey  || ''
+  const evoInst = cfg.wppInbox?.evolutionInstance || ''
 
-  async function enviar(text) {
-    if (!evoUrl || !evoKey || !evoInst) return
-    // Interpola variáveis {{nome}} na mensagem
-    const finalText = text.replace(/\{\{(\w+)\}\}/g, (_, k) => {
-      const sess = getSession(empresaId, numero)
-      return sess?.vars?.[k] || `{{${k}}}`
-    })
-    await fetch(`${evoUrl}/message/sendText/${evoInst}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': evoKey },
-      body: JSON.stringify({ number: numero, text: finalText, delay: 800 })
-    }).catch(() => {})
-    // Salvar mensagem enviada pelo bot no histórico
+  // Interpolar variáveis {{nome}} na mensagem
+  function interpolar(text, vars) {
+    return (text || '').replace(/\{\{(\w+)\}\}/g, (_, k) => vars?.[k] || `{{${k}}}`)
+  }
+
+  // Enviar mensagem via Evolution API e salvar no histórico
+  async function enviar(text, vars) {
+    const finalText = interpolar(text, vars)
+    if (evoUrl && evoKey && evoInst) {
+      await fetch(`${evoUrl}/message/sendText/${evoInst}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evoKey },
+        body: JSON.stringify({ number: numero, text: finalText, delay: 800 })
+      }).catch(() => {})
+    }
+    // Salvar mensagem do bot no histórico da conversa
     await salvarMensagem({ empresaId, numero, nome: '', texto: finalText, tipo: 'text', mediaUrl: null, de: 'bot' })
   }
 
-  // Executar nó do fluxo (recursivo para nós automáticos)
-  async function execNó(nodeId, vars = {}) {
+  // Executar nó — recursivo para nós automáticos (message, action sem pausa)
+  async function execNó(nodeId, vars) {
     const node = fluxoAtivo.nodes.find(n => n.id === nodeId)
-    if (!node) { clearSession(empresaId, numero); return }
+    if (!node) { clearFlowSession(empresaId, numero); return }
 
     switch (node.type) {
 
       case 'start':
       case 'message': {
-        await enviar(node.data?.text || '')
+        await enviar(node.data?.text || '', vars)
         const next = fluxoAtivo.connections.find(c => c.fromId === nodeId && c.port === 'main')
         if (next) await execNó(next.toId, vars)
-        else clearSession(empresaId, numero)
+        else clearFlowSession(empresaId, numero)
         break
       }
 
       case 'question': {
-        await enviar(node.data?.text || '')
-        // Aguardar resposta: salvar estado da sessão
-        setSession(empresaId, numero, { nodeId, vars, waitingAnswer: true, variable: node.data?.variable })
+        await enviar(node.data?.text || '', vars)
+        // Pausa aqui — salva estado e aguarda próxima mensagem do cliente
+        setFlowSession(empresaId, numero, { nodeId, vars, waitingAnswer: true, variable: node.data?.variable })
         break
       }
 
@@ -239,7 +222,7 @@ async function executarFluxo({ empresaId, numero, texto, conv }) {
         if (!matched) {
           const next = fluxoAtivo.connections.find(c => c.fromId === nodeId && c.port === 'main')
           if (next) await execNó(next.toId, vars)
-          else clearSession(empresaId, numero)
+          else clearFlowSession(empresaId, numero)
         }
         break
       }
@@ -247,32 +230,28 @@ async function executarFluxo({ empresaId, numero, texto, conv }) {
       case 'action': {
         const tipo = node.data?.actionType || 'transfer'
         if (tipo === 'transfer') {
-          if (node.data?.text) await enviar(node.data.text)
-          // Marcar conversa para atendimento humano
+          if (node.data?.text) await enviar(node.data.text, vars)
+          // Marcar conversa para atendimento humano (aparece no Inbox como "Aguardando")
           const convKey = `wpp_conv:${empresaId}:${numero}`
           const { data: cr } = await supabase.from('vx_storage').select('value').eq('key', convKey).maybeSingle()
           if (cr?.value) {
             const c2 = JSON.parse(cr.value)
-            c2.status = 'aguardando'
-            c2.botPausado = true
+            c2.status = 'aguardando'; c2.botPausado = true
             await supabase.from('vx_storage').upsert({ key: convKey, value: JSON.stringify(c2), updated_at: new Date().toISOString() }, { onConflict: 'key' })
             await atualizarIndice(empresaId, numero, { nome: c2.nome, ultimaMensagem: c2.ultimaMensagem, ultimaAt: c2.ultimaAt, status: 'aguardando', naoLidas: c2.naoLidas, tags: c2.tags || [] })
           }
-          clearSession(empresaId, numero)
+          clearFlowSession(empresaId, numero)
         } else if (tipo === 'webhook') {
           try {
-            const s = getSession(empresaId, numero)
             await fetch(node.data?.webhookUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ empresaId, numero, texto, vars: s?.vars || {} })
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ empresaId, numero, texto, vars })
             })
           } catch {}
           const next = fluxoAtivo.connections.find(c => c.fromId === nodeId && c.port === 'main')
           if (next) await execNó(next.toId, vars)
-          else clearSession(empresaId, numero)
+          else clearFlowSession(empresaId, numero)
         } else if (tipo === 'tag') {
-          // Adicionar tag ao contato
           const convKey = `wpp_conv:${empresaId}:${numero}`
           const { data: cr } = await supabase.from('vx_storage').select('value').eq('key', convKey).maybeSingle()
           if (cr?.value) {
@@ -282,55 +261,48 @@ async function executarFluxo({ empresaId, numero, texto, conv }) {
           }
           const next = fluxoAtivo.connections.find(c => c.fromId === nodeId && c.port === 'main')
           if (next) await execNó(next.toId, vars)
-          else clearSession(empresaId, numero)
-        } else if (tipo === 'close') {
-          clearSession(empresaId, numero)
+          else clearFlowSession(empresaId, numero)
+        } else {
+          clearFlowSession(empresaId, numero)
         }
         break
       }
 
       case 'end': {
-        if (node.data?.text) await enviar(node.data.text)
-        clearSession(empresaId, numero)
+        if (node.data?.text) await enviar(node.data.text, vars)
+        clearFlowSession(empresaId, numero)
         break
       }
     }
   }
 
-  // Verificar se existe sessão ativa para este número
-  const sess = getSession(empresaId, numero)
-
+  // Verificar sessão existente (cliente respondeu uma pergunta)
+  const sess = getFlowSession(empresaId, numero)
   if (sess?.waitingAnswer) {
-    // Usuário respondeu uma pergunta → salvar resposta e continuar fluxo
     const vars = { ...sess.vars }
     if (sess.variable) vars[sess.variable] = texto
-    setSession(empresaId, numero, { ...sess, vars, waitingAnswer: false })
+    setFlowSession(empresaId, numero, { ...sess, vars, waitingAnswer: false })
     const next = fluxoAtivo.connections.find(c => c.fromId === sess.nodeId && c.port === 'main')
     if (next) await execNó(next.toId, vars)
-    else clearSession(empresaId, numero)
+    else clearFlowSession(empresaId, numero)
     return true
   }
 
-  // Nova conversa ou sessão expirada → iniciar pelo nó start
+  // Nova conversa — iniciar pelo nó start
   const startNode = fluxoAtivo.nodes.find(n => n.type === 'start')
   if (!startNode) return false
-  setSession(empresaId, numero, { nodeId: startNode.id, vars: {}, waitingAnswer: false })
+  setFlowSession(empresaId, numero, { nodeId: startNode.id, vars: {}, waitingAnswer: false })
   await execNó(startNode.id, {})
   return true
 }
 
-// ════════════════════════════════════════════════════════════════════
-// AGENTE IA (fallback — lógica original v3 preservada)
-// ════════════════════════════════════════════════════════════════════
-async function verificarIAeResponder({ empresaId, numero, texto }) {
+// ── Agente IA (fallback — lógica original v3 preservada) ─────────
+async function executarAgenteIA({ empresaId, numero, texto, conv }) {
   try {
     const { data: cfgRow } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
     const cfg = cfgRow?.value ? JSON.parse(cfgRow.value) : {}
     const agentes = cfg.wppAgentes || []
     if (!agentes.length) return
-    const num = numero.replace(/\D/g,'')
-    const { data: convRow } = await supabase.from('vx_storage').select('value').eq('key', `wpp_conv:${empresaId}:${num}`).maybeSingle()
-    const conv = convRow?.value ? JSON.parse(convRow.value) : {}
     if (conv.status !== 'automacao' || conv.botPausado) return
     const agente = agentes.find(a => a.ativo)
     if (!agente) return
@@ -345,6 +317,6 @@ async function verificarIAeResponder({ empresaId, numero, texto }) {
     const resposta = d?.choices?.[0]?.message?.content?.trim()
     if (!resposta) return
     const appUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || ''
-    await fetch(`${appUrl}/api/wpp/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empresaId, numero: num, mensagem: resposta }) }).catch(() => {})
+    await fetch(`${appUrl}/api/wpp/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empresaId, numero, mensagem: resposta }) }).catch(() => {})
   } catch (err) { console.warn('[IA]', err.message) }
 }
