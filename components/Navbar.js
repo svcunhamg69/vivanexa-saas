@@ -15,6 +15,7 @@ const MENU = [
       { label: 'Chat / Assistente',  icon: '💬', href: '/chat' },
       { label: 'WhatsApp Inbox',     icon: '📱', href: '/whatsapp-inbox' },
       { label: 'CRM',                icon: '🤝', href: '/crm' },
+      { label: 'Gerador de Leads',   icon: '🎯', href: '/gerador-leads' },
       { label: 'Disparo em Massa',   icon: '📣', href: '/prospeccao?aba=disparo' },
       { label: 'Chatbot',            icon: '🤖', href: '/prospeccao?aba=chatbot' },
       { label: 'Agente IA',          icon: '🧠', href: '/prospeccao?aba=agente' },
