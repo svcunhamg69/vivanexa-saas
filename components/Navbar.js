@@ -1,5 +1,4 @@
-// components/Navbar.js — Vivanexa SaaS v7
-// ✅ Removido: Emitir NF e Consulta Tributária dos atalhos do dashboard
+// components/Navbar.js — Vivanexa SaaS v6
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
@@ -85,6 +84,7 @@ const MENU = [
       { label: 'Agente IA',      icon: '🤖', href: '/configuracoes?tab=agente_ia' },
       { label: 'Departamentos',  icon: '🏢', href: '/configuracoes?tab=departamentos' },
       { label: 'Integrações',    icon: '🔗', href: '/configuracoes?tab=integracoes' },
+      { label: 'Telefonia 3CX',  icon: '📞', href: '/configuracoes?tab=telefonia' },
     ],
   },
 ]
@@ -93,9 +93,9 @@ export { MENU }
 
 export default function Navbar({ cfg = {}, perfil = null }) {
   const router = useRouter()
-  const [open, setOpen]             = useState(null)
+  const [open, setOpen]           = useState(null)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [user, setUser]             = useState(perfil)
+  const [user, setUser]           = useState(perfil)
   const navRef = useRef(null)
 
   useEffect(() => {
@@ -166,6 +166,7 @@ export default function Navbar({ cfg = {}, perfil = null }) {
             const ativo  = isActive(menu)
             const aberto = open === menu.id
 
+            // Agrupa submenus por "grupo" (para separadores visuais)
             const grupos = []
             let grupoAtual = { titulo: null, items: [] }
             menu.subs.forEach((sub) => {
@@ -180,9 +181,11 @@ export default function Navbar({ cfg = {}, perfil = null }) {
 
             return (
               <div key={menu.id} className="nav-wrap">
+
+                {/* Botão pai */}
                 <button
                   className={`nav-btn${ativo ? ' is-active' : ''}${aberto ? ' is-open' : ''}`}
-                  style={ativo || aberto ? { color: menu.color } : {}}
+                  style={(ativo || aberto) ? { color: menu.color, background: menu.color + '16' } : {}}
                   onClick={(e) => { e.stopPropagation(); setOpen(aberto ? null : menu.id) }}
                 >
                   <span>{menu.icon}</span>
@@ -197,13 +200,16 @@ export default function Navbar({ cfg = {}, perfil = null }) {
                     style={{ '--c': menu.color }}
                     onClick={e => e.stopPropagation()}
                   >
+                    {/* Título do grupo */}
                     <div className="nav-dd-title">
                       <span>{menu.icon}</span>
                       <span style={{ color: menu.color }}>{menu.label}</span>
                     </div>
 
+                    {/* Renderiza grupos com separadores */}
                     {grupos.map((grupo, gi) => (
                       <div key={gi}>
+                        {/* Separador de grupo com título (ex: Gestão MEI) */}
                         {grupo.titulo && (
                           <div className="nav-dd-grupo" style={{ color: menu.color }}>
                             <span className="nav-dd-grupo-linha" />
@@ -292,32 +298,40 @@ export default function Navbar({ cfg = {}, perfil = null }) {
 const CSS = `
   .nav{position:sticky;top:0;z-index:9000;overflow:visible;background:rgba(8,13,26,.98);backdrop-filter:blur(18px);border-bottom:1px solid #18243a;display:flex;align-items:center;height:52px;padding:0 14px;gap:2px;font-family:'DM Mono',monospace}
 
+  /* Botão Início */
   .nav-home{display:flex;align-items:center;gap:7px;padding:5px 12px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.28);border-radius:8px;color:#00d4ff;font-family:'DM Mono',monospace;font-size:11.5px;font-weight:600;cursor:pointer;transition:all .15s;flex-shrink:0;white-space:nowrap}
   .nav-home:hover{background:rgba(0,212,255,.2);box-shadow:0 0 16px rgba(0,212,255,.18)}
   .nav-logo-img{height:22px;object-fit:contain;border-radius:4px}
   .nav-logo-icon{font-size:15px}
   .nav-home-label{font-size:11.5px}
 
+  /* Separador */
   .nav-sep{width:1px;height:24px;background:#18243a;margin:0 8px;flex-shrink:0}
 
+  /* Área de menus */
   .nav-menus{display:flex;align-items:center;gap:1px;flex:1;overflow:visible;}
   .nav-wrap{position:relative;overflow:visible}
 
+  /* Botão do menu pai */
   .nav-btn{display:flex;align-items:center;gap:5px;padding:6px 9px;background:none;border:none;border-radius:7px;color:#6e8099;font-family:'DM Mono',monospace;font-size:11.5px;cursor:pointer;white-space:nowrap;transition:all .14s}
   .nav-btn:hover{background:rgba(255,255,255,.05);color:#c8d6e5}
   .nav-btn.is-active,.nav-btn.is-open{font-weight:600}
   .nav-arr{font-size:9px;opacity:.55;transition:transform .18s;margin-left:1px}
   .nav-arr.up{transform:rotate(180deg)}
 
+  /* Dropdown */
   .nav-dd{position:absolute;top:calc(100% + 7px);left:0;min-width:240px;background:#08101e;border:1px solid #18243a;border-top:2px solid var(--c,#00d4ff);border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.85);z-index:99999;pointer-events:all;animation:ddIn .13s ease}
   @keyframes ddIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
 
+  /* Título do grupo no dropdown */
   .nav-dd-title{display:flex;align-items:center;gap:8px;padding:11px 13px 10px;border-bottom:1px solid #18243a;background:rgba(255,255,255,.025);font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
 
+  /* Separador de subgrupo (ex: Gestão MEI) */
   .nav-dd-grupo{display:flex;align-items:center;gap:7px;padding:8px 11px 4px;font-family:'Syne',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;opacity:.8}
   .nav-dd-grupo-linha{flex:1;height:1px;background:currentColor;opacity:.2}
   .nav-dd-grupo-label{white-space:nowrap;flex-shrink:0}
 
+  /* Botão de submenu */
   .nav-dd-btn{display:flex;align-items:center;gap:9px;width:calc(100% - 10px);padding:8px 11px;background:none;border:none;border-radius:8px;color:#6e8099;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;text-align:left;transition:all .1s;position:relative;margin:2px 5px}
   .nav-dd-btn:hover{background:rgba(255,255,255,.06);color:#e2e8f0}
   .nav-dd-btn.sub-active{font-weight:600}
@@ -325,6 +339,7 @@ const CSS = `
   .nav-dd-lbl{flex:1}
   .nav-dd-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 
+  /* Lado direito */
   .nav-right{display:flex;align-items:center;gap:10px;flex-shrink:0;margin-left:6px}
   .nav-user{display:flex;align-items:center;gap:8px}
   .nav-av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#00d4ff,#0088aa);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
@@ -333,6 +348,7 @@ const CSS = `
   .nav-sair:hover{background:rgba(239,68,68,.2)}
   .nav-mob-btn{display:none;background:none;border:1px solid #18243a;color:#6e8099;padding:6px 11px;border-radius:7px;cursor:pointer;font-size:16px;margin-left:auto}
 
+  /* Mobile */
   .mob{position:fixed;top:52px;left:0;right:0;bottom:0;background:rgba(8,13,26,.99);z-index:999;overflow-y:auto;padding:14px}
   .mob-inicio{display:block;width:100%;padding:12px 16px;margin-bottom:14px;background:rgba(0,212,255,.1);border:1px solid rgba(0,212,255,.25);border-radius:10px;color:#00d4ff;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;text-align:left}
   .mob-grupo{margin-bottom:7px;border:1px solid #18243a;border-radius:10px;overflow:hidden}
