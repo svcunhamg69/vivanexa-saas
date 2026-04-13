@@ -1,6 +1,12 @@
-// pages/prospeccao.js — Prospecção e Ferramentas Comerciais Vivanexa SaaS
+// pages/prospeccao.js — Prospecção e Ferramentas Comerciais Vivanexa SaaS v7
 // =========================================================================
-// Submenus: Disparo em Massa, Chatbot, Agente IA, Script/Playbook Comercial
+// MELHORIAS v7:
+//   ✅ Disparo: upload direto de arquivo (imagem/vídeo/áudio) sem URL
+//   ✅ Relatório campanha: exportar CSV e XLS
+//   ✅ Importar contatos: CSV e XLS
+//   ✅ Script: imprimir em .doc e PDF
+//   ✅ Playbook: construído junto com IA (treinamento completo)
+//   ✅ Chatbot: escolher entre Chatbot Flow OU Agente IA
 // =========================================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -12,7 +18,6 @@ import Navbar from '../components/Navbar'
 // ══════════════════════════════════════════════════════════════════
 // TAB CHATBOT FLOW — construtor visual de fluxos inline
 // ══════════════════════════════════════════════════════════════════
-
 const FLOW_NODE_TYPES = {
   start:     { label: 'Início',    icon: '▶', color: '#10b981', desc: 'Ponto de entrada do fluxo' },
   message:   { label: 'Mensagem', icon: '💬', color: '#00d4ff', desc: 'Envia texto ao cliente' },
@@ -228,6 +233,8 @@ function TabChatbotFlow({ empresaId, cfg }) {
   const [flowView, setFlowView]         = useState('list')
   const [editFlow, setEditFlow]         = useState(null)
   const [flowToast, setFlowToast]       = useState(null)
+  // ✅ NOVO: modo de automação (chatbot flow ou agente IA)
+  const [modoAutomacao, setModoAutomacao] = useState('chatbot') // 'chatbot' | 'agente'
   const svgRef    = useRef(null)
   const dragging  = useRef(null)
   const isPanning = useRef(false)
@@ -251,14 +258,15 @@ function TabChatbotFlow({ empresaId, cfg }) {
       setFlows(d.flows || [])
       setBotAtivo(d.botAtivo || false)
       setActiveFlowId(d.activeFlowId || null)
+      setModoAutomacao(d.modoAutomacao || 'chatbot')
     }
     setLoadingFlows(false)
   }
 
-  async function persistFlows(nf, nb, na) {
+  async function persistFlows(nf, nb, na, modo) {
     await supabase.from('vx_storage').upsert({
       key: `chatbot_flows:${empresaId}`,
-      value: JSON.stringify({ flows: nf ?? flows, botAtivo: nb ?? botAtivo, activeFlowId: na ?? activeFlowId }),
+      value: JSON.stringify({ flows: nf ?? flows, botAtivo: nb ?? botAtivo, activeFlowId: na ?? activeFlowId, modoAutomacao: modo ?? modoAutomacao }),
       updated_at: new Date().toISOString()
     }, { onConflict: 'key' })
   }
@@ -298,6 +306,12 @@ function TabChatbotFlow({ empresaId, cfg }) {
   async function toggleBot() {
     const nb = !botAtivo; setBotAtivo(nb); await persistFlows(flows, nb, activeFlowId)
     showFlowToast(nb ? '✅ Chatbot ativado!' : '⏸ Chatbot pausado')
+  }
+
+  async function salvarModoAutomacao(modo) {
+    setModoAutomacao(modo)
+    await persistFlows(flows, botAtivo, activeFlowId, modo)
+    showFlowToast(`✅ Modo alterado para: ${modo === 'chatbot' ? 'Chatbot Flow' : 'Agente IA'}`)
   }
 
   function startDrag(e, nodeId) {
@@ -356,6 +370,8 @@ function TabChatbotFlow({ empresaId, cfg }) {
   const selectedNode = nodes.find(n => n.id === selectedId) || null
   const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
 
+  const agentesDisponiveis = cfg.wppAgentes || []
+
   if (flowView === 'list') return (
     <div style={{ paddingBottom: 40 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
@@ -368,6 +384,42 @@ function TabChatbotFlow({ empresaId, cfg }) {
           {botAtivo ? 'Bot Ativo' : 'Bot Pausado'}
         </div>
         <button onClick={criarFluxo} style={{ padding: '9px 18px', borderRadius: 10, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono,monospace', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Novo Fluxo</button>
+      </div>
+
+      {/* ✅ NOVO: Seletor de modo de automação */}
+      <div style={{ background: '#111827', border: '1px solid #1e2d4a', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0', marginBottom: 12 }}>🎛️ Modo de Automação do WhatsApp Inbox</div>
+        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 1.6 }}>
+          Escolha quem responde automaticamente quando uma nova conversa chega no Inbox:
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => salvarModoAutomacao('chatbot')}
+            style={{ padding: '10px 18px', borderRadius: 9, border: 'none', cursor: 'pointer', fontFamily: 'DM Mono,monospace', fontSize: 12, fontWeight: 600, background: modoAutomacao === 'chatbot' ? 'linear-gradient(135deg,#00d4ff,#0099bb)' : 'rgba(255,255,255,.04)', color: modoAutomacao === 'chatbot' ? '#fff' : '#64748b', outline: modoAutomacao === 'chatbot' ? 'none' : '1px solid #1e2d4a' }}>
+            🤖 Chatbot Flow (Fluxo Visual)
+          </button>
+          <button
+            onClick={() => salvarModoAutomacao('agente')}
+            style={{ padding: '10px 18px', borderRadius: 9, border: 'none', cursor: 'pointer', fontFamily: 'DM Mono,monospace', fontSize: 12, fontWeight: 600, background: modoAutomacao === 'agente' ? 'linear-gradient(135deg,#7c3aed,#5b21b6)' : 'rgba(255,255,255,.04)', color: modoAutomacao === 'agente' ? '#fff' : '#64748b', outline: modoAutomacao === 'agente' ? 'none' : '1px solid #1e2d4a' }}>
+            🧠 Agente IA
+          </button>
+        </div>
+        {modoAutomacao === 'agente' && agentesDisponiveis.length > 0 && (
+          <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(124,58,237,.08)', border: '1px solid rgba(124,58,237,.25)', borderRadius: 8, fontSize: 12, color: '#94a3b8' }}>
+            🧠 Agentes disponíveis: {agentesDisponiveis.filter(a => a.ativo).map(a => <strong key={a.id} style={{ color: '#7c3aed', marginRight: 8 }}>{a.nome}</strong>)}
+            {agentesDisponiveis.filter(a => a.ativo).length === 0 && <span style={{ color: '#ef4444' }}>Nenhum agente ativo. Configure em Config → Agente IA.</span>}
+          </div>
+        )}
+        {modoAutomacao === 'agente' && agentesDisponiveis.length === 0 && (
+          <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.25)', borderRadius: 8, fontSize: 12, color: '#ef4444' }}>
+            ⚠️ Nenhum agente configurado. Acesse <strong>Config → Agente IA</strong> para criar um agente.
+          </div>
+        )}
+        {modoAutomacao === 'chatbot' && (
+          <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.2)', borderRadius: 8, fontSize: 12, color: '#64748b' }}>
+            🤖 O fluxo <strong style={{ color: '#00d4ff' }}>{flows.find(f => f.active)?.name || 'nenhum'}</strong> será executado automaticamente. Ative um fluxo abaixo.
+          </div>
+        )}
       </div>
 
       {loadingFlows ? <div style={{ textAlign: 'center', padding: 60, color: '#475569', fontSize: 13 }}>Carregando...</div>
@@ -568,72 +620,46 @@ const CSS = `
   .info-blue{background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.2);color:#94a3b8}
 `
 
-function toast(msg, type = 'ok') {
-  const el = document.getElementById('pros-toast')
-  if (!el) return
-  el.textContent = msg
-  el.style.background = type === 'ok' ? 'rgba(16,185,129,.9)' : 'rgba(239,68,68,.9)'
-  el.style.color = '#fff'
-  el.style.opacity = '1'
-  el.style.transform = 'translateY(0)'
-  setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(20px)' }, 3000)
-}
-
-const TIPOS_SCRIPT = [
-  { id: 'abordagem',    label: '👋 Abordagem Inicial' },
-  { id: 'apresentacao', label: '💼 Apresentação do Produto' },
-  { id: 'objecao',      label: '🛡️ Contorno de Objeções' },
-  { id: 'followup',     label: '🔄 Follow-up' },
-  { id: 'fechamento',   label: '🔥 Fechamento' },
-  { id: 'reativacao',   label: '♻️ Reativação de Clientes' },
-]
-
-// Helper centralizado de IA — usa OpenAI, Gemini ou Groq com fallback automático
-async function callAI(prompt, cfg, { temperature = 0.7, maxTokens = 2000, systemPrompt = null, history = null } = {}) {
+async function callAI(prompt, cfg, { temperature = 0.7, systemPrompt, history = [] } = {}) {
   const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
   const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
   const groqKey   = cfg.groqApiKey   || cfg.groqKey   || ''
 
-  if (!openaiKey && !geminiKey && !groqKey) {
-    throw new Error('Nenhuma chave de IA configurada. Acesse Configurações → Empresa → 🤖 IA.')
-  }
-
-  const messages = systemPrompt
-    ? [{ role: 'system', content: systemPrompt }, ...(history || []), { role: 'user', content: prompt }]
-    : [...(history || []), { role: 'user', content: prompt }]
-
-  // 1. OpenAI
   if (openaiKey) {
-    try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages, temperature, max_tokens: maxTokens })
-      })
-      const data = await res.json()
-      const r = data.choices?.[0]?.message?.content
-      if (r) return r
-    } catch {}
+    const messages = []
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+    messages.push(...history)
+    messages.push({ role: 'user', content: prompt })
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-4o-mini', messages, temperature })
+    })
+    const data = await res.json()
+    const r = data.choices?.[0]?.message?.content
+    if (r) return r
   }
 
-  // 2. Gemini
-  if (geminiKey && geminiKey.startsWith('AIza')) {
-    try {
-      const contents = systemPrompt
-        ? [{ role: 'user', parts: [{ text: `SISTEMA: ${systemPrompt}` }] }, { role: 'model', parts: [{ text: 'Entendido.' }] },
-           ...(history || []).map(h => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.content }] })),
-           { role: 'user', parts: [{ text: prompt }] }]
-        : [{ parts: [{ text: prompt }] }]
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents }) })
-      const data = await res.json()
-      const r = data.candidates?.[0]?.content?.parts?.[0]?.text
-      if (r) return r
-    } catch {}
+  if (geminiKey) {
+    const parts = []
+    if (systemPrompt) parts.push({ text: systemPrompt + '\n\n' })
+    history.forEach(h => parts.push({ text: (h.role === 'user' ? 'Usuário: ' : 'Assistente: ') + h.content + '\n' }))
+    parts.push({ text: prompt })
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature } })
+    })
+    const data = await res.json()
+    const r = data.candidates?.[0]?.content?.parts?.[0]?.text
+    if (r) return r
   }
 
-  // 3. Groq
   if (groqKey) {
+    const messages = []
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+    messages.push(...history)
+    messages.push({ role: 'user', content: prompt })
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
@@ -646,6 +672,38 @@ async function callAI(prompt, cfg, { temperature = 0.7, maxTokens = 2000, system
 
   throw new Error('Nenhuma IA respondeu. Verifique as chaves em Configurações → Empresa.')
 }
+
+function toast(msg, type = 'ok') {
+  const el = document.getElementById('pros-toast')
+  if (!el) return
+  el.textContent = msg
+  el.style.background = type === 'err' ? 'rgba(239,68,68,.95)' : 'rgba(16,185,129,.95)'
+  el.style.color = '#fff'
+  el.style.opacity = '1'
+  el.style.transform = 'translateY(0)'
+  setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(20px)' }, 3200)
+}
+
+const TIPOS_SCRIPT = [
+  { id: 'abordagem',    label: '📞 Abordagem Inicial',       desc: 'Primeiro contato frio — WhatsApp, e-mail ou ligação' },
+  { id: 'followup',    label: '🔁 Follow-up',                desc: 'Retomada após proposta enviada ou reunião feita' },
+  { id: 'objecoes',    label: '🛡️ Contorno de Objeções',    desc: 'Respostas para "caro", "já tenho", "não preciso agora"' },
+  { id: 'fechamento',  label: '🤝 Fechamento de Venda',      desc: 'Técnicas de urgência e gatilhos de decisão' },
+  { id: 'reativacao',  label: '🔥 Reativação de Clientes',   desc: 'Trazer de volta clientes inativos ou perdidos' },
+  { id: 'upsell',      label: '📈 Upsell / Cross-sell',      desc: 'Oferecer upgrades ou produtos complementares' },
+]
+
+// ── Playbook steps (para o Playbook IA) ──
+const PLAYBOOK_MODULOS = [
+  { id: 'perfil_cliente', label: '👤 Perfil do Cliente Ideal (ICP)' },
+  { id: 'proposta_valor', label: '💡 Proposta de Valor e Diferenciais' },
+  { id: 'processo_venda', label: '🗺️ Processo de Venda (Funil)' },
+  { id: 'abordagem_wpp',  label: '📱 Abordagem via WhatsApp' },
+  { id: 'objecoes',       label: '🛡️ Contorno de Objeções' },
+  { id: 'negociacao',     label: '🤝 Negociação e Fechamento' },
+  { id: 'pos_venda',      label: '🌟 Pós-Venda e Fidelização' },
+  { id: 'metricas',       label: '📊 KPIs e Métricas Comerciais' },
+]
 
 export default function Prospeccao() {
   const router = useRouter()
@@ -668,6 +726,10 @@ export default function Prospeccao() {
   // Disparo avançado
   const [mensagensVariadas, setMensagensVariadas] = useState([''])
   const [tipoMidia, setTipoMidia]       = useState('text')
+  // ✅ NOVO: arquivo de mídia direto (sem URL)
+  const [arquivoMidia, setArquivoMidia] = useState(null)
+  const [arquivoMidiaBase64, setArquivoMidiaBase64] = useState('')
+  const [arquivoMidiaNome, setArquivoMidiaNome] = useState('')
   const [mediaUrl, setMediaUrl]         = useState('')
   const [mediaCaption, setMediaCaption] = useState('')
   const [delayMin, setDelayMin]         = useState(8)
@@ -677,7 +739,9 @@ export default function Prospeccao() {
   const [resultadoCampanha, setResultadoCampanha] = useState(null)
   const [erroDisparo, setErroDisparo]   = useState('')
   const [modoAvancado, setModoAvancado] = useState(false)
-  const [modoOficial, setModoOficial]   = useState(false) // 🆕 Modo API Oficial (Meta Cloud API)
+  const [modoOficial, setModoOficial]   = useState(false)
+  // ✅ NOVO: modo de upload de mídia
+  const [modoMidia, setModoMidia]       = useState('url') // 'url' | 'arquivo'
 
   // Chatbot
   const [chatbotNome, setChatbotNome]               = useState('')
@@ -694,6 +758,8 @@ export default function Prospeccao() {
   const [providerAgente, setProviderAgente] = useState('gemini')
   const chatEndRef  = useRef(null)
   const fileImportRef = useRef(null)
+  const fileImportXlsRef = useRef(null)
+  const fileMidiaRef = useRef(null)
 
   // Script Comercial
   const [tipoScript, setTipoScript]       = useState('abordagem')
@@ -701,6 +767,14 @@ export default function Prospeccao() {
   const [produtoScript, setProdutoScript] = useState('')
   const [gerandoScript, setGerandoScript] = useState(false)
   const [scriptResultado, setScriptResultado] = useState('')
+
+  // ✅ NOVO: Playbook IA
+  const [playbookModulo, setPlaybookModulo]       = useState('perfil_cliente')
+  const [playbookConteudo, setPlaybookConteudo]   = useState('')
+  const [gerandoPlaybook, setGerandoPlaybook]     = useState(false)
+  const [playbookChat, setPlaybookChat]           = useState([])
+  const [playbookInput, setPlaybookInput]         = useState('')
+  const playbookChatRef = useRef(null)
 
   useEffect(() => {
     async function init() {
@@ -736,6 +810,7 @@ export default function Prospeccao() {
 
   useEffect(() => { if (abaQuery) setAba(abaQuery) }, [abaQuery])
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [agenteMessages])
+  useEffect(() => { playbookChatRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [playbookChat])
 
   async function salvarStorage(novoCfg) {
     await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novoCfg), updated_at: new Date().toISOString() }, { onConflict: 'key' })
@@ -783,6 +858,35 @@ export default function Prospeccao() {
     e.target.value = ''
   }
 
+  // ✅ NOVO: Importar XLS/XLSX
+  function onImportXLS(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        // Usa SheetJS se disponível via CDN, senão tenta parsear como CSV
+        if (typeof window !== 'undefined' && window.XLSX) {
+          const wb = window.XLSX.read(ev.target.result, { type: 'array' })
+          const ws = wb.Sheets[wb.SheetNames[0]]
+          const csv = window.XLSX.utils.sheet_to_csv(ws)
+          const parsed = parseCSVImport(csv)
+          if (!parsed.length) { toast('Nenhum número válido no XLS', 'err'); return }
+          setContatos(prev => {
+            const nums = new Set(prev.map(c => c.telefone))
+            const novos = parsed.filter(c => !nums.has(c.telefone))
+            toast(`✅ ${novos.length} contato(s) importado(s) do XLS`)
+            return [...prev, ...novos]
+          })
+        } else {
+          toast('⚠️ Biblioteca XLS não carregada. Use CSV por enquanto.', 'err')
+        }
+      } catch(err) { toast('Erro ao ler XLS: ' + err.message, 'err') }
+    }
+    reader.readAsArrayBuffer(file)
+    e.target.value = ''
+  }
+
   function baixarModeloCSV() {
     const csv = 'telefone;nome;empresa;cidade\n5531999999999;João Silva;Empresa ABC;Belo Horizonte\n5511988888888;Maria Souza;XYZ;São Paulo'
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv],{type:'text/csv'})), download: 'modelo_contatos.csv' })
@@ -812,6 +916,21 @@ export default function Prospeccao() {
     await salvarStorage(novoCfg)
   }
 
+  // ✅ NOVO: Processar arquivo de mídia selecionado
+  function onSelecionarArquivoMidia(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setArquivoMidia(file)
+    setArquivoMidiaNome(file.name)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const base64 = ev.target.result // data:image/...;base64,...
+      setArquivoMidiaBase64(base64)
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
   // Modo simples — abre wa.me
   async function dispararMensagens() {
     const alvos = selecionados.length > 0 ? contatos.filter(c => selecionados.includes(c.id)) : contatos
@@ -839,7 +958,9 @@ export default function Prospeccao() {
     setErroDisparo('')
     if (!alvos.length)   { setErroDisparo('Adicione ao menos um contato'); return }
     if (!msgsValidas.length) { setErroDisparo('Adicione ao menos uma mensagem'); return }
-    if (tipoMidia !== 'text' && !mediaUrl.trim()) { setErroDisparo('Informe a URL da mídia'); return }
+    // ✅ CORRIGIDO: aceita arquivo OU URL
+    if (tipoMidia !== 'text' && modoMidia === 'url' && !mediaUrl.trim()) { setErroDisparo('Informe a URL da mídia'); return }
+    if (tipoMidia !== 'text' && modoMidia === 'arquivo' && !arquivoMidiaBase64) { setErroDisparo('Selecione um arquivo de mídia'); return }
     if (delayMin >= delayMax) { setErroDisparo('Delay mínimo deve ser menor que o máximo'); return }
 
     setDisparando(true); setResultadoCampanha(null); setProgresso(0)
@@ -859,7 +980,10 @@ export default function Prospeccao() {
           })),
           mensagens:   msgsValidas,
           tipo:        tipoMidia,
-          mediaUrl:    tipoMidia !== 'text' ? mediaUrl    : undefined,
+          // ✅ CORRIGIDO: envia base64 ou URL dependendo do modo
+          mediaUrl:    tipoMidia !== 'text' ? (modoMidia === 'arquivo' ? arquivoMidiaBase64 : mediaUrl) : undefined,
+          mediaBase64: tipoMidia !== 'text' && modoMidia === 'arquivo' ? true : undefined,
+          mediaNome:   tipoMidia !== 'text' && modoMidia === 'arquivo' ? arquivoMidiaNome : undefined,
           mediaCaption: tipoMidia !== 'text' ? mediaCaption : undefined,
           delayMinMs:  delayMin  * 1000,
           delayMaxMs:  delayMax  * 1000,
@@ -883,7 +1007,7 @@ export default function Prospeccao() {
     }
   }
 
-  // ── Modo API Oficial (Meta WhatsApp Cloud API) ──────────────
+  // Modo API Oficial (Meta)
   async function dispararOficial() {
     const wpp = cfg.wpp || {}
     if (!wpp.ativo)   { setErroDisparo('API Oficial inativa. Ative em Configurações → Integrações.'); return }
@@ -932,6 +1056,7 @@ export default function Prospeccao() {
     setDisparando(false)
   }
 
+  // ✅ Exportar CSV
   function exportarRelatorioCSV(campanha) {
     const rows = [
       'numero,nome,status,motivo,horario',
@@ -944,6 +1069,28 @@ export default function Prospeccao() {
       download: `campanha_${campanha.campanhaId}.csv`
     })
     a.click()
+  }
+
+  // ✅ NOVO: Exportar XLS
+  function exportarRelatorioXLS(campanha) {
+    if (typeof window !== 'undefined' && window.XLSX) {
+      const ws = window.XLSX.utils.json_to_sheet(
+        (campanha.resultados || []).map(r => ({
+          Número: r.numero,
+          Nome:   r.nome || '',
+          Status: r.status,
+          Motivo: r.motivo || '',
+          Horário: r.at || ''
+        }))
+      )
+      const wb = window.XLSX.utils.book_new()
+      window.XLSX.utils.book_append_sheet(wb, ws, 'Campanha')
+      window.XLSX.writeFile(wb, `campanha_${campanha.campanhaId}.xlsx`)
+    } else {
+      // Fallback: CSV com extensão .xls
+      toast('⚠️ Exportando como CSV (biblioteca XLS não carregada)', 'err')
+      exportarRelatorioCSV(campanha)
+    }
   }
 
   function estimarTempoDisparo() {
@@ -964,25 +1111,7 @@ export default function Prospeccao() {
     if (!chatbotNome) { toast('Informe o nome do chatbot', 'err'); return }
 
     setGerandoChatbot(true)
-
-    const prompt = `Crie um prompt de sistema completo para um chatbot de atendimento comercial com as seguintes características:
-
-Nome: ${chatbotNome}
-Personalidade: ${chatbotPersonalidade}
-Objetivo Principal: ${chatbotObjetivo}
-Empresa/Produto: ${cfg.company || 'Vivanexa'}
-Nicho: ${cfg.nicho || 'Software'}
-
-O prompt deve:
-1. Definir claramente o papel e personalidade do assistente
-2. Listar os principais objetivos e como alcançá-los
-3. Definir tom e estilo de comunicação
-4. Incluir exemplos de como responder às principais dúvidas
-5. Definir como qualificar leads e coletar informações
-6. Definir quando e como escalar para um humano
-7. Incluir respostas para as 10 perguntas mais comuns
-
-Crie um prompt profissional, completo e prático em português.`
+    const prompt = `Crie um prompt de sistema completo para um chatbot de atendimento comercial com as seguintes características:\n\nNome: ${chatbotNome}\nPersonalidade: ${chatbotPersonalidade}\nObjetivo Principal: ${chatbotObjetivo}\nEmpresa/Produto: ${cfg.company || 'Vivanexa'}\nNicho: ${cfg.nicho || 'Software'}\n\nO prompt deve:\n1. Definir claramente o papel e personalidade do assistente\n2. Listar os principais objetivos e como alcançá-los\n3. Definir tom e estilo de comunicação\n4. Incluir exemplos de como responder às principais dúvidas\n5. Definir como qualificar leads e coletar informações\n6. Definir quando e como escalar para um humano\n7. Incluir respostas para as 10 perguntas mais comuns\n\nCrie um prompt profissional, completo e prático em português.`
 
     try {
       const resultado = await callAI(prompt, cfg, { temperature: 0.7 })
@@ -1033,10 +1162,6 @@ Crie um prompt profissional, completo e prático em português.`
 
   // ── Script Comercial ─────────────────────────────────────────
   async function gerarScriptComercial() {
-    const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
-    const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
-    const groqKey   = cfg.groqApiKey   || cfg.groqKey   || ''
-    if (!openaiKey && !geminiKey && !groqKey) { toast('Configure a chave de IA em Configurações → Empresa', 'err'); return }
     if (!nichoScript || !produtoScript) { toast('Preencha o nicho e o produto', 'err'); return }
 
     setGerandoScript(true)
@@ -1049,19 +1174,15 @@ Crie um prompt profissional, completo e prático em português.`
 Crie um ${tipo?.label || 'Script'} completo para:
 - Produto/Serviço: ${produtoScript}
 - Nicho: ${nichoScript}
-- Canal: WhatsApp e ligação telefônica
 
-Inclua:
-1. 🎯 OBJETIVO DO SCRIPT
-2. 📋 ROTEIRO COMPLETO passo a passo
-   - Abertura
-   - Desenvolvimento
-   - Fechamento
-3. 💬 FRASES EXATAS para usar (exemplos reais)
-4. ❓ PERGUNTAS ESTRATÉGICAS
-5. 🛡️ COMO LIDAR COM RESISTÊNCIAS
-6. 🔥 TÉCNICAS DE PERSUASÃO aplicadas
-7. ⏱️ TEMPO ESTIMADO de cada etapa
+O script deve conter:
+1. 🎯 OBJETIVO do script
+2. ⏱ QUANDO usar este script
+3. 💬 ABORDAGEM INICIAL (texto exato a usar)
+4. 🔑 PONTOS-CHAVE a destacar
+5. ❓ PERGUNTAS QUALIFICADORAS (5-7 perguntas poderosas)
+6. 🛡️ OBJEÇÕES COMUNS e como contorná-las
+7. 🤝 CALL TO ACTION / PRÓXIMO PASSO
 8. ✅ PRÓXIMOS PASSOS após o script
 
 Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
@@ -1081,26 +1202,127 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
     setGerandoScript(false)
   }
 
+  // ✅ NOVO: Imprimir Script como .DOC
+  function imprimirScriptDoc(texto, titulo) {
+    const htmlContent = `
+      <html><head><meta charset="UTF-8">
+      <style>body{font-family:Arial,sans-serif;margin:40px;line-height:1.6;font-size:14px}
+      h1{font-size:18px;margin-bottom:20px}
+      pre{white-space:pre-wrap;font-family:Arial,sans-serif}</style>
+      </head><body>
+      <h1>${titulo || 'Script Comercial'}</h1>
+      <pre>${texto.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+      </body></html>`
+    const blob = new Blob([htmlContent], { type: 'application/msword' })
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob),
+      download: `script_${tipoScript}_${nichoScript || 'comercial'}.doc`
+    })
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  // ✅ NOVO: Imprimir Script como PDF
+  function imprimirScriptPDF(texto, titulo) {
+    const win = window.open('', '_blank')
+    if (!win) { toast('Habilite popups para imprimir PDF', 'err'); return }
+    win.document.write(`
+      <html><head><meta charset="UTF-8"><title>${titulo}</title>
+      <style>
+        body{font-family:Arial,sans-serif;margin:40px;line-height:1.8;font-size:13px;color:#1a1a1a}
+        h1{font-size:20px;border-bottom:2px solid #00d4ff;padding-bottom:10px;margin-bottom:24px}
+        pre{white-space:pre-wrap;font-family:Arial,sans-serif;background:#f8f9fa;padding:16px;border-radius:8px;border-left:4px solid #00d4ff}
+        @media print{body{margin:20px}}
+      </style></head><body>
+      <h1>📋 ${titulo || 'Script Comercial'}</h1>
+      <pre>${texto.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+      </body></html>
+    `)
+    win.document.close()
+    setTimeout(() => { win.print(); }, 500)
+  }
+
+  // ✅ NOVO: Playbook IA — conversa com a IA para construir o playbook módulo por módulo
+  async function enviarMensagemPlaybook() {
+    const userMsg = playbookInput.trim()
+    if (!userMsg) return
+    setPlaybookInput('')
+
+    const moduloInfo = PLAYBOOK_MODULOS.find(m => m.id === playbookModulo)
+    setPlaybookChat(prev => [...prev, { role: 'user', content: userMsg }])
+
+    setGerandoPlaybook(true)
+    const sysPr = `Você é um especialista em treinamento de equipes comerciais para o mercado de ${cfg.nicho || 'tecnologia'}.
+Empresa: ${cfg.company || 'Vivanexa'} | Produto: ${cfg.company || 'software de gestão'}
+
+Você está ajudando a construir o módulo "${moduloInfo?.label}" do Playbook Comercial.
+
+CONTEÚDO JÁ CONSTRUÍDO NESTE MÓDULO:
+${playbookConteudo || '(Ainda em branco — começando agora)'}
+
+Responda de forma didática, prática e formatada para um playbook profissional.
+Use exemplos reais, scripts prontos, tabelas e checklists quando aplicável.
+Pergunte ao usuário quando precisar de mais informações específicas.`
+
+    const hist = playbookChat.slice(-10).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
+
+    try {
+      const resposta = await callAI(userMsg, cfg, { temperature: 0.6, systemPrompt: sysPr, history: hist })
+      setPlaybookChat(prev => [...prev, { role: 'bot', content: resposta }])
+      // Acumula no conteúdo do módulo
+      setPlaybookConteudo(prev => prev + (prev ? '\n\n' : '') + `> ${userMsg}\n\n${resposta}`)
+    } catch (e) {
+      setPlaybookChat(prev => [...prev, { role: 'bot', content: 'Erro: ' + e.message }])
+    }
+    setGerandoPlaybook(false)
+  }
+
+  function iniciarModuloPlaybook(id) {
+    setPlaybookModulo(id)
+    setPlaybookChat([])
+    const mod = PLAYBOOK_MODULOS.find(m => m.id === id)
+    setPlaybookChat([{
+      role: 'bot',
+      content: `Vamos construir o módulo **${mod?.label}** do seu Playbook Comercial! 🚀\n\nMe conte sobre sua empresa e o que você quer abordar neste módulo. Posso fazer perguntas para ajudar a estruturar melhor este conteúdo.`
+    }])
+  }
+
+  function exportarPlaybookDoc() {
+    const modulos = PLAYBOOK_MODULOS.map(m => `\n\n## ${m.label}\n\n${playbookConteudo || '(Em branco)'}`).join('')
+    const htmlContent = `<html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;margin:40px;line-height:1.7}h1{font-size:22px}h2{font-size:16px;color:#005f8f;border-bottom:1px solid #ccc;padding-bottom:6px}pre{white-space:pre-wrap;font-family:Arial}</style></head><body><h1>📘 Playbook Comercial — ${cfg.company || 'Vivanexa'}</h1><pre>${playbookConteudo.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre></body></html>`
+    const blob = new Blob([htmlContent], { type: 'application/msword' })
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `playbook_comercial_${cfg.company || 'vivanexa'}.doc` })
+    a.click()
+  }
+
+  function exportarPlaybookPDF() {
+    const win = window.open('', '_blank')
+    if (!win) { toast('Habilite popups para imprimir PDF', 'err'); return }
+    win.document.write(`<html><head><meta charset="UTF-8"><title>Playbook Comercial</title><style>body{font-family:Arial,sans-serif;margin:40px;line-height:1.8}h1{font-size:22px;border-bottom:3px solid #00d4ff;padding-bottom:12px}pre{white-space:pre-wrap;background:#f8f9fa;padding:16px;border-radius:8px}@media print{body{margin:20px}}</style></head><body><h1>📘 Playbook Comercial — ${cfg.company || 'Vivanexa'}</h1><pre>${playbookConteudo.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre></body></html>`)
+    win.document.close()
+    setTimeout(() => win.print(), 500)
+  }
+
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0f1e', color: '#64748b', fontFamily: 'DM Mono, monospace' }}>
-      Carregando Prospecção...
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#0a0f1e', color:'#64748b', fontFamily:'DM Mono,monospace' }}>
+      Carregando...
     </div>
   )
 
   return (
     <>
       <Head>
-        <title>Prospecção — {cfg.company || 'Vivanexa'}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Ferramentas Comerciais — Vivanexa</title>
         <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+        {/* ✅ SheetJS para XLS */}
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" async />
       </Head>
       <style>{CSS}</style>
       <div className="orb orb1" /><div className="orb orb2" />
-
       <Navbar cfg={cfg} perfil={perfil} />
 
       <div className="page-wrap">
-        <div className="page-title">📣 Ferramentas Comerciais</div>
+        <div className="page-title">🔥 Ferramentas Comerciais</div>
         <div className="page-sub">Disparo em massa, chatbot, agente IA e scripts de vendas</div>
 
         {/* Stats */}
@@ -1110,7 +1332,7 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
             <div className="stat-label">Contatos</div>
           </div>
           <div className="stat-card">
-            <div className="stat-val">{chatbotConfig ? '✅' : '❌'}</div>
+            <div className="stat-val">✅</div>
             <div className="stat-label">Chatbot Config</div>
           </div>
           <div className="stat-card">
@@ -1121,10 +1343,10 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
 
         {/* Tabs */}
         <div className="tabs">
-          <button className={`tab-btn ${aba === 'disparo' ? 'active' : ''}`}  onClick={() => setAba('disparo')}>💬 Disparo em Massa</button>
-          <button className={`tab-btn ${aba === 'chatbot' ? 'active' : ''}`}  onClick={() => setAba('chatbot')}>🤖 Chatbot</button>
-          <button className={`tab-btn ${aba === 'agente'  ? 'active' : ''}`}  onClick={() => setAba('agente')}>🧠 Agente IA</button>
-          <button className={`tab-btn ${aba === 'script'  ? 'active' : ''}`}  onClick={() => setAba('script')}>📋 Script/Playbook</button>
+          <button className={`tab-btn ${aba === 'disparo'  ? 'active' : ''}`} onClick={() => setAba('disparo')}>💬 Disparo em Massa</button>
+          <button className={`tab-btn ${aba === 'chatbot'  ? 'active' : ''}`} onClick={() => setAba('chatbot')}>🤖 Chatbot</button>
+          <button className={`tab-btn ${aba === 'agente'   ? 'active' : ''}`} onClick={() => setAba('agente')}>🧠 Agente IA</button>
+          <button className={`tab-btn ${aba === 'script'   ? 'active' : ''}`} onClick={() => setAba('script')}>📋 Script/Playbook</button>
         </div>
 
         {/* ── ABA DISPARO ── */}
@@ -1204,20 +1426,66 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                       </div>
                     ))}
 
-                    {/* Tipo mídia */}
+                    {/* ✅ NOVO: Tipo mídia com upload de arquivo */}
                     <div style={{ borderTop:'1px solid #1e2d4a', paddingTop:12, marginTop:4 }}>
                       <div style={{ fontSize:11, color:'#64748b', marginBottom:8, textTransform:'uppercase', letterSpacing:'.5px' }}>Tipo de conteúdo</div>
                       <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:10 }}>
                         {[['text','💬 Texto'],['image','🖼️ Imagem'],['video','🎥 Vídeo'],['audio','🎵 Áudio'],['document','📄 Doc']].map(([val,label]) => (
-                          <button key={val} onClick={() => setTipoMidia(val)}
+                          <button key={val} onClick={() => { setTipoMidia(val); setArquivoMidia(null); setArquivoMidiaBase64(''); setArquivoMidiaNome('') }}
                             className={`btn ${tipoMidia===val ? 'btn-primary' : 'btn-secondary'}`}
                             style={{ fontSize:11, padding:'4px 12px' }}>{label}</button>
                         ))}
                       </div>
                       {tipoMidia !== 'text' && (
                         <div>
-                          <div className="field"><label>URL da mídia *</label><input value={mediaUrl} onChange={e => setMediaUrl(e.target.value)} placeholder="https://..." /></div>
-                          {tipoMidia !== 'audio' && <div className="field"><label>Legenda (opcional)</label><input value={mediaCaption} onChange={e => setMediaCaption(e.target.value)} placeholder="Legenda..." /></div>}
+                          {/* ✅ NOVO: Toggle URL vs Arquivo */}
+                          <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+                            <button onClick={() => setModoMidia('arquivo')}
+                              style={{ padding:'6px 14px', borderRadius:7, border:'none', cursor:'pointer', fontFamily:'DM Mono,monospace', fontSize:11, background: modoMidia==='arquivo' ? 'linear-gradient(135deg,#00d4ff,#0099bb)' : 'rgba(255,255,255,.04)', color: modoMidia==='arquivo' ? '#fff' : '#64748b', outline: modoMidia==='arquivo' ? 'none' : '1px solid #1e2d4a' }}>
+                              📎 Anexar Arquivo
+                            </button>
+                            <button onClick={() => setModoMidia('url')}
+                              style={{ padding:'6px 14px', borderRadius:7, border:'none', cursor:'pointer', fontFamily:'DM Mono,monospace', fontSize:11, background: modoMidia==='url' ? 'linear-gradient(135deg,#00d4ff,#0099bb)' : 'rgba(255,255,255,.04)', color: modoMidia==='url' ? '#fff' : '#64748b', outline: modoMidia==='url' ? 'none' : '1px solid #1e2d4a' }}>
+                              🔗 URL Externa
+                            </button>
+                          </div>
+
+                          {modoMidia === 'arquivo' ? (
+                            <div>
+                              <div
+                                onClick={() => fileMidiaRef.current?.click()}
+                                style={{ border:'2px dashed #1e2d4a', borderRadius:10, padding:'20px', textAlign:'center', cursor:'pointer', background:'rgba(0,212,255,.03)', transition:'border-color .2s' }}
+                                onMouseEnter={e => e.currentTarget.style.borderColor='rgba(0,212,255,.4)'}
+                                onMouseLeave={e => e.currentTarget.style.borderColor='#1e2d4a'}>
+                                {arquivoMidiaBase64 ? (
+                                  <div>
+                                    {tipoMidia === 'image' && <img src={arquivoMidiaBase64} alt="preview" style={{ maxHeight:120, maxWidth:'100%', borderRadius:8, marginBottom:8 }} />}
+                                    {tipoMidia === 'audio' && <div style={{ fontSize:28, marginBottom:8 }}>🎵</div>}
+                                    {tipoMidia === 'video' && <div style={{ fontSize:28, marginBottom:8 }}>🎥</div>}
+                                    {tipoMidia === 'document' && <div style={{ fontSize:28, marginBottom:8 }}>📄</div>}
+                                    <div style={{ fontSize:12, color:'#10b981', fontWeight:600 }}>✅ {arquivoMidiaNome}</div>
+                                    <div style={{ fontSize:10, color:'#64748b', marginTop:4 }}>Clique para trocar</div>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <div style={{ fontSize:32, marginBottom:8 }}>
+                                      {tipoMidia === 'image' ? '🖼️' : tipoMidia === 'video' ? '🎥' : tipoMidia === 'audio' ? '🎵' : '📄'}
+                                    </div>
+                                    <div style={{ fontSize:13, color:'#64748b', marginBottom:4 }}>Clique para selecionar o arquivo</div>
+                                    <div style={{ fontSize:11, color:'#475569' }}>
+                                      {tipoMidia === 'image' ? 'JPG, PNG, GIF, WebP' : tipoMidia === 'video' ? 'MP4, MOV, AVI' : tipoMidia === 'audio' ? 'MP3, OGG, AAC, WAV' : 'PDF, DOC, DOCX, XLS'}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              <input ref={fileMidiaRef} type="file"
+                                accept={tipoMidia === 'image' ? 'image/*' : tipoMidia === 'video' ? 'video/*' : tipoMidia === 'audio' ? 'audio/*' : '.pdf,.doc,.docx,.xls,.xlsx'}
+                                style={{ display:'none' }} onChange={onSelecionarArquivoMidia} />
+                            </div>
+                          ) : (
+                            <div className="field"><label>URL da mídia *</label><input value={mediaUrl} onChange={e => setMediaUrl(e.target.value)} placeholder="https://..." /></div>
+                          )}
+                          {tipoMidia !== 'audio' && <div className="field" style={{ marginTop:8 }}><label>Legenda (opcional)</label><input value={mediaCaption} onChange={e => setMediaCaption(e.target.value)} placeholder="Legenda..." /></div>}
                         </div>
                       )}
                     </div>
@@ -1247,7 +1515,6 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
 
                 {/* Botão disparar */}
                 <div style={{ marginTop:14 }}>
-                  {/* ── Aviso API Oficial sem config ── */}
                   {modoOficial && !cfg.wpp?.ativo && (
                     <div style={{ background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.2)', borderRadius:8, padding:'10px 14px', marginBottom:12, fontSize:12, color:'#fca5a5' }}>
                       ⚠️ A integração com WhatsApp Cloud API está inativa.{' '}
@@ -1280,14 +1547,10 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                 {/* ── RELATÓRIO DE ENTREGA ── */}
                 {resultadoCampanha && (
                   <div style={{ marginTop:14, background:'#0a0f1e', borderRadius:10, padding:14, border:'1px solid #1e2d4a' }}>
-
-                    {/* Cabeçalho */}
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                       <div style={{ fontSize:13, color:'#00d4ff', fontWeight:700 }}>📊 Relatório da Campanha</div>
                       <div style={{ fontSize:10, color:'#64748b' }}>{resultadoCampanha.campanhaId}</div>
                     </div>
-
-                    {/* Totais */}
                     <div style={{ display:'flex', gap:8, marginBottom:12 }}>
                       <div style={{ flex:1, textAlign:'center', background:'rgba(16,185,129,.1)', border:'1px solid rgba(16,185,129,.3)', borderRadius:8, padding:'10px 0' }}>
                         <div style={{ fontSize:22, fontWeight:800, color:'#10b981', fontFamily:'Syne,sans-serif' }}>{resultadoCampanha.enviados}</div>
@@ -1302,8 +1565,6 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                         <div style={{ fontSize:10, color:'#64748b', marginTop:2 }}>📦 Total</div>
                       </div>
                     </div>
-
-                    {/* Detalhamento por contato */}
                     <div style={{ fontSize:11, color:'#64748b', marginBottom:6, textTransform:'uppercase', letterSpacing:'.5px' }}>
                       Detalhamento por contato
                     </div>
@@ -1327,14 +1588,21 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                         </div>
                       ))}
                     </div>
-
-                    {/* Exportar CSV */}
-                    <button
-                      className="btn btn-secondary"
-                      style={{ width:'100%', marginTop:10, fontSize:11, justifyContent:'center' }}
-                      onClick={() => exportarRelatorioCSV(resultadoCampanha)}>
-                      ⬇ Exportar relatório CSV
-                    </button>
+                    {/* ✅ NOVO: Exportar CSV e XLS */}
+                    <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ flex:1, justifyContent:'center', fontSize:11 }}
+                        onClick={() => exportarRelatorioCSV(resultadoCampanha)}>
+                        ⬇ Exportar CSV
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ flex:1, justifyContent:'center', fontSize:11 }}
+                        onClick={() => exportarRelatorioXLS(resultadoCampanha)}>
+                        ⬇ Exportar XLS
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1352,22 +1620,27 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
                     <button className="btn btn-secondary" style={{ fontSize:10, padding:'4px 10px' }} onClick={() => fileImportRef.current?.click()}>
                       ⬆ CSV
                     </button>
+                    {/* ✅ NOVO: Importar XLS */}
+                    <button className="btn btn-secondary" style={{ fontSize:10, padding:'4px 10px' }} onClick={() => fileImportXlsRef.current?.click()}>
+                      ⬆ XLS
+                    </button>
                     <button className="btn btn-secondary" style={{ fontSize:10, padding:'4px 10px' }} onClick={baixarModeloCSV}>
                       ⬇ Modelo
                     </button>
                     <button className="btn btn-primary" style={{ fontSize:10, padding:'4px 10px' }} onClick={() => setShowAddContato(true)}>+</button>
                     <input ref={fileImportRef} type="file" accept=".csv,.txt" style={{ display:'none' }} onChange={onImportCSV} />
+                    <input ref={fileImportXlsRef} type="file" accept=".xls,.xlsx" style={{ display:'none' }} onChange={onImportXLS} />
                   </div>
                 </div>
 
                 <div style={{ fontSize:11, color:'#64748b', marginBottom:8 }}>
-                  CSV aceita colunas: telefone, nome, empresa, cidade — ou lista pura de números
+                  CSV e XLS: colunas telefone, nome, empresa, cidade — ou lista pura de números
                 </div>
 
                 <div style={{ maxHeight:300, overflowY:'auto' }}>
                   {contatos.length === 0 ? (
                     <div style={{ textAlign:'center', color:'#64748b', padding:20, fontSize:12 }}>
-                      Nenhum contato. Clique em <strong>⬆ CSV</strong> para importar ou <strong>+</strong> para adicionar.
+                      Nenhum contato. Clique em <strong>⬆ CSV</strong> ou <strong>⬆ XLS</strong> para importar ou <strong>+</strong> para adicionar.
                     </div>
                   ) : contatos.map(c => (
                     <div key={c.id} className="contact-row">
@@ -1461,62 +1734,168 @@ Use linguagem natural, direta e adaptada para o nicho ${nichoScript}.`
         {/* ── ABA SCRIPT/PLAYBOOK ── */}
         {aba === 'script' && (
           <div>
-            <div className="card">
-              <div className="card-title">📋 Gerador de Scripts Comerciais</div>
-              <div className="grid2">
-                <div className="field">
-                  <label>Produto/Serviço</label>
-                  <input value={produtoScript} onChange={e => setProdutoScript(e.target.value)} placeholder="Ex: Software de gestão contábil" />
+            {/* Sub-tabs: Script vs Playbook */}
+            <div style={{ display:'flex', gap:8, marginBottom:20 }}>
+              <button id="subtab-script"
+                onClick={() => {
+                  document.getElementById('subtab-script').style.background = 'linear-gradient(135deg,#00d4ff,#0099bb)'
+                  document.getElementById('subtab-script').style.color = '#fff'
+                  document.getElementById('subtab-playbook').style.background = 'rgba(255,255,255,.04)'
+                  document.getElementById('subtab-playbook').style.color = '#64748b'
+                  document.getElementById('sec-script').style.display = 'block'
+                  document.getElementById('sec-playbook').style.display = 'none'
+                }}
+                style={{ padding:'10px 20px', borderRadius:9, border:'none', cursor:'pointer', fontFamily:'DM Mono,monospace', fontSize:12, fontWeight:600, background:'linear-gradient(135deg,#00d4ff,#0099bb)', color:'#fff' }}>
+                📋 Gerador de Script
+              </button>
+              <button id="subtab-playbook"
+                onClick={() => {
+                  document.getElementById('subtab-playbook').style.background = 'linear-gradient(135deg,#7c3aed,#5b21b6)'
+                  document.getElementById('subtab-playbook').style.color = '#fff'
+                  document.getElementById('subtab-script').style.background = 'rgba(255,255,255,.04)'
+                  document.getElementById('subtab-script').style.color = '#64748b'
+                  document.getElementById('sec-playbook').style.display = 'block'
+                  document.getElementById('sec-script').style.display = 'none'
+                }}
+                style={{ padding:'10px 20px', borderRadius:9, border:'none', cursor:'pointer', fontFamily:'DM Mono,monospace', fontSize:12, fontWeight:600, background:'rgba(255,255,255,.04)', color:'#64748b', outline:'1px solid #1e2d4a' }}>
+                📘 Playbook Comercial (IA)
+              </button>
+            </div>
+
+            {/* ── SEÇÃO SCRIPT ── */}
+            <div id="sec-script">
+              <div className="card">
+                <div className="card-title">📋 Gerador de Scripts Comerciais</div>
+                <div className="grid2">
+                  <div className="field">
+                    <label>Produto / Serviço</label>
+                    <input value={produtoScript} onChange={e => setProdutoScript(e.target.value)} placeholder="Ex: Software de gestão contábil" />
+                  </div>
+                  <div className="field">
+                    <label>Nicho de Mercado</label>
+                    <input value={nichoScript} onChange={e => setNichoScript(e.target.value)} placeholder="Ex: Contabilidade, E-commerce..." />
+                  </div>
                 </div>
-                <div className="field">
-                  <label>Nicho de Mercado</label>
-                  <input value={nichoScript} onChange={e => setNichoScript(e.target.value)} placeholder="Ex: Contabilidade, E-commerce..." />
-                </div>
-              </div>
-              <div className="field">
-                <label>Tipo de Script</label>
-                <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:4 }}>
+                <label style={{ fontSize:11, color:'#64748b', display:'block', marginBottom:8 }}>Tipo de Script</label>
+                <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:16 }}>
                   {TIPOS_SCRIPT.map(t => (
                     <button key={t.id} onClick={() => setTipoScript(t.id)}
                       className={`btn ${tipoScript === t.id ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{ fontSize:11 }}>
+                      style={{ fontSize:11, padding:'6px 12px' }}>
                       {t.label}
                     </button>
                   ))}
                 </div>
-              </div>
-              <button className="btn btn-primary" onClick={gerarScriptComercial} disabled={gerandoScript} style={{ marginTop:8 }}>
-                {gerandoScript ? '⏳ Gerando...' : '✨ Gerar Script com IA'}
-              </button>
-              {gerandoScript && <div className="thinking" style={{ marginTop:12 }}><span /><span /><span /></div>}
-              {scriptResultado && (
-                <div>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginTop:16, marginBottom:8 }}>
-                    <span style={{ fontSize:12, color:'#00d4ff' }}>✅ Script: {TIPOS_SCRIPT.find(t => t.id === tipoScript)?.label}</span>
-                    <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px' }} onClick={() => navigator.clipboard.writeText(scriptResultado)}>📋 Copiar</button>
+                <button className="btn btn-primary" onClick={gerarScriptComercial} disabled={gerandoScript} style={{ marginTop:8 }}>
+                  {gerandoScript ? '⏳ Gerando...' : '✨ Gerar Script com IA'}
+                </button>
+                {gerandoScript && <div className="thinking" style={{ marginTop:12 }}><span /><span /><span /></div>}
+                {scriptResultado && (
+                  <div>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginTop:16, marginBottom:8, flexWrap:'wrap', gap:8 }}>
+                      <span style={{ fontSize:12, color:'#00d4ff' }}>✅ Script: {TIPOS_SCRIPT.find(t => t.id === tipoScript)?.label}</span>
+                      {/* ✅ NOVO: Botões de exportação */}
+                      <div style={{ display:'flex', gap:6 }}>
+                        <button className="btn btn-secondary" style={{ fontSize:10, padding:'4px 10px' }}
+                          onClick={() => navigator.clipboard.writeText(scriptResultado)}>📋 Copiar</button>
+                        <button className="btn btn-secondary" style={{ fontSize:10, padding:'4px 10px' }}
+                          onClick={() => imprimirScriptDoc(scriptResultado, TIPOS_SCRIPT.find(t=>t.id===tipoScript)?.label)}>📄 .DOC</button>
+                        <button className="btn btn-secondary" style={{ fontSize:10, padding:'4px 10px' }}
+                          onClick={() => imprimirScriptPDF(scriptResultado, TIPOS_SCRIPT.find(t=>t.id===tipoScript)?.label)}>🖨️ PDF</button>
+                      </div>
+                    </div>
+                    <div className="result-box">{scriptResultado}</div>
                   </div>
-                  <div className="result-box">{scriptResultado}</div>
+                )}
+              </div>
+
+              {(cfg.scripts || []).length > 0 && (
+                <div className="card">
+                  <div className="card-title">📜 Scripts Anteriores</div>
+                  {[...(cfg.scripts || [])].reverse().slice(0, 5).map(s => (
+                    <div key={s.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', background:'#1a2540', borderRadius:8, marginBottom:6 }}>
+                      <div>
+                        <div style={{ fontSize:13, color:'#e2e8f0', fontWeight:600 }}>{TIPOS_SCRIPT.find(t => t.id === s.tipo)?.label} — {s.nicho}</div>
+                        <div style={{ fontSize:11, color:'#64748b' }}>{s.produto} · {new Date(s.criadoEm).toLocaleDateString('pt-BR')}</div>
+                      </div>
+                      <div style={{ display:'flex', gap:6 }}>
+                        <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => setScriptResultado(s.resultado)}>👁 Ver</button>
+                        <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => navigator.clipboard.writeText(s.resultado)}>📋</button>
+                        <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => imprimirScriptDoc(s.resultado, TIPOS_SCRIPT.find(t=>t.id===s.tipo)?.label)}>📄</button>
+                        <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => imprimirScriptPDF(s.resultado, TIPOS_SCRIPT.find(t=>t.id===s.tipo)?.label)}>🖨️</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
 
-            {(cfg.scripts || []).length > 0 && (
-              <div className="card">
-                <div className="card-title">📜 Scripts Anteriores</div>
-                {[...(cfg.scripts || [])].reverse().slice(0, 5).map(s => (
-                  <div key={s.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 12px', background:'#1a2540', borderRadius:8, marginBottom:6 }}>
-                    <div>
-                      <div style={{ fontSize:13, color:'#e2e8f0', fontWeight:600 }}>{TIPOS_SCRIPT.find(t => t.id === s.tipo)?.label} — {s.nicho}</div>
-                      <div style={{ fontSize:11, color:'#64748b' }}>{s.produto} · {new Date(s.criadoEm).toLocaleDateString('pt-BR')}</div>
-                    </div>
-                    <div style={{ display:'flex', gap:6 }}>
-                      <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => setScriptResultado(s.resultado)}>👁 Ver</button>
-                      <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => navigator.clipboard.writeText(s.resultado)}>📋</button>
+            {/* ✅ NOVO: SEÇÃO PLAYBOOK IA */}
+            <div id="sec-playbook" style={{ display:'none' }}>
+              <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+                {/* Sidebar de módulos */}
+                <div style={{ width:240, flexShrink:0 }}>
+                  <div className="card" style={{ padding:14 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'#7c3aed', marginBottom:12 }}>📘 Módulos do Playbook</div>
+                    {PLAYBOOK_MODULOS.map(m => (
+                      <button key={m.id} onClick={() => iniciarModuloPlaybook(m.id)}
+                        style={{ width:'100%', padding:'8px 12px', marginBottom:6, borderRadius:8, border:'none', cursor:'pointer', textAlign:'left', fontFamily:'DM Mono,monospace', fontSize:11, background: playbookModulo===m.id ? 'rgba(124,58,237,.2)' : 'rgba(255,255,255,.03)', color: playbookModulo===m.id ? '#7c3aed' : '#64748b', outline: playbookModulo===m.id ? '1px solid rgba(124,58,237,.4)' : '1px solid transparent' }}>
+                        {m.label}
+                      </button>
+                    ))}
+                    <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:6 }}>
+                      <button className="btn btn-secondary" style={{ fontSize:10, justifyContent:'center' }} onClick={exportarPlaybookDoc}>📄 Exportar .DOC</button>
+                      <button className="btn btn-secondary" style={{ fontSize:10, justifyContent:'center' }} onClick={exportarPlaybookPDF}>🖨️ Exportar PDF</button>
                     </div>
                   </div>
-                ))}
+                </div>
+
+                {/* Chat do Playbook */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div className="card">
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                      <div className="card-title" style={{ margin:0 }}>
+                        🧠 {PLAYBOOK_MODULOS.find(m=>m.id===playbookModulo)?.label}
+                      </div>
+                      <div style={{ fontSize:10, color:'#64748b' }}>Construindo junto com a IA</div>
+                    </div>
+
+                    <div className="chat-area" style={{ minHeight:350 }}>
+                      {playbookChat.length === 0 ? (
+                        <div style={{ textAlign:'center', padding:'40px 20px', color:'#475569' }}>
+                          <div style={{ fontSize:32, marginBottom:12 }}>📘</div>
+                          <div style={{ fontSize:13, marginBottom:6 }}>Selecione um módulo ao lado</div>
+                          <div style={{ fontSize:11 }}>A IA vai te guiar na construção do Playbook</div>
+                        </div>
+                      ) : playbookChat.map((m, i) => (
+                        <div key={i} className={`chat-msg ${m.role}`} style={{ whiteSpace:'pre-wrap' }}>{m.content}</div>
+                      ))}
+                      {gerandoPlaybook && <div className="chat-msg bot"><div className="thinking"><span /><span /><span /></div></div>}
+                      <div ref={playbookChatRef} />
+                    </div>
+
+                    <div className="chat-input-row">
+                      <input
+                        value={playbookInput}
+                        onChange={e => setPlaybookInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') enviarMensagemPlaybook() }}
+                        placeholder="Descreva, responda ou peça sugestões à IA..."
+                        disabled={gerandoPlaybook}
+                      />
+                      <button className="btn btn-purple" onClick={enviarMensagemPlaybook} disabled={gerandoPlaybook || !playbookInput.trim()}>
+                        {gerandoPlaybook ? '⏳' : '➤'}
+                      </button>
+                    </div>
+
+                    {playbookConteudo && (
+                      <div style={{ marginTop:12, padding:'10px 14px', background:'rgba(124,58,237,.06)', border:'1px solid rgba(124,58,237,.2)', borderRadius:8, fontSize:11, color:'#64748b' }}>
+                        📝 {playbookConteudo.split('\n').length} linhas geradas neste módulo. Use os botões de exportação para baixar o Playbook completo.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
