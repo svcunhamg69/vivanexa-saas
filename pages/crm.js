@@ -31,6 +31,44 @@ const isAtrasada = a => !a.concluida&&!!a.prazo&&new Date(a.prazo)<new Date()
 const isHoje     = a => !a.concluida&&!!a.prazo&&a.prazo.slice(0,10)===hoje()
 const isFutura   = a => !a.concluida&&!!a.prazo&&new Date(a.prazo)>new Date()&&a.prazo.slice(0,10)!==hoje()
 
+// ── Click2Call 3CX ─────────────────────────────────
+function click2call(numero, cfg3cx) {
+  if (!numero) return
+  const tel = String(numero).replace(/\D/g, '')
+  if (!tel) return
+
+  const modo = cfg3cx?.modo || 'tel'
+
+  if (modo === 'tel') {
+    // Abre o discador padrão do SO (funciona com 3CX Desktop App)
+    window.open(`tel:${tel}`, '_self')
+    return
+  }
+
+  if (modo === '3cx_web') {
+    // 3CX Web Client Click2Call
+    const host = cfg3cx?.host || '' // ex: "minha-empresa.3cx.com.br:5001"
+    if (!host) { alert('Configure o Host 3CX em Config → Integrações → Telefonia'); return }
+    window.open(`https://${host}/webclient/#/call?phone=${tel}`, '_blank')
+    return
+  }
+
+  if (modo === '3cx_api') {
+    // Call Control API — dispara chamada pelo ramal do agente logado
+    const host      = cfg3cx?.host      || ''
+    const token3cx  = cfg3cx?.token     || ''
+    const ramal     = cfg3cx?.ramal     || ''
+    if (!host || !token3cx || !ramal) { alert('Configure Host, Token e Ramal 3CX em Config → Integrações → Telefonia'); return }
+    fetch(`https://${host}/callcontrol/calls`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token3cx}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: ramal, to: tel, callType: 'pstn' })
+    }).then(r => { if (!r.ok) alert('Erro ao iniciar chamada via 3CX API') })
+      .catch(() => alert('Erro de conexão com 3CX'))
+    return
+  }
+}
+
 // ── APIs externas ──────────────────────────────────
 async function fetchCNPJDados(cnpj) {
   try {
@@ -81,6 +119,7 @@ export default function CRM() {
   const [clientes,     setClientes]     = useState([])
   const [etapas,       setEtapas]       = useState(ETAPAS_PADRAO)
   const [visao,        setVisao]        = useState('funil') // funil | atividades | clientes
+  const [cfg3cx,       setCfg3cx]       = useState({})
   const [negSel,       setNegSel]       = useState(null)
   const [showFormNeg,  setShowFormNeg]  = useState(false)
   const [formNeg,      setFormNeg]      = useState({...EMPTY_NEG})
@@ -112,7 +151,7 @@ export default function CRM() {
       setPerfil(perf)
       const eid = perf?.empresa_id||session.user.id; setEmpresaId(eid)
       const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).maybeSingle()
-      if(row?.value){ const c=JSON.parse(row.value); setCfg(c); setNegocios(c.crm_negocios||[]); setAtividades(c.crm_atividades||[]); setClientes(c.clients||[]); if(c.crm_etapas?.length)setEtapas(c.crm_etapas) }
+      if(row?.value){ const c=JSON.parse(row.value); setCfg(c); setNegocios(c.crm_negocios||[]); setAtividades(c.crm_atividades||[]); setClientes(c.clients||[]); if(c.crm_etapas?.length)setEtapas(c.crm_etapas); if(c.tel3cx)setCfg3cx(c.tel3cx) }
       setLoading(false)
     }
     init()
@@ -295,10 +334,10 @@ export default function CRM() {
         body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
         ::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
         .kb-wrap{display:flex;gap:12px;overflow-x:auto;padding-bottom:20px;align-items:flex-start}
-        .kb-col{min-width:220px;width:220px;flex-shrink:0}
-        .neg-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:grab;transition:box-shadow .2s,border-color .2s}
-        .neg-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.35);border-color:rgba(0,212,255,.25)}
-        .neg-card:active{cursor:grabbing}
+        .kb-col{min-width:230px;width:230px;flex-shrink:0}
+        .neg-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:grab;transition:box-shadow .2s,border-color .2s,transform .15s}
+        .neg-card:hover{box-shadow:0 6px 20px rgba(0,0,0,.4);transform:translateY(-1px)}
+        .neg-card:active{cursor:grabbing;transform:translateY(0)}
         .drop-ok{background:rgba(0,212,255,.04);border:1px dashed rgba(0,212,255,.35)!important;border-radius:8px}
         .tl-item{display:flex;gap:12px;margin-bottom:16px;position:relative}
         .tl-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:4px}
@@ -374,7 +413,16 @@ export default function CRM() {
               <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 22px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
                   <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)'}}>🏢 Dados do Cliente</div>
-                  <button onClick={()=>{setFormNeg({...negSel});setShowFormNeg(true)}} style={S.nb}>✏️ Editar</button>
+                  <div style={{display:'flex',gap:6}}>
+                    {negSel.telefone && (
+                      <button onClick={()=>click2call(negSel.telefone,cfg3cx)}
+                        title={`Ligar: ${negSel.telefone}`}
+                        style={{padding:'5px 12px',borderRadius:8,background:'rgba(16,185,129,.12)',border:'1px solid rgba(16,185,129,.3)',color:'var(--accent3)',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace',fontWeight:600}}>
+                        📞 Ligar
+                      </button>
+                    )}
+                    <button onClick={()=>{setFormNeg({...negSel});setShowFormNeg(true)}} style={S.nb}>✏️ Editar</button>
+                  </div>
                 </div>
                 {[['Título',negSel.titulo],['Razão Social',negSel.nome],['Fantasia',negSel.fantasia],['CNPJ',fmtDoc(negSel.cnpj)],['CPF',negSel.cpf],['E-mail',negSel.email],['Telefone',negSel.telefone],['Cidade/UF',[negSel.cidade,negSel.uf].filter(Boolean).join(' – ')],['Endereço',negSel.endereco],['Módulos',negSel.modulos],['Adesão',negSel.adesao?fmt(negSel.adesao):null],['Mensalidade',negSel.mensalidade?fmt(negSel.mensalidade):null]].filter(([,v])=>v).map(([l,v])=>(
                   <div key={l} style={{display:'flex',gap:8,padding:'5px 0',borderBottom:'1px solid var(--border)',fontSize:13}}>
@@ -464,27 +512,44 @@ export default function CRM() {
                       <div style={{fontSize:10,color:'var(--muted)'}}>R$ {cols.reduce((a,n)=>a+(Number(n.adesao)||0),0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
                     </div>
                     <div className={dragOver===etapa.id?'drop-ok':''} style={{minHeight:60,borderRadius:8,padding:dragOver===etapa.id?'4px':0,transition:'all .2s'}}>
-                      {cols.map(neg=>(
+                      {cols.map(neg=>{
+                        const etapaInfo = etapas.find(e=>e.id===neg.etapa) || etapas[0]
+                        return (
                         <div key={neg.id} className="neg-card"
+                          style={{ borderLeft: `3px solid ${etapaInfo.cor}` }}
                           draggable onDragStart={e=>onDragStart(e,neg)} onDragEnd={onDragEnd}
                           onClick={()=>{setNegSel(neg);setVisao('detalhe')}}>
-                          <div style={{fontSize:13,fontWeight:600,color:'var(--text)',marginBottom:4}}>{neg.titulo}</div>
-                          {neg.nome&&<div style={{fontSize:11,color:'var(--muted)',marginBottom:4}}>{neg.nome}</div>}
-                          {neg.cnpj&&<div style={{fontSize:10,color:'var(--muted)',marginBottom:4}}>{fmtDoc(neg.cnpj)}</div>}
-                          {neg.email&&<div style={{fontSize:10,color:'var(--muted)',marginBottom:4}}>{neg.email}</div>}
-                          {neg.adesao&&<div style={{fontSize:11,color:'var(--gold)',fontWeight:700,marginBottom:4}}>{fmt(neg.adesao)}</div>}
-                          <div style={{display:'flex',gap:6,marginTop:8}}>
+                          {/* Badge etapa colorida */}
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                            <span style={{ fontSize:9, fontWeight:700, padding:'2px 7px', borderRadius:10, background:`${etapaInfo.cor}22`, color:etapaInfo.cor, border:`1px solid ${etapaInfo.cor}44`, letterSpacing:.5, textTransform:'uppercase' }}>
+                              {etapaInfo.label}
+                            </span>
+                            {neg.adesao && <span style={{ fontSize:11, color:'var(--gold)', fontWeight:700 }}>{fmt(neg.adesao)}</span>}
+                          </div>
+                          <div style={{ fontSize:13, fontWeight:600, color:'var(--text)', marginBottom:3 }}>{neg.titulo}</div>
+                          {neg.nome&&<div style={{ fontSize:11, color:'var(--muted)', marginBottom:3 }}>{neg.nome}</div>}
+                          {neg.cnpj&&<div style={{ fontSize:10, color:'var(--muted)', marginBottom:3 }}>{fmtDoc(neg.cnpj)}</div>}
+                          {neg.email&&<div style={{ fontSize:10, color:'var(--muted)', marginBottom:3 }}>{neg.email}</div>}
+                          <div style={{ display:'flex', gap:5, marginTop:8 }}>
                             <button onClick={e=>{e.stopPropagation();setFormNeg({...neg});setShowFormNeg(true)}}
-                              style={{flex:1,padding:'4px 0',borderRadius:6,background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.15)',color:'var(--accent)',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>
+                              style={{ flex:1, padding:'4px 0', borderRadius:6, background:'rgba(0,212,255,.08)', border:'1px solid rgba(0,212,255,.15)', color:'var(--accent)', fontSize:10, cursor:'pointer', fontFamily:'DM Mono,monospace' }}>
                               ✏️ Ver
                             </button>
+                            {neg.telefone && (
+                              <button onClick={e=>{e.stopPropagation();click2call(neg.telefone,cfg3cx)}}
+                                title={`Ligar: ${neg.telefone}`}
+                                style={{ padding:'4px 8px', borderRadius:6, background:'rgba(16,185,129,.12)', border:'1px solid rgba(16,185,129,.3)', color:'var(--accent3)', fontSize:10, cursor:'pointer', fontFamily:'DM Mono,monospace' }}>
+                                📞
+                              </button>
+                            )}
                             <button onClick={e=>{e.stopPropagation();excluirNeg(neg.id)}}
-                              style={{padding:'4px 8px',borderRadius:6,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.15)',color:'var(--danger)',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>
+                              style={{ padding:'4px 8px', borderRadius:6, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.15)', color:'var(--danger)', fontSize:10, cursor:'pointer', fontFamily:'DM Mono,monospace' }}>
                               🗑
                             </button>
                           </div>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                     <div style={{marginTop:6,fontSize:10,color:'var(--muted)',textAlign:'center',padding:'8px',border:'1px dashed var(--border)',borderRadius:8,cursor:'default'}}>
                       Arrastar aqui
