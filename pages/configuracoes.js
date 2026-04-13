@@ -22,7 +22,8 @@ const TABS = [
   { id: 'whatsapp',      label: '💬 WhatsApp' },
   { id: 'agente_ia',     label: '🤖 Agente IA' },
   { id: 'departamentos', label: '🏢 Departamentos' },
-  { id: 'integracoes', label: '🔗 Integrações' },
+  { id: 'integracoes',  label: '🔗 Integrações' },
+  { id: 'google_meta',  label: '📍 Google & Meta' },
 ]
 
 const KPI_ICONS = ['📞','📲','📧','🤝','💼','🏆','🎯','💰','📈','📊','🔥','⭐','🚀','✅','📅','🗓','👥','🏃','💡','🎤','📝','🔔','💬','🌐','🛒','📦','🔑','⚡','🎁','🏅']
@@ -2421,7 +2422,8 @@ export default function Configuracoes() {
       case 'whatsapp':      return <TabWhatsapp      {...props} />
       case 'agente_ia':     return <TabAgenteIA      {...props} />
       case 'departamentos': return <TabDepartamentos {...props} />
-      case 'integracoes': return <TabIntegracoes {...props} />
+      case 'integracoes':  return <TabIntegracoes {...props} />
+      case 'google_meta':  return <TabGoogleMeta  {...props} />
       default:           return null
     }
   }
@@ -2467,6 +2469,284 @@ export default function Configuracoes() {
         </div>
       </main>
     </>
+  )
+}
+
+// ══════════════════════════════════════════════════════════
+// ABA GOOGLE PLACES & META (Facebook/Instagram)
+// Usada pelo Gerador de Leads
+// ══════════════════════════════════════════════════════════
+function TabGoogleMeta({ cfg, setCfg, empresaId }) {
+  const saved = cfg.apiLeads || {}
+
+  // Google Places
+  const [googleKey,     setGoogleKey]     = React.useState(saved.googlePlacesKey || '')
+  const [googleAtivo,   setGoogleAtivo]   = React.useState(saved.googlePlacesAtivo || false)
+  const [googleTestNicho, setGoogleTestNicho] = React.useState('Contabilidade')
+  const [googleTestCidade, setGoogleTestCidade] = React.useState('São Paulo')
+
+  // Meta (Facebook Graph API — Pages Search + Instagram Business Discovery)
+  const [metaToken,     setMetaToken]     = React.useState(saved.metaGraphToken || '')
+  const [metaAppId,     setMetaAppId]     = React.useState(saved.metaAppId || '')
+  const [metaAppSecret, setMetaAppSecret] = React.useState(saved.metaAppSecret || '')
+  const [metaAtivo,     setMetaAtivo]     = React.useState(saved.metaAtivo || false)
+
+  const [saving,    setSaving]    = React.useState(false)
+  const [testingG,  setTestingG]  = React.useState(false)
+  const [testingM,  setTestingM]  = React.useState(false)
+  const [msg,       setMsg]       = React.useState('')
+  const [testResultG, setTestResultG] = React.useState(null)
+  const [testResultM, setTestResultM] = React.useState(null)
+
+  const s = {
+    card:   { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px', marginBottom: 16 },
+    label:  { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
+    input:  { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
+    btn:    { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+    btnSec: { padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
+    btnGreen: { padding: '9px 18px', borderRadius: 9, background: 'rgba(16,185,129,.15)', border: '1px solid rgba(16,185,129,.3)', color: 'var(--accent3)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
+    h:      { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 },
+    step:   { background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, padding: '12px 16px', marginBottom: 8, fontSize: 12, color: 'var(--text)', lineHeight: 1.7 },
+    badge:  { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 },
+    secH:   { fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, marginBottom: 14 },
+    info:   { background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 14 },
+    warn:   { background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#fbbf24', lineHeight: 1.7, marginBottom: 14 },
+  }
+
+  async function salvar() {
+    setSaving(true); setMsg('')
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo  = {
+        ...atual,
+        apiLeads: {
+          googlePlacesKey:   googleKey.trim(),
+          googlePlacesAtivo: googleAtivo,
+          metaGraphToken:    metaToken.trim(),
+          metaAppId:         metaAppId.trim(),
+          metaAppSecret:     metaAppSecret.trim(),
+          metaAtivo,
+        },
+        // Compat: gerador-leads.js lê cfg.googlePlacesKey e cfg.metaToken diretamente
+        googlePlacesKey: googleKey.trim(),
+        metaToken:       metaToken.trim(),
+      }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      setCfg(novo)
+      setMsg('✅ Configurações salvas com sucesso!')
+    } catch (e) { setMsg('❌ Erro ao salvar: ' + e.message) }
+    setSaving(false)
+  }
+
+  async function testarGoogle() {
+    if (!googleKey.trim()) { setMsg('⚠️ Informe a Google API Key antes de testar'); return }
+    setTestingG(true); setTestResultG(null); setMsg('')
+    try {
+      const query = encodeURIComponent(`${googleTestNicho} ${googleTestCidade} Brasil`)
+      const r = await fetch(
+        `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${query}&key=${googleKey.trim()}&language=pt-BR&region=br`,
+        { signal: AbortSignal.timeout(12000) }
+      )
+      const d = await r.json()
+      if (d.status === 'OK') {
+        setTestResultG({ ok: true, msg: `✅ API funcionando! ${d.results?.length || 0} resultados para "${googleTestNicho} em ${googleTestCidade}"`, sample: d.results?.[0]?.name })
+      } else if (d.status === 'REQUEST_DENIED') {
+        setTestResultG({ ok: false, msg: `❌ Acesso negado: ${d.error_message || 'verifique se a API Places está habilitada no Google Cloud Console e se a chave tem permissão'}` })
+      } else {
+        setTestResultG({ ok: false, msg: `⚠️ Status: ${d.status} — ${d.error_message || ''}` })
+      }
+    } catch (e) { setTestResultG({ ok: false, msg: '❌ Erro de conexão: ' + e.message }) }
+    setTestingG(false)
+  }
+
+  async function testarMeta() {
+    if (!metaToken.trim()) { setMsg('⚠️ Informe o Token da Graph API antes de testar'); return }
+    setTestingM(true); setTestResultM(null); setMsg('')
+    try {
+      const r = await fetch(
+        `https://graph.facebook.com/v19.0/me?fields=id,name&access_token=${metaToken.trim()}`,
+        { signal: AbortSignal.timeout(10000) }
+      )
+      const d = await r.json()
+      if (d.id) {
+        setTestResultM({ ok: true, msg: `✅ Token válido! Conta: ${d.name} (ID: ${d.id})` })
+      } else {
+        setTestResultM({ ok: false, msg: `❌ Token inválido: ${d.error?.message || 'verifique o token'}` })
+      }
+    } catch (e) { setTestResultM({ ok: false, msg: '❌ Erro de conexão: ' + e.message }) }
+    setTestingM(false)
+  }
+
+  function copiar(txt) {
+    navigator.clipboard.writeText(txt)
+    setMsg('✅ Copiado!')
+    setTimeout(() => setMsg(''), 2000)
+  }
+
+  return (
+    <div style={{ padding: '24px' }}>
+      <div style={s.h}>📍 Google Meu Negócio & 📘 Facebook / Instagram</div>
+      <div style={s.info}>
+        Estas integrações são usadas pelo <strong style={{ color: 'var(--text)' }}>Gerador de Leads</strong> para buscar empresas por nicho e localização.
+        Configure as chaves abaixo e salve — elas ficarão disponíveis automaticamente para todas as buscas.
+      </div>
+
+      {/* ══ GOOGLE PLACES ══ */}
+      <div style={{ ...s.card, borderColor: googleAtivo ? 'rgba(0,212,255,.3)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={s.secH}>📍 Google Places API</div>
+          <div style={{ ...s.badge, background: googleAtivo ? 'rgba(0,212,255,.12)' : 'rgba(100,116,139,.12)', color: googleAtivo ? 'var(--accent)' : '#64748b', border: `1px solid ${googleAtivo ? 'rgba(0,212,255,.3)' : 'rgba(100,116,139,.3)'}` }}>
+            {googleAtivo ? '● Ativo' : '○ Inativo'}
+          </div>
+        </div>
+
+        <div style={s.info}>
+          Permite buscar empresas diretamente no <strong style={{ color: 'var(--text)' }}>Google Maps / Google Meu Negócio</strong>, retornando nome, telefone, site e endereço completo.
+          A API é <strong style={{ color: 'var(--accent3)' }}>gratuita até 200 requisições/mês</strong> no plano free do Google Cloud (após isso ~US$17/1000).
+        </div>
+
+        {/* Passo a passo */}
+        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Como obter a chave:</div>
+        {[
+          ['1', 'Acesse o Google Cloud Console', 'console.cloud.google.com → crie ou selecione um projeto', 'https://console.cloud.google.com'],
+          ['2', 'Habilite as APIs necessárias', 'APIs e Serviços → Biblioteca → habilite "Places API" e "Maps JavaScript API"', null],
+          ['3', 'Crie uma credencial', 'APIs e Serviços → Credenciais → Criar credenciais → Chave de API', null],
+          ['4', 'Restrinja a chave (recomendado)', 'Em Restrições de API, selecione apenas Places API para segurança', null],
+          ['5', 'Cole a chave abaixo e salve', 'A chave tem o formato AIzaSy...', null],
+        ].map(([n, t, d, link]) => (
+          <div key={n} style={s.step}>
+            <strong style={{ color: 'var(--accent)' }}>Passo {n}: {t}</strong>
+            <div style={{ color: 'var(--muted)', marginTop: 2 }}>{d}</div>
+            {link && <a href={link} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: 'var(--accent)', display: 'inline-block', marginTop: 4 }}>{link}</a>}
+          </div>
+        ))}
+
+        <label style={s.label}>Google Places API Key</label>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input style={{ ...s.input, marginBottom: 0, flex: 1, fontFamily: 'monospace', fontSize: 12 }}
+            value={googleKey} onChange={e => setGoogleKey(e.target.value)}
+            placeholder="AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" type="password" />
+          {googleKey && <button onClick={() => copiar(googleKey)} style={{ ...s.btnSec, padding: '9px 14px', marginBottom: 0 }}>📋</button>}
+        </div>
+
+        <label style={s.label}>Ativar busca Google Places no Gerador de Leads</label>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}>
+            <input type="checkbox" checked={googleAtivo} onChange={e => setGoogleAtivo(e.target.checked)} style={{ width: 15, height: 15, cursor: 'pointer' }} />
+            Ativar Google Places
+          </label>
+        </div>
+
+        {/* Teste */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+          <div>
+            <label style={s.label}>Nicho para teste</label>
+            <input style={{ ...s.input, marginBottom: 0 }} value={googleTestNicho} onChange={e => setGoogleTestNicho(e.target.value)} placeholder="Ex: Dentista" />
+          </div>
+          <div>
+            <label style={s.label}>Cidade para teste</label>
+            <input style={{ ...s.input, marginBottom: 0 }} value={googleTestCidade} onChange={e => setGoogleTestCidade(e.target.value)} placeholder="Ex: São Paulo" />
+          </div>
+        </div>
+        <button onClick={testarGoogle} disabled={testingG} style={{ ...s.btnSec, marginBottom: testResultG ? 10 : 0 }}>
+          {testingG ? '⏳ Testando...' : '🧪 Testar conexão Google'}
+        </button>
+        {testResultG && (
+          <div style={{ padding: '10px 14px', borderRadius: 8, fontSize: 12, lineHeight: 1.6,
+            background: testResultG.ok ? 'rgba(16,185,129,.08)' : 'rgba(239,68,68,.08)',
+            border: `1px solid ${testResultG.ok ? 'rgba(16,185,129,.25)' : 'rgba(239,68,68,.25)'}`,
+            color: testResultG.ok ? '#10b981' : '#ef4444' }}>
+            {testResultG.msg}
+            {testResultG.ok && testResultG.sample && <div style={{ marginTop: 4, color: 'var(--muted)' }}>Exemplo: {testResultG.sample}</div>}
+          </div>
+        )}
+      </div>
+
+      {/* ══ META / FACEBOOK / INSTAGRAM ══ */}
+      <div style={{ ...s.card, borderColor: metaAtivo ? 'rgba(124,58,237,.3)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ ...s.secH, color: '#a78bfa' }}>📘 Facebook & Instagram (Meta Graph API)</div>
+          <div style={{ ...s.badge, background: metaAtivo ? 'rgba(124,58,237,.12)' : 'rgba(100,116,139,.12)', color: metaAtivo ? '#a78bfa' : '#64748b', border: `1px solid ${metaAtivo ? 'rgba(124,58,237,.3)' : 'rgba(100,116,139,.3)'}` }}>
+            {metaAtivo ? '● Ativo' : '○ Inativo'}
+          </div>
+        </div>
+
+        <div style={s.info}>
+          Permite buscar <strong style={{ color: 'var(--text)' }}>Páginas do Facebook e perfis comerciais do Instagram</strong> por palavra-chave e localização.
+          Usa a <strong style={{ color: '#a78bfa' }}>Meta Graph API v19</strong> — gratuita respeitando os limites de requisições.
+        </div>
+
+        <div style={s.warn}>
+          ⚠️ A Meta exige um App aprovado para uso em produção. Para testes, use um token de usuário gerado no Graph API Explorer. Para produção, o App precisa passar pela revisão da Meta.
+        </div>
+
+        {/* Passo a passo */}
+        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Como configurar:</div>
+        {[
+          ['1', 'Acesse Meta for Developers', 'Crie um App do tipo "Empresa" ou "Consumidor"', 'https://developers.facebook.com'],
+          ['2', 'Adicione o produto "Facebook Login"', 'Painel do App → "+ Adicionar produto" → Facebook Login', null],
+          ['3', 'Gere um Token de Acesso', 'Graph API Explorer (tools.facebook.com) → selecione seu App → gere token com permissões pages_read_engagement, pages_search', 'https://developers.facebook.com/tools/explorer'],
+          ['4', 'Para token de longa duração', 'Troque o token de curta duração por um de 60 dias via: GET /oauth/access_token?grant_type=fb_exchange_token', null],
+          ['5', 'Cole o token abaixo', 'O token começa com EAAG... ou EAAxxxxxxx', null],
+        ].map(([n, t, d, link]) => (
+          <div key={n} style={{ ...s.step, borderColor: 'rgba(124,58,237,.2)', background: 'rgba(124,58,237,.04)' }}>
+            <strong style={{ color: '#a78bfa' }}>Passo {n}: {t}</strong>
+            <div style={{ color: 'var(--muted)', marginTop: 2 }}>{d}</div>
+            {link && <a href={link} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#a78bfa', display: 'inline-block', marginTop: 4 }}>{link}</a>}
+          </div>
+        ))}
+
+        <label style={s.label}>App ID (opcional — para fluxo OAuth próprio)</label>
+        <input style={s.input} value={metaAppId} onChange={e => setMetaAppId(e.target.value)} placeholder="Ex: 1234567890123456" />
+
+        <label style={s.label}>App Secret (opcional)</label>
+        <input style={{ ...s.input, fontFamily: 'monospace', fontSize: 12 }} value={metaAppSecret} onChange={e => setMetaAppSecret(e.target.value)} placeholder="Ex: abc123def456..." type="password" />
+
+        <label style={s.label}>Token de Acesso da Graph API *</label>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input style={{ ...s.input, marginBottom: 0, flex: 1, fontFamily: 'monospace', fontSize: 11 }}
+            value={metaToken} onChange={e => setMetaToken(e.target.value)}
+            placeholder="EAAxxxxxxxxxxxxxxxx..." type="password" />
+          {metaToken && <button onClick={() => copiar(metaToken)} style={{ ...s.btnSec, padding: '9px 14px', marginBottom: 0 }}>📋</button>}
+        </div>
+
+        <label style={s.label}>Ativar busca Facebook/Instagram no Gerador de Leads</label>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}>
+            <input type="checkbox" checked={metaAtivo} onChange={e => setMetaAtivo(e.target.checked)} style={{ width: 15, height: 15, cursor: 'pointer' }} />
+            Ativar Facebook / Instagram
+          </label>
+        </div>
+
+        <button onClick={testarMeta} disabled={testingM} style={{ ...s.btnSec, borderColor: 'rgba(124,58,237,.3)', color: '#a78bfa', background: 'rgba(124,58,237,.08)', marginBottom: testResultM ? 10 : 0 }}>
+          {testingM ? '⏳ Testando...' : '🧪 Testar token Meta'}
+        </button>
+        {testResultM && (
+          <div style={{ padding: '10px 14px', borderRadius: 8, fontSize: 12, lineHeight: 1.6,
+            background: testResultM.ok ? 'rgba(16,185,129,.08)' : 'rgba(239,68,68,.08)',
+            border: `1px solid ${testResultM.ok ? 'rgba(16,185,129,.25)' : 'rgba(239,68,68,.25)'}`,
+            color: testResultM.ok ? '#10b981' : '#ef4444' }}>
+            {testResultM.msg}
+          </div>
+        )}
+      </div>
+
+      {/* Botão Salvar */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <button onClick={salvar} disabled={saving} style={s.btn}>
+          {saving ? '⏳ Salvando...' : '💾 Salvar todas as configurações'}
+        </button>
+        {msg && (
+          <div style={{ fontSize: 13, padding: '8px 14px', borderRadius: 8,
+            background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : msg.startsWith('⚠️') ? 'rgba(245,158,11,.1)' : 'rgba(239,68,68,.1)',
+            border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : msg.startsWith('⚠️') ? 'rgba(245,158,11,.3)' : 'rgba(239,68,68,.3)'}`,
+            color: msg.startsWith('✅') ? '#10b981' : msg.startsWith('⚠️') ? '#fbbf24' : '#ef4444' }}>
+            {msg}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
