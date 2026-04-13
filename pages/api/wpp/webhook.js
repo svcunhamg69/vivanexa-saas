@@ -1,8 +1,13 @@
-// pages/api/wpp/webhook.js — v3
-// ✅ NÃO reseta status quando agente assumiu (botPausado=true ou atendendo/aguardando)
+// pages/api/wpp/webhook.js — v4
+// ✅ Fix: chatbot flow agora SEMPRE iniciado para conversas em 'automacao'
+// ✅ NOVO: suporte ao campo modoAutomacao ('chatbot' | 'agente')
+// ✅ NOVO: agente IA suporta Gemini além de OpenAI/Groq
+// ✅ NOVO: base de conhecimento (PDF, site, texto) injetada no contexto da IA
+
 import { createClient } from '@supabase/supabase-js'
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } }
+
 export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { 'hub.mode': mode, 'hub.verify_token': token, 'hub.challenge': challenge } = req.query
@@ -22,6 +27,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ status: 'error', message: err.message })
   }
 }
+
 async function processarEvolution(body) {
   const event = (body?.event || '').toLowerCase()
   const isMsg = ['messages.upsert','messages_upsert','message','messages.set'].includes(event)
@@ -44,6 +50,7 @@ async function processarEvolution(body) {
     await verificarIAeResponder({ empresaId, numero, texto })
   }
 }
+
 async function processarMeta(body) {
   const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]
   if (!message) return
@@ -56,6 +63,7 @@ async function processarMeta(body) {
   await salvarMensagem({ empresaId, numero, nome, texto, tipo: message.type || 'text', de: 'cliente' })
   await verificarIAeResponder({ empresaId, numero, texto })
 }
+
 async function salvarMensagem({ empresaId, numero, nome, texto, tipo, mediaUrl, de }) {
   const num = numero.replace(/\D/g,'')
   const key = `wpp_conv:${empresaId}:${num}`
@@ -76,13 +84,14 @@ async function salvarMensagem({ empresaId, numero, nome, texto, tipo, mediaUrl, 
   conv.ultimaAt = agora
   if (de === 'cliente') {
     conv.naoLidas = (conv.naoLidas || 0) + 1
-    // ✅ NÃO muda status se agente está no controle
+    // ✅ NÃO muda status se agente humano está no controle
     const agenteTomouControle = conv.botPausado || conv.status === 'atendendo' || conv.status === 'aguardando'
     if (!agenteTomouControle) conv.status = 'automacao'
   }
   await supabase.from('vx_storage').upsert({ key, value: JSON.stringify(conv), updated_at: agora }, { onConflict: 'key' })
   await atualizarIndice(empresaId, num, { nome: conv.nome, ultimaMensagem: texto, ultimaAt: agora, status: conv.status, naoLidas: conv.naoLidas, tags: conv.tags || [] })
 }
+
 async function atualizarIndice(empresaId, numero, dados) {
   const idxKey = `wpp_idx:${empresaId}`
   const { data: row } = await supabase.from('vx_storage').select('value').eq('key', idxKey).maybeSingle()
@@ -90,6 +99,7 @@ async function atualizarIndice(empresaId, numero, dados) {
   idx[numero] = { ...(idx[numero] || {}), numero, nome: dados.nome || idx[numero]?.nome || numero, ultimaMensagem: dados.ultimaMensagem || '', ultimaAt: dados.ultimaAt || new Date().toISOString(), status: dados.status, naoLidas: dados.naoLidas ?? 0, tags: dados.tags || [], updatedAt: new Date().toISOString() }
   await supabase.from('vx_storage').upsert({ key: idxKey, value: JSON.stringify(idx), updated_at: new Date().toISOString() }, { onConflict: 'key' })
 }
+
 async function buscarEmpresaPorInstance(instanceName) {
   if (!instanceName) return null
   try {
@@ -100,6 +110,7 @@ async function buscarEmpresaPorInstance(instanceName) {
   } catch {}
   return null
 }
+
 async function buscarEmpresaPorPhoneId(phoneId) {
   if (!phoneId) return null
   try {
@@ -110,6 +121,7 @@ async function buscarEmpresaPorPhoneId(phoneId) {
   } catch {}
   return null
 }
+
 // ── Sessões do fluxo em memória ──────────────────────────────────
 // { 'empresaId:numero': { nodeId, vars, waitingAnswer, variable, updatedAt } }
 const FLOW_SESSIONS = new Map()
@@ -139,11 +151,30 @@ async function verificarIAeResponder({ empresaId, numero, texto }) {
     const conv = convRow?.value ? JSON.parse(convRow.value) : {}
     if (conv.botPausado || conv.status === 'atendendo' || conv.status === 'aguardando') return
 
-    // 1️⃣ Tentar fluxo visual
+    // Verificar modo de automação configurado
+    const { data: flowRow } = await supabase.from('vx_storage').select('value').eq('key', `chatbot_flows:${empresaId}`).maybeSingle()
+    const flowData = flowRow?.value ? JSON.parse(flowRow.value) : {}
+    const modoAutomacao = flowData.modoAutomacao || 'chatbot'
+
+    // ✅ FIX: Se bot está ativo, verifica modo antes de decidir
+    if (flowData.botAtivo === false) {
+      // Bot completamente desativado — não responde
+      console.log('[Webhook] Bot desativado para empresa', empresaId)
+      return
+    }
+
+    if (modoAutomacao === 'agente') {
+      // Modo Agente IA — pula fluxo visual e vai direto para o agente
+      await executarAgenteIA({ empresaId, numero: num, texto, conv })
+      return
+    }
+
+    // Modo padrão: Chatbot Flow primeiro, depois Agente IA como fallback
+    // ✅ FIX PRINCIPAL: executarFluxo agora sempre tenta iniciar o fluxo ativo
     const usouFluxo = await executarFluxo({ empresaId, numero: num, texto, conv })
     if (usouFluxo) return
 
-    // 2️⃣ Fallback: Agente IA (lógica original preservada)
+    // Fallback: Agente IA (se configurado)
     await executarAgenteIA({ empresaId, numero: num, texto, conv })
   } catch (err) { console.warn('[Responder]', err.message) }
 }
@@ -154,10 +185,20 @@ async function executarFluxo({ empresaId, numero, texto, conv }) {
   if (!flowRow?.value) return false
 
   const flowData = JSON.parse(flowRow.value)
-  if (!flowData.botAtivo) return false
 
-  const fluxoAtivo = (flowData.flows || []).find(f => f.id === flowData.activeFlowId || f.active)
-  if (!fluxoAtivo || !fluxoAtivo.nodes?.length) return false
+  // ✅ FIX: botAtivo=undefined ou true significa ativo (compatibilidade com versões anteriores)
+  if (flowData.botAtivo === false) return false
+
+  // ✅ FIX: busca fluxo ativo por active:true OU por activeFlowId
+  const fluxoAtivo = (flowData.flows || []).find(f => f.active) ||
+                     (flowData.activeFlowId ? (flowData.flows || []).find(f => f.id === flowData.activeFlowId) : null)
+
+  if (!fluxoAtivo || !fluxoAtivo.nodes?.length) {
+    console.log('[Webhook] Nenhum fluxo ativo encontrado para empresa', empresaId)
+    return false
+  }
+
+  console.log('[Webhook] Executando fluxo:', fluxoAtivo.name, 'para', numero)
 
   // Buscar credenciais Evolution API do cfg
   const { data: cfgRow } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
@@ -179,13 +220,13 @@ async function executarFluxo({ empresaId, numero, texto, conv }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evoKey },
         body: JSON.stringify({ number: numero, text: finalText, delay: 800 })
-      }).catch(() => {})
+      }).catch(err => console.warn('[Webhook] Erro ao enviar via Evolution:', err.message))
     }
     // Salvar mensagem do bot no histórico da conversa
     await salvarMensagem({ empresaId, numero, nome: '', texto: finalText, tipo: 'text', mediaUrl: null, de: 'bot' })
   }
 
-  // Executar nó — recursivo para nós automáticos (message, action sem pausa)
+  // Executar nó — recursivo para nós automáticos
   async function execNó(nodeId, vars) {
     const node = fluxoAtivo.nodes.find(n => n.id === nodeId)
     if (!node) { clearFlowSession(empresaId, numero); return }
@@ -203,7 +244,7 @@ async function executarFluxo({ empresaId, numero, texto, conv }) {
 
       case 'question': {
         await enviar(node.data?.text || '', vars)
-        // Pausa aqui — salva estado e aguarda próxima mensagem do cliente
+        // Pausa — salva estado e aguarda próxima mensagem do cliente
         setFlowSession(empresaId, numero, { nodeId, vars, waitingAnswer: true, variable: node.data?.variable })
         break
       }
@@ -231,7 +272,7 @@ async function executarFluxo({ empresaId, numero, texto, conv }) {
         const tipo = node.data?.actionType || 'transfer'
         if (tipo === 'transfer') {
           if (node.data?.text) await enviar(node.data.text, vars)
-          // Marcar conversa para atendimento humano (aparece no Inbox como "Aguardando")
+          // Marcar conversa para atendimento humano
           const convKey = `wpp_conv:${empresaId}:${numero}`
           const { data: cr } = await supabase.from('vx_storage').select('value').eq('key', convKey).maybeSingle()
           if (cr?.value) {
@@ -288,35 +329,116 @@ async function executarFluxo({ empresaId, numero, texto, conv }) {
     return true
   }
 
-  // Nova conversa — iniciar pelo nó start
+  // ✅ FIX: Nova conversa — iniciar pelo nó start SEMPRE que não há sessão ativa
   const startNode = fluxoAtivo.nodes.find(n => n.type === 'start')
-  if (!startNode) return false
+  if (!startNode) {
+    console.warn('[Webhook] Fluxo sem nó start:', fluxoAtivo.name)
+    return false
+  }
+
+  // ✅ FIX: Inicia sessão e executa o nó start
   setFlowSession(empresaId, numero, { nodeId: startNode.id, vars: {}, waitingAnswer: false })
   await execNó(startNode.id, {})
   return true
 }
 
-// ── Agente IA (fallback — lógica original v3 preservada) ─────────
+// ── Agente IA ─────────────────────────────────────────────────────
+// ✅ NOVO: suporte a Gemini + base de conhecimento injetada no contexto
 async function executarAgenteIA({ empresaId, numero, texto, conv }) {
   try {
     const { data: cfgRow } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
     const cfg = cfgRow?.value ? JSON.parse(cfgRow.value) : {}
     const agentes = cfg.wppAgentes || []
     if (!agentes.length) return
-    if (conv.status !== 'automacao' || conv.botPausado) return
+    if (conv.botPausado || conv.status === 'atendendo' || conv.status === 'aguardando') return
     const agente = agentes.find(a => a.ativo)
     if (!agente) return
-    const apiKey = agente.openaiKey || agente.groqKey || cfg.openaiApiKey || cfg.groqApiKey || ''
-    if (!apiKey) return
-    const isGroq = !!(agente.groqKey || (!agente.openaiKey && cfg.groqApiKey))
-    const model = agente.model || (isGroq ? 'llama3-70b-8192' : 'gpt-4o-mini')
-    const url = isGroq ? 'https://api.groq.com/openai/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions'
-    const messages = [{ role: 'system', content: agente.prompt || 'Você é um assistente comercial prestativo.' }, ...(conv.mensagens || []).slice(-10).map(m => ({ role: m.de === 'cliente' ? 'user' : 'assistant', content: m.texto }))]
-    const r = await fetch(url, { method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, messages, max_tokens: 300, temperature: 0.7 }), signal: AbortSignal.timeout(20000) })
-    const d = await r.json()
-    const resposta = d?.choices?.[0]?.message?.content?.trim()
+
+    // Determinar provedor e chave
+    const provider = agente.provider || 'openai'
+    const openaiKey = agente.openaiKey || cfg.openaiApiKey || cfg.openaiKey || ''
+    const groqKey   = agente.groqKey   || cfg.groqApiKey   || cfg.groqKey   || ''
+    const geminiKey = agente.geminiKey || cfg.geminiApiKey || cfg.geminiKey || ''
+
+    // ✅ NOVO: Montar base de conhecimento para injetar no contexto
+    const baseConhecimento = (agente.conhecimento || [])
+      .filter(k => k.conteudo && k.conteudo.trim())
+      .map(k => `=== ${k.titulo} ===\n${k.conteudo.slice(0, 2000)}`)
+      .join('\n\n')
+
+    const systemPrompt = agente.prompt + (baseConhecimento ? `\n\n--- BASE DE CONHECIMENTO ---\n${baseConhecimento}` : '')
+
+    // Histórico da conversa
+    const historico = (conv.mensagens || []).slice(-12).map(m => ({
+      role: (m.de === 'cliente') ? 'user' : 'assistant',
+      content: m.texto || ''
+    })).filter(m => m.content)
+
+    let resposta = null
+
+    // Gemini
+    if (provider === 'gemini' && geminiKey) {
+      const model = agente.model || 'gemini-1.5-flash'
+      const parts = [{ text: systemPrompt + '\n\n' }]
+      historico.forEach(h => parts.push({ text: (h.role === 'user' ? 'Usuário: ' : 'Assistente: ') + h.content + '\n' }))
+      parts.push({ text: 'Usuário: ' + texto })
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: agente.maxTokens || 300 }
+        }),
+        signal: AbortSignal.timeout(20000)
+      })
+      const d = await r.json()
+      resposta = d?.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+    }
+
+    // OpenAI ou Groq
+    if (!resposta && (provider === 'openai' || provider === 'groq')) {
+      const apiKey = provider === 'openai' ? openaiKey : groqKey
+      if (!apiKey) return
+      const model = agente.model || (provider === 'groq' ? 'llama3-70b-8192' : 'gpt-4o-mini')
+      const url = provider === 'groq'
+        ? 'https://api.groq.com/openai/v1/chat/completions'
+        : 'https://api.openai.com/v1/chat/completions'
+
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        ...historico,
+        { role: 'user', content: texto }
+      ]
+
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, messages, max_tokens: agente.maxTokens || 300, temperature: 0.7 }),
+        signal: AbortSignal.timeout(20000)
+      })
+      const d = await r.json()
+      resposta = d?.choices?.[0]?.message?.content?.trim()
+    }
+
     if (!resposta) return
-    const appUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || ''
-    await fetch(`${appUrl}/api/wpp/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empresaId, numero, mensagem: resposta }) }).catch(() => {})
+
+    // Enviar resposta via Evolution API
+    const { data: cfgRowFresh } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
+    const cfgFresh = cfgRowFresh?.value ? JSON.parse(cfgRowFresh.value) : cfg
+    const evoUrl  = cfgFresh.wppInbox?.evolutionUrl || ''
+    const evoKey  = cfgFresh.wppInbox?.evolutionKey || ''
+    const evoInst = cfgFresh.wppInbox?.evolutionInstance || ''
+
+    if (evoUrl && evoKey && evoInst) {
+      await fetch(`${evoUrl}/message/sendText/${evoInst}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evoKey },
+        body: JSON.stringify({ number: numero, text: resposta, delay: 1000 })
+      }).catch(err => console.warn('[IA] Erro ao enviar:', err.message))
+    }
+
+    // Salvar resposta do agente no histórico
+    await salvarMensagem({ empresaId, numero, nome: '', texto: resposta, tipo: 'text', mediaUrl: null, de: 'bot' })
+
   } catch (err) { console.warn('[IA]', err.message) }
 }
