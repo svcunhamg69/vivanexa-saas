@@ -1,5 +1,6 @@
 // pages/api/wpp/disparo-massa.js
-// ✅ Disparo em massa com anti-banimento, delays inteligentes, múltiplas mensagens e mídias
+// ✅ NOVO: suporte a arquivo base64 (imagem/vídeo/áudio sem URL externa)
+// ✅ Anti-banimento com delays inteligentes, múltiplas mensagens e mídias
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -12,26 +13,16 @@ export const config = {
   api: { bodyParser: { sizeLimit: '50mb' } },
 }
 
-// ─────────────────────────────────────────────
-// Delay aleatório entre min e max ms
-// ─────────────────────────────────────────────
 function randomDelay(minMs, maxMs) {
   const ms = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs
   return new Promise((r) => setTimeout(r, ms))
 }
 
-// ─────────────────────────────────────────────
-// Seleciona mensagem aleatória do array (anti-spam)
-// ─────────────────────────────────────────────
 function escolherMensagem(mensagens) {
   if (!mensagens || mensagens.length === 0) return null
   return mensagens[Math.floor(Math.random() * mensagens.length)]
 }
 
-// ─────────────────────────────────────────────
-// Substitui variáveis na mensagem
-// Aceita tanto {nome} quanto {{nome}} (compatibilidade com frontend)
-// ─────────────────────────────────────────────
 function interpolarMensagem(texto, contato) {
   if (!texto) return texto
   return texto
@@ -41,11 +32,62 @@ function interpolarMensagem(texto, contato) {
     .replace(/\{\{numero\}\}|\{numero\}/gi,   contato.numero  || '')
 }
 
-// ─────────────────────────────────────────────
-// Envia uma única mensagem via Evolution API
-// ─────────────────────────────────────────────
-async function enviarMensagem({ baseUrl, apiKey, instance, numero, mensagem, tipo = 'text', mediaUrl, mediaCaption }) {
+// ✅ NOVO: envia mídia como base64 via Evolution API (mediaBase64 endpoint)
+async function enviarMidiaBase64({ baseUrl, apiKey, instance, numero, base64Data, mediaNome, tipo, caption }) {
   const numeroLimpo = String(numero).replace(/\D/g, '').trim()
+
+  // Remove o prefixo data:xxx;base64, se existir
+  const base64Limpo = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data
+
+  // Detectar mimetype
+  let mimetype = 'image/jpeg'
+  if (base64Data.startsWith('data:')) {
+    mimetype = base64Data.split(';')[0].replace('data:', '')
+  } else if (tipo === 'video') mimetype = 'video/mp4'
+  else if (tipo === 'audio') mimetype = 'audio/mpeg'
+  else if (tipo === 'document') mimetype = 'application/pdf'
+
+  const endpoint = `${baseUrl}/message/sendMedia/${instance}`
+  const body = {
+    number: numeroLimpo,
+    media: {
+      mediatype: tipo,
+      media: base64Limpo,
+      mimetype,
+      caption: caption || '',
+      fileName: mediaNome || `arquivo.${tipo === 'image' ? 'jpg' : tipo === 'video' ? 'mp4' : tipo === 'audio' ? 'mp3' : 'pdf'}`,
+    }
+  }
+
+  let r = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: apiKey },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
+  })
+  let result = await r.json()
+
+  if (!r.ok) {
+    // Fallback Bearer
+    r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
+    })
+    result = await r.json()
+  }
+
+  return { ok: r.ok, status: r.status, result, numeroLimpo }
+}
+
+async function enviarMensagem({ baseUrl, apiKey, instance, numero, mensagem, tipo = 'text', mediaUrl, mediaCaption, mediaBase64, mediaNome }) {
+  const numeroLimpo = String(numero).replace(/\D/g, '').trim()
+
+  // ✅ NOVO: se tem base64, usa envio de arquivo direto
+  if (mediaBase64 && tipo !== 'text') {
+    return enviarMidiaBase64({ baseUrl, apiKey, instance, numero, base64Data: mediaBase64, mediaNome, tipo, caption: mediaCaption || mensagem || '' })
+  }
 
   const endpoint =
     tipo === 'text'
@@ -58,14 +100,13 @@ async function enviarMensagem({ baseUrl, apiKey, instance, numero, mensagem, tip
       : {
           number: numeroLimpo,
           media: {
-            mediatype: tipo, // image | video | audio | document
+            mediatype: tipo,
             media: mediaUrl,
             caption: mediaCaption || mensagem || '',
             fileName: tipo === 'document' ? (mediaCaption || 'arquivo') : undefined,
           },
         }
 
-  // Tentativa 1: apikey header
   let r = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: apiKey },
@@ -74,7 +115,6 @@ async function enviarMensagem({ baseUrl, apiKey, instance, numero, mensagem, tip
   })
   let result = await r.json()
 
-  // Fallback: Bearer token
   if (!r.ok && (result?.message?.includes('token') || result?.error)) {
     r = await fetch(endpoint, {
       method: 'POST',
@@ -88,9 +128,6 @@ async function enviarMensagem({ baseUrl, apiKey, instance, numero, mensagem, tip
   return { ok: r.ok, status: r.status, result, numeroLimpo }
 }
 
-// ─────────────────────────────────────────────
-// HANDLER PRINCIPAL
-// ─────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido' })
@@ -99,16 +136,19 @@ export default async function handler(req, res) {
   try {
     const {
       empresaId,
-      instanceKey,         // chave da instância WPP a usar (suporta múltiplas)
-      contatos,            // array de { numero, nome?, empresa?, cidade? }
-      mensagens,           // array de strings (escolhe aleatório por contato)
-      tipo = 'text',       // text | image | video | audio | document
-      mediaUrl,            // URL da mídia (se tipo != text)
-      mediaCaption,        // legenda da mídia
-      delayMinMs = 8000,   // delay mínimo entre disparos (ms)
-      delayMaxMs = 20000,  // delay máximo entre disparos (ms)
-      loteSize = 20,       // pausar a cada N envios
-      lotePausaMs = 60000, // pausa entre lotes (ms)
+      instanceKey,
+      contatos,
+      mensagens,
+      tipo = 'text',
+      mediaUrl,
+      mediaCaption,
+      // ✅ NOVO: parâmetros de arquivo base64
+      mediaBase64 = false,    // true se mediaUrl contém base64
+      mediaNome,              // nome original do arquivo
+      delayMinMs = 8000,
+      delayMaxMs = 20000,
+      loteSize = 20,
+      lotePausaMs = 60000,
     } = req.body
 
     if (!empresaId || !contatos?.length || !mensagens?.length) {
@@ -127,7 +167,6 @@ export default async function handler(req, res) {
     const cfg = row?.value ? JSON.parse(row.value) : {}
     const wppCfg = cfg.wppInbox || {}
 
-    // Suporte a múltiplas instâncias: usa instanceKey se informado, senão padrão
     let instanciaCfg = wppCfg
     if (instanceKey && cfg.wppInstancias?.[instanceKey]) {
       instanciaCfg = cfg.wppInstancias[instanceKey]
@@ -141,7 +180,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Instância WhatsApp não configurada corretamente' })
     }
 
-    // ID único para esta campanha
     const campanhaId = `camp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
     const iniciou    = new Date().toISOString()
 
@@ -149,14 +187,13 @@ export default async function handler(req, res) {
     let enviados = 0
     let erros    = 0
 
-    // ─────────────────────────────────────────────
-    // Loop de disparo com delays inteligentes
-    // ─────────────────────────────────────────────
+    // ✅ Se é base64, extrai o dado uma vez (não passa para cada contato o payload inteiro)
+    const base64Data = mediaBase64 ? mediaUrl : null
+
     for (let i = 0; i < contatos.length; i++) {
       const contato = contatos[i]
       const numero  = contato.numero || contato
 
-      // Escolhe mensagem aleatória e interpola variáveis
       const msgBase       = escolherMensagem(mensagens)
       const mensagemFinal = interpolarMensagem(msgBase, { ...contato, numero })
 
@@ -168,8 +205,11 @@ export default async function handler(req, res) {
           numero,
           mensagem: mensagemFinal,
           tipo,
-          mediaUrl,
+          mediaUrl:    !mediaBase64 ? mediaUrl : undefined,
           mediaCaption: mediaCaption ? interpolarMensagem(mediaCaption, contato) : undefined,
+          // ✅ NOVO
+          mediaBase64: mediaBase64 ? base64Data : undefined,
+          mediaNome,
         })
 
         if (ok) {
@@ -202,16 +242,14 @@ export default async function handler(req, res) {
         })
       }
 
-      // Pausa entre lotes
       if ((i + 1) % loteSize === 0 && i < contatos.length - 1) {
         await new Promise((r) => setTimeout(r, lotePausaMs))
       } else if (i < contatos.length - 1) {
-        // Delay aleatório entre mensagens (anti-banimento)
         await randomDelay(delayMinMs, delayMaxMs)
       }
     }
 
-    // Salvar resultado da campanha no Supabase
+    // Salvar resultado da campanha (sem o base64 para não estourar o banco)
     const campanha = {
       id: campanhaId,
       empresaId,
