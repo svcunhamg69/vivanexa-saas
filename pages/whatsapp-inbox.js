@@ -428,9 +428,10 @@ export default function WhatsappInbox() {
   const [agentes, setAgentes]       = useState([])
   const [protocolo, setProtocolo]   = useState(null)
   const [toast, setToast]           = useState(null)
-  const pollingRef = useRef(null)
-  const msgEndRef  = useRef(null)
-  const idxRef     = useRef({})
+  const pollingRef   = useRef(null)
+  const msgEndRef    = useRef(null)
+  const mensagensRef = useRef(null)
+  const idxRef       = useRef({})
 
   const showToast = (msg, tipo='ok') => { setToast({msg,tipo}); setTimeout(()=>setToast(null),3500) }
 
@@ -468,7 +469,17 @@ export default function WhatsappInbox() {
     return () => clearInterval(pollingRef.current)
   }, [empresaId, convAtiva])
 
-  useEffect(() => { msgEndRef.current?.scrollIntoView({behavior:'smooth'}) }, [conv?.mensagens?.length])
+  useEffect(() => {
+    // Ao trocar de conversa: rola instantaneamente para o fim (sem animação)
+    if (mensagensRef.current) mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight
+    if (msgEndRef.current) msgEndRef.current.scrollIntoView({ behavior: 'instant' })
+  }, [convAtiva])
+
+  useEffect(() => {
+    // Ao receber novas mensagens: rola suavemente
+    if (mensagensRef.current) mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight
+    if (msgEndRef.current) msgEndRef.current.scrollIntoView({ behavior: 'smooth' })
+  }, [conv?.mensagens?.length, conv?.ultimaAt])
 
   async function carregarIndice(eid, silencioso=false) {
     try {
@@ -702,7 +713,7 @@ export default function WhatsappInbox() {
               {protocolo && <div style={{padding:'7px 16px',background:'rgba(16,185,129,.1)',borderBottom:'1px solid rgba(16,185,129,.2)',fontSize:12,color:'#10b981'}}>📋 Protocolo: <strong>{protocolo}</strong></div>}
               {conv.agenteNome&&conv.status!=='automacao'&&<div style={{padding:'5px 16px',background:'rgba(0,212,255,.05)',borderBottom:'1px solid rgba(0,212,255,.1)',fontSize:11,color:'#64748b'}}>👤 Atendido por: <span style={{color:'#00d4ff'}}>{conv.agenteNome}</span></div>}
 
-              <div className="mensagens">
+              <div className="mensagens" ref={mensagensRef}>
                 {(conv.mensagens||[]).map(m=>(
                   <div key={m.id} className={`msg-wrap ${m.de==='empresa'?'enviada':'recebida'}`}>
                     <div className={`msg-bubble ${m.de==='empresa'?'enviada':'recebida'}`}>
