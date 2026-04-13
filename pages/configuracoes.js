@@ -23,7 +23,6 @@ const TABS = [
   { id: 'agente_ia',     label: '🤖 Agente IA' },
   { id: 'departamentos', label: '🏢 Departamentos' },
   { id: 'integracoes', label: '🔗 Integrações' },
-  { id: 'telefonia',   label: '📞 Telefonia' },
 ]
 
 const KPI_ICONS = ['📞','📲','📧','🤝','💼','🏆','🎯','💰','📈','📊','🔥','⭐','🚀','✅','📅','🗓','👥','🏃','💡','🎤','📝','🔔','💬','🌐','🛒','📦','🔑','⚡','🎁','🏅']
@@ -1616,262 +1615,6 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   )
 }
 
-// ══════════════════════════════════════════════
-// ABA TELEFONIA 3CX
-// ══════════════════════════════════════════════
-function TabTelefonia({ cfg, setCfg, empresaId }) {
-  const saved = cfg.tel3cx || {}
-  const [modo,    setModo]    = React.useState(saved.modo    || 'tel')
-  const [host,    setHost]    = React.useState(saved.host    || '')
-  const [token,   setToken]   = React.useState(saved.token   || '')
-  const [ramal,   setRamal]   = React.useState(saved.ramal   || '')
-  const [ativo,   setAtivo]   = React.useState(saved.ativo   || false)
-  const [testNum, setTestNum] = React.useState('')
-  const [saving,  setSaving]  = React.useState(false)
-  const [testing, setTesting] = React.useState(false)
-  const [msg,     setMsg]     = React.useState('')
-
-  const s = {
-    card:   { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px', marginBottom: 16 },
-    label:  { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
-    input:  { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
-    btn:    { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
-    btnSec: { padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
-    h:      { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 },
-    step:   { background: 'rgba(0,212,255,.08)', border: '1px solid rgba(0,212,255,.2)', borderRadius: 10, padding: '14px 18px', marginBottom: 10, fontSize: 13, color: 'var(--text)', lineHeight: 1.7 },
-    badge:  { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 },
-    modeBtn:(active) => ({
-      flex: 1, padding: '12px 10px', borderRadius: 10, cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12,
-      border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-      background: active ? 'rgba(0,212,255,.12)' : 'var(--surface)',
-      color: active ? 'var(--accent)' : 'var(--muted)', fontWeight: active ? 700 : 400,
-      transition: 'all .2s', textAlign: 'center',
-    }),
-  }
-
-  async function salvar() {
-    setSaving(true); setMsg('')
-    try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
-      const atual = row?.value ? JSON.parse(row.value) : {}
-      const novo  = { ...atual, tel3cx: { modo, host, token, ramal, ativo } }
-      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
-      setCfg(novo)
-      setMsg('✅ Configurações de telefonia salvas!')
-    } catch (e) { setMsg('❌ Erro: ' + e.message) }
-    setSaving(false)
-  }
-
-  async function testarChamada() {
-    const tel = testNum.replace(/\D/g,'')
-    if (!tel) { setMsg('⚠️ Informe o número de teste'); return }
-    setTesting(true); setMsg('')
-
-    if (modo === 'tel') {
-      window.open(`tel:${tel}`, '_self')
-      setMsg('✅ Discador do sistema aberto! Verifique seu 3CX Desktop App.')
-      setTesting(false); return
-    }
-
-    if (modo === '3cx_web') {
-      if (!host) { setMsg('⚠️ Configure o Host 3CX primeiro'); setTesting(false); return }
-      window.open(`https://${host}/webclient/#/call?phone=${tel}`, '_blank')
-      setMsg('✅ Ligação iniciada no 3CX Web Client!')
-      setTesting(false); return
-    }
-
-    if (modo === '3cx_api') {
-      if (!host || !token || !ramal) { setMsg('⚠️ Preencha Host, Token e Ramal'); setTesting(false); return }
-      try {
-        const r = await fetch(`https://${host}/callcontrol/calls`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: ramal, to: tel, callType: 'pstn' }),
-        })
-        setMsg(r.ok ? `✅ Chamada iniciada para ${tel} a partir do ramal ${ramal}!` : `❌ Erro ${r.status} — verifique o token e o host`)
-      } catch (e) { setMsg('❌ Erro de conexão: ' + e.message) }
-    }
-    setTesting(false)
-  }
-
-  async function testarConexao3CX() {
-    if (!host || !token) { setMsg('⚠️ Preencha Host e Token para testar'); return }
-    setTesting(true); setMsg('')
-    try {
-      const r = await fetch(`https://${host}/callcontrol/`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      setMsg(r.ok ? '✅ Conexão com 3CX estabelecida!' : `⚠️ Resposta ${r.status} — verifique as credenciais`)
-    } catch (e) { setMsg('❌ Não foi possível conectar: ' + e.message) }
-    setTesting(false)
-  }
-
-  return (
-    <div style={{ padding: '24px' }}>
-      <div style={s.h}>📞 Integração Telefonia — 3CX</div>
-
-      {/* STATUS */}
-      <div style={{ ...s.card, borderColor: ativo ? 'rgba(16,185,129,.4)' : 'var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700 }}>📞 3CX Phone System</div>
-          <div style={{ ...s.badge, background: ativo ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.15)', color: ativo ? '#10b981' : '#64748b', border: `1px solid ${ativo ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)'}` }}>
-            {ativo ? '● Ativo' : '○ Inativo'}
-          </div>
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
-          Integração com o <strong style={{ color: 'var(--text)' }}>3CX Phone System</strong> — permite Click2Call direto no CRM.
-          Ao clicar em um número de telefone dentro do Funil ou do detalhe de um negócio, a chamada é iniciada automaticamente.
-        </div>
-        <div style={{ marginTop: 14 }}>
-          <label style={{ fontSize: 13, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-            <input type="checkbox" checked={ativo} onChange={e => setAtivo(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-            Ativar integração 3CX
-          </label>
-        </div>
-      </div>
-
-      {/* MODO */}
-      <div style={s.card}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, marginBottom: 16, color: 'var(--text)' }}>
-          🔧 Modo de Integração
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-          <button style={s.modeBtn(modo === 'tel')} onClick={() => setModo('tel')}>
-            <div style={{ fontSize: 20, marginBottom: 4 }}>📱</div>
-            <div style={{ fontWeight: 700 }}>Discador do Sistema</div>
-            <div style={{ fontSize: 10, marginTop: 4, color: 'var(--muted)' }}>Abre o app de chamadas padrão (3CX Desktop App)</div>
-          </button>
-          <button style={s.modeBtn(modo === '3cx_web')} onClick={() => setModo('3cx_web')}>
-            <div style={{ fontSize: 20, marginBottom: 4 }}>🌐</div>
-            <div style={{ fontWeight: 700 }}>3CX Web Client</div>
-            <div style={{ fontSize: 10, marginTop: 4, color: 'var(--muted)' }}>Abre o webclient 3CX em nova aba</div>
-          </button>
-          <button style={s.modeBtn(modo === '3cx_api')} onClick={() => setModo('3cx_api')}>
-            <div style={{ fontSize: 20, marginBottom: 4 }}>⚡</div>
-            <div style={{ fontWeight: 700 }}>API Call Control</div>
-            <div style={{ fontSize: 10, marginTop: 4, color: 'var(--muted)' }}>Inicia a chamada diretamente pelo ramal (v18+)</div>
-          </button>
-        </div>
-
-        {/* Descrição do modo escolhido */}
-        {modo === 'tel' && (
-          <div style={{ ...s.step, borderColor: 'rgba(0,212,255,.2)' }}>
-            <strong style={{ color: 'var(--accent)' }}>📱 Modo Discador do Sistema</strong><br/>
-            Ao clicar em 📞 no CRM, abre o protocolo <code>tel:</code> — que o sistema operacional roteia para o 3CX Desktop App, Microsoft Teams, ou qualquer softphone instalado. Não requer configuração adicional.
-          </div>
-        )}
-        {modo === '3cx_web' && (
-          <div style={{ ...s.step, borderColor: 'rgba(0,212,255,.2)' }}>
-            <strong style={{ color: 'var(--accent)' }}>🌐 Modo Web Client</strong><br/>
-            Abre o 3CX Web Client em nova aba com o número pré-preenchido. Informe o host do seu servidor 3CX abaixo (ex: <code>minha-empresa.3cx.com.br:5001</code>). O usuário precisa estar logado no Web Client.
-          </div>
-        )}
-        {modo === '3cx_api' && (
-          <div style={{ ...s.step, borderColor: 'rgba(124,58,237,.3)', background: 'rgba(124,58,237,.05)' }}>
-            <strong style={{ color: '#a78bfa' }}>⚡ Modo API Call Control (mais avançado)</strong><br/>
-            Usa a <strong>3CX Call Control API</strong> para iniciar chamadas diretamente pelo ramal configurado, sem precisar abrir nenhuma janela. Requer 3CX v18 Update 5+ com licença Pro ou Enterprise.<br/>
-            <div style={{ marginTop: 8, fontSize: 11, color: 'var(--muted)' }}>
-              Gere o token em: Admin Console → Integrações → API → Adicionar → marque "3CX Call Control API Access"
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* CREDENCIAIS */}
-      <div style={s.card}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, marginBottom: 16 }}>🔑 Credenciais e Configurações</div>
-
-        {(modo === '3cx_web' || modo === '3cx_api') && (
-          <>
-            <label style={s.label}>Host do servidor 3CX (sem https://)</label>
-            <input style={s.input} value={host} onChange={e => setHost(e.target.value)}
-              placeholder="minha-empresa.3cx.com.br:5001 ou 192.168.1.10:5001" />
-          </>
-        )}
-
-        {modo === '3cx_api' && (
-          <>
-            <label style={s.label}>Token de Acesso (Bearer Token da Call Control API)</label>
-            <input style={{ ...s.input, fontFamily: 'monospace', fontSize: 11 }} value={token} onChange={e => setToken(e.target.value)}
-              placeholder="eyJhbGciOiJSUzI1NiIs..." type="password" />
-
-            <label style={s.label}>Ramal do Agente (número do ramal 3CX do usuário logado)</label>
-            <input style={s.input} value={ramal} onChange={e => setRamal(e.target.value)}
-              placeholder="101" />
-          </>
-        )}
-
-        {modo === 'tel' && (
-          <div style={{ fontSize: 12, color: 'var(--muted)', padding: '12px 16px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.1)', borderRadius: 8, lineHeight: 1.7 }}>
-            ✅ Nenhuma configuração adicional necessária para o modo Discador. Apenas certifique-se que o <strong style={{ color: 'var(--text)' }}>3CX Desktop App</strong> está instalado e configurado como aplicativo padrão para chamadas.
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-          <button onClick={salvar} disabled={saving} style={s.btn}>
-            {saving ? '⏳ Salvando...' : '💾 Salvar configurações'}
-          </button>
-          {modo === '3cx_api' && (
-            <button onClick={testarConexao3CX} disabled={testing} style={s.btnSec}>
-              {testing ? '⏳...' : '🔌 Testar conexão'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* TESTE */}
-      <div style={s.card}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, marginBottom: 16 }}>🧪 Testar Click2Call</div>
-        <label style={s.label}>Número de destino (com DDI, ex: 5531999990000)</label>
-        <input style={s.input} value={testNum} onChange={e => setTestNum(e.target.value)} placeholder="5531999990000" />
-        <button onClick={testarChamada} disabled={testing} style={s.btnSec}>
-          {testing ? '⏳ Iniciando...' : '📞 Testar chamada'}
-        </button>
-      </div>
-
-      {/* PASSO A PASSO */}
-      <div style={s.card}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, marginBottom: 14, color: 'var(--muted)' }}>
-          📋 COMO CONFIGURAR — Passo a passo (Modo API)
-        </div>
-        {[
-          { n:'1', t:'Acesse o Admin Console do 3CX', d:'Abra o painel de administração do seu servidor 3CX no navegador', link:'https://www.3cx.com', lbl:'Site 3CX' },
-          { n:'2', t:'Vá em Integrações → API', d:'No menu lateral esquerdo, clique em "Integrações" depois em "API"' },
-          { n:'3', t:'Clique em "Adicionar" e crie um novo cliente API', d:'Dê um nome (ex: "Vivanexa CRM"), marque "3CX Call Control API Access" e salve' },
-          { n:'4', t:'Copie o Client ID e o Secret', d:'Eles aparecem apenas uma vez — guarde em local seguro' },
-          { n:'5', t:'Obtenha o Bearer Token via OAuth2', d:'Faça um POST para /connect/token com grant_type=client_credentials, client_id e client_secret. O access_token retornado é o token a ser colado acima.' },
-          { n:'6', t:'Cole o token e o host acima e salve', d:'Informe também o número do ramal 3CX do usuário que vai fazer as ligações' },
-        ].map(({ n, t, d, link, lbl }) => (
-          <div key={n} style={s.step}>
-            <div style={{ fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>Passo {n}: {t}</div>
-            <div style={{ color: 'var(--muted)', fontSize: 12 }}>{d}</div>
-            {link && <a href={link} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 12, color: 'var(--accent)', textDecoration: 'underline' }}>{lbl||link}</a>}
-          </div>
-        ))}
-      </div>
-
-      {/* Como funciona no CRM */}
-      <div style={{ ...s.card, borderColor: 'rgba(16,185,129,.3)' }}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, marginBottom: 12, color: 'var(--accent3)' }}>
-          📞 Como funciona no CRM
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.8 }}>
-          Após configurar, um botão <strong style={{ color: 'var(--text)' }}>📞</strong> aparece em cada card do Funil de Vendas e no detalhe do negócio, ao lado do telefone do cliente.<br/><br/>
-          <strong style={{ color: 'var(--text)' }}>Modo Discador:</strong> abre o 3CX Desktop App instalado no computador.<br/>
-          <strong style={{ color: 'var(--text)' }}>Modo Web Client:</strong> abre o webclient 3CX em nova aba com o número preenchido.<br/>
-          <strong style={{ color: 'var(--text)' }}>Modo API:</strong> a chamada começa automaticamente no ramal configurado — sem abrir nenhuma janela.
-        </div>
-      </div>
-
-      {msg && (
-        <div style={{ padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>
-          {msg}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ABA WHATSAPP
 // ══════════════════════════════════════════════
 function TabWhatsapp({ cfg, setCfg, empresaId }) {
@@ -2062,12 +1805,19 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
 // ══════════════════════════════════════════════
 // ABA AGENTE IA
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+// ABA AGENTE IA — v2 com base de conhecimento expandida
+// (PDF, site, texto livre)
+// ══════════════════════════════════════════════
 function TabAgenteIA({ cfg, setCfg, empresaId }) {
   const [agentes, setAgentes] = React.useState(cfg.wppAgentes || [])
   const [editIdx, setEditIdx] = React.useState(null)
   const [form, setForm]       = React.useState(null)
   const [saving, setSaving]   = React.useState(false)
   const [msg, setMsg]         = React.useState('')
+  const [processandoPdf, setProcessandoPdf] = React.useState(false)
+  const [processandoSite, setProcessandoSite] = React.useState(false)
+  const pdfInputRef = React.useRef(null)
 
   const MODELOS = {
     openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
@@ -2082,6 +1832,8 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
     openaiKey: '', groqKey: '', geminiKey: '',
     model: 'gpt-4o-mini', maxTokens: 300,
     conhecimento: [],
+    siteUrl: '',
+    siteConteudo: '',
   }
 
   function novoAgente() {
@@ -2114,12 +1866,121 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
     setCfg({ ...cfg, wppAgentes: novos }); setAgentes(novos)
   }
 
+  // ✅ NOVO: Ler PDF e extrair texto
+  async function onPdfUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setProcessandoPdf(true)
+    setMsg('⏳ Lendo PDF...')
+    try {
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const base64 = ev.target.result.split(',')[1]
+        // Chama API Claude/Gemini para extrair texto do PDF
+        const geminiKey = cfg.geminiApiKey || cfg.geminiKey || ''
+        if (geminiKey) {
+          try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { inline_data: { mime_type: 'application/pdf', data: base64 } },
+                    { text: 'Extraia todo o conteúdo textual deste PDF de forma organizada. Mantenha a estrutura original com títulos e seções. Não adicione comentários, apenas o conteúdo do documento.' }
+                  ]
+                }]
+              })
+            })
+            const data = await res.json()
+            const texto = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+            if (texto) {
+              const titulo = file.name.replace('.pdf', '')
+              setForm(f => ({
+                ...f,
+                conhecimento: [...(f.conhecimento || []), { titulo, conteudo: texto, tipo: 'pdf', arquivo: file.name }]
+              }))
+              setMsg('✅ PDF lido e adicionado à base de conhecimento!')
+            } else {
+              setMsg('⚠️ Não foi possível extrair o texto do PDF. Verifique a chave Gemini.')
+            }
+          } catch (err) {
+            setMsg('❌ Erro ao processar PDF: ' + err.message)
+          }
+        } else {
+          // Fallback: extração básica via FileReader (texto simples)
+          const textReader = new FileReader()
+          textReader.onload = (ev2) => {
+            const raw = ev2.target.result
+            // Remove caracteres não imprimíveis e extrai texto básico
+            const texto = raw.replace(/[^\x20-\x7E\n\r\t\u00C0-\u024F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000)
+            if (texto.length > 100) {
+              setForm(f => ({
+                ...f,
+                conhecimento: [...(f.conhecimento || []), { titulo: file.name, conteudo: texto, tipo: 'pdf', arquivo: file.name }]
+              }))
+              setMsg('✅ PDF importado (extração básica — configure Gemini para melhor resultado)')
+            } else {
+              setMsg('⚠️ Configure a chave do Gemini em Config → Empresa para ler PDFs com precisão.')
+            }
+          }
+          textReader.readAsText(file)
+        }
+        setProcessandoPdf(false)
+      }
+      reader.readAsDataURL(file)
+    } catch (err) {
+      setMsg('❌ Erro: ' + err.message)
+      setProcessandoPdf(false)
+    }
+    e.target.value = ''
+  }
+
+  // ✅ NOVO: Rastrear site e extrair conteúdo
+  async function rastrearSite() {
+    const url = form.siteUrl?.trim()
+    if (!url) { setMsg('⚠️ Informe a URL do site'); return }
+    if (!url.startsWith('http')) { setMsg('⚠️ URL deve começar com http:// ou https://'); return }
+
+    setProcessandoSite(true)
+    setMsg('⏳ Acessando site...')
+    try {
+      // Busca o conteúdo do site via API própria ou proxy
+      const res = await fetch('/api/ai/fetch-site', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const texto = data.texto || ''
+        if (texto) {
+          setForm(f => ({
+            ...f,
+            siteConteudo: texto,
+            conhecimento: [...(f.conhecimento || []), { titulo: `Site: ${url}`, conteudo: texto.slice(0, 3000), tipo: 'site', url }]
+          }))
+          setMsg(`✅ Site rastreado! ${texto.length} caracteres extraídos.`)
+        } else {
+          setMsg('⚠️ Não foi possível extrair conteúdo do site.')
+        }
+      } else {
+        // Fallback: orientar o usuário a copiar manualmente
+        setMsg('⚠️ Não foi possível acessar o site automaticamente. Cole o conteúdo manualmente no campo de texto abaixo.')
+      }
+    } catch (err) {
+      setMsg('⚠️ Erro ao acessar site. Cole o conteúdo do site manualmente na base de conhecimento.')
+    }
+    setProcessandoSite(false)
+  }
+
   const st = {
     card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 22px', marginBottom: 14 },
     label: { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
     input: { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
     btn:   { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
     btnSec:{ padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
+    btnPurple: { padding: '9px 18px', borderRadius: 9, background: 'rgba(124,58,237,.15)', border: '1px solid rgba(124,58,237,.35)', color: '#7c3aed', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
     h:     { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 },
   }
 
@@ -2147,7 +2008,11 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', marginBottom: 4 }}>🤖 {a.nome}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{a.provider === 'openai' ? 'OpenAI' : a.provider === 'groq' ? 'Groq' : 'Gemini'} · {a.model} · {a.maxTokens} tokens</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {a.provider === 'openai' ? 'OpenAI' : a.provider === 'groq' ? 'Groq' : 'Gemini'} · {a.model} · {a.maxTokens} tokens
+                {(a.conhecimento || []).length > 0 && <span style={{ marginLeft: 8, color: '#10b981' }}>· 📚 {a.conhecimento.length} base(s)</span>}
+                {a.siteUrl && <span style={{ marginLeft: 8, color: '#7c3aed' }}>· 🌐 Site</span>}
+              </div>
             </div>
             <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: a.ativo ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.15)', color: a.ativo ? '#10b981' : '#64748b', border: `1px solid ${a.ativo ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)'}` }}>
               {a.ativo ? '● Ativo' : '○ Inativo'}
@@ -2164,6 +2029,7 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
             {editIdx === 'novo' ? '➕ Novo Agente' : '✏️ Editando Agente'}
           </div>
 
+          {/* Nome + Ativo */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={st.label}>Nome do Agente</label>
@@ -2177,6 +2043,7 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
             </div>
           </div>
 
+          {/* Provedor + Modelo + Tokens */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <div>
               <label style={st.label}>Provedor de IA</label>
@@ -2198,6 +2065,7 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
             </div>
           </div>
 
+          {/* API Key */}
           <div>
             <label style={st.label}>API Key específica (opcional — usa a global de Config → Empresa se vazio)</label>
             <input style={{ ...st.input, fontFamily: 'monospace' }} type="password"
@@ -2209,24 +2077,178 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
               placeholder={form.provider === 'openai' ? 'sk-...' : form.provider === 'groq' ? 'gsk_...' : 'AIza...'} />
           </div>
 
+          {/* Prompt */}
           <div>
             <label style={st.label}>Prompt do Sistema</label>
             <textarea value={form.prompt} onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))} rows={7}
               style={{ ...st.input, resize: 'vertical', lineHeight: 1.6 }} placeholder="Você é um assistente comercial..." />
           </div>
 
-          <div>
-            <label style={st.label}>Base de Conhecimento (contexto adicional para a IA)</label>
-            {(form.conhecimento || []).map((k, ki) => (
-              <div key={ki} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
-                <input style={{ ...st.input, width: 180, marginBottom: 0, flexShrink: 0 }} value={k.titulo || ''} onChange={e => setForm(f => ({ ...f, conhecimento: f.conhecimento.map((x, xi) => xi === ki ? { ...x, titulo: e.target.value } : x) }))} placeholder="Título" />
-                <textarea style={{ ...st.input, flex: 1, marginBottom: 0, resize: 'vertical', minHeight: 60 }} value={k.conteudo || ''} onChange={e => setForm(f => ({ ...f, conhecimento: f.conhecimento.map((x, xi) => xi === ki ? { ...x, conteudo: e.target.value } : x) }))} placeholder="Conteúdo..." />
-                <button onClick={() => setForm(f => ({ ...f, conhecimento: f.conhecimento.filter((_, xi) => xi !== ki) }))} style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', flexShrink: 0 }}>✕</button>
+          {/* ✅ BASE DE CONHECIMENTO EXPANDIDA */}
+          <div style={{ background: 'rgba(0,0,0,.2)', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(255,255,255,.06)' }}>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: '#e2e8f0', marginBottom: 4 }}>
+              📚 Base de Conhecimento
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+              Alimente o agente com informações da sua empresa. Quanto mais contexto, melhores as respostas.
+            </div>
+
+            {/* ── TAB: PDF / SITE / TEXTO ── */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+              {[['texto','📝 Texto Livre'],['pdf','📄 Upload PDF'],['site','🌐 Site da Empresa']].map(([id, label]) => (
+                <button key={id}
+                  onClick={() => setForm(f => ({ ...f, _kbTab: id }))}
+                  style={{ padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 11,
+                    background: (form._kbTab || 'texto') === id ? 'linear-gradient(135deg,#00d4ff,#0099bb)' : 'rgba(255,255,255,.04)',
+                    color: (form._kbTab || 'texto') === id ? '#fff' : '#64748b',
+                    outline: (form._kbTab || 'texto') === id ? 'none' : '1px solid #1e2d4a'
+                  }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Painel TEXTO LIVRE */}
+            {(!form._kbTab || form._kbTab === 'texto') && (
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
+                  Adicione textos com título e conteúdo — ex: FAQ, lista de preços, política, diferenciais, scripts.
+                </div>
+                {(form.conhecimento || []).filter(k => !k.tipo || k.tipo === 'texto').map((k, ki) => (
+                  <div key={ki} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
+                    <input style={{ ...st.input, width: 160, marginBottom: 0, flexShrink: 0, fontSize: 12 }}
+                      value={k.titulo || ''} placeholder="Título (ex: FAQ)"
+                      onChange={e => setForm(f => ({ ...f, conhecimento: f.conhecimento.map((x, xi) => xi === ki ? { ...x, titulo: e.target.value } : x) }))} />
+                    <textarea style={{ ...st.input, flex: 1, marginBottom: 0, resize: 'vertical', minHeight: 60, fontSize: 12 }}
+                      value={k.conteudo || ''} placeholder="Conteúdo..."
+                      onChange={e => setForm(f => ({ ...f, conhecimento: f.conhecimento.map((x, xi) => xi === ki ? { ...x, conteudo: e.target.value } : x) }))} />
+                    <button onClick={() => setForm(f => ({ ...f, conhecimento: f.conhecimento.filter((_, xi) => xi !== ki) }))}
+                      style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', flexShrink: 0 }}>✕</button>
+                  </div>
+                ))}
+                <button onClick={() => setForm(f => ({ ...f, conhecimento: [...(f.conhecimento || []), { titulo: '', conteudo: '', tipo: 'texto' }] }))}
+                  style={{ ...st.btnSec, fontSize: 12, padding: '6px 12px' }}>+ Adicionar texto</button>
               </div>
-            ))}
-            <button onClick={() => setForm(f => ({ ...f, conhecimento: [...(f.conhecimento || []), { titulo: '', conteudo: '' }] }))} style={{ ...st.btnSec, fontSize: 12, padding: '6px 12px' }}>+ Adicionar texto</button>
+            )}
+
+            {/* Painel PDF */}
+            {form._kbTab === 'pdf' && (
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
+                  Faça upload de PDFs (catálogos, manuais, contratos, políticas). O texto será extraído automaticamente.<br />
+                  <strong style={{ color: '#f59e0b' }}>💡 Configure a chave Gemini em Config → Empresa para melhor extração.</strong>
+                </div>
+
+                {/* Área de upload */}
+                <div
+                  onClick={() => !processandoPdf && pdfInputRef.current?.click()}
+                  style={{ border: '2px dashed #1e2d4a', borderRadius: 10, padding: '28px 20px', textAlign: 'center', cursor: processandoPdf ? 'not-allowed' : 'pointer', background: 'rgba(0,212,255,.03)', transition: 'border-color .2s', marginBottom: 14 }}
+                  onMouseEnter={e => !processandoPdf && (e.currentTarget.style.borderColor = 'rgba(0,212,255,.4)')}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = '#1e2d4a'}>
+                  {processandoPdf ? (
+                    <div>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
+                      <div style={{ fontSize: 13, color: '#64748b' }}>Lendo PDF...</div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 36, marginBottom: 10 }}>📄</div>
+                      <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 4 }}>Clique para selecionar PDF</div>
+                      <div style={{ fontSize: 11, color: '#475569' }}>Máx. recomendado: 5 MB · PDF, texto</div>
+                    </div>
+                  )}
+                </div>
+                <input ref={pdfInputRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={onPdfUpload} />
+
+                {/* PDFs já adicionados */}
+                {(form.conhecimento || []).filter(k => k.tipo === 'pdf').map((k, ki) => {
+                  const idx = (form.conhecimento || []).indexOf(k)
+                  return (
+                    <div key={ki} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 20 }}>📄</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>{k.titulo}</div>
+                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{(k.conteudo || '').length} chars extraídos</div>
+                      </div>
+                      <button onClick={() => setForm(f => ({ ...f, conhecimento: f.conhecimento.filter((_, xi) => xi !== idx) }))}
+                        style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 12 }}>✕</button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Painel SITE */}
+            {form._kbTab === 'site' && (
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
+                  Informe a URL do site da empresa. O sistema tentará extrair o conteúdo automaticamente.<br />
+                  Se o site bloquear o acesso, cole o conteúdo manualmente no campo de texto abaixo.
+                </div>
+
+                {/* URL do site */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  <input style={{ ...st.input, flex: 1, marginBottom: 0 }}
+                    value={form.siteUrl || ''} placeholder="https://seusite.com.br"
+                    onChange={e => setForm(f => ({ ...f, siteUrl: e.target.value }))} />
+                  <button onClick={rastrearSite} disabled={processandoSite}
+                    style={{ ...st.btn, padding: '9px 18px', fontSize: 12, whiteSpace: 'nowrap', opacity: processandoSite ? .6 : 1 }}>
+                    {processandoSite ? '⏳ Acessando...' : '🌐 Rastrear Site'}
+                  </button>
+                </div>
+
+                {/* Sites já rastreados */}
+                {(form.conhecimento || []).filter(k => k.tipo === 'site').map((k, ki) => {
+                  const idx = (form.conhecimento || []).indexOf(k)
+                  return (
+                    <div key={ki} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(124,58,237,.08)', border: '1px solid rgba(124,58,237,.2)', borderRadius: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 20 }}>🌐</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#e2e8f0' }}>{k.titulo}</div>
+                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{(k.conteudo || '').length} chars · {k.url}</div>
+                      </div>
+                      <button onClick={() => setForm(f => ({ ...f, conhecimento: f.conhecimento.filter((_, xi) => xi !== idx) }))}
+                        style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 12 }}>✕</button>
+                    </div>
+                  )
+                })}
+
+                {/* Fallback: conteúdo manual */}
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ ...st.label, marginBottom: 6 }}>Ou cole o conteúdo do site manualmente</label>
+                  <textarea style={{ ...st.input, minHeight: 100, resize: 'vertical', fontSize: 12 }}
+                    value={form.siteConteudo || ''}
+                    onChange={e => setForm(f => ({ ...f, siteConteudo: e.target.value }))}
+                    placeholder="Cole aqui o texto da página Sobre, produtos, serviços, FAQ, etc..." />
+                  {form.siteConteudo && (
+                    <button onClick={() => {
+                      const url = form.siteUrl || 'Site manual'
+                      setForm(f => ({
+                        ...f,
+                        conhecimento: [...(f.conhecimento || []), { titulo: `Site: ${url}`, conteudo: form.siteConteudo, tipo: 'site', url }],
+                        siteConteudo: ''
+                      }))
+                    }} style={{ ...st.btnSec, fontSize: 12, padding: '6px 14px', marginTop: 6 }}>
+                      + Adicionar à base de conhecimento
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Resumo da base */}
+            {(form.conhecimento || []).length > 0 && (
+              <div style={{ marginTop: 14, padding: '10px 14px', background: 'rgba(16,185,129,.06)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 8, fontSize: 11, color: '#64748b', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <span>📚 <strong style={{ color: '#10b981' }}>{(form.conhecimento || []).length}</strong> item(ns) na base</span>
+                <span>📝 <strong style={{ color: '#10b981' }}>{(form.conhecimento || []).filter(k => !k.tipo || k.tipo === 'texto').length}</strong> textos</span>
+                <span>📄 <strong style={{ color: '#10b981' }}>{(form.conhecimento || []).filter(k => k.tipo === 'pdf').length}</strong> PDFs</span>
+                <span>🌐 <strong style={{ color: '#10b981' }}>{(form.conhecimento || []).filter(k => k.tipo === 'site').length}</strong> sites</span>
+                <span>💾 <strong style={{ color: '#10b981' }}>{((form.conhecimento || []).reduce((a, k) => a + (k.conteudo || '').length, 0) / 1000).toFixed(1)} KB</strong> total</span>
+              </div>
+            )}
           </div>
 
+          {/* Botões */}
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
             <button onClick={salvarAgente} disabled={saving} style={st.btn}>{saving ? '⏳...' : '💾 Salvar Agente'}</button>
             <button onClick={() => { setEditIdx(null); setForm(null) }} style={st.btnSec}>Cancelar</button>
@@ -2235,7 +2257,7 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
       )}
 
       {msg && (
-        <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>
+        <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : msg.startsWith('⏳') ? 'rgba(0,212,255,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : msg.startsWith('⏳') ? 'rgba(0,212,255,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : msg.startsWith('⏳') ? '#00d4ff' : '#ef4444', fontSize: 13 }}>
           {msg}
         </div>
       )}
@@ -2243,9 +2265,6 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
   )
 }
 
-// ══════════════════════════════════════════════
-// ABA DEPARTAMENTOS
-// ══════════════════════════════════════════════
 function TabDepartamentos({ cfg, setCfg, empresaId }) {
   const [deps,    setDeps]    = React.useState(cfg.wppDeps || [
     { id: 'vendas',    nome: 'Vendas',          cor: '#10b981', ordem: 1 },
@@ -2403,7 +2422,6 @@ export default function Configuracoes() {
       case 'agente_ia':     return <TabAgenteIA      {...props} />
       case 'departamentos': return <TabDepartamentos {...props} />
       case 'integracoes': return <TabIntegracoes {...props} />
-      case 'telefonia':   return <TabTelefonia   {...props} />
       default:           return null
     }
   }
