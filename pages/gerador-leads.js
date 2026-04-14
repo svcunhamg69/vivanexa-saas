@@ -43,174 +43,26 @@ function fmtTel(s) {
 }
 
 // ─────────────────────────────────────────────────────
-// 1. RECEITA FEDERAL — usa cnpja.com/office/search
-//    que consulta dados abertos da RFB com filtros reais
+// 1. RECEITA FEDERAL — chama rota interna /api/leads/buscar-receita
+//    que usa casadosdados.com.br (dados abertos RFB) + open.cnpja.com
 // ─────────────────────────────────────────────────────
 async function buscarReceita({ nicho, uf, cidade, bairro, logradouro, onProgresso }) {
-  const resultados = []
-  let pagina = 1
-  let temMais = true
+  onProgresso('Consultando Receita Federal (dados abertos RFB)...')
 
-  onProgresso('Consultando Receita Federal (dados abertos)...')
+  const r = await fetch('/api/leads/buscar-receita', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ nicho, uf, cidade, bairro, logradouro }),
+    signal:  AbortSignal.timeout(120000), // 2 min — pode demorar para muitos CNAEs
+  })
 
-  // O cnpja.com tem endpoint /office/search com parâmetros: q, state, city, district
-  // API gratuita com autenticação "public" para dados básicos
-  // Documentação: https://cnpja.com/docs
-
-  while (temMais) {
-    try {
-      const params = new URLSearchParams()
-      params.set('q',      nicho)         // busca na razão social e CNAE
-      params.set('state',  uf)
-      if (cidade)     params.set('city',     cidade)
-      if (bairro)     params.set('district', bairro)
-      params.set('status', 'ACTIVE')
-      params.set('page',   String(pagina))
-      params.set('limit',  '100')         // máximo por página
-
-      const r = await fetch(`https://api.cnpja.com/office/search?${params}`, {
-        headers: { 'Authorization': 'public' },
-        signal:  AbortSignal.timeout(20000),
-      })
-
-      if (!r.ok) {
-        // Tenta endpoint alternativo: receitaws.com.br
-        break
-      }
-
-      const data = await r.json()
-      const lista = data.offices || data.data || data.results || []
-
-      for (const emp of lista) {
-        // Filtrar bairro/logradouro localmente se informados
-        const bairroEmp = (emp.address?.district || '').toLowerCase()
-        const endEmp    = (emp.address?.street   || '').toLowerCase()
-        if (bairro     && !bairroEmp.includes(bairro.toLowerCase()))     continue
-        if (logradouro && !endEmp.includes(logradouro.toLowerCase()))    continue
-        resultados.push(mapCnpja(emp))
-      }
-
-      onProgresso(`Receita Federal: ${resultados.length} empresas encontradas (página ${pagina})...`)
-
-      // Verifica se há mais páginas
-      const total = data.total || data.count || lista.length
-      temMais = lista.length === 100 && resultados.length < total
-      pagina++
-
-      if (temMais) await sleep(500) // respeita rate limit
-    } catch (e) {
-      break
-    }
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}))
+    return { resultados: [], erro: err.error || `Erro ${r.status} na busca` }
   }
 
-  // Fallback: BrasilAPI CNPJ por CNAE
-  if (resultados.length === 0) {
-    onProgresso('Tentando BrasilAPI como fallback...')
-    try {
-      // BrasilAPI tem endpoint de busca por CNAE: GET /api/cnpj/v1/search
-      // Mapeamos nicho → código CNAE aproximado
-      const cnae = mapNichoParaCNAE(nicho)
-      if (cnae) {
-        const params = new URLSearchParams({ cnaes: cnae, uf, municipio: cidade || '' })
-        const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/search?${params}`, {
-          signal: AbortSignal.timeout(15000),
-        })
-        if (r.ok) {
-          const data = await r.json()
-          const lista = Array.isArray(data) ? data : (data.items || [])
-          for (const emp of lista) {
-            if (bairro     && !(emp.bairro     || '').toLowerCase().includes(bairro.toLowerCase()))     continue
-            if (logradouro && !(emp.logradouro || '').toLowerCase().includes(logradouro.toLowerCase())) continue
-            resultados.push(mapBrasilAPI(emp))
-          }
-        }
-      }
-    } catch {}
-  }
-
-  // Segundo fallback: busca pública ReceitaWS (sem autenticação, limitada)
-  if (resultados.length === 0) {
-    onProgresso('Tentando ReceitaWS...')
-    try {
-      // receitaws.com.br: GET /v1/consulta?cnpj=... — só por CNPJ
-      // Para busca por nome: usamos busca no portal público via proxy
-      // Estratégia: buscar CNAE + UF nos dados abertos da RFB (arquivo mensal)
-      // Como não há endpoint simples, retornamos erro orientado
-    } catch {}
-  }
-
-  return resultados
-}
-
-// Mapeamento nicho → código CNAE (aproximado para os nichos mais comuns)
-function mapNichoParaCNAE(nicho) {
-  const t = nicho.toLowerCase()
-  if (/contabilid|contador|escrit.*contab/.test(t))    return '6920601'
-  if (/advocacia|advogad|juridic/.test(t))             return '6911701'
-  if (/dentist|odontolog/.test(t))                     return '8630502'
-  if (/restaurante|lanchonete|alimenta/.test(t))       return '5611201'
-  if (/farmácia|farmacia|drogar/.test(t))              return '4771701'
-  if (/academia|palest|fitness|gym/.test(t))           return '9313100'
-  if (/médico|clinica|médica|saúde/.test(t))           return '8630502'
-  if (/imobili|corret.*imóv/.test(t))                  return '6821801'
-  if (/supermercado|mercado/.test(t))                  return '4711302'
-  if (/escola|educação|ensino/.test(t))                return '8511200'
-  if (/petshop|veterinár/.test(t))                     return '7500100'
-  if (/salão|cabeleirei|beleza/.test(t))               return '9602501'
-  if (/mecânica|auto.*serv|oficina/.test(t))           return '4520001'
-  if (/hotel|pousada|hospeda/.test(t))                 return '5510801'
-  if (/tecnologia|software|ti\b/.test(t))              return '6201500'
-  return null
-}
-
-function mapCnpja(emp) {
-  const company = emp.company || emp
-  const address = emp.address || {}
-  const phones  = company.phones || emp.phones || []
-  const fone    = (phones[0]?.number || '').replace(/\D/g,'')
-  const email   = company.emails?.[0]?.address || emp.email || ''
-  return {
-    id:          `rf_${company.tax_id?.replace(/\D/g,'')||Date.now()}`,
-    nome:        company.name || emp.razao_social || '',
-    fantasia:    company.alias || emp.nome_fantasia || company.name || '',
-    responsavel: company.members?.[0]?.person?.name || '',
-    cnpj:        (company.tax_id || emp.cnpj || '').replace(/\D/g,''),
-    telefone:    fone,
-    email,
-    site:        '',
-    logradouro:  address.street  || emp.logradouro || '',
-    numero:      address.number  || emp.numero || '',
-    complemento: address.details || emp.complemento || '',
-    bairro:      address.district|| emp.bairro || '',
-    cidade:      address.city    || emp.municipio || '',
-    uf:          address.state   || emp.uf || '',
-    cep:         (address.zip    || emp.cep || '').replace(/\D/g,''),
-    atividade:   company.primary_activity?.text || emp.cnae_fiscal_descricao || '',
-    fonte:       'Receita Federal',
-  }
-}
-
-function mapBrasilAPI(emp) {
-  const fone = (emp.ddd_telefone_1 || emp.ddd_telefone_2 || '').replace(/\D/g,'')
-  return {
-    id:          `rf_${(emp.cnpj||'').replace(/\D/g,'')||Date.now()}`,
-    nome:        emp.razao_social || '',
-    fantasia:    emp.nome_fantasia || emp.razao_social || '',
-    responsavel: emp.qsa?.[0]?.nome_socio || '',
-    cnpj:        (emp.cnpj || '').replace(/\D/g,''),
-    telefone:    fone,
-    email:       emp.email || '',
-    site:        '',
-    logradouro:  [emp.descricao_tipo_logradouro, emp.logradouro].filter(Boolean).join(' '),
-    numero:      emp.numero || '',
-    complemento: emp.complemento || '',
-    bairro:      emp.bairro || '',
-    cidade:      emp.municipio || '',
-    uf:          emp.uf || '',
-    cep:         (emp.cep || '').replace(/\D/g,''),
-    atividade:   emp.cnae_fiscal_descricao || '',
-    fonte:       'Receita Federal',
-  }
+  const data = await r.json()
+  return { resultados: data.resultados || [], erro: data.aviso || null }
 }
 
 // ─────────────────────────────────────────────────────
@@ -518,9 +370,8 @@ export default function GeradorLeads() {
       let erro = null
 
       if (fonte === 'receita') {
-        resultado = await buscarReceita(params)
-        if (resultado.length === 0)
-          erro = 'Nenhum resultado encontrado na Receita Federal para esse nicho/localização.\n\nDicas: use termos mais genéricos (ex: "contabil" ao invés de "escritório contábil"), ou tente o nicho em inglês/abreviado.\n\nO Gerador de Leads usa dados públicos da Receita Federal (CNPJ) via cnpja.com — alguns nichos têm cobertura limitada nos dados abertos.'
+        const res = await buscarReceita(params)
+        resultado = res.resultados; erro = res.erro
       } else if (fonte === 'google') {
         const res = await buscarGoogle({ ...params, apiKey: googleKey })
         resultado = res.resultados; erro = res.erro
