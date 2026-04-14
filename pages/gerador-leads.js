@@ -317,6 +317,7 @@ export default function GeradorLeads() {
   const [erroAPI,     setErroAPI]     = useState('')
   const [buscaFeita,  setBuscaFeita]  = useState(false)
   const [filtroLocal, setFiltroLocal] = useState('')
+  const [cnaesUsados, setCnaesUsados] = useState([]) // diagnóstico
 
   // Modal CRM
   const [showCRM,    setShowCRM]    = useState(false)
@@ -361,7 +362,7 @@ export default function GeradorLeads() {
     if (!uf)           { showToast('Selecione o estado (UF)', 'err'); return }
 
     setBuscando(true); setLeads([]); setSelecionados([])
-    setErroAPI(''); setBuscaFeita(false); setFiltroLocal('')
+    setErroAPI(''); setBuscaFeita(false); setFiltroLocal(''); setCnaesUsados([])
 
     const params = { nicho: nicho.trim(), uf, cidade: cidade.trim(), bairro: bairro.trim(), logradouro: logradouro.trim(), onProgresso: setProgresso }
 
@@ -370,8 +371,11 @@ export default function GeradorLeads() {
       let erro = null
 
       if (fonte === 'receita') {
+        setProgresso('Mapeando nicho para código CNAE...')
         const res = await buscarReceita(params)
-        resultado = res.resultados; erro = res.erro
+        resultado = res.resultados
+        erro      = res.erro
+        if (res.cnaes?.length) setCnaesUsados(res.cnaes)
       } else if (fonte === 'google') {
         const res = await buscarGoogle({ ...params, apiKey: googleKey })
         resultado = res.resultados; erro = res.erro
@@ -602,6 +606,14 @@ export default function GeradorLeads() {
 
             {erroAPI&&(
               <div className="av" style={{marginBottom:12,whiteSpace:'pre-line'}}>{erroAPI}</div>
+            )}
+
+            {/* Diagnóstico: CNAEs usados na busca */}
+            {cnaesUsados.length>0&&fonte==='receita'&&(
+              <div style={{background:'rgba(0,212,255,.04)',border:'1px solid rgba(0,212,255,.1)',borderRadius:8,padding:'8px 14px',marginBottom:12,fontSize:11,color:'var(--muted)'}}>
+                🔍 CNAEs pesquisados: <span style={{color:'var(--accent)',fontFamily:'monospace'}}>{cnaesUsados.join(' · ')}</span>
+                <span style={{marginLeft:8,color:'var(--muted)'}}>— {cnaesUsados.length} código{cnaesUsados.length!==1?'s':''} CNAE mapeado{cnaesUsados.length!==1?'s':''} para "{nicho}"</span>
+              </div>
             )}
 
             {leads.length>0&&(
