@@ -1,47 +1,49 @@
-// pages/_app.js
+// pages/_app.js — v2 com controle de acesso por módulo (tenant)
 import '../styles/globals.css';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabase';
 
+// Mapa de página → id do módulo (conforme cadastrado no Admin)
+const MODULO_DA_PAGINA = {
+  '/chat':           'chat',
+  '/crm':            'crm',
+  '/whatsapp-inbox': 'whatsapp_inbox',
+  '/gerador-leads':  'gerador_leads',
+  '/prospeccao':     'prospeccao',
+  '/marketing':      'marketing',
+  '/financeiro':     'financeiro',
+  '/reports':        'reports',
+  '/kpi':            'kpi',
+  '/configuracoes':  'configuracoes',
+}
+
 function ultimoDiaUtilAnterior() {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  while (d.getDay() === 0 || d.getDay() === 6) {
-    d.setDate(d.getDate() - 1);
-  }
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
 }
 
 function MyApp({ Component, pageProps }) {
-  const [session, setSession] = useState(null);
-  const [checkingKpi, setCheckingKpi] = useState(true);
+  const [session,       setSession]       = useState(null);
+  const [checkingKpi,   setCheckingKpi]   = useState(true);
+  const [semAcesso,     setSemAcesso]     = useState(false);
   const router = useRouter();
   const verificacaoFeita = useRef(false);
 
-  const publicPages = ['/', '/sign/[token]'];
-  const isPublicPage = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
-
-  // Páginas que NÃO bloqueiam pelo KPI e NÃO precisam de Navbar extra
-  const kpiExemptPages = ['/kpi', '/configuracoes', '/dashboard', '/reports'];
+  const publicPages    = ['/', '/sign/[token]'];
+  const isPublicPage   = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
+  const kpiExemptPages = ['/kpi', '/configuracoes', '/dashboard', '/reports', '/admin'];
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
-
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      if (event === 'SIGNED_OUT') {
-        verificacaoFeita.current = false;
-        router.push('/');
-      } else if (event === 'SIGNED_IN' && router.pathname === '/') {
-        // ✅ MUDANÇA: agora redireciona para /dashboard ao invés de /chat
-        router.push('/dashboard');
-      }
+      if (event === 'SIGNED_OUT') { verificacaoFeita.current = false; router.push('/'); }
+      else if (event === 'SIGNED_IN' && router.pathname === '/') router.push('/dashboard');
     });
-
-    return () => { authListener.subscription.unsubscribe(); };
+    return () => authListener.subscription.unsubscribe();
   }, [router]);
 
   useEffect(() => {
@@ -68,17 +70,37 @@ function MyApp({ Component, pageProps }) {
 
         const { data: row } = await supabase
           .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single();
-
         const cfg = row?.value ? JSON.parse(row.value) : {};
-        const kpiTemplates = cfg.kpiTemplates || [];
 
+        // ── Verificar acesso ao módulo da página atual ──────────
+        const moduloNecessario = MODULO_DA_PAGINA[router.pathname];
+        if (moduloNecessario && cfg.modulosAtivos?.length) {
+          const temAcesso = cfg.modulosAtivos.includes(moduloNecessario);
+          if (!temAcesso) {
+            setSemAcesso(true);
+            setCheckingKpi(false);
+            return;
+          }
+        }
+
+        // ── Verificar tenant status ──────────────────────────────
+        if (cfg.tenant_status === 'suspenso' || cfg.tenant_status === 'cancelado') {
+          // Bloquear tudo exceto dashboard
+          if (router.pathname !== '/dashboard') {
+            router.replace('/dashboard');
+            setCheckingKpi(false);
+            return;
+          }
+        }
+
+        // ── Verificar KPI obrigatório ────────────────────────────
+        const kpiTemplates = cfg.kpiTemplates || [];
         if (!cfg.kpiRequired || kpiTemplates.length === 0) {
           setCheckingKpi(false);
           return;
         }
 
         const diaVerificar = ultimoDiaUtilAnterior();
-
         const justSaved = sessionStorage.getItem('kpi_just_saved');
         if (justSaved === diaVerificar) {
           sessionStorage.removeItem('kpi_just_saved');
@@ -90,16 +112,14 @@ function MyApp({ Component, pageProps }) {
           l => l.userId === session.user.id && l.date === diaVerificar
         );
 
-        if (!jaPreencheu) {
-          if (!kpiExemptPages.includes(router.pathname)) {
-            router.replace(`/kpi?redirect=${encodeURIComponent(router.asPath)}&date=${diaVerificar}`);
-            return;
-          }
+        if (!jaPreencheu && !kpiExemptPages.includes(router.pathname)) {
+          router.replace(`/kpi?redirect=${encodeURIComponent(router.asPath)}&date=${diaVerificar}`);
+          return;
         }
 
         setCheckingKpi(false);
       } catch (err) {
-        console.error('Erro na verificação de KPI:', err);
+        console.error('Erro verificação:', err);
         setCheckingKpi(false);
       }
     };
@@ -107,21 +127,36 @@ function MyApp({ Component, pageProps }) {
     verificar();
   }, [session, router.pathname]);
 
-  if (isPublicPage) return <Component {...pageProps} />;
-  if (!session) return <Component {...pageProps} />;
+  if (isPublicPage)                          return <Component {...pageProps} />;
+  if (!session)                              return <Component {...pageProps} />;
   if (kpiExemptPages.includes(router.pathname)) return <Component {...pageProps} />;
 
-  if (checkingKpi) {
-    return (
-      <div style={{
-        background: '#0a0f1e', color: '#64748b', minHeight: '100vh',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: 'DM Mono, monospace', fontSize: 14
-      }}>
-        Carregando...
-      </div>
-    );
-  }
+  // Módulo sem acesso
+  if (semAcesso) return (
+    <div style={{
+      background: '#060c1a', color: '#64748b', minHeight: '100vh',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'DM Mono, monospace', gap: 12
+    }}>
+      <div style={{ fontSize: 48 }}>🔒</div>
+      <div style={{ fontSize: 16, color: '#e2e8f0', fontFamily: 'Syne, sans-serif', fontWeight: 700 }}>Módulo não disponível</div>
+      <div style={{ fontSize: 13 }}>Este módulo não está incluído no seu plano.</div>
+      <button onClick={() => router.push('/dashboard')}
+        style={{ marginTop: 16, padding: '10px 24px', background: '#00d4ff', border: 'none', borderRadius: 8, color: '#000', fontFamily: 'DM Mono, monospace', fontWeight: 700, cursor: 'pointer' }}>
+        Voltar ao Dashboard
+      </button>
+    </div>
+  );
+
+  if (checkingKpi) return (
+    <div style={{
+      background: '#060c1a', color: '#64748b', minHeight: '100vh',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'DM Mono, monospace', fontSize: 14
+    }}>
+      Carregando...
+    </div>
+  );
 
   return <Component {...pageProps} />;
 }
