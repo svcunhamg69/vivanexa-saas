@@ -1,4 +1,5 @@
 // pages/chat.js — Assistente Comercial Vivanexa SaaS v5
+// com suporte a templates DOCX (contrato/proposta) via docTemplates
 // ============================================================
 // v5 ADICIONA ao v4:
 // • Manifesto de assinatura no contrato (token + signatários)
@@ -43,6 +44,7 @@ const DEFAULT_CFG = {
   vouchers:[],
   clients:[],
   productNames:{'Gestão Fiscal':'Gestão Fiscal','CND':'CND','XML':'XML','BIA':'BIA','IF':'Inteligência Fiscal','EP':'e-PROCESSOS','Tributos':'Tributos'},
+  docTemplates: {},           // { proposta: 'base64 ou HTML', contrato: '...', propostaTipo: 'docx'|'html', contratoTipo: 'docx'|'html' }
 }
 const IF_NO_CNPJ = ['IF','Tributos','EP']
 const ALL_MODS   = ['Gestão Fiscal','BIA','CND','XML','IF','EP','Tributos']
@@ -165,6 +167,137 @@ function openPrint(html,title){
   <div class="tb"><button class="bp" onclick="window.print()">🖨 Imprimir / Salvar PDF</button><button class="bc" onclick="window.close()">✕ Fechar</button></div>
   ${html}</body></html>`)
   win.document.close();win.focus()
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PATCH: Geração de Contrato/Proposta com suporte DOCX
+// ══════════════════════════════════════════════════════════════════
+
+/**
+ * Detecta se o template é DOCX (base64) ou HTML/texto.
+ * @param {string} template
+ * @returns {'docx' | 'html'}
+ */
+function detectarTipoTemplate(template) {
+  if (!template) return 'html'
+  // Data-URL de DOCX começa com "data:application/vnd" ou "data:application/octet"
+  if (template.startsWith('data:application/vnd') ||
+      template.startsWith('data:application/octet') ||
+      template.startsWith('data:application/zip')) {
+    return 'docx'
+  }
+  // Base64 puro (sem prefixo) — heurística: sem espaços, chars válidos, muito comprido
+  if (template.length > 1000 && /^[A-Za-z0-9+/=]+$/.test(template.slice(0, 100))) {
+    return 'docx'
+  }
+  return 'html'
+}
+
+/**
+ * Gera e baixa o documento (contrato ou proposta) usando o template configurado.
+ *
+ * Se o template for DOCX → substitui variáveis e baixa o .docx
+ * Se o template for HTML → substitui variáveis e retorna o HTML (para visualização)
+ *
+ * @param {string} tipo - 'contrato' ou 'proposta'
+ * @param {Object} variaveis - Objeto com todas as variáveis
+ * @param {Object} cfg - Configuração da empresa (cfg.docTemplates)
+ * @param {string} nomeCliente - Para nomear o arquivo
+ * @returns {Promise<{html: string|null, docxBaixado: boolean}>}
+ */
+async function gerarDocumento(tipo, variaveis, cfg, nomeCliente) {
+  const template    = cfg.docTemplates?.[tipo]     || ''
+  const templateTipo = cfg.docTemplates?.[`${tipo}Tipo`] || detectarTipoTemplate(template)
+
+  if (!template) {
+    // Nenhum template configurado — usa o gerador padrão do sistema
+    return { html: null, docxBaixado: false }
+  }
+
+  if (templateTipo === 'docx') {
+    // ── MODO DOCX ──────────────────────────────────────────────
+    try {
+      // Importa dinâmico para não quebrar SSR (usa CDN)
+      const PizZip = (await import('https://unpkg.com/pizzip@3.1.7/dist/pizzip.js')).default
+        || window.PizZip
+      const Docxtemplater = window.docxtemplater
+        || (await import('https://unpkg.com/docxtemplater@3.49.0/build/docxtemplater.js')).default
+
+      if (!PizZip || !Docxtemplater) {
+        console.error('docxtemplater/pizzip não encontrado')
+        // Fallback: baixar base64 diretamente
+        _downloadBase64Docx(template, `${tipo}_${nomeCliente}.docx`)
+        return { html: null, docxBaixado: true }
+      }
+
+      // Converter base64 → ArrayBuffer
+      let b64 = template
+      if (b64.includes(',')) b64 = b64.split(',')[1]
+      const binaryStr = atob(b64)
+      const bytes = new Uint8Array(binaryStr.length)
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
+
+      const zip = new PizZip(bytes.buffer)
+      const doc = new Docxtemplater(zip, {
+        paragraphLoop: true,
+        nullGetter: () => '',
+      })
+
+      doc.render(variaveis)
+
+      const outZip = doc.getZip()
+      const blob = outZip.generate({
+        type: 'blob',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        compression: 'DEFLATE',
+      })
+
+      const nomeArquivo = `${tipo}_${(nomeCliente || 'cliente').replace(/[^a-zA-Z0-9_\-]/g, '_')}.docx`
+      const url = URL.createObjectURL(blob)
+      const a   = document.createElement('a')
+      a.href     = url
+      a.download = nomeArquivo
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      alert(`✅ ${tipo === 'contrato' ? 'Contrato' : 'Proposta'} baixado como DOCX! Abra no Word, revise e salve como PDF para assinatura.`)
+      return { html: null, docxBaixado: true }
+
+    } catch (err) {
+      console.error('Erro ao gerar DOCX:', err)
+      alert('⚠️ Erro ao processar o DOCX. Baixando o template original...')
+      _downloadBase64Docx(template, `${tipo}_template.docx`)
+      return { html: null, docxBaixado: true }
+    }
+  }
+
+  // ── MODO HTML ──────────────────────────────────────────────────
+  let html = template
+  for (const [chave, valor] of Object.entries(variaveis)) {
+    const regex = new RegExp(`\\{\\{${chave}\\}\\}`, 'g')
+    html = html.replace(regex, String(valor ?? ''))
+  }
+  return { html, docxBaixado: false }
+}
+
+/** Helper: baixa o base64 diretamente como DOCX */
+function _downloadBase64Docx(base64, nome) {
+  let b64 = base64
+  if (b64.includes(',')) b64 = b64.split(',')[1]
+  const binary = atob(b64)
+  const bytes  = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = nome
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 // ── Build Proposta (com suporte a template) ──────────────────
@@ -597,7 +730,7 @@ export default function Chat(){
       const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).single()
       if(row?.value){
         const saved=JSON.parse(row.value)
-        const merged={...DEFAULT_CFG,...saved,plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices}
+        const merged={...DEFAULT_CFG,...saved,plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices,docTemplates:saved.docTemplates||{}}
         cfgRef.current=merged
         setCfg(merged)
       }
@@ -823,7 +956,7 @@ export default function Chat(){
         const consultorE=docData.consultorEmail||docData.consultantEmail||userProfile?.email||''
         const dest=[clientE,consultorE].filter(Boolean)
         if(dest.length>0){
-          const htmlEmail=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#0f172a;padding:24px;text-align:center"><h1 style="color:#00d4ff;font-size:20px;margin:0">${cfgRef.current.company||'Vivanexa'}</h1></div><div style="padding:24px;background:#f8fafc"><h2 style="color:#065f46">✅ ${tipo} Assinado por Ambas as Partes</h2><p>O documento foi assinado com sucesso.</p><table style="width:100%;border-collapse:collapse;margin:16px 0"><tr style="background:#e2e8f0"><th style="padding:8px;text-align:left">Parte</th><th style="padding:8px;text-align:left">Nome</th><th style="padding:8px;text-align:left">Data/Hora</th></tr><tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">Cliente (Contratante)</td><td style="padding:8px;border-bottom:1px solid #e2e8f0">${docData.signedBy||'—'}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0">${docData.signedAt||'—'}</td></tr><tr><td style="padding:8px">Consultor (Contratada)</td><td style="padding:8px">${docData.consultantSignedBy||'—'}</td><td style="padding:8px">${docData.consultantSignedAt||'—'}</td></tr></table><p><a href="${url}" style="display:inline-block;background:#00d4ff;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Visualizar Documento Assinado</a></p></div></div>`
+          const htmlEmail=`<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto"><div style="background:#0f172a;padding:24px;text-align:center"><h1 style="color:#00d4ff;font-size:20px;margin:0">${cfgRef.current.company||'Vivanexa'}</h1></div><div style="padding:24px;background:#f8fafc"><h2 style="color:#065f46">✅ ${tipo} Assinado por Ambas as Partes</h2><p>O documento foi assinado com sucesso.</p><table style="width:100%;border-collapse:collapse;margin:16px 0"><tr style="background:#e2e8f0"><th style="padding:8px;text-align:left">Parte</th><th style="padding:8px;text-align:left">Nome</th><th style="padding:8px;text-align:left">Data/Hora</th><tr><tr><td style="padding:8px;border-bottom:1px solid #e2e8f0">Cliente (Contratante)</td><td style="padding:8px;border-bottom:1px solid #e2e8f0">${docData.signedBy||'—'}</td><td style="padding:8px;border-bottom:1px solid #e2e8f0">${docData.signedAt||'—'}</td></tr><tr><td style="padding:8px">Consultor (Contratada)</td><td style="padding:8px">${docData.consultantSignedBy||'—'}</td><td style="padding:8px">${docData.consultantSignedAt||'—'}</td></tr></table><p><a href="${url}" style="display:inline-block;background:#00d4ff;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Visualizar Documento Assinado</a></p></div></div>`
           try{
             await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
               body:JSON.stringify({to:dest.join(','),subject:`✅ ${tipo} – ${cfgRef.current.company||'Vivanexa'} – Assinado`,html:htmlEmail,
@@ -963,11 +1096,107 @@ export default function Chat(){
     }
   },[cfg])
 
+  // ── Funções auxiliares para construir variáveis dos templates ──
+  function buildVariaveisProposta(isClosing){
+    const c = cfgRef.current
+    const cd = S.clientData || {}
+    const co = S.contactData || {}
+    const tAd = isClosing ? (S.closingData?.tAd || 0) : (S.quoteData?.tAdD || 0)
+    const tMen = isClosing ? (S.closingData?.tMen || 0) : (S.quoteData?.tMenD || 0)
+    const results = isClosing ? S.closingData?.results : S.quoteData?.results
+    const produtosTabela = (results || []).map(r => {
+      const adS = (r.isTributos || r.isEP) ? '—' : fmt(isClosing ? r.ad : r.adD)
+      return `<tr><td>${r.name}${r.plan ? `<br><small>Plano ${getPlanLabel(r.plan, c.plans)}</small>` : ''}</td><td>${adS}</td><td>${fmt(isClosing ? r.men : (r.menD || r.men))}</td></tr>`
+    }).join('')
+    return {
+      empresa: co.empresa || cd.fantasia || cd.nome || '',
+      razao: co.razao || cd.nome || '',
+      cnpj: fmtDoc(S.doc || ''),
+      contato: co.contato || '',
+      email: co.email || cd.email || '',
+      telefone: co.telefone || cd.telefone || '',
+      cidade: co.cidade || cd.municipio || '',
+      uf: co.uf || cd.uf || '',
+      plano: S.plan ? getPlanLabel(S.plan, c.plans) : '—',
+      cnpjs_qty: String(S.cnpjs || '0'),
+      total_adesao: fmt(tAd),
+      total_mensalidade: fmt(tMen),
+      data_hoje: new Date().toLocaleDateString('pt-BR'),
+      consultor_nome: userProfile?.nome || '',
+      company: c.company || 'Vivanexa',
+      produtos_tabela: `<table border="1" cellpadding="6" cellspacing="0">${produtosTabela}</table>`,
+      produtos_lista: (results || []).map(r => `- ${r.name}: Adesão ${fmt(r.ad)} / Mensalidade ${fmt(r.men)}`).join('\n')
+    }
+  }
+
+  function buildVariaveisContrato(tAd, tMen, dateAd, dateMen, payMethod, token){
+    const c = cfgRef.current
+    const cd = S.clientData || {}
+    const co = S.contactData || {}
+    const endStr = [co.logradouro || cd.logradouro, co.bairro || cd.bairro, co.cidade || cd.municipio, co.uf || cd.uf].filter(Boolean).join(', ')
+    const payLabel = payMethod === 'pix' ? 'PIX / Boleto à vista'
+      : payMethod?.startsWith('cartao') ? `Cartão em até ${payMethod.replace('cartao','').replace('x','×')} sem juros`
+      : payMethod?.startsWith('boleto') ? `Boleto ${payMethod.replace('boleto','').replace('x','×')}×`
+      : payMethod
+    const results = S.closingToday ? S.closingData?.results : S.quoteData?.results
+    const produtosVertical = (results || []).map(r => {
+      const adS = (r.isTributos || r.isEP) ? '—' : fmt(S.closingToday ? r.ad : (r.adD || 0))
+      const menS = fmt(S.closingToday ? r.men : (r.menD || r.men || 0))
+      return `<div><strong>${r.name}</strong>${r.plan ? ` (Plano ${getPlanLabel(r.plan, c.plans)})` : ''}<br>Adesão: ${adS} | Mensalidade: ${menS}<br>CNPJs: ${S.cnpjs || '—'}</div>`
+    }).join('')
+    return {
+      empresa: co.empresa || cd.fantasia || cd.nome || '',
+      razao: co.razao || cd.nome || '',
+      cnpj: fmtDoc(S.doc || ''),
+      contato: co.contato || '',
+      email: co.email || cd.email || '',
+      telefone: co.telefone || cd.telefone || '',
+      endereco: endStr,
+      regime: co.regime || '',
+      plano: S.plan ? getPlanLabel(S.plan, c.plans) : '—',
+      cnpjs_qty: String(S.cnpjs || '0'),
+      total_adesao: fmt(tAd),
+      total_mensalidade: fmt(tMen),
+      condicao_pagamento: payLabel,
+      vencimento_adesao: dateAd || '—',
+      vencimento_mensal: dateMen || '—',
+      data_hora: new Date().toLocaleString('pt-BR'),
+      data_hoje: new Date().toLocaleDateString('pt-BR'),
+      consultor_nome: userProfile?.nome || '',
+      company: c.company || 'Vivanexa',
+      logo: c.logob64 ? `<img src="${c.logob64}" style="height:52px">` : '',
+      produtos_tabela: `<div>${produtosVertical}</div>`,
+      produtos_lista: produtosVertical,
+      nome_financeiro: co.rfinNome || '',
+      email_financeiro: co.rfinEmail || '',
+      telefone_financeiro: co.rfinTel || '',
+      nome_implementacao: co.rimpNome || '',
+      email_implementacao: co.rimpEmail || '',
+      telefone_implementacao: co.rimpTel || '',
+      token: token
+    }
+  }
+
   async function saveClient(){
     S.contactData={...cf};setShowClient(false)
     const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
     if(clientMode==='proposta'){
-      const html=buildProposal(S,cfgRef.current,userProfile)
+      const isClosing = S.closingToday === true
+      const variaveis = buildVariaveisProposta(isClosing)
+      // Verifica se há template configurado para proposta
+      const { html: htmlCustom, docxBaixado } = await gerarDocumento('proposta', variaveis, cfgRef.current, clientName)
+      if (docxBaixado) {
+        // DOCX baixado, apenas salva no histórico (sem HTML para visualização)
+        await saveToHistory('proposta', clientName, '', { tAd: variaveis.total_adesao, tMen: variaveis.total_mensalidade, clientEmail: cf.email, modulos: S.modules })
+        setSignDoc(null)
+        return
+      }
+      let html
+      if (htmlCustom) {
+        html = htmlCustom
+      } else {
+        html = buildProposal(S, cfgRef.current, userProfile)
+      }
       openPrint(html,'Proposta Comercial')
       const doc=await saveToHistory('proposta',clientName,html,{tAd:S.quoteData?.tAdD||0,tMen:S.quoteData?.tMenD||0,clientEmail:cf.email,modulos:S.modules})
       setSignDoc(doc);setSignEmailInput(cf.email||'')
@@ -987,10 +1216,23 @@ export default function Chat(){
       if(!wizMen){alert('Selecione a data da 1ª mensalidade.');return}
       setShowWiz(false)
       const token=generateToken()
-      const html=buildContract(S,cfgRef.current,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token)
-      openPrint(html,'Contrato')
-      const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
-      saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
+      const variaveis = buildVariaveisContrato(wizTAd, wizTMen, wizAd, wizMen, wizPay, token)
+      // Verifica se há template configurado para contrato
+      gerarDocumento('contrato', variaveis, cfgRef.current, cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente').then(async ({ html: htmlCustom, docxBaixado }) => {
+        if (docxBaixado) {
+          // DOCX baixado, salva no histórico
+          await saveToHistory('contrato', cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente', '', { tAd:wizTAd, tMen:wizTMen, clientEmail:cf.email, modulos:S.modules, pagamento:wizPay, vencAdesao:wizAd, vencMensal:wizMen, token })
+          setSignDoc(null)
+          return
+        }
+        let html
+        if (htmlCustom) {
+          html = htmlCustom
+        } else {
+          html = buildContract(S, cfgRef.current, userProfile, wizTAd, wizTMen, wizAd, wizMen, wizPay, token, {})
+        }
+        openPrint(html,'Contrato')
+        const doc = await saveToHistory('contrato', cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente', html, { tAd:wizTAd, tMen:wizTMen, clientEmail:cf.email, modulos:S.modules, pagamento:wizPay, vencAdesao:wizAd, vencMensal:wizMen, token })
         setSignDoc(doc);setSignEmailInput(cf.email||'')
         setTimeout(()=>setShowSign(true),600)
       })
@@ -1527,3 +1769,5 @@ const CSS=`
   .date-inp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;margin-top:6px}
   .date-inp:focus{border-color:var(--accent)}
 `
+
+export default Chat
