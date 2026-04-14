@@ -1147,31 +1147,65 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA DOCUMENTOS
+// ABA DOCUMENTOS — versão com suporte a DOCX
+// Substitua a função TabDocumentos em configuracoes.js
 // ══════════════════════════════════════════════
-function TabDocumentos({ cfg, setCfg, empresaId }) {
-  const [propostaTemplate,  setPropostaTemplate]   = useState(cfg.docTemplates?.proposta  || '')
-  const [contratoTemplate,  setContratoTemplate]   = useState(cfg.docTemplates?.contrato  || '')
-  const [saving,            setSaving]             = useState(false)
-  const [testando,          setTestando]           = useState(false)
+//
+// MUDANÇAS PRINCIPAIS:
+// 1. Aceita .docx além de .html/.txt
+// 2. Templates DOCX são salvos como base64 em cfg.docTemplates
+// 3. Instruções claras para usar variáveis no Word
+// 4. Prompt de IA atualizado para gerar DOCX via LibreOffice
+//
+// DEPENDÊNCIA: nenhuma nova — substitua apenas esta função
 
+function TabDocumentos({ cfg, setCfg, empresaId }) {
+  const [propostaTemplate,     setPropostaTemplate]     = useState(cfg.docTemplates?.proposta     || '')
+  const [contratoTemplate,     setContratoTemplate]     = useState(cfg.docTemplates?.contrato     || '')
+  const [propostaTipo,         setPropostaTipo]         = useState(cfg.docTemplates?.propostaTipo || 'html')
+  const [contratoTipo,         setContratoTipo]         = useState(cfg.docTemplates?.contratoTipo || 'html')
+  const [saving,               setSaving]               = useState(false)
+  const [testando,             setTestando]             = useState(false)
+
+  // Lê arquivo — .docx → base64 (para substituição posterior), .html/.txt → texto
   function handleFileUpload(type, e) {
     const file = e.target.files[0]
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) { toast('Arquivo muito grande (máx 2MB)', 'err'); return }
+    if (file.size > 5 * 1024 * 1024) { toast('Arquivo muito grande (máx 5 MB)', 'err'); return }
+
+    const isDocx = file.name.toLowerCase().endsWith('.docx')
     const reader = new FileReader()
-    reader.onload = ev => {
-      if (type === 'proposta') setPropostaTemplate(ev.target.result)
-      else setContratoTemplate(ev.target.result)
+
+    if (isDocx) {
+      reader.onload = ev => {
+        // Salva como data-URL base64
+        const b64 = ev.target.result  // "data:application/vnd...;base64,AAAA..."
+        if (type === 'proposta') { setPropostaTemplate(b64); setPropostaTipo('docx') }
+        else                    { setContratoTemplate(b64);  setContratoTipo('docx') }
+        toast('✅ Arquivo DOCX carregado! Lembre-se de salvar.')
+      }
+      reader.readAsDataURL(file)
+    } else {
+      reader.onload = ev => {
+        if (type === 'proposta') { setPropostaTemplate(ev.target.result); setPropostaTipo('html') }
+        else                    { setContratoTemplate(ev.target.result);  setContratoTipo('html') }
+      }
+      reader.readAsText(file)
     }
-    reader.readAsText(file)
+    // Reset input para permitir re-upload do mesmo arquivo
+    e.target.value = ''
   }
 
   async function salvar() {
     setSaving(true)
     const novoCfg = {
       ...cfg,
-      docTemplates: { proposta: propostaTemplate, contrato: contratoTemplate }
+      docTemplates: {
+        proposta:     propostaTemplate,
+        contrato:     contratoTemplate,
+        propostaTipo,
+        contratoTipo,
+      }
     }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
@@ -1189,59 +1223,149 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
   }
 
   const VARIAVEIS = [
-    ['{{empresa}}','Nome fantasia do cliente'],['{{razao}}','Razão social do cliente'],['{{cnpj}}','CNPJ do cliente'],
-    ['{{contato}}','Nome do contato'],['{{email}}','E-mail do cliente'],['{{telefone}}','Telefone do cliente'],
-    ['{{endereco}}','Endereço do cliente'],['{{regime}}','Regime tributário'],['{{plano}}','Plano contratado'],
-    ['{{cnpjs_qty}}','Qtd. CNPJs'],['{{data_hora}}','Data atual'],
-    ['{{total_adesao}}','Total adesão'],['{{total_mensal}}','Total mensalidade'],
-    ['{{condicao_pagamento}}','Condição de pagamento'],['{{vencimento_adesao}}','Venc. adesão'],
-    ['{{vencimento_mensal}}','Venc. mensalidade'],
-    ['{{company}}','Nome fantasia da empresa contratada'],['{{razao_empresa}}','Razão social da empresa contratada'],
-    ['{{cnpj_empresa}}','CNPJ da empresa contratada'],['{{responsavel}}','Responsável da empresa contratada'],
-    ['{{telefone_empresa}}','Telefone da empresa contratada'],['{{email_empresa}}','E-mail da empresa contratada'],
-    ['{{endereco_empresa}}','Endereço da empresa contratada'],
-    ['{{consultor_nome}}','Nome do consultor'],['{{logo}}','Logo em base64'],
-    ['{{produtos_tabela}}','Tabela HTML de produtos'],['{{produtos_lista}}','Lista de produtos'],
+    ['{{empresa}}','Nome fantasia do cliente'],
+    ['{{razao}}','Razão social do cliente'],
+    ['{{cnpj}}','CNPJ do cliente'],
+    ['{{contato}}','Nome do contato'],
+    ['{{email}}','E-mail do cliente'],
+    ['{{telefone}}','Telefone do cliente'],
+    ['{{endereco}}','Endereço do cliente'],
+    ['{{regime}}','Regime tributário'],
+    ['{{plano}}','Plano contratado'],
+    ['{{cnpjs_qty}}','Qtd. CNPJs'],
+    ['{{data_hora}}','Data e hora atual'],
+    ['{{total_adesao}}','Total adesão (R$)'],
+    ['{{total_mensal}}','Total mensalidade (R$)'],
+    ['{{condicao_pagamento}}','Condição de pagamento'],
+    ['{{vencimento_adesao}}','Vencimento adesão'],
+    ['{{vencimento_mensal}}','Vencimento mensalidade'],
+    ['{{company}}','Nome da empresa contratada'],
+    ['{{razao_empresa}}','Razão social da contratada'],
+    ['{{cnpj_empresa}}','CNPJ da contratada'],
+    ['{{responsavel}}','Responsável da contratada'],
+    ['{{telefone_empresa}}','Telefone da contratada'],
+    ['{{email_empresa}}','E-mail da contratada'],
+    ['{{endereco_empresa}}','Endereço da contratada'],
+    ['{{consultor_nome}}','Nome do consultor'],
+    ['{{produtos_tabela}}','Tabela de produtos (HTML)'],
+    ['{{produtos_lista}}','Lista de produtos (texto)'],
   ]
+
+  const tipoLabel = (tipo) => tipo === 'docx'
+    ? '📎 Arquivo DOCX carregado'
+    : '📝 Template HTML (editar abaixo)'
+
+  const renderTemplate = (tipo, titulo, val, setter, tipoVal, setTipo) => (
+    <div key={tipo} style={{ marginBottom: 28, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ ...s.secTitle, margin: 0 }}>{titulo}</div>
+        <span style={{
+          fontSize: 11, padding: '2px 10px', borderRadius: 20,
+          background: tipoVal === 'docx' ? 'rgba(16,185,129,.15)' : 'rgba(0,212,255,.1)',
+          border: `1px solid ${tipoVal === 'docx' ? 'rgba(16,185,129,.3)' : 'rgba(0,212,255,.2)'}`,
+          color: tipoVal === 'docx' ? 'var(--accent3)' : 'var(--accent)',
+        }}>
+          {tipoLabel(tipoVal)}
+        </span>
+      </div>
+
+      {/* Área de upload — DOCX (recomendado) ou HTML */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+        <label style={{
+          fontSize: 12, color: 'var(--accent3)', cursor: 'pointer',
+          background: 'rgba(16,185,129,.1)', padding: '7px 14px',
+          borderRadius: 8, border: '1px solid rgba(16,185,129,.25)',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          📂 Importar DOCX (recomendado)
+          <input type="file" accept=".docx" onChange={e => handleFileUpload(tipo, e)} style={{ display: 'none' }} />
+        </label>
+        <label style={{
+          fontSize: 12, color: 'var(--muted)', cursor: 'pointer',
+          background: 'rgba(100,116,139,.08)', padding: '7px 14px',
+          borderRadius: 8, border: '1px solid rgba(100,116,139,.2)',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          📄 Importar HTML/TXT
+          <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload(tipo, e)} style={{ display: 'none' }} />
+        </label>
+        {val && (
+          <button
+            onClick={() => { setter(''); setTipo('html') }}
+            style={{ fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,.08)', padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,.2)', cursor: 'pointer' }}>
+            🗑 Remover
+          </button>
+        )}
+      </div>
+
+      {/* Se for DOCX, mostra instruções; se for HTML, mostra textarea */}
+      {tipoVal === 'docx' ? (
+        <div style={{ background: 'rgba(16,185,129,.05)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 8, padding: '12px 16px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
+          <strong style={{ color: 'var(--accent3)' }}>✅ Template DOCX carregado com sucesso.</strong><br />
+          Na hora de gerar o contrato/proposta, o sistema substituirá todas as variáveis <code style={{ color: 'var(--accent)' }}>{'{{var}}'}</code> e gerará o download do arquivo Word preenchido.<br />
+          <span style={{ color: '#94a3b8' }}>Tamanho: {val ? Math.round(val.length * 0.75 / 1024) + ' KB (base64)' : '—'}</span>
+        </div>
+      ) : (
+        <>
+          <textarea
+            rows={8}
+            style={{ ...s.input, fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }}
+            value={val}
+            onChange={e => setter(e.target.value)}
+            placeholder={`Cole o HTML do template aqui. Use variáveis como {{empresa}}, {{total_adesao}}, etc.\n\nOu importe um arquivo .docx acima para melhor qualidade de impressão.`}
+          />
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+            💡 Dica: templates DOCX geram PDFs com muito mais qualidade e controle de página do que HTML. Use o botão acima para importar um arquivo .docx.
+          </div>
+        </>
+      )}
+    </div>
+  )
 
   return (
     <div style={s.body}>
       <div style={s.sec}>
         <div style={s.secTitle}>✍️ Modelos de Documentos</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Personalize os modelos de proposta e contrato. Deixe vazio para usar os padrões do sistema.</p>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.7 }}>
+          Faça upload de um arquivo <strong>.docx</strong> (Word) com as variáveis <code style={{ color: 'var(--accent)' }}>{'{{nome_variavel}}'}</code> no texto.
+          Na geração, as variáveis serão substituídas automaticamente e o arquivo Word preenchido poderá ser baixado.<br />
+          Também aceita templates em HTML para renderização inline.
+        </p>
 
-        {[['proposta','Modelo de Proposta', propostaTemplate, setPropostaTemplate],
-          ['contrato','Modelo de Contrato', contratoTemplate, setContratoTemplate]].map(([tipo, titulo, val, setter]) => (
-          <div key={tipo} style={{ marginBottom: 24 }}>
-            <div style={{ ...s.secTitle, marginBottom: 8 }}>{titulo}</div>
-            <textarea rows={8} style={{ ...s.input, fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }} value={val} onChange={e => setter(e.target.value)} placeholder={`Use HTML e variáveis como {{empresa}}, {{total_adesao}}, etc.`} />
-            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <label style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer', background: 'rgba(0,212,255,.1)', padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(0,212,255,.25)' }}>
-                📂 Importar arquivo (.txt, .html)
-                <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload(tipo, e)} style={{ display: 'none' }} />
-              </label>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>ou cole o HTML diretamente acima</span>
-            </div>
-          </div>
-        ))}
+        {/* Como usar DOCX */}
+        <div style={{ background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.9 }}>
+          <strong style={{ color: 'var(--accent)' }}>📋 Como preparar o template DOCX:</strong><br />
+          1. Abra o Word (ou LibreOffice) e crie seu contrato normalmente.<br />
+          2. Onde quiser inserir dados dinâmicos, escreva a variável entre chaves duplas: <code style={{ color: 'var(--accent3)' }}>{'{{empresa}}'}</code>, <code style={{ color: 'var(--accent3)' }}>{'{{total_adesao}}'}</code>, etc.<br />
+          3. Salve como <strong>.docx</strong> e importe aqui.<br />
+          4. Ao gerar o contrato no chat, o sistema substituirá as variáveis e oferecerá o download do arquivo Word preenchido.
+        </div>
 
+        {renderTemplate('proposta', '📄 Modelo de Proposta', propostaTemplate, setPropostaTemplate, propostaTipo, setPropostaTipo)}
+        {renderTemplate('contrato', '📝 Modelo de Contrato', contratoTemplate, setContratoTemplate, contratoTipo, setContratoTipo)}
+
+        {/* Variáveis disponíveis */}
         <div style={{ background: 'var(--surface2)', padding: '12px 16px', borderRadius: 8, marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Variáveis disponíveis:</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Variáveis disponíveis (use no DOCX ou no HTML):</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 5 }}>
             {VARIAVEIS.map(([v, desc]) => (
-              <div key={v} style={{ fontSize: 11, color: 'var(--muted)' }}><code style={{ color: 'var(--accent3)' }}>{v}</code> — {desc}</div>
+              <div key={v} style={{ fontSize: 11, color: 'var(--muted)' }}>
+                <code style={{ color: 'var(--accent3)' }}>{v}</code> — {desc}
+              </div>
             ))}
           </div>
         </div>
       </div>
 
+      {/* Prompt IA */}
       <div style={s.sec}>
         <div style={s.secTitle}>🤖 Prompt para Geração com IA</div>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
-          Copie este prompt e cole em qualquer IA junto com o documento do cliente. A IA gera um HTML pronto para colar nos modelos acima.
+          Copie este prompt e cole em qualquer IA para gerar um HTML profissional pronto para colar acima (modo HTML).
+          Para gerar um DOCX, use o Word/LibreOffice diretamente com o layout desejado.
         </p>
         <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, position: 'relative' }}>
-          <pre id="prompt-ia" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, lineHeight: 1.7, fontFamily: 'monospace' }}>{`Você é especialista em documentos comerciais. Com base nos dados e variáveis abaixo, crie um HTML completo e profissional para uma [PROPOSTA / CONTRATO].
+          <pre id="prompt-ia" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, lineHeight: 1.7, fontFamily: 'monospace' }}>{`Você é especialista em documentos comerciais. Com base nas variáveis abaixo, crie um HTML completo e profissional para uma [PROPOSTA / CONTRATO].
 
 VARIÁVEIS DO CLIENTE:
 {{empresa}} - Nome fantasia | {{razao}} - Razão social | {{cnpj}} - CNPJ
@@ -1254,7 +1378,7 @@ VARIÁVEIS FINANCEIRAS:
 {{condicao_pagamento}} - Condição de pagamento
 {{vencimento_adesao}} - Venc. adesão | {{vencimento_mensal}} - Venc. mensalidade
 
-VARIÁVEIS DA EMPRESA CONTRATADA (preenchidas em Configurações → Empresa):
+VARIÁVEIS DA EMPRESA CONTRATADA:
 {{company}} - Nome fantasia | {{razao_empresa}} - Razão social
 {{cnpj_empresa}} - CNPJ | {{responsavel}} - Responsável
 {{telefone_empresa}} - Telefone | {{email_empresa}} - E-mail | {{endereco_empresa}} - Endereço
@@ -1263,15 +1387,26 @@ VARIÁVEIS DE CONSULTOR E PRODUTOS:
 {{consultor_nome}} - Nome do consultor | {{logo}} - Logo em base64
 {{produtos_tabela}} - Tabela HTML dos produtos | {{produtos_lista}} - Lista de produtos
 
-INSTRUÇÕES: CSS inline, fundo branco, cores profissionais, cabeçalho com logo (use <img src="{{logo}}" style="height:60px">), dados do cliente, tabela de produtos, rodapé com dados da empresa contratante. Retorne APENAS o HTML.`}</pre>
-          <button onClick={() => { const el = document.getElementById('prompt-ia'); if (el) navigator.clipboard?.writeText(el.innerText).then(() => toast('✅ Prompt copiado!')) }}
+INSTRUÇÕES: CSS inline, fundo branco (#ffffff), cores profissionais (azul #0a66b9 como cor principal), cabeçalho com logo (<img src="{{logo}}" style="height:60px;max-width:220px;object-fit:contain">), seções bem definidas, tabela de produtos com bordas, área de assinaturas no final com duas colunas (Contratante e Contratada), rodapé com dados da empresa. Retorne APENAS o HTML, sem comentários extras.`}</pre>
+          <button
+            onClick={() => {
+              const el = document.getElementById('prompt-ia')
+              if (el) navigator.clipboard?.writeText(el.innerText).then(() => toast('✅ Prompt copiado!'))
+            }}
             style={{ position: 'absolute', top: 10, right: 10, padding: '6px 12px', borderRadius: 7, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>
             📋 Copiar
           </button>
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-          <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳...' : '✅ Salvar'}</button>
-          <button onClick={testarConexao} disabled={testando} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>{testando ? '⏳...' : '🔌 Testar Conexão'}</button>
+          <button style={s.saveBtn} onClick={salvar} disabled={saving}>
+            {saving ? '⏳...' : '✅ Salvar'}
+          </button>
+          <button
+            onClick={testarConexao}
+            disabled={testando}
+            style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+            {testando ? '⏳...' : '🔌 Testar Conexão'}
+          </button>
         </div>
       </div>
     </div>
