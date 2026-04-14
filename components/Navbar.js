@@ -31,9 +31,9 @@ const MENU = [
     color: '#7c3aed',
     subs: [
       { label: 'Campanhas IA',         icon: '🎯', href: '/marketing?aba=campanhas' },
-      { label: 'Geração de Imagens',   icon: '🖼️', href: '/marketing?aba=imagens' },
+
       { label: 'Agenda de Publicação', icon: '📅', href: '/marketing?aba=agenda' },
-      { label: 'Script / Playbook',    icon: '📝', href: '/marketing?aba=script' },
+      { label: 'Geração de Conteúdo', icon: '✨', href: '/marketing?aba=imagens' },
     ],
   },
 
