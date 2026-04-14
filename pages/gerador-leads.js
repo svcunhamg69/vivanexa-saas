@@ -291,14 +291,18 @@ export default function GeradorLeads() {
         const r = await fetch('/api/leads/buscar-receita', {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
-            nicho:       nicho.trim(),
-            cnaeManual:  cnaeManual.trim(),
-            uf, cidade:  cidade.trim(),
-            bairro:      bairro.trim(),
-            logradouro:  logradouro.trim(),
+            nicho:        nicho.trim(),
+            cnaeManual:   cnaeManual.trim(),
+            uf,
+            cidade:       cidade.trim(),
+            bairro:       bairro.trim(),
+            logradouro:   logradouro.trim(),
             situacaoFiltro,
-            dataInicioDe: dataInicioDe||undefined,
-            dataInicioAte: dataInicioAte||undefined,
+            dataInicioDe: dataInicioDe  || undefined,
+            dataInicioAte: dataInicioAte || undefined,
+            apenasNovas,
+            diasNovas,
+            empresaId,   // permite que a API leia o token salvo nas configurações
           }),
           signal: AbortSignal.timeout(180000),
         })
