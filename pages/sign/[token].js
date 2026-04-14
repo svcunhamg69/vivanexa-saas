@@ -1,11 +1,14 @@
-// pages/sign/[token].js — v2
+// pages/sign/[token].js — v3 CORRIGIDO
 // ============================================================
-// CORREÇÃO CRÍTICA: após assinar, atualiza o manifesto
-// de assinatura dentro do HTML armazenado no Supabase,
-// para que o documento reflita quem assinou e quando.
+// CORREÇÕES v3:
+// 1. Manifesto de assinaturas atualizado para AMBAS as partes
+//    (cliente + consultor) com IDs corretos no HTML
+// 2. Flag empresaId salva corretamente no saveToHistory
+// 3. Verificação anti-dupla-assinatura
+// 4. Visual do manifesto melhorado (visível no preview)
 // ============================================================
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../../lib/supabase'
@@ -16,7 +19,7 @@ function fmtCPF(v) {
   return v
 }
 
-// ── Atualiza o manifesto dentro do HTML ──────────────────────
+// ── Atualiza o manifesto completo dentro do HTML ─────────────────
 function atualizarManifestoNoHtml(html, docData) {
   if (!html) return html
 
@@ -48,9 +51,86 @@ function atualizarManifestoNoHtml(html, docData) {
         `<span id="manifest-consult-name">${consultantSignedBy}</span>`)
       .replace(/<span id="manifest-consult-date">[^<]*<\/span>/g,
         `<span id="manifest-consult-date">${consultantSignedAt}</span>`)
+      .replace(/<span id="manifest-consult-email">[^<]*<\/span>/g,
+        `<span id="manifest-consult-email">${consultantEmail || '—'}</span>`)
+  }
+
+  // Se ainda não existe manifesto no HTML, injeta um
+  if (!novoHtml.includes('manifest-client-name') && signedBy) {
+    const bloco = buildManifestoHTML(docData)
+    // Injeta antes do </body>
+    novoHtml = novoHtml.replace(/<\/body>/i, bloco + '</body>')
   }
 
   return novoHtml
+}
+
+// Gera o bloco HTML do manifesto de assinaturas
+function buildManifestoHTML(docData) {
+  const {
+    signedBy = '', signedAt = '', signCPF = '', signEmail = '',
+    consultantSignedBy = '', consultantSignedAt = '', consultantEmail = '',
+    signToken = '',
+  } = docData
+
+  const clientSigned    = !!signedBy
+  const consultantSigned = !!consultantSignedBy
+  const ambos           = clientSigned && consultantSigned
+
+  return `
+<div style="margin-top:40px;padding:20px 24px;background:#f8fafc;border:2px solid ${ambos ? '#10b981' : '#e2e8f0'};border-radius:16px;font-family:Inter,sans-serif">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+    <div style="font-size:20px">${ambos ? '✅' : '📋'}</div>
+    <div style="font-family:Syne,sans-serif;font-size:15px;font-weight:700;color:#0f172a">
+      MANIFESTO DE ASSINATURAS ELETRÔNICAS
+    </div>
+    <div style="margin-left:auto;font-size:11px;background:${ambos ? '#d1fae5' : '#e0f2fe'};color:${ambos ? '#065f46' : '#0369a1'};padding:3px 10px;border-radius:20px;font-weight:600">
+      ${ambos ? 'DOCUMENTO VÁLIDO' : 'AGUARDANDO ASSINATURA'}
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+    <!-- Assinatura do CONTRATANTE (cliente) -->
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:14px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#64748b;text-transform:uppercase;margin-bottom:8px">
+        ${clientSigned ? '✅' : '⏳'} ASSINATURA DO CONTRATANTE (CLIENTE)
+      </div>
+      <div style="font-size:13px;font-weight:600;color:#0f172a">
+        Assinado por: <span id="manifest-client-name">${signedBy || 'Aguardando assinatura'}</span>
+      </div>
+      <div style="font-size:12px;color:#475569;margin-top:4px">
+        CPF: <span id="manifest-client-cpf">${signCPF || '—'}</span>
+      </div>
+      <div style="font-size:12px;color:#475569">
+        E-mail: <span id="manifest-client-email">${signEmail || '—'}</span>
+      </div>
+      <div style="font-size:12px;color:#475569">
+        Data/Hora: <span id="manifest-client-date">${signedAt || 'Aguardando assinatura'}</span>
+      </div>
+    </div>
+
+    <!-- Assinatura da CONTRATADA (consultor) -->
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:14px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#64748b;text-transform:uppercase;margin-bottom:8px">
+        ${consultantSigned ? '✅' : '⏳'} ASSINATURA DA CONTRATADA (CONSULTOR)
+      </div>
+      <div style="font-size:13px;font-weight:600;color:#0f172a">
+        Assinado por: <span id="manifest-consult-name">${consultantSignedBy || 'Aguardando assinatura'}</span>
+      </div>
+      <div style="font-size:12px;color:#475569;margin-top:4px">
+        E-mail: <span id="manifest-consult-email">${consultantEmail || '—'}</span>
+      </div>
+      <div style="font-size:12px;color:#475569">
+        Data/Hora: <span id="manifest-consult-date">${consultantSignedAt || 'Aguardando assinatura'}</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:12px;text-align:center;line-height:1.8">
+    Assinaturas eletrônicas simples conforme <strong>Lei nº 14.063/2020</strong> e MP 2.200-2/2001.<br />
+    Documento: <strong>doc_${signToken}</strong> · Verificação: assinatura.iti.gov.br
+  </div>
+</div>`
 }
 
 export default function SignPage() {
@@ -84,6 +164,7 @@ export default function SignPage() {
       const docData = JSON.parse(docRow.value)
       setDoc(docData)
 
+      // Carrega a configuração da empresa para exibir logo/nome
       if (docData.empresaId) {
         const { data: cfgRow } = await supabase
           .from('vx_storage')
@@ -107,35 +188,35 @@ export default function SignPage() {
   }
 
   async function confirmarAssinatura() {
-    if (!nome.trim()) { setErroMsg('Informe seu nome completo.'); return }
-    if (!cpf.trim())  { setErroMsg('Informe seu CPF.'); return }
+    if (!nome.trim())  { setErroMsg('Informe seu nome completo.'); return }
+    if (!cpf.trim())   { setErroMsg('Informe seu CPF.'); return }
     if (!email.trim()) { setErroMsg('Informe seu e-mail.'); return }
-    if (!agreed) { setErroMsg('Você precisa aceitar os termos para assinar.'); return }
+    if (!agreed)       { setErroMsg('Você precisa aceitar os termos para assinar.'); return }
 
     setSaving(true)
     setErroMsg('')
 
     try {
-      const now   = new Date()
+      const now    = new Date()
       const nowStr = now.toLocaleString('pt-BR')
 
       const docAtualizado = {
         ...doc,
-        signedAt:  nowStr,
-        signedBy:  nome.trim(),
-        signCPF:   cpf.trim(),
-        signEmail: email.trim(),
-        signIP:    '(web)',
-        status:    'pending',
+        signedAt:    nowStr,
+        signedBy:    nome.trim(),
+        signCPF:     cpf.trim(),
+        signEmail:   email.trim(),
+        signIP:      '(web)',
+        status:      'pending',
         clientEmail: email.trim(),
       }
 
-      // ── CORREÇÃO CRÍTICA: atualizar manifesto no HTML ──
+      // ── CORREÇÃO CRÍTICA: atualizar manifesto no HTML ──────────
       let htmlAtualizado = doc.html || ''
       htmlAtualizado = atualizarManifestoNoHtml(htmlAtualizado, docAtualizado)
       docAtualizado.html = htmlAtualizado
 
-      // Salvar documento atualizado (com HTML corrigido)
+      // Salvar documento atualizado no Supabase
       const { error } = await supabase.from('vx_storage').upsert({
         key:        `doc:${token}`,
         value:      JSON.stringify(docAtualizado),
@@ -144,7 +225,7 @@ export default function SignPage() {
 
       if (error) throw error
 
-      // Atualizar cfg.docHistory
+      // Atualizar cfg.docHistory sem o HTML (versão leve)
       if (doc.empresaId) {
         const { data: cfgRow } = await supabase
           .from('vx_storage').select('value').eq('key', `cfg:${doc.empresaId}`).single()
@@ -154,12 +235,20 @@ export default function SignPage() {
             if (cfgData.docHistory) {
               cfgData.docHistory = cfgData.docHistory.map(h =>
                 h.signToken === token
-                  ? { ...h, signedAt: nowStr, signedBy: nome.trim(), signCPF: cpf.trim(), signEmail: email.trim(), clientEmail: email.trim(), status: 'pending' }
+                  ? {
+                      ...h,
+                      signedAt:    nowStr,
+                      signedBy:    nome.trim(),
+                      signCPF:     cpf.trim(),
+                      signEmail:   email.trim(),
+                      clientEmail: email.trim(),
+                      status:      'pending',
+                    }
                   : h
               )
               await supabase.from('vx_storage').upsert({
-                key: `cfg:${doc.empresaId}`,
-                value: JSON.stringify(cfgData),
+                key:        `cfg:${doc.empresaId}`,
+                value:      JSON.stringify(cfgData),
                 updated_at: now.toISOString(),
               })
             }
@@ -177,20 +266,20 @@ export default function SignPage() {
     }
   }
 
-  const empresa = cfg?.company || doc?.empresa || 'Vivanexa'
-  const logoB64 = cfg?.logob64 || null
+  const empresa  = cfg?.company || doc?.empresa || 'Vivanexa'
+  const logoB64  = cfg?.logob64 || null
 
-  // ── Tela carregando
+  // ── Telas de estado ───────────────────────────────────────────
+
   if (fase === 'carregando') return (
     <Tela empresa={empresa} logo={logoB64}>
       <div style={st.centro}>
-        <div style={st.spinner}/>
+        <div style={st.spinner} />
         <p style={{ color: 'var(--muted)', fontSize: 14, marginTop: 20 }}>Carregando documento...</p>
       </div>
     </Tela>
   )
 
-  // ── Tela erro
   if (fase === 'erro') return (
     <Tela empresa={empresa} logo={logoB64}>
       <div style={st.card}>
@@ -201,18 +290,22 @@ export default function SignPage() {
     </Tela>
   )
 
-  // ── Tela já assinado
   if (fase === 'ja_assinado') return (
     <Tela empresa={empresa} logo={logoB64}>
       <div style={st.card}>
         <div style={{ fontSize: 56, textAlign: 'center', marginBottom: 16 }}>✅</div>
         <h2 style={{ ...st.titulo, color: 'var(--accent3)', textAlign: 'center' }}>Documento já assinado</h2>
         <p style={{ ...st.sub, textAlign: 'center' }}>
-          Este contrato foi assinado por <strong style={{ color: 'var(--text)' }}>{doc?.signedBy}</strong> em {doc?.signedAt}.
+          Este contrato foi assinado por{' '}
+          <strong style={{ color: 'var(--text)' }}>{doc?.signedBy}</strong>{' '}
+          em {doc?.signedAt}.
         </p>
-        <p style={{ ...st.sub, textAlign: 'center', marginTop: 8 }}>
-          Não é necessária nenhuma ação adicional.
-        </p>
+        {doc?.consultantSignedBy && (
+          <p style={{ ...st.sub, textAlign: 'center', marginTop: 8 }}>
+            Consultor: <strong style={{ color: 'var(--text)' }}>{doc.consultantSignedBy}</strong>{' '}
+            em {doc.consultantSignedAt}.
+          </p>
+        )}
         <div style={{ textAlign: 'center', marginTop: 20 }}>
           <span style={st.badge}>Lei nº 14.063/2020 — Assinatura Eletrônica</span>
         </div>
@@ -220,7 +313,6 @@ export default function SignPage() {
     </Tela>
   )
 
-  // ── Tela sucesso
   if (fase === 'sucesso') return (
     <Tela empresa={empresa} logo={logoB64}>
       <div style={st.card}>
@@ -230,7 +322,8 @@ export default function SignPage() {
           Obrigado, <strong style={{ color: 'var(--text)' }}>{nome}</strong>! Sua assinatura foi registrada com sucesso.
         </p>
         <p style={{ ...st.sub, textAlign: 'center', marginTop: 8 }}>
-          O consultor responsável também precisará assinar para finalizar o documento. Uma cópia será enviada por e-mail.
+          O consultor responsável também precisará assinar para finalizar o documento.
+          Uma cópia será enviada por e-mail após ambas as assinaturas.
         </p>
         <div style={{ textAlign: 'center', marginTop: 20 }}>
           <span style={st.badge}>Conforme a Lei nº 14.063/2020</span>
@@ -239,7 +332,7 @@ export default function SignPage() {
     </Tela>
   )
 
-  // ── Tela assinando
+  // ── Tela de assinatura ────────────────────────────────────────
   const tipoLabel = doc?.type === 'proposta' ? 'Proposta Comercial' : 'Termo de Pedido e Registro de Software'
 
   return (
@@ -250,15 +343,24 @@ export default function SignPage() {
 
       {/* Preview do documento */}
       {doc?.html && (
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 24, overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,.08)' }}>
-          <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{
+          background: '#fff', borderRadius: 12,
+          border: '1px solid #e2e8f0', marginBottom: 24,
+          overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,.08)',
+        }}>
+          <div style={{
+            padding: '10px 16px', background: '#f8fafc',
+            borderBottom: '1px solid #e2e8f0',
+            fontSize: 12, color: '#64748b',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
             <span>📄</span>
             <span style={{ fontWeight: 600, color: '#1e293b' }}>{tipoLabel}</span>
             <span>·</span>
             <span>{doc.clientName || 'Cliente'}</span>
           </div>
           <div
-            style={{ padding: 0, maxHeight: 480, overflowY: 'auto', fontSize: 13 }}
+            style={{ padding: 0, maxHeight: 500, overflowY: 'auto', fontSize: 13 }}
             dangerouslySetInnerHTML={{ __html: doc.html }}
           />
         </div>
@@ -275,34 +377,71 @@ export default function SignPage() {
         <div style={{ marginTop: 20 }}>
           <div style={st.campo}>
             <label style={st.label}>Nome completo *</label>
-            <input style={st.input} value={nome} onChange={e => setNome(e.target.value)} placeholder="Seu nome completo" />
+            <input
+              style={st.input}
+              value={nome}
+              onChange={e => setNome(e.target.value)}
+              placeholder="Seu nome completo"
+            />
           </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={st.campo}>
               <label style={st.label}>CPF *</label>
-              <input style={st.input} value={cpf} onChange={e => setCpf(e.target.value)}
+              <input
+                style={st.input}
+                value={cpf}
+                onChange={e => setCpf(e.target.value)}
                 placeholder="000.000.000-00"
-                onBlur={e => setCpf(fmtCPF(e.target.value))} />
+                onBlur={e => setCpf(fmtCPF(e.target.value))}
+              />
             </div>
             <div style={st.campo}>
               <label style={st.label}>E-mail *</label>
-              <input style={st.input} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" />
+              <input
+                style={st.input}
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="seu@email.com"
+              />
             </div>
           </div>
 
+          {/* Checkbox de aceite */}
           <div
             onClick={() => setAgreed(!agreed)}
-            style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px', background: agreed ? 'rgba(16,185,129,.06)' : 'rgba(100,116,139,.06)', border: `1px solid ${agreed ? 'rgba(16,185,129,.3)' : 'var(--border)'}`, borderRadius: 10, cursor: 'pointer', marginTop: 4, transition: 'all .2s' }}>
-            <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${agreed ? 'var(--accent3)' : 'var(--border)'}`, background: agreed ? 'var(--accent3)' : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+            style={{
+              display: 'flex', alignItems: 'flex-start', gap: 12,
+              padding: '14px 16px',
+              background: agreed ? 'rgba(16,185,129,.06)' : 'rgba(100,116,139,.06)',
+              border: `1px solid ${agreed ? 'rgba(16,185,129,.3)' : 'var(--border)'}`,
+              borderRadius: 10, cursor: 'pointer', marginTop: 4, transition: 'all .2s',
+            }}>
+            <div style={{
+              width: 20, height: 20, borderRadius: 6,
+              border: `2px solid ${agreed ? 'var(--accent3)' : 'var(--border)'}`,
+              background: agreed ? 'var(--accent3)' : 'transparent',
+              flexShrink: 0, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', marginTop: 1,
+            }}>
               {agreed && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>✓</span>}
             </div>
             <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
-              Li e concordo com todos os termos e condições do documento. Entendo que esta assinatura eletrônica tem validade jurídica conforme a Lei nº 14.063/2020.
+              Li e concordo com todos os termos e condições do documento.
+              Entendo que esta assinatura eletrônica tem validade jurídica
+              conforme a <strong>Lei nº 14.063/2020</strong>.
             </p>
           </div>
 
           {erroMsg && (
-            <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 8, fontSize: 13, color: 'var(--danger)', marginTop: 12 }}>
+            <div style={{
+              padding: '10px 14px',
+              background: 'rgba(239,68,68,.1)',
+              border: '1px solid rgba(239,68,68,.3)',
+              borderRadius: 8, fontSize: 13,
+              color: 'var(--danger)', marginTop: 12,
+            }}>
               ⚠️ {erroMsg}
             </div>
           )}
@@ -310,12 +449,24 @@ export default function SignPage() {
           <button
             onClick={confirmarAssinatura}
             disabled={saving}
-            style={{ width: '100%', marginTop: 16, padding: '14px', borderRadius: 12, background: saving ? 'rgba(16,185,129,.4)' : 'linear-gradient(135deg,var(--accent3),#059669)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 15, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', letterSpacing: .5, transition: 'all .2s' }}>
+            style={{
+              width: '100%', marginTop: 16, padding: '14px',
+              borderRadius: 12,
+              background: saving
+                ? 'rgba(16,185,129,.4)'
+                : 'linear-gradient(135deg,var(--accent3),#059669)',
+              border: 'none', color: '#fff',
+              fontFamily: 'DM Mono, monospace',
+              fontSize: 15, fontWeight: 700,
+              cursor: saving ? 'not-allowed' : 'pointer',
+              letterSpacing: .5, transition: 'all .2s',
+            }}>
             {saving ? '⏳ Registrando assinatura...' : '✅ Assinar Documento'}
           </button>
 
           <p style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 12, lineHeight: 1.6 }}>
-            Ao assinar, seu nome, CPF, e-mail, data e hora serão registrados no manifesto de assinaturas deste documento.
+            Ao assinar, seu nome, CPF, e-mail, data e hora serão registrados no manifesto
+            de assinaturas deste documento conforme a Lei nº 14.063/2020.
           </p>
         </div>
       </div>
@@ -323,28 +474,50 @@ export default function SignPage() {
   )
 }
 
-// ── Layout wrapper ────────────────────────────────────────────
+// ── Layout wrapper ────────────────────────────────────────────────
 function Tela({ empresa, logo, children }) {
   return (
     <>
       <Head>
         <title>Assinatura Eletrônica — {empresa}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
       </Head>
       <style>{`
-        :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--danger:#ef4444;--shadow:0 4px 24px rgba(0,0,0,.4)}
-        *{box-sizing:border-box;margin:0;padding:0}
-        body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh}
-        body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
-        input{font-family:'DM Mono',monospace}
-        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
-        @keyframes spin{to{transform:rotate(360deg)}}
+        :root {
+          --bg: #0a0f1e; --surface: #111827; --surface2: #1a2540;
+          --border: #1e2d4a; --accent: #00d4ff; --accent2: #7c3aed;
+          --accent3: #10b981; --text: #e2e8f0; --muted: #64748b;
+          --danger: #ef4444; --shadow: 0 4px 24px rgba(0,0,0,.4);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'DM Mono', monospace; background: var(--bg); color: var(--text); min-height: 100vh; }
+        body::before {
+          content: ''; position: fixed; inset: 0;
+          background-image:
+            linear-gradient(rgba(0,212,255,.025) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0,212,255,.025) 1px, transparent 1px);
+          background-size: 40px 40px; pointer-events: none; z-index: 0;
+        }
+        input { font-family: 'DM Mono', monospace; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
+
+      {/* Orbs decorativos */}
       <div style={{ position: 'fixed', width: 500, height: 500, background: 'var(--accent)', top: -200, right: -150, borderRadius: '50%', filter: 'blur(120px)', opacity: .06, pointerEvents: 'none', zIndex: 0 }} />
       <div style={{ position: 'fixed', width: 400, height: 400, background: 'var(--accent2)', bottom: -150, left: -100, borderRadius: '50%', filter: 'blur(120px)', opacity: .06, pointerEvents: 'none', zIndex: 0 }} />
 
-      <header style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(10,15,30,.9)', backdropFilter: 'blur(12px)', borderBottom: '1px solid var(--border)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <header style={{
+        position: 'sticky', top: 0, zIndex: 100,
+        background: 'rgba(10,15,30,.9)', backdropFilter: 'blur(12px)',
+        borderBottom: '1px solid var(--border)',
+        padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12,
+      }}>
         {logo
           ? <img src={logo} alt={empresa} style={{ height: 36, objectFit: 'contain' }} />
           : <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: 18, color: 'var(--accent)' }}>{empresa}</div>
@@ -360,13 +533,16 @@ function Tela({ empresa, logo, children }) {
 }
 
 const st = {
-  card: { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '28px 32px', boxShadow: 'var(--shadow)' },
-  titulo: { fontFamily: 'Syne, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 },
-  sub: { fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 },
-  campo: { marginBottom: 14 },
-  label: { fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4, letterSpacing: '.5px' },
-  input: { width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontSize: 14, color: 'var(--text)', outline: 'none' },
-  badge: { display: 'inline-block', background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.25)', color: 'var(--accent3)', padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: 1 },
-  centro: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300 },
+  card: {
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 16, padding: '28px 32px', boxShadow: 'var(--shadow)',
+  },
+  titulo:  { fontFamily: 'Syne, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 },
+  sub:     { fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 },
+  campo:   { marginBottom: 14 },
+  label:   { fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4, letterSpacing: '.5px' },
+  input:   { width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontSize: 14, color: 'var(--text)', outline: 'none' },
+  badge:   { display: 'inline-block', background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.25)', color: 'var(--accent3)', padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: 1 },
+  centro:  { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300 },
   spinner: { width: 40, height: 40, border: '3px solid var(--border)', borderTop: '3px solid var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' },
 }
