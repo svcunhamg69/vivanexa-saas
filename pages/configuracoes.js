@@ -1456,7 +1456,9 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   const [testNum,    setTestNum]    = React.useState('')
   const [saving,     setSaving]     = React.useState(false)
   const [testing,    setTesting]    = React.useState(false)
-  const [msg,        setMsg]        = React.useState('')
+  const [cnpjApiToken, setCnpjApiToken] = React.useState(cfg.cnpjApiToken || '')
+  const [testingApi,   setTestingApi]   = React.useState(false)
+  const [msg,          setMsg]          = React.useState('')
 
   const s = {
     card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px', marginBottom: 16 },
@@ -1474,7 +1476,7 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
     try {
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
       const atual = row?.value ? JSON.parse(row.value) : {}
-      const novo  = { ...atual, wpp: { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo } }
+      const novo  = { ...atual, wpp: { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo }, cnpjApiToken: cnpjApiToken.trim() }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
       setCfg(novo)
       setMsg('✅ Configurações salvas!')
@@ -1515,6 +1517,56 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   return (
     <div style={{ padding: '24px' }}>
       <div style={s.h}>🔗 Integrações</div>
+
+      {/* ── CNPJ API — Gerador de Leads ── */}
+      <div style={{ ...s.card, borderColor: cnpjApiToken ? 'rgba(0,212,255,.35)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700 }}>🔍 CNPJ API — Gerador de Leads</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+            background: cnpjApiToken ? 'rgba(0,212,255,.12)' : 'rgba(100,116,139,.12)',
+            color: cnpjApiToken ? 'var(--accent)' : '#64748b',
+            border: '1px solid ' + (cnpjApiToken ? 'rgba(0,212,255,.3)' : 'rgba(100,116,139,.3)') }}>
+            {cnpjApiToken ? '● Configurado' : '○ Sem token'}
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 14 }}>
+          Token usado pelo <strong style={{ color: 'var(--text)' }}>Gerador de Leads</strong> para enriquecer empresas com telefone, e-mail e responsável via{' '}
+          <strong style={{ color: 'var(--accent)' }}>cnpj-api.com</strong>. Plano <strong style={{ color: '#10b981' }}>gratuito</strong>: 5 req/min.
+          Plano Basic: R$ 20/mês (10 req/min, dados mais atualizados).
+        </div>
+
+        <label style={s.label}>Token da cnpj-api.com</label>
+        <input
+          style={{ ...s.input, fontFamily: 'monospace', fontSize: 11 }}
+          type="password"
+          value={cnpjApiToken}
+          onChange={e => setCnpjApiToken(e.target.value)}
+          placeholder="Cole seu token aqui..."
+        />
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+          <button onClick={async () => {
+            if (!cnpjApiToken.trim()) { setMsg('⚠️ Informe o token antes de testar'); return }
+            setTestingApi(true); setMsg('')
+            try {
+              const r = await fetch('https://api.cnpj-api.com/v1/cnpj/00000000000191?token=' + cnpjApiToken.trim())
+              if (r.ok)                   setMsg('✅ Token válido! cnpj-api.com conectada.')
+              else if (r.status === 401 || r.status === 403) setMsg('❌ Token inválido ou sem permissão.')
+              else if (r.status === 429)  setMsg('⚠️ Limite de requisições atingido (aguarde 1 min e tente novamente).')
+              else                        setMsg('⚠️ Resposta HTTP ' + r.status + ' — verifique o token.')
+            } catch (e) { setMsg('❌ Erro de conexão: ' + e.message) }
+            setTestingApi(false)
+          }} disabled={testingApi} style={s.btnSec}>
+            {testingApi ? '⏳ Testando...' : '🧪 Testar token'}
+          </button>
+          <a href="https://cnpj-api.com" target="_blank" rel="noreferrer"
+            style={{ padding: '9px 16px', borderRadius: 9, background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'none' }}>
+            🔗 Criar conta grátis
+          </a>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
+          Acesse <strong>cnpj-api.com</strong>, crie sua conta, vá em "API" e copie o token.
+        </div>
+      </div>
 
       {/* ── STATUS ── */}
       <div style={{ ...s.card, borderColor: wppAtivo ? 'rgba(16,185,129,.4)' : 'var(--border)' }}>
