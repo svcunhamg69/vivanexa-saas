@@ -221,6 +221,8 @@ export default function GeradorLeads() {
   const [dataInicioDe,    setDataInicioDe]    = useState('')
   const [dataInicioAte,   setDataInicioAte]   = useState('')
   const [empresasRecentes,setEmpresasRecentes]= useState(false)
+  const [apenasNovas,    setApenasNovas]     = useState(false)
+  const [diasNovas,      setDiasNovas]       = useState(90)
 
   // Resultados
   const [leads,       setLeads]       = useState([])
@@ -300,9 +302,9 @@ export default function GeradorLeads() {
             situacaoFiltro,
             dataInicioDe: dataInicioDe  || undefined,
             dataInicioAte: dataInicioAte || undefined,
-            apenasNovas,
-            diasNovas,
-            empresaId,   // permite que a API leia o token salvo nas configurações
+            apenasNovas: empresasRecentes || apenasNovas,
+            diasNovas:   empresasRecentes ? 365 : diasNovas,
+            empresaId,
           }),
           signal: AbortSignal.timeout(180000),
         })
