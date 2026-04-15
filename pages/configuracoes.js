@@ -623,7 +623,7 @@ function TabPerfis({ cfg, setCfg, empresaId }) {
 }
 
 // ══════════════════════════════════════════════
-// ABA USUÁRIOS
+// ABA USUÁRIOS — com campos de comissão
 // ══════════════════════════════════════════════
 function TabUsuarios({ cfg, setCfg, empresaId }) {
   const [users,  setUsers]  = useState(cfg.users || [])
@@ -637,19 +637,31 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
     ...perfisCustom.map(p => ({ id: p.id, nome: p.nome, permissoes: p.permissoes || [] }))
   ]
 
-  const emptyUser = { id: '', nome: '', email: '', username: '', password: '', tipo: 'vendedor', permissoes: [...PERMISSOES_USER] }
+  const emptyComissao = { adesao: { tipo: 'percentual', valor: 0 }, mensalidade: { tipo: 'percentual', valor: 0 } }
+  const emptyUser = { id: '', nome: '', email: '', username: '', password: '', tipo: 'vendedor', permissoes: [...PERMISSOES_USER], comissao: emptyComissao }
 
   function aplicarPerfil(tipo) {
     const p = perfisTipos.find(x => x.id === tipo)
     setForm(f => ({ ...f, tipo, permissoes: p ? [...p.permissoes] : [] }))
   }
 
+  function updateComissao(campo, chave, valor) {
+    setForm(f => ({
+      ...f,
+      comissao: {
+        ...(f.comissao || emptyComissao),
+        [campo]: { ...(f.comissao?.[campo] || { tipo: 'percentual', valor: 0 }), [chave]: valor }
+      }
+    }))
+  }
+
   async function salvarUser() {
     if (!form.nome || !form.email) { toast('Nome e e-mail obrigatórios', 'err'); return }
     setSaving(true)
+    const userToSave = { ...form, comissao: form.comissao || emptyComissao }
     const novos = form.id
-      ? users.map(u => u.id === form.id ? form : u)
-      : [...users, { ...form, id: Date.now().toString() }]
+      ? users.map(u => u.id === form.id ? userToSave : u)
+      : [...users, { ...userToSave, id: Date.now().toString() }]
     const novoCfg = { ...cfg, users: novos }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
@@ -667,12 +679,55 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
     toast('🗑 Usuário removido!')
   }
 
+  const fmtComissao = (u) => {
+    const c = u.comissao
+    if (!c) return ''
+    const ad = c.adesao?.tipo === 'percentual' ? `${c.adesao.valor}% adesão` : `R$ ${c.adesao?.valor || 0} adesão`
+    const men = c.mensalidade?.tipo === 'percentual' ? `${c.mensalidade.valor}% mensalidade` : `R$ ${c.mensalidade?.valor || 0} mensalidade`
+    return `${ad} · ${men}`
+  }
+
+  const ComissaoField = ({ campo, label }) => {
+    const val = form?.comissao?.[campo] || { tipo: 'percentual', valor: 0 }
+    return (
+      <div style={{ background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.12)', borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: .5 }}>{label}</div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)', flexShrink: 0 }}>
+            {['percentual','valor_fixo'].map(tipo => (
+              <button key={tipo} onClick={() => updateComissao(campo, 'tipo', tipo)}
+                style={{ padding: '7px 14px', border: 'none', background: val.tipo === tipo ? 'var(--accent)' : 'var(--surface)', color: val.tipo === tipo ? '#000' : 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 11, cursor: 'pointer', fontWeight: val.tipo === tipo ? 700 : 400 }}>
+                {tipo === 'percentual' ? '% Percentual' : 'R$ Valor Fixo'}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+            <input type="number" min={0} step={val.tipo === 'percentual' ? 0.5 : 1}
+              style={{ ...s.input, marginBottom: 0, width: 110, textAlign: 'right' }}
+              value={val.valor || ''}
+              onChange={e => updateComissao(campo, 'valor', Number(e.target.value))}
+              placeholder="0"
+            />
+            <span style={{ fontSize: 13, color: 'var(--muted)', flexShrink: 0 }}>{val.tipo === 'percentual' ? '%' : 'R$'}</span>
+          </div>
+        </div>
+        {val.valor > 0 && (
+          <div style={{ fontSize: 11, color: 'var(--accent3)', marginTop: 6 }}>
+            {val.tipo === 'percentual'
+              ? `Sobre o valor do contrato: ${val.valor}% por operação`
+              : `Valor fixo: R$ ${Number(val.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} por operação`}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={s.body}>
       <div style={s.sec}>
         <div style={s.secTitle}>Usuários Cadastrados</div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-          <button onClick={() => setForm(emptyUser)} style={{ padding: '10px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>+ Novo Usuário</button>
+          <button onClick={() => setForm({ ...emptyUser, comissao: { ...emptyComissao } })} style={{ padding: '10px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>+ Novo Usuário</button>
         </div>
         {users.length === 0 && !form && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum usuário cadastrado.</p>}
         {users.map(u => {
@@ -682,8 +737,11 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14 }}>{u.nome}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · {u.tipo || 'vendedor'}</div>
+                {u.comissao && (u.comissao.adesao?.valor > 0 || u.comissao.mensalidade?.valor > 0) && (
+                  <div style={{ fontSize: 11, color: 'var(--accent3)', marginTop: 3 }}>💰 Comissão: {fmtComissao(u)}</div>
+                )}
               </div>
-              <button onClick={() => setForm({ ...u })} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)' }}>✏️</button>
+              <button onClick={() => setForm({ ...u, comissao: u.comissao || { ...emptyComissao } })} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)' }}>✏️</button>
               <button onClick={() => removerUser(u.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)' }}>🗑</button>
             </div>
           )
@@ -714,7 +772,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
               Crie e edite perfis na aba <strong style={{color:'var(--accent)'}}>🛡️ Perfis</strong>. As permissões são aplicadas automaticamente.
             </div>
           </div>
-          <div style={{ padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--muted)' }}>
+          <div style={{ padding: '10px 14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
             <strong style={{color:'var(--text)'}}>Permissões do perfil "{perfisTipos.find(p => p.id === form.tipo)?.nome || form.tipo}":</strong>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
               {(form.permissoes || []).map(perm => {
@@ -724,6 +782,24 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
               {(form.permissoes || []).length === 0 && <span style={{color:'var(--muted)'}}>Nenhuma permissão</span>}
             </div>
           </div>
+
+          {/* ── SEÇÃO COMISSÃO ── */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 4 }}>
+            <div style={{ ...s.secTitle, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+              💰 Configuração de Comissão
+              <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--muted)', textTransform: 'none', letterSpacing: 0, borderRadius: 6, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.2)', padding: '2px 8px', color: 'var(--accent3)' }}>
+                aparece em Financeiro → Comissões
+              </span>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+              Define quanto o usuário recebe por contrato assinado — pode ser percentual sobre o valor do contrato ou valor fixo em R$.
+            </p>
+            <div style={s.row2}>
+              <ComissaoField campo="adesao" label="💵 Comissão sobre Adesão" />
+              <ComissaoField campo="mensalidade" label="🔄 Comissão sobre Mensalidade" />
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
             <button style={s.saveBtn} onClick={salvarUser} disabled={saving}>{saving ? '⏳...' : '✅ Salvar Usuário'}</button>
             <button onClick={() => setForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
@@ -2560,6 +2636,20 @@ export default function Configuracoes() {
   const [cfg,       setCfg]       = useState({})
   const [abaAtiva,  setAbaAtiva]  = useState('empresa')
 
+  // ── Lê ?tab= da URL para navegar direto à aba correta (vindo do menu) ──
+  useEffect(() => {
+    if (!router.isReady) return
+    const { tab } = router.query
+    if (tab && TABS.find(t => t.id === tab)) {
+      setAbaAtiva(tab)
+    }
+  }, [router.isReady, router.query])
+
+  function mudarAba(id) {
+    setAbaAtiva(id)
+    router.replace({ pathname: '/configuracoes', query: { tab: id } }, undefined, { shallow: true })
+  }
+
   useEffect(() => {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
@@ -2649,7 +2739,7 @@ export default function Configuracoes() {
           </div>
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--surface)', overflowX: 'auto' }}>
             {TABS.map(t => (
-              <button key={t.id} onClick={() => setAbaAtiva(t.id)} style={{ flexShrink: 0, padding: '11px 14px', border: 'none', background: 'none', color: abaAtiva === t.id ? 'var(--accent)' : 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', borderBottom: `2px solid ${abaAtiva === t.id ? 'var(--accent)' : 'transparent'}`, letterSpacing: .3, whiteSpace: 'nowrap', transition: 'color .2s', position: 'relative', top: 1 }}>{t.label}</button>
+              <button key={t.id} onClick={() => mudarAba(t.id)} style={{ flexShrink: 0, padding: '11px 14px', border: 'none', background: 'none', color: abaAtiva === t.id ? 'var(--accent)' : 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', borderBottom: `2px solid ${abaAtiva === t.id ? 'var(--accent)' : 'transparent'}`, letterSpacing: .3, whiteSpace: 'nowrap', transition: 'color .2s', position: 'relative', top: 1 }}>{t.label}</button>
             ))}
           </div>
           {renderAba()}
