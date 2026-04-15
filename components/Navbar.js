@@ -1,4 +1,4 @@
-// components/Navbar.js — Vivanexa SaaS v6
+// components/Navbar.js — Vivanexa SaaS v7
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
@@ -31,9 +31,8 @@ const MENU = [
     color: '#7c3aed',
     subs: [
       { label: 'Campanhas IA',         icon: '🎯', href: '/marketing?aba=campanhas' },
-
       { label: 'Agenda de Publicação', icon: '📅', href: '/marketing?aba=agenda' },
-      { label: 'Geração de Conteúdo', icon: '✨', href: '/marketing?aba=imagens' },
+      { label: 'Geração de Conteúdo',  icon: '✨', href: '/marketing?aba=imagens' },
     ],
   },
 
@@ -44,10 +43,10 @@ const MENU = [
     icon: '💰',
     color: '#10b981',
     subs: [
-      { label: 'Contas a Receber', icon: '💵', href: '/financeiro?aba=receber' },
-      { label: 'Contas a Pagar',   icon: '💸', href: '/financeiro?aba=pagar' },
-      { label: 'Boleto / PIX',     icon: '🏦', href: '/financeiro?aba=boleto' },
-      { label: 'Cartão',           icon: '💳', href: '/financeiro?aba=cartao' },
+      { label: 'Contas a Receber', icon: '💵', href: '/financeiro?aba=contas' },
+      { label: 'Contas a Pagar',   icon: '💸', href: '/financeiro?aba=contas' },
+      { label: 'Nota Fiscal',      icon: '🧾', href: '/financeiro?aba=nfe' },
+      { label: 'Pagamentos',       icon: '💳', href: '/financeiro?aba=pagamentos' },
       { label: 'Comissões',        icon: '🏆', href: '/financeiro?aba=comissoes' },
     ],
   },
@@ -59,12 +58,16 @@ const MENU = [
     icon: '📈',
     color: '#ec4899',
     subs: [
-      { label: 'Visão Estratégica', icon: '🎯', href: '/reports?aba=estrategico' },
-      { label: 'Financeiro',        icon: '💰', href: '/reports?aba=financeiro' },
-      { label: 'KPIs da Equipe',    icon: '📊', href: '/reports?aba=kpis' },
-      { label: 'Vendas',            icon: '🛒', href: '/reports?aba=vendas' },
-      { label: 'Produtos',          icon: '📦', href: '/reports?aba=produtos' },
-      { label: 'Comercial',         icon: '💼', href: '/reports?aba=comercial' },
+      { label: 'Visão Estratégica',  icon: '🎯', href: '/reports?aba=estrategico',    grupo: 'Visão Geral' },
+      { label: 'Vendas',             icon: '🛒', href: '/reports?aba=vendas',          grupo: 'Vendas' },
+      { label: 'Produtos / Módulos', icon: '📦', href: '/reports?aba=produtos',        grupo: 'Vendas' },
+      { label: 'Comissões',          icon: '🏆', href: '/reports?aba=comissoes',       grupo: 'Vendas' },
+      { label: 'KPIs da Equipe',     icon: '📊', href: '/reports?aba=kpis',            grupo: 'Equipe' },
+      { label: 'Atividades CRM',     icon: '📅', href: '/reports?aba=crm_atividades',  grupo: 'CRM' },
+      { label: 'Negócios CRM',       icon: '🤝', href: '/reports?aba=crm_negocios',    grupo: 'CRM' },
+      { label: 'Disparos em Massa',  icon: '📣', href: '/reports?aba=disparos',        grupo: 'Campanhas' },
+      { label: 'Marketing',          icon: '📢', href: '/reports?aba=marketing',       grupo: 'Campanhas' },
+      { label: 'Gerador de Relatório', icon: '🛠', href: '/reports?aba=gerador',       grupo: 'Ferramentas' },
     ],
   },
 
@@ -94,9 +97,9 @@ export { MENU }
 
 export default function Navbar({ cfg = {}, perfil = null }) {
   const router = useRouter()
-  const [open, setOpen]           = useState(null)
+  const [open,       setOpen]       = useState(null)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [user, setUser]           = useState(perfil)
+  const [user,       setUser]       = useState(perfil)
   const navRef = useRef(null)
 
   useEffect(() => {
@@ -112,8 +115,7 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   useEffect(() => {
     const handler = (e) => {
       if (navRef.current && !navRef.current.contains(e.target)) {
-        setOpen(null)
-        setMobileOpen(false)
+        setOpen(null); setMobileOpen(false)
       }
     }
     document.addEventListener('mousedown', handler)
@@ -121,15 +123,10 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   }, [])
 
   useEffect(() => {
-    setOpen(null)
-    setMobileOpen(false)
+    setOpen(null); setMobileOpen(false)
   }, [router.pathname, router.query])
 
-  function navigate(href) {
-    setOpen(null)
-    setMobileOpen(false)
-    router.push(href)
-  }
+  function navigate(href) { setOpen(null); setMobileOpen(false); router.push(href) }
 
   function isActive(menu) {
     return menu.subs.some(s => router.pathname === s.href.split('?')[0])
@@ -173,20 +170,18 @@ export default function Navbar({ cfg = {}, perfil = null }) {
             menu.subs.forEach((sub) => {
               const g = sub.grupo || null
               if (g !== grupoAtual.titulo) {
-                if (grupoAtual.items.length) grupos.push(grupoAtual)
+                if (grupoAtual.items.length > 0) grupos.push(grupoAtual)
                 grupoAtual = { titulo: g, items: [] }
               }
               grupoAtual.items.push(sub)
             })
-            if (grupoAtual.items.length) grupos.push(grupoAtual)
+            if (grupoAtual.items.length > 0) grupos.push(grupoAtual)
 
             return (
               <div key={menu.id} className="nav-wrap">
-
-                {/* Botão pai */}
                 <button
                   className={`nav-btn${ativo ? ' is-active' : ''}${aberto ? ' is-open' : ''}`}
-                  style={(ativo || aberto) ? { color: menu.color, background: menu.color + '16' } : {}}
+                  style={ativo || aberto ? { color: menu.color } : {}}
                   onClick={(e) => { e.stopPropagation(); setOpen(aberto ? null : menu.id) }}
                 >
                   <span>{menu.icon}</span>
@@ -210,7 +205,6 @@ export default function Navbar({ cfg = {}, perfil = null }) {
                     {/* Renderiza grupos com separadores */}
                     {grupos.map((grupo, gi) => (
                       <div key={gi}>
-                        {/* Separador de grupo com título (ex: Gestão MEI) */}
                         {grupo.titulo && (
                           <div className="nav-dd-grupo" style={{ color: menu.color }}>
                             <span className="nav-dd-grupo-linha" />
@@ -218,9 +212,9 @@ export default function Navbar({ cfg = {}, perfil = null }) {
                             <span className="nav-dd-grupo-linha" />
                           </div>
                         )}
-
                         {grupo.items.map((sub) => {
-                          const subAtivo = router.pathname === sub.href.split('?')[0]
+                          const subAtivo = router.pathname === sub.href.split('?')[0] &&
+                            (router.query.aba === sub.href.split('aba=')[1] || !sub.href.includes('aba='))
                           return (
                             <button
                               key={sub.href}
@@ -250,9 +244,10 @@ export default function Navbar({ cfg = {}, perfil = null }) {
               <div className="nav-av">
                 {(user.nome || user.email || 'U')[0].toUpperCase()}
               </div>
-              <span className="nav-uname">
-                {(user.nome || user.email || '').split(' ')[0]}
-              </span>
+              <div>
+                <div className="nav-uname">{(user.nome || user.email || '').split(' ')[0]}</div>
+                <div style={{ fontSize:9, color:'#475569', lineHeight:1 }}>{user.perfil || user.tipo || 'usuário'}</div>
+              </div>
             </div>
           )}
           <button className="nav-sair" onClick={handleLogout}>Sair</button>
@@ -321,13 +316,13 @@ const CSS = `
   .nav-arr.up{transform:rotate(180deg)}
 
   /* Dropdown */
-  .nav-dd{position:absolute;top:calc(100% + 7px);left:0;min-width:240px;background:#08101e;border:1px solid #18243a;border-top:2px solid var(--c,#00d4ff);border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.85);z-index:99999;pointer-events:all;animation:ddIn .13s ease}
+  .nav-dd{position:absolute;top:calc(100% + 7px);left:0;min-width:230px;background:#08101e;border:1px solid #18243a;border-top:2px solid var(--c,#00d4ff);border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.85);z-index:99999;pointer-events:all;animation:ddIn .13s ease}
   @keyframes ddIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
 
   /* Título do grupo no dropdown */
   .nav-dd-title{display:flex;align-items:center;gap:8px;padding:11px 13px 10px;border-bottom:1px solid #18243a;background:rgba(255,255,255,.025);font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
 
-  /* Separador de subgrupo (ex: Gestão MEI) */
+  /* Separador de subgrupo */
   .nav-dd-grupo{display:flex;align-items:center;gap:7px;padding:8px 11px 4px;font-family:'Syne',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;opacity:.8}
   .nav-dd-grupo-linha{flex:1;height:1px;background:currentColor;opacity:.2}
   .nav-dd-grupo-label{white-space:nowrap;flex-shrink:0}
@@ -344,7 +339,7 @@ const CSS = `
   .nav-right{display:flex;align-items:center;gap:10px;flex-shrink:0;margin-left:6px}
   .nav-user{display:flex;align-items:center;gap:8px}
   .nav-av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#00d4ff,#0088aa);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
-  .nav-uname{font-size:11px;color:#6e8099;white-space:nowrap}
+  .nav-uname{font-size:11px;color:#6e8099;white-space:nowrap;line-height:1.2}
   .nav-sair{padding:4px 11px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.22);border-radius:7px;color:#ef4444;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;transition:all .14s;white-space:nowrap}
   .nav-sair:hover{background:rgba(239,68,68,.2)}
   .nav-mob-btn{display:none;background:none;border:1px solid #18243a;color:#6e8099;padding:6px 11px;border-radius:7px;cursor:pointer;font-size:16px;margin-left:auto}
