@@ -693,7 +693,25 @@ export default function Chat(){
       const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).single()
       if(row?.value){
         const saved=JSON.parse(row.value)
-        const merged={...DEFAULT_CFG,...saved,plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices}
+        // ── Mapeia docTemplates (salvo em configuracoes.js) para os campos que o chat usa ──
+        // configuracoes.js salva em: cfg.docTemplates.proposta / cfg.docTemplates.contrato
+        // chat.js usa: cfg.propostaTemplate / cfg.contratoTemplate
+        const dt = saved.docTemplates || {}
+        const propostaTemplate = saved.propostaTemplate || dt.proposta || ''
+        const contratoTemplate = saved.contratoTemplate || dt.contrato || ''
+        const propostaTipo = saved.propostaTipo || dt.propostaTipo || 'html'
+        const contratoTipo = saved.contratoTipo || dt.contratoTipo || 'html'
+        const merged={
+          ...DEFAULT_CFG,
+          ...saved,
+          plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,
+          prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices,
+          // Templates unificados
+          propostaTemplate,
+          contratoTemplate,
+          propostaTipo,
+          contratoTipo,
+        }
         cfgRef.current=merged
         setCfg(merged)
       }
@@ -1405,7 +1423,7 @@ export default function Chat(){
     <Navbar cfg={cfg} perfil={userProfile} />
 
     {/* Barra secundária: status + botões internos do chat */}
-    <div style={{display:'flex',gap:6,padding:'6px 20px',background:'rgba(10,15,30,.9)',borderBottom:'1px solid var(--border)',flexWrap:'wrap',alignItems:'center'}}>
+    <div style={{display:'flex',gap:6,padding:'6px 20px',background:'rgba(10,15,30,.9)',borderBottom:'1px solid var(--border)',flexWrap:'wrap',alignItems:'center',width:'100%'}}>
       <div className="status-dot">online</div>
       {[{id:'historico',label:'🗂️ Histórico'},{id:'assinaturas',label:'✍️ Assinaturas'}].map(({id,label})=>(
         <button key={id} onClick={()=>abrirPainel(id)} style={{background:'var(--surface2)',border:'1px solid var(--border)',cursor:'pointer',color:'var(--muted)',fontSize:11,padding:'5px 11px',borderRadius:8,fontFamily:'DM Mono,monospace',transition:'all .15s'}}
@@ -1621,7 +1639,7 @@ export default function Chat(){
 const CSS=`
   :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--user-bubble:#1e3a5f;--bot-bubble:#131f35;--danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;--card-bg:#1a2540;--shadow:0 4px 24px rgba(0,0,0,.4)}
   *{box-sizing:border-box;margin:0;padding:0}html{font-size:15px}
-  body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow-x:hidden}
+  body{font-family:'DM Mono',monospace;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:stretch;overflow-x:hidden}
   body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
   .orb{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;opacity:.1}
   .orb1{width:500px;height:500px;background:var(--accent);top:-200px;right:-150px}
@@ -1633,7 +1651,7 @@ const CSS=`
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   .logout-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:5px 9px;border-radius:8px;font-family:'DM Mono',monospace}
   .logout-btn:hover{color:var(--danger)}
-  .chat-wrap{position:relative;z-index:10;width:100%;max-width:820px;padding:14px 20px 0;flex:1;display:flex;flex-direction:column}
+  .chat-wrap{position:relative;z-index:10;width:100%;max-width:960px;margin:0 auto;padding:14px 20px 0;flex:1;display:flex;flex-direction:column}
   #messages{display:flex;flex-direction:column;gap:14px;padding-bottom:10px;min-height:300px;max-height:calc(100vh - 200px);overflow-y:auto;scroll-behavior:smooth}
   #messages::-webkit-scrollbar{width:4px}#messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
   .msg{display:flex;flex-direction:column;max-width:92%;animation:fadeUp .3s ease}
