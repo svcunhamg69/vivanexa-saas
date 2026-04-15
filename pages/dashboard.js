@@ -18,8 +18,6 @@ const ATALHOS = [
   { label: 'Novo Lead (CRM)',     icon: '🎯', href: '/crm',                         cor: '#7c3aed' },
   { label: 'Lançar KPIs',         icon: '📊', href: '/kpi',                         cor: '#10b981' },
   { label: 'Ver Relatórios',      icon: '📈', href: '/reports?aba=estrategico',     cor: '#ec4899' },
-  { label: 'Consulta Tributária', icon: '🔍', href: '/produtividade?aba=tributaria',cor: '#06b6d4' },
-  { label: 'Emitir NF',          icon: '🧾', href: '/fiscal?aba=servico',          cor: '#f59e0b' },
   { label: 'Configurações',       icon: '⚙️', href: '/configuracoes?tab=empresa',   cor: '#94a3b8' },
 ]
 
