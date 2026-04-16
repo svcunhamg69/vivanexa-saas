@@ -638,7 +638,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
   ]
 
   const emptyComissao = { adesao: { tipo: 'percentual', valor: 0 }, mensalidade: { tipo: 'percentual', valor: 0 } }
-  const emptyUser = { id: '', nome: '', email: '', username: '', password: '', tipo: 'vendedor', permissoes: [...PERMISSOES_USER], comissao: emptyComissao }
+  const emptyUser = { id: '', nome: '', email: '', username: '', password: '', telefone: '', tipo: 'vendedor', permissoes: [...PERMISSOES_USER], comissao: emptyComissao }
 
   function aplicarPerfil(tipo) {
     const p = perfisTipos.find(x => x.id === tipo)
@@ -736,7 +736,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
             <div key={u.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14 }}>{u.nome}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · {u.tipo || 'vendedor'}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · {u.tipo || 'vendedor'}{u.telefone ? ` · ${u.telefone}` : ''}</div>
                 {u.comissao && (u.comissao.adesao?.valor > 0 || u.comissao.mensalidade?.valor > 0) && (
                   <div style={{ fontSize: 11, color: 'var(--accent3)', marginTop: 3 }}>💰 Comissão: {fmtComissao(u)}</div>
                 )}
@@ -757,6 +757,10 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
           <div style={s.row2}>
             <div style={s.field}><label style={s.label}>Username (login)</label><input style={s.input} value={form.username || ''} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} /></div>
             <div style={s.field}><label style={s.label}>Senha</label><input type="password" style={s.input} value={form.password || ''} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} /></div>
+          </div>
+          <div style={s.row2}>
+            <div style={s.field}><label style={s.label}>Telefone / WhatsApp</label><input style={s.input} value={form.telefone || ''} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" /></div>
+            <div style={s.field}></div>
           </div>
           <div style={s.field}>
             <label style={s.label}>Perfil de Acesso</label>
@@ -1235,41 +1239,46 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
 //
 // DEPENDÊNCIA: nenhuma nova — substitua apenas esta função
 
-function TabDocumentos({ cfg, setCfg, empresaId }) {
-  const [propostaTemplate,     setPropostaTemplate]     = useState(cfg.docTemplates?.proposta     || '')
-  const [contratoTemplate,     setContratoTemplate]     = useState(cfg.docTemplates?.contrato     || '')
-  const [propostaTipo,         setPropostaTipo]         = useState(cfg.docTemplates?.propostaTipo || 'html')
-  const [contratoTipo,         setContratoTipo]         = useState(cfg.docTemplates?.contratoTipo || 'html')
-  const [saving,               setSaving]               = useState(false)
-  const [testando,             setTestando]             = useState(false)
 
-  // Lê arquivo — .docx → base64 (para substituição posterior), .html/.txt → texto
-  function handleFileUpload(type, e) {
+// ══════════════════════════════════════════════
+// ABA DOCUMENTOS — variáveis organizadas por seção + suporte DOCX
+// ══════════════════════════════════════════════
+function TabDocumentos({ cfg, setCfg, empresaId }) {
+  const [propostaTemplate, setPropostaTemplate] = React.useState(cfg.docTemplates?.proposta || '')
+  const [contratoTemplate, setContratoTemplate] = React.useState(cfg.docTemplates?.contrato || '')
+  const [propostaTipo,     setPropostaTipo]     = React.useState(cfg.docTemplates?.propostaTipo || 'html')
+  const [contratoTipo,     setContratoTipo]     = React.useState(cfg.docTemplates?.contratoTipo || 'html')
+  const [saving,   setSaving]   = React.useState(false)
+  const [testando, setTestando] = React.useState(false)
+
+  function handleFileUpload(tipo, e) {
     const file = e.target.files[0]
     if (!file) return
-    if (file.size > 5 * 1024 * 1024) { toast('Arquivo muito grande (máx 5 MB)', 'err'); return }
+    if (file.size > 5 * 1024 * 1024) { toast('Arquivo muito grande (máx 5MB)', 'err'); return }
 
     const isDocx = file.name.toLowerCase().endsWith('.docx')
     const reader = new FileReader()
 
     if (isDocx) {
       reader.onload = ev => {
-        // Salva como data-URL base64
-        const b64 = ev.target.result  // "data:application/vnd...;base64,AAAA..."
-        if (type === 'proposta') { setPropostaTemplate(b64); setPropostaTipo('docx') }
+        const b64 = ev.target.result
+        if (tipo === 'proposta') { setPropostaTemplate(b64); setPropostaTipo('docx') }
         else                    { setContratoTemplate(b64);  setContratoTipo('docx') }
-        toast('✅ Arquivo DOCX carregado! Lembre-se de salvar.')
+        toast(`✅ DOCX carregado — ${Math.round(file.size / 1024)} KB`)
       }
       reader.readAsDataURL(file)
     } else {
       reader.onload = ev => {
-        if (type === 'proposta') { setPropostaTemplate(ev.target.result); setPropostaTipo('html') }
+        if (tipo === 'proposta') { setPropostaTemplate(ev.target.result); setPropostaTipo('html') }
         else                    { setContratoTemplate(ev.target.result);  setContratoTipo('html') }
       }
       reader.readAsText(file)
     }
-    // Reset input para permitir re-upload do mesmo arquivo
     e.target.value = ''
+  }
+
+  function isDocxTemplate(tmpl) {
+    return tmpl && (tmpl.startsWith('data:application/vnd') || tmpl.startsWith('data:application/octet') || tmpl.startsWith('data:application/zip'))
   }
 
   async function salvar() {
@@ -1277,8 +1286,8 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     const novoCfg = {
       ...cfg,
       docTemplates: {
-        proposta:     propostaTemplate,
-        contrato:     contratoTemplate,
+        proposta: propostaTemplate,
+        contrato: contratoTemplate,
         propostaTipo,
         contratoTipo,
       }
@@ -1298,258 +1307,372 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     else toast('✅ Conexão com Supabase OK!')
   }
 
-  const VARIAVEIS = [
-    ['{{empresa}}','Nome fantasia do cliente'],
-    ['{{razao}}','Razão social do cliente'],
-    ['{{cnpj}}','CNPJ do cliente'],
-    ['{{contato}}','Nome do contato'],
-    ['{{email}}','E-mail do cliente'],
-    ['{{telefone}}','Telefone do cliente'],
-    ['{{endereco}}','Endereço do cliente'],
-    ['{{regime}}','Regime tributário'],
-    ['{{plano}}','Plano contratado'],
-    ['{{cnpjs_qty}}','Qtd. CNPJs'],
-    ['{{data_hora}}','Data e hora atual'],
-    ['{{total_adesao}}','Total adesão (R$)'],
-    ['{{total_mensal}}','Total mensalidade (R$)'],
-    ['{{condicao_pagamento}}','Condição de pagamento'],
-    ['{{vencimento_adesao}}','Vencimento adesão'],
-    ['{{vencimento_mensal}}','Vencimento mensalidade'],
-    ['{{company}}','Nome da empresa contratada'],
-    ['{{razao_empresa}}','Razão social da contratada'],
-    ['{{cnpj_empresa}}','CNPJ da contratada'],
-    ['{{responsavel}}','Responsável da contratada'],
-    ['{{telefone_empresa}}','Telefone da contratada'],
-    ['{{email_empresa}}','E-mail da contratada'],
-    ['{{endereco_empresa}}','Endereço da contratada'],
-    ['{{consultor_nome}}','Nome do consultor'],
-    ['{{produtos_tabela}}','Tabela de produtos (HTML)'],
-    ['{{produtos_lista}}','Lista de produtos (texto)'],
+  // Variáveis organizadas por grupo
+  const GRUPOS_VARIAVEIS = [
+    {
+      titulo: '🏢 Contratada',
+      desc: 'Dados da sua empresa (cadastrado em Configurações → Empresa)',
+      cor: '#00d4ff',
+      vars: [
+        ['{{company}}',          'Nome fantasia da empresa contratada'],
+        ['{{razao_empresa}}',    'Razão social da empresa contratada'],
+        ['{{cnpj_empresa}}',     'CNPJ da empresa contratada'],
+        ['{{responsavel}}',      'Responsável da empresa contratada'],
+        ['{{telefone_empresa}}', 'Telefone da empresa contratada'],
+        ['{{email_empresa}}',    'E-mail da empresa contratada'],
+        ['{{endereco_empresa}}', 'Endereço completo da empresa contratada'],
+      ]
+    },
+    {
+      titulo: '🤝 Contratante',
+      desc: 'Dados do cliente (puxado do cadastro em Configurações → Clientes)',
+      cor: '#10b981',
+      vars: [
+        ['{{empresa}}',      'Nome fantasia do cliente'],
+        ['{{razao}}',        'Razão social do cliente'],
+        ['{{cnpj}}',         'CNPJ do cliente'],
+        ['{{cpf}}',          'CPF do cliente (se pessoa física)'],
+        ['{{contato}}',      'Nome do contato / responsável'],
+        ['{{cpf_contato}}',  'CPF do contato principal'],
+        ['{{email}}',        'E-mail do cliente'],
+        ['{{telefone}}',     'Telefone do cliente'],
+        ['{{endereco}}',     'Endereço completo do cliente'],
+        ['{{cidade}}',       'Cidade do cliente'],
+        ['{{uf}}',           'Estado (UF) do cliente'],
+        ['{{regime}}',       'Regime tributário do cliente'],
+        ['{{rimp_nome}}',    'Responsável pela implantação — nome'],
+        ['{{rimp_email}}',   'Responsável pela implantação — e-mail'],
+        ['{{rimp_tel}}',     'Responsável pela implantação — telefone'],
+        ['{{rfin_nome}}',    'Responsável financeiro — nome'],
+        ['{{rfin_email}}',   'Responsável financeiro — e-mail'],
+        ['{{rfin_tel}}',     'Responsável financeiro — telefone'],
+      ]
+    },
+    {
+      titulo: '📦 Produtos e Serviços',
+      desc: 'Dados dos módulos contratados (calculados no chat com base em Configurações → Produtos)',
+      cor: '#7c3aed',
+      vars: [
+        ['{{plano}}',              'Plano contratado (Basic, Pro, Top, Top Plus)'],
+        ['{{cnpjs_qty}}',          'Quantidade de CNPJs'],
+        ['{{total_adesao}}',       'Valor total da adesão (soma dos módulos)'],
+        ['{{total_mensal}}',       'Valor total da mensalidade (soma dos módulos)'],
+        ['{{condicao_pagamento}}', 'Condição de pagamento negociada'],
+        ['{{vencimento_adesao}}',  'Data de vencimento da adesão'],
+        ['{{vencimento_mensal}}',  'Data de vencimento da mensalidade'],
+        ['{{produtos_tabela}}',    'Tabela HTML completa dos módulos com adesão e mensalidade'],
+        ['{{produtos_lista}}',     'Lista em texto dos módulos contratados'],
+      ]
+    },
+    {
+      titulo: '👤 Consultor e Sistema',
+      desc: 'Dados do consultor que gerou o documento',
+      cor: '#f59e0b',
+      vars: [
+        ['{{consultor_nome}}', 'Nome do consultor'],
+        ['{{consultor_tel}}',  'Telefone do consultor (usuário)'],
+        ['{{data_hora}}',      'Data e hora atual de geração do documento'],
+        ['{{logo}}',           'Logo da empresa em base64 (para uso em <img src="{{logo}}">)'],
+      ]
+    },
   ]
 
-  const tipoLabel = (tipo) => tipo === 'docx'
-    ? '📎 Arquivo DOCX carregado'
-    : '📝 Template HTML (editar abaixo)'
-
-  const renderTemplate = (tipo, titulo, val, setter, tipoVal, setTipo) => (
-    <div key={tipo} style={{ marginBottom: 28, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <div style={{ ...s.secTitle, margin: 0 }}>{titulo}</div>
-        <span style={{
-          fontSize: 11, padding: '2px 10px', borderRadius: 20,
-          background: tipoVal === 'docx' ? 'rgba(16,185,129,.15)' : 'rgba(0,212,255,.1)',
-          border: `1px solid ${tipoVal === 'docx' ? 'rgba(16,185,129,.3)' : 'rgba(0,212,255,.2)'}`,
-          color: tipoVal === 'docx' ? 'var(--accent3)' : 'var(--accent)',
-        }}>
-          {tipoLabel(tipoVal)}
-        </span>
-      </div>
-
-      {/* Área de upload — DOCX (recomendado) ou HTML */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        <label style={{
-          fontSize: 12, color: 'var(--accent3)', cursor: 'pointer',
-          background: 'rgba(16,185,129,.1)', padding: '7px 14px',
-          borderRadius: 8, border: '1px solid rgba(16,185,129,.25)',
-          display: 'flex', alignItems: 'center', gap: 6,
-        }}>
-          📂 Importar DOCX (recomendado)
-          <input type="file" accept=".docx" onChange={e => handleFileUpload(tipo, e)} style={{ display: 'none' }} />
-        </label>
-        <label style={{
-          fontSize: 12, color: 'var(--muted)', cursor: 'pointer',
-          background: 'rgba(100,116,139,.08)', padding: '7px 14px',
-          borderRadius: 8, border: '1px solid rgba(100,116,139,.2)',
-          display: 'flex', alignItems: 'center', gap: 6,
-        }}>
-          📄 Importar HTML/TXT
-          <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload(tipo, e)} style={{ display: 'none' }} />
-        </label>
-        {val && (
-          <button
-            onClick={() => { setter(''); setTipo('html') }}
-            style={{ fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,.08)', padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,.2)', cursor: 'pointer' }}>
-            🗑 Remover
-          </button>
-        )}
-      </div>
-
-      {/* Se for DOCX, mostra instruções; se for HTML, mostra textarea */}
-      {tipoVal === 'docx' ? (
-        <div style={{ background: 'rgba(16,185,129,.05)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 8, padding: '12px 16px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
-          <strong style={{ color: 'var(--accent3)' }}>✅ Template DOCX carregado com sucesso.</strong><br />
-          Na hora de gerar o contrato/proposta, o sistema substituirá todas as variáveis <code style={{ color: 'var(--accent)' }}>{'{{var}}'}</code> e gerará o download do arquivo Word preenchido.<br />
-          <span style={{ color: '#94a3b8' }}>Tamanho: {val ? Math.round(val.length * 0.75 / 1024) + ' KB (base64)' : '—'}</span>
-        </div>
-      ) : (
-        <>
-          <textarea
-            rows={8}
-            style={{ ...s.input, fontFamily: 'monospace', fontSize: 12, resize: 'vertical' }}
-            value={val}
-            onChange={e => setter(e.target.value)}
-            placeholder={`Cole o HTML do template aqui. Use variáveis como {{empresa}}, {{total_adesao}}, etc.\n\nOu importe um arquivo .docx acima para melhor qualidade de impressão.`}
-          />
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-            💡 Dica: templates DOCX geram PDFs com muito mais qualidade e controle de página do que HTML. Use o botão acima para importar um arquivo .docx.
-          </div>
-        </>
-      )}
-    </div>
-  )
+  const tagStyle = { fontSize: 11, padding: '2px 8px', background: 'rgba(0,212,255,.08)', borderRadius: 4, color: '#00d4ff', fontFamily: 'monospace', cursor: 'pointer', userSelect: 'all', border: '1px solid rgba(0,212,255,.15)', display: 'inline-block', margin: '2px 0' }
 
   return (
     <div style={s.body}>
+      {/* Templates */}
       <div style={s.sec}>
         <div style={s.secTitle}>✍️ Modelos de Documentos</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.7 }}>
-          Faça upload de um arquivo <strong>.docx</strong> (Word) com as variáveis <code style={{ color: 'var(--accent)' }}>{'{{nome_variavel}}'}</code> no texto.
-          Na geração, as variáveis serão substituídas automaticamente e o arquivo Word preenchido poderá ser baixado.<br />
-          Também aceita templates em HTML para renderização inline.
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+          Importe um arquivo <strong style={{ color: 'var(--accent)' }}>.docx</strong> (recomendado) ou cole HTML.
+          No DOCX, use as variáveis no formato <code style={{ color: '#10b981' }}>{'{{variavel}}'}</code> diretamente no Word.
+          O sistema substituirá todas automaticamente ao gerar o documento.
         </p>
 
-        {/* Como usar DOCX */}
         <div style={{ background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 12, color: 'var(--muted)', lineHeight: 1.9 }}>
           <strong style={{ color: 'var(--accent)' }}>📋 Como preparar o template DOCX:</strong><br />
-          1. Abra o Word (ou LibreOffice) e crie seu contrato normalmente.<br />
-          2. Onde quiser inserir dados dinâmicos, escreva a variável entre chaves duplas: <code style={{ color: 'var(--accent3)' }}>{'{{empresa}}'}</code>, <code style={{ color: 'var(--accent3)' }}>{'{{total_adesao}}'}</code>, etc.<br />
+          1. Abra o Word e crie seu contrato normalmente.<br />
+          2. Onde quiser inserir dados dinâmicos, escreva a variável: <code style={{ color: 'var(--accent3)' }}>{'{{empresa}}'}</code>, <code style={{ color: 'var(--accent3)' }}>{'{{total_adesao}}'}</code>, etc.<br />
           3. Salve como <strong>.docx</strong> e importe aqui.<br />
           4. Ao gerar o contrato no chat, o sistema substituirá as variáveis e oferecerá o download do arquivo Word preenchido.
         </div>
 
-        {renderTemplate('proposta', '📄 Modelo de Proposta', propostaTemplate, setPropostaTemplate, propostaTipo, setPropostaTipo)}
-        {renderTemplate('contrato', '📝 Modelo de Contrato', contratoTemplate, setContratoTemplate, contratoTipo, setContratoTipo)}
+        {[['proposta', '📋 Modelo de Proposta', propostaTemplate, setPropostaTemplate, propostaTipo, setPropostaTipo],
+          ['contrato', '📄 Modelo de Contrato',  contratoTemplate, setContratoTemplate, contratoTipo, setContratoTipo]].map(([tipo, titulo, val, setter, tipoVal, setTipo]) => (
+          <div key={tipo} style={{ marginBottom: 24, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <div style={{ ...s.secTitle, margin: 0 }}>{titulo}</div>
+              <span style={{
+                fontSize: 11, padding: '2px 10px', borderRadius: 20,
+                background: tipoVal === 'docx' ? 'rgba(16,185,129,.15)' : 'rgba(0,212,255,.1)',
+                border: `1px solid ${tipoVal === 'docx' ? 'rgba(16,185,129,.3)' : 'rgba(0,212,255,.2)'}`,
+                color: tipoVal === 'docx' ? 'var(--accent3)' : 'var(--accent)',
+              }}>
+                {tipoVal === 'docx' ? '📎 Arquivo DOCX carregado' : '📝 Template HTML'}
+              </span>
+            </div>
 
-        {/* Variáveis disponíveis */}
-        <div style={{ background: 'var(--surface2)', padding: '12px 16px', borderRadius: 8, marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--accent)' }}>Variáveis disponíveis (use no DOCX ou no HTML):</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 5 }}>
-            {VARIAVEIS.map(([v, desc]) => (
-              <div key={v} style={{ fontSize: 11, color: 'var(--muted)' }}>
-                <code style={{ color: 'var(--accent3)' }}>{v}</code> — {desc}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              <label style={{ fontSize: 12, color: 'var(--accent3)', cursor: 'pointer', background: 'rgba(16,185,129,.1)', padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(16,185,129,.25)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                📂 Importar DOCX (recomendado)
+                <input type="file" accept=".docx" onChange={e => handleFileUpload(tipo, e)} style={{ display: 'none' }} />
+              </label>
+              <label style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer', background: 'rgba(100,116,139,.08)', padding: '7px 14px', borderRadius: 8, border: '1px solid rgba(100,116,139,.2)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                📃 Importar HTML/TXT
+                <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload(tipo, e)} style={{ display: 'none' }} />
+              </label>
+              {val && (
+                <button onClick={() => { setter(''); setTipo('html') }} style={{ fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,.08)', padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,.2)', cursor: 'pointer' }}>🗑 Remover</button>
+              )}
+            </div>
+
+            {isDocxTemplate(val) ? (
+              <div style={{ padding: '14px 18px', background: 'rgba(16,185,129,.05)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
+                <strong style={{ color: 'var(--accent3)' }}>✅ Template DOCX carregado com sucesso.</strong><br />
+                Na hora de gerar o contrato/proposta, o sistema substituirá todas as variáveis <code style={{ color: 'var(--accent)' }}>{'{{var}}'}</code> e gerará o download do arquivo Word preenchido.<br />
+                <span style={{ color: '#94a3b8' }}>Tamanho: {val ? Math.round(val.length * 0.75 / 1024) + ' KB (base64)' : '—'}</span>
               </div>
-            ))}
+            ) : (
+              <textarea
+                rows={8}
+                style={{ ...s.input, fontFamily: 'monospace', fontSize: 12, resize: 'vertical', width: '100%', marginBottom: 6 }}
+                value={val}
+                onChange={e => setter(e.target.value)}
+                placeholder={`Cole HTML aqui com variáveis como {{empresa}}, {{total_adesao}}, etc.\n\nOu importe um arquivo .docx acima para melhor qualidade.`}
+              />
+            )}
           </div>
+        ))}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <button style={s.saveBtn} onClick={salvar} disabled={saving}>{saving ? '⏳...' : '✅ Salvar'}</button>
+          <button onClick={testarConexao} disabled={testando} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>{testando ? '⏳...' : '🔌 Testar Conexão'}</button>
         </div>
       </div>
 
-      {/* Prompt IA */}
+      {/* Variáveis organizadas por seção */}
       <div style={s.sec}>
-        <div style={s.secTitle}>🤖 Prompt para Geração com IA</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
-          Copie este prompt e cole em qualquer IA para gerar um HTML profissional pronto para colar acima (modo HTML).
-          Para gerar um DOCX, use o Word/LibreOffice diretamente com o layout desejado.
+        <div style={s.secTitle}>📋 Variáveis disponíveis — use no DOCX ou no HTML</div>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+          Clique em qualquer variável para selecionar e copiar. No DOCX Word, coloque-as exatamente como mostradas abaixo (com as chaves duplas).
         </p>
-        <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, position: 'relative' }}>
-          <pre id="prompt-ia" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, lineHeight: 1.7, fontFamily: 'monospace' }}>{`Você é especialista em documentos comerciais. Com base nas variáveis abaixo, crie um HTML completo e profissional para uma [PROPOSTA / CONTRATO].
 
-VARIÁVEIS DO CLIENTE:
-{{empresa}} - Nome fantasia | {{razao}} - Razão social | {{cnpj}} - CNPJ
-{{contato}} - Nome do contato | {{email}} - E-mail | {{telefone}} - Telefone
-{{endereco}} - Endereço | {{regime}} - Regime tributário | {{plano}} - Plano contratado
-{{cnpjs_qty}} - Qtd. CNPJs | {{data_hora}} - Data atual
+        {GRUPOS_VARIAVEIS.map((grupo, gi) => (
+          <div key={gi} style={{ marginBottom: 20, border: `1px solid ${grupo.cor}22`, borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ background: grupo.cor + '12', borderBottom: `1px solid ${grupo.cor}22`, padding: '10px 16px' }}>
+              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: grupo.cor }}>{grupo.titulo}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{grupo.desc}</div>
+            </div>
+            <div style={{ padding: '12px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 6 }}>
+              {grupo.vars.map(([v, desc]) => (
+                <div key={v} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ ...tagStyle, color: grupo.cor, background: grupo.cor + '10', borderColor: grupo.cor + '30' }}
+                    onClick={() => { navigator.clipboard?.writeText(v); toast(`✅ ${v} copiado!`) }}>
+                    {v}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>{desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
 
-VARIÁVEIS FINANCEIRAS:
-{{total_adesao}} - Total adesão | {{total_mensal}} - Total mensalidade
-{{condicao_pagamento}} - Condição de pagamento
-{{vencimento_adesao}} - Venc. adesão | {{vencimento_mensal}} - Venc. mensalidade
-
-VARIÁVEIS DA EMPRESA CONTRATADA:
-{{company}} - Nome fantasia | {{razao_empresa}} - Razão social
-{{cnpj_empresa}} - CNPJ | {{responsavel}} - Responsável
-{{telefone_empresa}} - Telefone | {{email_empresa}} - E-mail | {{endereco_empresa}} - Endereço
-
-VARIÁVEIS DE CONSULTOR E PRODUTOS:
-{{consultor_nome}} - Nome do consultor | {{logo}} - Logo em base64
-{{produtos_tabela}} - Tabela HTML dos produtos | {{produtos_lista}} - Lista de produtos
-
-INSTRUÇÕES: CSS inline, fundo branco (#ffffff), cores profissionais (azul #0a66b9 como cor principal), cabeçalho com logo (<img src="{{logo}}" style="height:60px;max-width:220px;object-fit:contain">), seções bem definidas, tabela de produtos com bordas, área de assinaturas no final com duas colunas (Contratante e Contratada), rodapé com dados da empresa. Retorne APENAS o HTML, sem comentários extras.`}</pre>
-          <button
-            onClick={() => {
-              const el = document.getElementById('prompt-ia')
-              if (el) navigator.clipboard?.writeText(el.innerText).then(() => toast('✅ Prompt copiado!'))
-            }}
-            style={{ position: 'absolute', top: 10, right: 10, padding: '6px 12px', borderRadius: 7, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>
-            📋 Copiar
-          </button>
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-          <button style={s.saveBtn} onClick={salvar} disabled={saving}>
-            {saving ? '⏳...' : '✅ Salvar'}
-          </button>
-          <button
-            onClick={testarConexao}
-            disabled={testando}
-            style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
-            {testando ? '⏳...' : '🔌 Testar Conexão'}
-          </button>
-        </div>
+      {/* Instruções DOCX */}
+      <div style={{ ...s.sec, padding: '16px 18px', background: 'rgba(124,58,237,.06)', border: '1px solid rgba(124,58,237,.2)', borderRadius: 12 }}>
+        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: '#a78bfa', marginBottom: 10 }}>📝 Como usar no Word (.docx)</div>
+        <ol style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 2, paddingLeft: 18 }}>
+          <li>Abra seu modelo no Word e posicione o cursor onde quer inserir a variável</li>
+          <li>Digite a variável exatamente como mostrada acima — ex: <code style={{ color: '#a78bfa' }}>{'{{empresa}}'}</code></li>
+          <li>Salve o arquivo como <strong style={{ color: 'var(--text)' }}>.docx</strong> normalmente</li>
+          <li>Importe o arquivo no campo acima clicando em "Importar DOCX"</li>
+          <li>Ao gerar uma proposta ou contrato no Chat, o sistema substituirá as variáveis automaticamente</li>
+          <li>O documento final é exibido em tela e você pode imprimir, salvar em PDF ou enviar para assinatura</li>
+        </ol>
       </div>
     </div>
   )
 }
 
 // ══════════════════════════════════════════════
-// ABA CLIENTES
+// ABA CLIENTES — completa com API CNPJ + CEP + Responsáveis
 // ══════════════════════════════════════════════
 function TabClientes({ cfg, setCfg, empresaId }) {
-  const [busca,  setBusca]  = useState('')
-  const [form,   setForm]   = useState(null)
-  const [saving, setSaving] = useState(false)
+  const [busca,     setBusca]     = React.useState('')
+  const [form,      setForm]      = React.useState(null)
+  const [saving,    setSaving]    = React.useState(false)
+  const [lookupMsg, setLookupMsg] = React.useState('')
+  const [lookingUp, setLookingUp] = React.useState(false)
+
   const clientes  = cfg.clients || []
   const filtrados = busca.trim()
-    ? clientes.filter(c => c && (c.nome?.toLowerCase().includes(busca.toLowerCase()) || c.cnpj?.includes(busca) || c.cpf?.includes(busca)))
+    ? clientes.filter(c => c && (
+        c.nome?.toLowerCase().includes(busca.toLowerCase()) ||
+        c.fantasia?.toLowerCase().includes(busca.toLowerCase()) ||
+        c.cnpj?.includes(busca) || c.cpf?.includes(busca) || c.doc?.includes(busca)
+      ))
     : clientes
-  const emptyClient = { id: '', nome: '', fantasia: '', cnpj: '', cpf: '', email: '', telefone: '', cidade: '', uf: '', endereco: '', bairro: '', cep: '' }
+
+  const EMPTY = {
+    id: '', doc: '', fantasia: '', nome: '', contato: '', email: '', tel: '',
+    cep: '', end: '', bairro: '', cidade: '', uf: '', cpfContato: '', regime: '',
+    rimpNome: '', rimpEmail: '', rimpTel: '',
+    rfinNome: '', rfinEmail: '', rfinTel: '',
+  }
+
+  // ── Auto-format doc ──
+  function handleDocInput(val) {
+    const d = val.replace(/\D/g, '')
+    let fmt = d
+    if (d.length <= 11) fmt = d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+    else fmt = d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+    setForm(f => ({ ...f, doc: fmt }))
+  }
+
+  function handleCepInput(val) {
+    setForm(f => ({ ...f, cep: fmtCepStr(val) }))
+  }
+
+  // ── Busca CNPJ via BrasilAPI ──
+  async function lookupDoc() {
+    const raw = (form?.doc || '').replace(/\D/g, '')
+    if (raw.length !== 14 && raw.length !== 11) { setLookupMsg('Informe um CPF ou CNPJ válido.'); return }
+    setLookingUp(true); setLookupMsg('')
+
+    // Verifica base local primeiro
+    const local = clientes.find(c => (c.cnpj || c.cpf || c.doc || '').replace(/\D/g, '') === raw)
+    if (local) {
+      setForm(f => ({
+        ...f,
+        fantasia:   f.fantasia   || local.fantasia   || '',
+        nome:       f.nome       || local.nome        || '',
+        contato:    f.contato    || local.contato     || '',
+        email:      f.email      || local.email       || '',
+        tel:        f.tel        || local.tel || local.telefone || '',
+        cep:        f.cep        || local.cep         || '',
+        end:        f.end        || local.end || local.endereco || '',
+        bairro:     f.bairro     || local.bairro      || '',
+        cidade:     f.cidade     || local.cidade      || '',
+        uf:         f.uf         || local.uf          || '',
+        cpfContato: f.cpfContato || local.cpfContato  || '',
+        regime:     f.regime     || local.regime      || '',
+        rimpNome:   f.rimpNome   || local.rimpNome    || '',
+        rimpEmail:  f.rimpEmail  || local.rimpEmail   || '',
+        rimpTel:    f.rimpTel    || local.rimpTel     || '',
+        rfinNome:   f.rfinNome   || local.rfinNome    || '',
+        rfinEmail:  f.rfinEmail  || local.rfinEmail   || '',
+        rfinTel:    f.rfinTel    || local.rfinTel     || '',
+      }))
+      setLookupMsg('✅ Dados encontrados na base local!')
+      setLookingUp(false); return
+    }
+
+    if (raw.length === 14) {
+      try {
+        const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${raw}`)
+        if (r.ok) {
+          const d = await r.json()
+          const fone = (d.ddd_telefone_1 || d.ddd_telefone_2 || '').replace(/\D/g, '')
+          const foneStr = fone.length >= 10 ? `(${fone.slice(0, 2)}) ${fone.slice(2)}` : ''
+          setForm(f => ({
+            ...f,
+            fantasia: f.fantasia || d.nome_fantasia || d.razao_social || '',
+            nome:     f.nome     || d.razao_social || '',
+            email:    f.email    || d.email || '',
+            tel:      f.tel      || foneStr,
+            cep:      f.cep      || fmtCepStr(d.cep || ''),
+            end:      f.end      || ((d.logradouro || '') + (d.numero ? ', ' + d.numero : '')),
+            bairro:   f.bairro   || d.bairro || '',
+            cidade:   f.cidade   || d.municipio || '',
+            uf:       f.uf       || d.uf || '',
+          }))
+          setLookupMsg('✅ Dados da Receita Federal carregados!')
+          if (!d.logradouro && d.cep) await lookupCepDireto((d.cep || '').replace(/\D/g, ''))
+        } else {
+          setLookupMsg('CNPJ não localizado na Receita Federal.')
+        }
+      } catch {
+        setLookupMsg('Erro na consulta. Verifique a conexão.')
+      }
+    } else {
+      setLookupMsg('CPF informado — preencha os dados manualmente.')
+    }
+    setLookingUp(false)
+  }
+
+  // ── Busca CEP via ViaCEP ──
+  async function lookupCep() {
+    const cep = (form?.cep || '').replace(/\D/g, '')
+    if (cep.length !== 8) return
+    await lookupCepDireto(cep)
+  }
+
+  async function lookupCepDireto(cep) {
+    try {
+      const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`)
+      if (!r.ok) return
+      const d = await r.json()
+      if (d.erro) return
+      setForm(f => ({
+        ...f,
+        end:    f.end    || d.logradouro || '',
+        bairro: f.bairro || d.bairro     || '',
+        cidade: f.cidade || d.localidade || '',
+        uf:     f.uf     || d.uf         || '',
+      }))
+    } catch {}
+  }
 
   function isDuplicate(formData) {
-    const cleanTel = (t) => t ? t.replace(/\D/g,'') : ''
-    const cleanDoc = (d) => d ? d.replace(/\D/g,'') : ''
+    const clean = s => (s || '').replace(/\D/g, '')
     return clientes.some(cl => {
       if (!cl || cl.id === formData.id) return false
-      // CNPJ ou CPF igual (prioridade máxima — mantém o já cadastrado)
-      if (formData.cnpj && cl.cnpj && cleanDoc(cl.cnpj) === cleanDoc(formData.cnpj) && cleanDoc(formData.cnpj).length >= 11) return true
-      if (formData.cpf  && cl.cpf  && cleanDoc(cl.cpf)  === cleanDoc(formData.cpf)  && cleanDoc(formData.cpf).length  >= 11) return true
-      // E-mail igual
-      if (formData.email && cl.email && cl.email.toLowerCase().trim() === formData.email.toLowerCase().trim()) return true
-      // Telefone igual (ao menos 8 dígitos)
-      const t1 = cleanTel(formData.telefone), t2 = cleanTel(cl.telefone)
-      if (t1.length >= 8 && t1 === t2) return true
-      // Razão social igual (case-insensitive)
-      if (formData.nome && cl.nome && cl.nome.toLowerCase().trim() === formData.nome.toLowerCase().trim()) return true
+      const doc = clean(formData.doc)
+      if (doc.length >= 11 && clean(cl.doc || cl.cnpj || cl.cpf) === doc) return true
+      if (formData.email && cl.email && cl.email.toLowerCase() === formData.email.toLowerCase()) return true
       return false
     })
   }
 
   async function salvarCliente() {
-    if (!form.nome) { toast('Nome obrigatório', 'err'); return }
+    if (!form.nome && !form.fantasia) { toast('Nome obrigatório', 'err'); return }
     if (isDuplicate(form)) { toast('Cliente já cadastrado com esse CNPJ/CPF ou e-mail.', 'err'); return }
     setSaving(true)
-    const novos = form.id
-      ? clientes.map(c => c.id === form.id ? form : c)
-      : [...clientes, { ...form, id: Date.now().toString() }]
+    const docRaw = (form.doc || '').replace(/\D/g, '')
+    const novo = {
+      ...form,
+      id:   form.id || Date.now().toString(),
+      cnpj: docRaw.length === 14 ? form.doc : '',
+      cpf:  docRaw.length === 11 ? form.doc : '',
+    }
+    const novos = form.id ? clientes.map(c => c.id === form.id ? novo : c) : [...clientes, novo]
     const novoCfg = { ...cfg, clients: novos }
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar', 'err'); return }
-    setCfg(novoCfg); setForm(null); toast('✅ Cliente salvo!')
+    setCfg(novoCfg); setForm(null); setLookupMsg(''); toast('✅ Cliente salvo!')
   }
 
   async function removerCliente(id) {
     if (!confirm('Remover cliente?')) return
-    const novos   = clientes.filter(c => c.id !== id)
-    const novoCfg = { ...cfg, clients: novos }
-    await salvarStorage(empresaId, novoCfg)
-    setCfg(novoCfg); toast('🗑 Cliente removido!')
+    const novos = clientes.filter(c => c.id !== id)
+    await salvarStorage(empresaId, { ...cfg, clients: novos })
+    setCfg({ ...cfg, clients: novos }); toast('🗑 Cliente removido!')
   }
+
+  const inp = { ...s.input, width: '100%' }
+  const blk = { background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.12)', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }
+  const blkGold = { background: 'rgba(251,191,36,.04)', border: '1px solid rgba(251,191,36,.12)', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }
+  const blkLbl = (color, txt) => <div style={{ fontSize: 11, color, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10, fontWeight: 700 }}>{txt}</div>
 
   return (
     <div style={s.body}>
       <div style={s.sec}>
         <div style={s.secTitle}>Clientes Cadastrados</div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <input style={{ ...s.input, flex: 1 }} placeholder="CNPJ, CPF ou nome..." value={busca} onChange={e => setBusca(e.target.value)} />
-          <button onClick={() => setForm(emptyClient)} style={{ padding: '10px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Novo Cliente</button>
+          <input style={{ ...s.input, flex: 1 }} placeholder="CNPJ, CPF, nome ou fantasia..." value={busca} onChange={e => setBusca(e.target.value)} />
+          <button onClick={() => { setForm({ ...EMPTY }); setLookupMsg('') }} style={{ padding: '10px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Novo Cliente</button>
         </div>
         {filtrados.length === 0 && !form && <p style={{ color: 'var(--muted)' }}>Nenhum cliente encontrado.</p>}
         {filtrados.map(c => {
@@ -1557,40 +1680,108 @@ function TabClientes({ cfg, setCfg, empresaId }) {
           return (
             <div key={c.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14 }}>{c.nome}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{c.cnpj && `CNPJ: ${c.cnpj} · `}{c.cidade && c.cidade}</div>
+                <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14 }}>{c.fantasia || c.nome}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {c.doc || c.cnpj || c.cpf || ''}
+                  {c.cidade ? ` · ${c.cidade}` : ''}
+                  {c.regime ? ` · ${c.regime}` : ''}
+                </div>
               </div>
-              <button onClick={() => setForm({ ...c })} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)' }}>✏️</button>
+              <button onClick={() => { setForm({ ...EMPTY, ...c, doc: c.doc || c.cnpj || c.cpf || '' }); setLookupMsg('') }} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)' }}>✏️</button>
               <button onClick={() => removerCliente(c.id)} style={{ padding: '5px 10px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: 'var(--danger)' }}>🗑</button>
             </div>
           )
         })}
       </div>
 
-      {/* ── CORREÇÃO: wrapper <div> adicionado ao redor dos campos do formulário ── */}
       {form && (
-        <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 18, marginTop: 8 }}>
+        <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginTop: 8 }}>
           <div style={{ ...s.secTitle, marginBottom: 14 }}>Dados do Cliente</div>
+
+          {/* CPF / CNPJ + busca */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 14 }}>
+            <div style={s.field}>
+              <label style={s.label}>CPF / CNPJ</label>
+              <input style={inp} value={form.doc || ''} onChange={e => handleDocInput(e.target.value)} placeholder="00.000.000/0000-00" maxLength={18} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button onClick={lookupDoc} disabled={lookingUp} style={{ padding: '9px 14px', borderRadius: 8, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                {lookingUp ? '⏳ Buscando...' : '🔍 Buscar'}
+              </button>
+            </div>
+          </div>
+          {lookupMsg && (
+            <div style={{ marginBottom: 12, fontSize: 12, padding: '6px 10px', borderRadius: 8, background: lookupMsg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(245,158,11,.1)', color: lookupMsg.startsWith('✅') ? '#10b981' : '#fbbf24', border: `1px solid ${lookupMsg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(245,158,11,.3)'}` }}>
+              {lookupMsg}
+            </div>
+          )}
+
+          {/* Nome fantasia + razão */}
           <div style={s.row2}>
-            <div style={s.field}><label style={s.label}>Razão Social</label><input style={s.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Razão social" /></div>
-            <div style={s.field}><label style={s.label}>Nome Fantasia</label><input style={s.input} value={form.fantasia || ''} onChange={e => setForm(f => ({ ...f, fantasia: e.target.value }))} placeholder="Nome fantasia" /></div>
+            <div style={s.field}><label style={s.label}>Nome Fantasia</label><input style={inp} value={form.fantasia || ''} onChange={e => setForm(f => ({ ...f, fantasia: e.target.value }))} placeholder="Nome fantasia" /></div>
+            <div style={s.field}><label style={s.label}>Razão Social</label><input style={inp} value={form.nome || ''} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Razão social" /></div>
           </div>
           <div style={s.row2}>
-            <div style={s.field}><label style={s.label}>CNPJ</label><input style={s.input} value={form.cnpj} onChange={e => setForm(f => ({ ...f, cnpj: e.target.value }))} placeholder="00.000.000/0001-00" /></div>
-            <div style={s.field}><label style={s.label}>CPF</label><input style={s.input} value={form.cpf || ''} onChange={e => setForm(f => ({ ...f, cpf: e.target.value }))} placeholder="000.000.000-00" /></div>
+            <div style={s.field}><label style={s.label}>Nome do Contato</label><input style={inp} value={form.contato || ''} onChange={e => setForm(f => ({ ...f, contato: e.target.value }))} placeholder="Responsável" /></div>
+            <div style={s.field}><label style={s.label}>E-mail</label><input type="email" style={inp} value={form.email || ''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@empresa.com" /></div>
           </div>
           <div style={s.row2}>
-            <div style={s.field}><label style={s.label}>E-mail</label><input type="email" style={s.input} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="email@empresa.com" /></div>
-            <div style={s.field}><label style={s.label}>Telefone</label><input style={s.input} value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" /></div>
+            <div style={s.field}><label style={s.label}>Telefone / WhatsApp</label><input style={inp} value={form.tel || ''} onChange={e => setForm(f => ({ ...f, tel: e.target.value }))} placeholder="(00) 00000-0000" /></div>
+            <div style={s.field}>
+              <label style={s.label}>CEP</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input style={{ ...inp, flex: 1 }} value={form.cep || ''} onChange={e => handleCepInput(e.target.value)} onBlur={lookupCep} placeholder="00000-000" maxLength={9} />
+                <button onClick={lookupCep} style={{ padding: '9px 10px', borderRadius: 8, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', color: 'var(--accent)', cursor: 'pointer', fontSize: 13 }}>📍</button>
+              </div>
+            </div>
           </div>
           <div style={s.row2}>
-            <div style={s.field}><label style={s.label}>Cidade</label><input style={s.input} value={form.cidade} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} placeholder="Cidade" /></div>
-            <div style={s.field}><label style={s.label}>Estado (UF)</label><input style={s.input} value={form.uf || ''} onChange={e => setForm(f => ({ ...f, uf: e.target.value }))} placeholder="UF" maxLength={2} /></div>
+            <div style={s.field}><label style={s.label}>Endereço</label><input style={inp} value={form.end || ''} onChange={e => setForm(f => ({ ...f, end: e.target.value }))} placeholder="Rua, número" /></div>
+            <div style={s.field}><label style={s.label}>Bairro</label><input style={inp} value={form.bairro || ''} onChange={e => setForm(f => ({ ...f, bairro: e.target.value }))} placeholder="Bairro" /></div>
           </div>
-          <div style={s.field}><label style={s.label}>Endereço Completo</label><input style={s.input} value={form.endereco || ''} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} placeholder="Rua, nº, bairro" /></div>
+          <div style={s.row2}>
+            <div style={s.field}><label style={s.label}>Cidade</label><input style={inp} value={form.cidade || ''} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} placeholder="Cidade" /></div>
+            <div style={s.field}><label style={s.label}>Estado (UF)</label><input style={inp} value={form.uf || ''} onChange={e => setForm(f => ({ ...f, uf: e.target.value.toUpperCase() }))} placeholder="UF" maxLength={2} /></div>
+          </div>
+
+          {/* Responsável pela Implantação */}
+          <div style={blk}>
+            {blkLbl('var(--accent)', '👷 Responsável pela Implantação')}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div style={s.field}><label style={s.label}>Nome</label><input style={inp} value={form.rimpNome || ''} onChange={e => setForm(f => ({ ...f, rimpNome: e.target.value }))} placeholder="Nome do responsável" /></div>
+              <div style={s.field}><label style={s.label}>E-mail</label><input type="email" style={inp} value={form.rimpEmail || ''} onChange={e => setForm(f => ({ ...f, rimpEmail: e.target.value }))} placeholder="email@empresa.com" /></div>
+              <div style={s.field}><label style={s.label}>Telefone</label><input style={inp} value={form.rimpTel || ''} onChange={e => setForm(f => ({ ...f, rimpTel: e.target.value }))} placeholder="(00) 00000-0000" /></div>
+            </div>
+          </div>
+
+          {/* Responsável Financeiro */}
+          <div style={blkGold}>
+            {blkLbl('#fbbf24', '💰 Responsável Financeiro')}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div style={s.field}><label style={s.label}>Nome</label><input style={inp} value={form.rfinNome || ''} onChange={e => setForm(f => ({ ...f, rfinNome: e.target.value }))} placeholder="Nome do responsável" /></div>
+              <div style={s.field}><label style={s.label}>E-mail</label><input type="email" style={inp} value={form.rfinEmail || ''} onChange={e => setForm(f => ({ ...f, rfinEmail: e.target.value }))} placeholder="email@financeiro.com" /></div>
+              <div style={s.field}><label style={s.label}>Telefone</label><input style={inp} value={form.rfinTel || ''} onChange={e => setForm(f => ({ ...f, rfinTel: e.target.value }))} placeholder="(00) 00000-0000" /></div>
+            </div>
+          </div>
+
+          {/* CPF do contato + Regime tributário */}
+          <div style={s.row2}>
+            <div style={s.field}><label style={s.label}>CPF do Contato Principal</label><input style={inp} value={form.cpfContato || ''} onChange={e => setForm(f => ({ ...f, cpfContato: e.target.value }))} placeholder="000.000.000-00" /></div>
+            <div style={s.field}>
+              <label style={s.label}>Regime Tributário</label>
+              <select style={inp} value={form.regime || ''} onChange={e => setForm(f => ({ ...f, regime: e.target.value }))}>
+                <option value="">Selecione...</option>
+                <option>Simples Nacional</option>
+                <option>Lucro Presumido</option>
+                <option>Lucro Real</option>
+                <option>MEI</option>
+              </select>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
             <button style={s.saveBtn} onClick={salvarCliente} disabled={saving}>{saving ? '⏳...' : '✅ Salvar Cliente'}</button>
-            <button onClick={() => setForm(null)} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+            <button onClick={() => { setForm(null); setLookupMsg('') }} style={{ padding: '11px 18px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: 'var(--muted)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
           </div>
         </div>
       )}
