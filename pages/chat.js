@@ -24,15 +24,21 @@ import Navbar from '../components/Navbar'
 // COMPONENTE DocumentoPreviewModal
 // Exibe proposta/contrato gerado em tela com botões de ação
 // ══════════════════════════════════════════════════════════════
-function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile }) {
+function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {
   const [enviandoAssComp, setEnviandoAssComp] = useState(false)
   const [linkAssinatura,  setLinkAssinatura]  = useState('')
   const [msgEnvio,        setMsgEnvio]        = useState('')
+  const [showEnvioOpcoes, setShowEnvioOpcoes] = useState(false)
+  const [emailEnvio,      setEmailEnvio]      = useState('')
+  const [salvandoCRM,     setSalvandoCRM]     = useState(false)
 
   if (!docPreview) return null
 
-  const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken } = docPreview
+  const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken, hasDocx, docxNome } = docPreview
   const isContrato = tipo === 'contrato'
+
+  // Preenche email do cliente
+  if (!emailEnvio && clienteEmail) setEmailEnvio(clienteEmail)
 
   // ── 1. Imprimir ──
   function handleImprimir() {
@@ -56,31 +62,36 @@ ${html}
     setTimeout(() => win.print(), 800)
   }
 
-  // ── 2. Salvar como PDF ──
-  function handleSalvarPDF() {
-    const win = window.open('', '_blank', 'width=900,height=700')
-    if (!win) { alert('Permita popups.'); return }
-    win.document.write(`<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<title>${isContrato ? 'Contrato' : 'Proposta'}</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<style>
-  body{font-family:Inter,sans-serif;background:#fff;color:#1e293b;margin:0;padding:24px}
-  @media print{body{padding:0} .no-print{display:none!important}}
-  .no-print{position:fixed;top:16px;right:16px;padding:10px 20px;background:#7c3aed;border:none;border-radius:8px;color:#fff;font-weight:700;cursor:pointer;font-size:14px;z-index:999}
-</style>
-</head><body>
-<button class="no-print" onclick="window.print()">💾 Salvar como PDF (Ctrl+P → Salvar como PDF)</button>
-${html}
-<script>window.onafterprint=function(){window.close()}<\/script>
-</body></html>`)
-    win.document.close()
-    win.focus()
+  // ── 2. Baixar DOCX ──
+  function handleBaixarDocx() {
+    if (window._vxDocxBlob?.blob) {
+      const url = URL.createObjectURL(window._vxDocxBlob.blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = window._vxDocxBlob.nome || (isContrato ? 'contrato.docx' : 'proposta.docx')
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } else {
+      alert('Arquivo DOCX ainda sendo preparado. Aguarde um instante.')
+    }
   }
 
-  // ── 3. Enviar para assinatura ──
+  // ── 3. Salvar no CRM ──
+  async function handleSalvarCRM() {
+    setSalvandoCRM(true)
+    try {
+      if (onSalvarCRM) await onSalvarCRM(docPreview)
+      setMsgEnvio('✅ Salvo no CRM com sucesso!')
+    } catch (err) {
+      setMsgEnvio('❌ Erro ao salvar no CRM: ' + err.message)
+    }
+    setSalvandoCRM(false)
+  }
+
+  // ── 4. Enviar para assinatura (contrato) ──
   async function handleEnviarAssinatura() {
-    if (!isContrato) { setMsgEnvio('⚠️ Assinatura disponível apenas para contratos.'); return }
     if (!clienteEmail && !clienteTel) { setMsgEnvio('⚠️ Cliente sem e-mail ou telefone cadastrado.'); return }
 
     setEnviandoAssComp(true); setMsgEnvio('')
@@ -103,46 +114,26 @@ ${html}
       const baseUrl  = cfg.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
       const signLink = `${baseUrl}/sign/${token}`
       setLinkAssinatura(signLink)
-
-      // Envia por WhatsApp se configurado
-      if (clienteTel && (cfg.wppInbox?.evolutionUrl || cfg.wpp?.phoneId)) {
-        try {
-          await fetch('/api/wpp/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              empresaId,
-              numero:   clienteTel.replace(/\D/g, ''),
-              mensagem: `📄 Olá ${clienteNome || 'cliente'}!\n\nSeu ${tipo} está pronto para assinatura.\n\nClique no link abaixo para assinar eletronicamente:\n${signLink}\n\n_O link é válido por 7 dias._`,
-            }),
-          })
-        } catch {}
-      }
-
-      // Envia por e-mail se configurado
-      if (clienteEmail && (cfg.smtpHost || cfg.emailApiKey)) {
-        try {
-          await fetch('/api/send-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              to:      clienteEmail,
-              subject: `${cfg.company || 'Vivanexa'} — ${tipo === 'contrato' ? 'Contrato' : 'Proposta'} para assinatura`,
-              html: `<p>Olá <strong>${clienteNome || 'cliente'}</strong>,</p>
-<p>Seu ${tipo} está pronto para assinatura eletrônica.</p>
-<p><a href="${signLink}" style="background:#00d4ff;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">✍️ Assinar Documento</a></p>
-<p style="color:#64748b;font-size:12px">O link é válido por 7 dias.</p>`,
-              config: { smtpHost: cfg.smtpHost, smtpPort: cfg.smtpPort, smtpUser: cfg.smtpUser, smtpPass: cfg.smtpPass },
-            }),
-          })
-        } catch {}
-      }
-
-      setMsgEnvio(`✅ Link de assinatura gerado! Enviado ${clienteTel ? 'via WhatsApp' : ''}${clienteTel && clienteEmail ? ' e ' : ''}${clienteEmail ? 'por e-mail' : ''}.`)
+      setShowEnvioOpcoes(true)
+      setMsgEnvio(`✅ Link de assinatura gerado!`)
     } catch (err) {
       setMsgEnvio(`❌ Erro: ${err.message}`)
     }
     setEnviandoAssComp(false)
+  }
+
+  // ── 5. Enviar proposta para cliente (WhatsApp / Email) ──
+  function handleEnviarPropostaWpp() {
+    const msg = encodeURIComponent(`Olá ${clienteNome || 'cliente'}! Segue abaixo a proposta comercial da ${cfg.company || 'Vivanexa'}.\n\nAcesse o link para visualizar:\n${window.location.origin}/sign/${signToken}`)
+    const tel = (clienteTel||'').replace(/\D/g,'')
+    window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
+    setMsgEnvio('✅ WhatsApp aberto com o link da proposta!')
+  }
+  function handleEnviarPropostaEmail() {
+    const subj = encodeURIComponent(`Proposta Comercial – ${cfg.company || 'Vivanexa'}`)
+    const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSegue a proposta comercial.\n\nLink: ${window.location.origin}/sign/${signToken}\n\n${cfg.company || 'Vivanexa'}`)
+    window.open(`mailto:${emailEnvio||clienteEmail||''}?subject=${subj}&body=${body}`, '_blank')
+    setMsgEnvio('✅ E-mail aberto com a proposta!')
   }
 
   const acaoBtn = (cor, disabled = false) => ({
@@ -159,11 +150,20 @@ ${html}
         <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 15, marginRight: 8 }}>
           {isContrato ? '📄 Contrato' : '📋 Proposta'} gerado
         </div>
-        <button onClick={handleImprimir} style={acaoBtn('#00d4ff')}>🖨 Imprimir</button>
-        <button onClick={handleSalvarPDF} style={acaoBtn('#7c3aed')}>💾 Salvar PDF</button>
-        {isContrato && (
+        <button onClick={handleImprimir} style={acaoBtn('#00d4ff')}>🖨 Imprimir / PDF</button>
+        {hasDocx && (
+          <button onClick={handleBaixarDocx} style={acaoBtn('#7c3aed')}>💾 Baixar DOCX</button>
+        )}
+        <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={acaoBtn('#10b981', salvandoCRM)}>
+          {salvandoCRM ? '⏳...' : '💼 Salvar no CRM'}
+        </button>
+        {isContrato ? (
           <button onClick={handleEnviarAssinatura} disabled={enviandoAssComp} style={acaoBtn('#f59e0b', enviandoAssComp)}>
-            {enviandoAssComp ? '⏳ Enviando...' : '✍️ Enviar para Assinatura'}
+            {enviandoAssComp ? '⏳ Gerando...' : '✍️ Enviar para Assinatura'}
+          </button>
+        ) : (
+          <button onClick={() => setShowEnvioOpcoes(v => !v)} style={acaoBtn('#10b981')}>
+            📤 Enviar para Cliente
           </button>
         )}
         <div style={{ flex: 1 }} />
@@ -172,17 +172,52 @@ ${html}
         </button>
       </div>
 
-      {/* Mensagem de envio */}
+      {/* Painel de envio proposta */}
+      {!isContrato && showEnvioOpcoes && (
+        <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: '#64748b' }}>Enviar para:</span>
+          <input
+            value={emailEnvio}
+            onChange={e => setEmailEnvio(e.target.value)}
+            placeholder="email do cliente"
+            style={{ background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, width: 220 }}
+          />
+          <button onClick={handleEnviarPropostaWpp} style={acaoBtn('#25d366')}>💬 WhatsApp</button>
+          <button onClick={handleEnviarPropostaEmail} style={acaoBtn('#00d4ff')}>📧 E-mail</button>
+        </div>
+      )}
+
+      {/* Painel de opções de assinatura */}
+      {isContrato && showEnvioOpcoes && linkAssinatura && (
+        <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: '#64748b' }}>Link de assinatura:</span>
+            <code style={{ fontSize: 11, color: '#00d4ff', wordBreak: 'break-all', flex: 1 }}>{linkAssinatura}</code>
+            <button onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio('✅ Link copiado!') }} style={{ ...acaoBtn('#00d4ff'), padding: '4px 10px', fontSize: 11 }}>📋 Copiar</button>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button onClick={() => {
+              const msg = encodeURIComponent(`📄 Olá ${clienteNome || 'cliente'}!\n\nSeu contrato está pronto para assinatura.\n\n${linkAssinatura}\n\n_Válido por 7 dias._`)
+              const tel = (clienteTel||'').replace(/\D/g,'')
+              window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
+            }} style={acaoBtn('#25d366')}>💬 Enviar via WhatsApp</button>
+            <button onClick={() => {
+              const subj = encodeURIComponent(`Contrato para Assinatura – ${cfg.company || 'Vivanexa'}`)
+              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg.company || 'Vivanexa'}`)
+              window.open(`mailto:${clienteEmail||''}?subject=${subj}&body=${body}`, '_blank')
+            }} style={acaoBtn('#00d4ff')}>📧 Enviar por E-mail</button>
+            <button onClick={() => {
+              // Abrir link de assinatura nesta própria tela
+              window.open(linkAssinatura, '_blank')
+            }} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (esta tela)</button>
+          </div>
+        </div>
+      )}
+
+      {/* Mensagem de status */}
       {msgEnvio && (
         <div style={{ padding: '10px 20px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : '#ef4444' }}>
           {msgEnvio}
-          {linkAssinatura && (
-            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Link:</span>
-              <code style={{ fontSize: 11, color: '#00d4ff', wordBreak: 'break-all' }}>{linkAssinatura}</code>
-              <button onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio(m => m + ' · Link copiado!') }} style={{ padding: '3px 8px', borderRadius: 5, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: '#00d4ff', cursor: 'pointer', fontSize: 11 }}>Copiar</button>
-            </div>
-          )}
         </div>
       )}
 
@@ -400,8 +435,24 @@ async function gerarEBaixarDocx(templateBase64, variaveis, nomeArquivo) {
     for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
 
     const zip = new PizZip(bytes.buffer)
-    const doc = new Docxtemplater(zip, { paragraphLoop: true, nullGetter: () => '' })
-    doc.render(variaveis)
+    // Tenta primeiro com delimitadores padrão {variavel}
+    // Se falhar, tenta com delimitadores duplos {{variavel}}
+    let doc
+    try {
+      doc = new Docxtemplater(zip, { paragraphLoop: true, nullGetter: () => '', delimiters: { start: '{', end: '}' } })
+      doc.render(variaveis)
+    } catch(e1) {
+      try {
+        const zip2 = new PizZip(bytes.buffer)
+        doc = new Docxtemplater(zip2, { paragraphLoop: true, nullGetter: () => '', delimiters: { start: '{{{', end: '}}}' } })
+        doc.render(variaveis)
+      } catch(e2) {
+        // Fallback: delimitadores padrão sem erro
+        const zip3 = new PizZip(bytes.buffer)
+        doc = new Docxtemplater(zip3, { paragraphLoop: true, nullGetter: () => '' })
+        doc.render(variaveis)
+      }
+    }
 
     const blob = doc.getZip().generate({
       type: 'blob',
@@ -437,6 +488,44 @@ async function gerarEBaixarDocx(templateBase64, variaveis, nomeArquivo) {
       URL.revokeObjectURL(url)
     } catch {}
     return false
+  }
+}
+
+/**
+ * Renderiza variáveis num DOCX template e retorna Blob.
+ * Tenta delimitadores {var} e {{var}} automaticamente.
+ */
+async function renderDocxBlob(templateBase64, variaveis) {
+  const { PizZip, Docxtemplater } = await loadDocxLibs()
+  if (!PizZip || !Docxtemplater) throw new Error('Libs não carregadas')
+
+  const toBytes = (b64) => {
+    let b = b64; if (b.includes(',')) b = b.split(',')[1]
+    const bin = atob(b); const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    return bytes
+  }
+
+  const tryRender = (delimiters) => {
+    const zip = new PizZip(toBytes(templateBase64).buffer)
+    const opts = { paragraphLoop: true, nullGetter: () => '' }
+    if (delimiters) opts.delimiters = delimiters
+    const doc = new Docxtemplater(zip, opts)
+    doc.render(variaveis)
+    return doc.getZip().generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      compression: 'DEFLATE',
+    })
+  }
+
+  // Tenta delimitadores padrão {var} primeiro (correto para Word)
+  try { return tryRender(null) } catch(e1) {
+    // Tenta {{var}}
+    try { return tryRender({ start: '{{', end: '}}' }) } catch(e2) {
+      console.warn('Ambos delimitadores falharam, usando template sem substituição:', e2)
+      return tryRender(null) // último recurso
+    }
   }
 }
 
@@ -763,6 +852,85 @@ function startTimerGlobal(deadline){
 }
 
 // ══════════════════════════════════════════════════════════════
+// BUILD DOCX VARS — Monta objeto com TODAS as variáveis do template
+// Suporta tanto {variavel} quanto {{variavel}} no Word
+// ══════════════════════════════════════════════════════════════
+function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='', wizMen=''}) {
+  const payLabel = wizPay === 'pix' ? 'PIX / Boleto à vista'
+    : wizPay?.startsWith('cartao') ? `Cartão em até ${wizPay.replace('cartao','').replace('x','×')} sem juros`
+    : wizPay?.startsWith('boleto') ? `Boleto ${wizPay.replace('boleto','').replace('x','×')}×`
+    : wizPay || ''
+
+  const endStr = [co.logradouro||cd?.logradouro, co.bairro||cd?.bairro, co.cidade||cd?.municipio, co.uf||cd?.uf]
+    .filter(Boolean).join(', ')
+
+  const hoje = new Date().toLocaleDateString('pt-BR')
+  const agora = new Date().toLocaleString('pt-BR')
+
+  const vars = {
+    // Contratada
+    company:          c.company || 'VIVANEXA',
+    razao_empresa:    c.razaoEmpresa || c.razao_empresa || c.company || '',
+    cnpj_empresa:     c.cnpjEmpresa  || c.cnpj_empresa  || '',
+    responsavel:      c.responsavel  || userProfile?.nome || '',
+    telefone_empresa: c.telefone     || c.telefoneEmpresa || '',
+    email_empresa:    c.emailEmpresa || c.email_empresa   || '',
+    endereco_empresa: c.enderecoEmpresa || c.endereco_empresa || '',
+
+    // Contratante (cliente)
+    empresa:   co.empresa  || cd?.fantasia || cd?.nome || '',
+    razao:     co.razao    || cd?.nome     || '',
+    cpf:       isCPF(S.doc||'') ? fmtDoc(S.doc||'') : '',
+    cnpj:      fmtDoc(S.doc||''),
+    doc:       fmtDoc(S.doc||''),
+    contato:   co.contato  || '',
+    email:     co.email    || cd?.email    || '',
+    telefone:  co.telefone || cd?.telefone || '',
+    endereco:  endStr,
+    cidade:    co.cidade   || cd?.municipio || '',
+    uf:        co.uf       || cd?.uf        || '',
+    regime:    co.regime   || '',
+    cpf_contato:    co.cpfContato || '',
+    cpf_contato_val:co.cpfContato || '',
+
+    // Responsável pela Implementação
+    rimp_nome:  co.rimpNome  || '',
+    rimp_email: co.rimpEmail || '',
+    rimp_tel:   co.rimpTel   || '',
+    nome_implementacao:     co.rimpNome  || '',
+    email_implementacao:    co.rimpEmail || '',
+    telefone_implementacao: co.rimpTel   || '',
+
+    // Responsável Financeiro
+    rfin_nome:  co.rfinNome  || '',
+    rfin_email: co.rfinEmail || '',
+    rfin_tel:   co.rfinTel   || '',
+    nome_financeiro:     co.rfinNome  || '',
+    email_financeiro:    co.rfinEmail || '',
+    telefone_financeiro: co.rfinTel   || '',
+
+    // Produtos e Serviços
+    plano:              S.plan ? getPlanLabel(S.plan, c.plans) : '—',
+    cnpjs_qty:          String(S.cnpjs || ''),
+    total_adesao:       fmt(tAd),
+    total_mensalidade:  fmt(tMen),
+    total_mensal:       fmt(tMen),
+    condicao_pagamento: payLabel,
+    vencimento_adesao:  wizAd  || '—',
+    vencimento_mensal:  wizMen || '—',
+
+    // Consultor e Sistema
+    consultor_nome: userProfile?.nome || '',
+    consultor_tel:  userProfile?.perfil?.telefone || userProfile?.telefone || '',
+    data_hora:      agora,
+    data_hoje:      hoje,
+    logo:           c.logob64 ? `<img src="${c.logob64}" style="height:52px">` : '',
+  }
+
+  return vars
+}
+
+// ══════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ══════════════════════════════════════════════════════════════
 export default function Chat(){
@@ -880,8 +1048,16 @@ export default function Chat(){
         const dt = saved.docTemplates || {}
         const propostaTemplate = saved.propostaTemplate || dt.proposta || ''
         const contratoTemplate = saved.contratoTemplate || dt.contrato || ''
-        const propostaTipo = saved.propostaTipo || dt.propostaTipo || 'html'
-        const contratoTipo = saved.contratoTipo || dt.contratoTipo || 'html'
+        // Detecta tipo automaticamente pelo conteudo
+        const _detectTipo = (tmpl, savedTipo) => {
+          if (savedTipo && savedTipo !== 'html') return savedTipo
+          if (!tmpl) return 'html'
+          if (tmpl.startsWith('data:application/vnd') || tmpl.startsWith('data:application/octet') || tmpl.startsWith('data:application/zip')) return 'docx'
+          if (tmpl.length > 500 && /^[A-Za-z0-9+/=]+$/.test(tmpl.slice(0,100))) return 'docx'
+          return 'html'
+        }
+        const propostaTipo = _detectTipo(propostaTemplate, saved.propostaTipo || dt.propostaTipo)
+        const contratoTipo = _detectTipo(contratoTemplate, saved.contratoTipo || dt.contratoTipo)
         const merged={
           ...DEFAULT_CFG,
           ...saved,
@@ -1229,7 +1405,12 @@ export default function Chat(){
       const c=cfgRef.current
       const cn=S.clientData?.fantasia||S.clientData?.nome||fmtDoc(S.doc||'')
       if(yes){S.stage='discounted';S.quoteData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c,null);addUser('✅ Sim!');addBot(rDisc(S.quoteData,dates,cn),true)}
-      else{S.stage='closed';addUser('Não, obrigado');addBot('Sem problemas!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
+      else{
+        S.stage='await_proposal_after_disc'
+        addUser('Não, obrigado')
+        addBot(`Sem problemas! Vou gerar uma proposta comercial com os valores originais.\n\nClique abaixo para continuar:`)
+        setTimeout(()=>addBot(`<button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button><button class="reset-btn" style="margin-top:6px" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)
+      }
     }
     window.vx_close=(yes)=>{
       const c=cfgRef.current
@@ -1247,6 +1428,10 @@ export default function Chat(){
       setTimeout(()=>addBot(`🔄 Nova consulta!\n\nInforme o CPF ou CNPJ do próximo cliente:`),100)
     }
     window.vx_prop=()=>{
+      // Se estamos na tela de fechamento, voltar aos valores com desconto padrão para a proposta
+      if(S.closingToday) {
+        S.closingToday = false  // proposta usa valores discountados, não de fechamento
+      }
       const cd=S.clientData||{},co=S.contactData||{}
       setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
       setClientMode('proposta');setShowClient(true)
@@ -1274,38 +1459,22 @@ export default function Chat(){
         const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
         const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
         const cd=S.clientData||{},co=S.contactData||{}
-        const variaveis={
-          empresa:co.empresa||cd.fantasia||cd.nome||'',
-          razao:co.razao||cd.nome||'',
-          cnpj:fmtDoc(S.doc||''),
-          contato:co.contato||'',
-          email:co.email||cd.email||'',
-          telefone:co.telefone||cd.telefone||'',
-          cidade:co.cidade||cd.municipio||'',
-          uf:co.uf||cd.uf||'',
-          plano:S.plan?getPlanLabel(S.plan,c.plans):'—',
-          cnpjs_qty:String(S.cnpjs||''),
-          total_adesao:fmt(tAd),
-          total_mensalidade:fmt(tMen),
-          data_hoje:new Date().toLocaleDateString('pt-BR'),
-          consultor_nome:userProfile?.nome||'',
-          consultor_tel:userProfile?.perfil?.telefone || userProfile?.telefone || '',
-          company:c.company||'Vivanexa',
-        }
-        const baixou=await gerarEBaixarDocx(propTemplate,variaveis,nomeArquivo(clientName,'proposta'))
-        // Salva no histórico como HTML padrão para o link de assinatura
+        const variaveis=buildDocxVars({S,c,userProfile,tAd,tMen,cd,co,wizPay:'',wizAd:'',wizMen:''})
+        // Gerar blob DOCX e mostrar preview em tela (HTML fallback) + botão de download
         const htmlFallback=buildProposal(S,c,userProfile)
         const doc=await saveToHistory('proposta',clientName,htmlFallback,{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
-        if(baixou){addBot('📄 Proposta baixada como DOCX! Abra no Word, revise e salve como PDF.\n\nO link de assinatura eletrônica também foi gerado — use o botão abaixo para enviá-lo ao cliente.',false)}
-        setTimeout(()=>setShowSign(true),800)
+        // Armazena blob docx em window para download posterior
+        renderDocxBlob(propTemplate, variaveis)
+          .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo(clientName,'proposta')} })
+          .catch(e=>{ console.warn('Erro DOCX proposta:',e); window._vxDocxBlob=null })
+        setDocPreview({html:htmlFallback,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo(clientName,'proposta')})
       } else {
         // ── PROPOSTA VIA HTML (com preview em tela) ─────────
         const html=buildProposal(S,c,userProfile)
         const doc=await saveToHistory('proposta',clientName,html,{tAd:S.quoteData?.tAdD||0,tMen:S.quoteData?.tMenD||0,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
         setDocPreview({html,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
-        setTimeout(()=>setShowSign(true),600)
       }
     }else{
       const isC=S.closingToday===true
@@ -1331,43 +1500,16 @@ export default function Chat(){
       if(tipoTemplate==='docx'){
         // ── CONTRATO VIA DOCX ──────────────────────────────────
         const cd=S.clientData||{},co=S.contactData||{}
-        const endStr=[co.logradouro||cd.logradouro,co.bairro||cd.bairro,co.cidade||cd.municipio,co.uf||cd.uf].filter(Boolean).join(', ')
-        const payLabel=wizPay==='pix'?'PIX / Boleto à vista':wizPay?.startsWith('cartao')?`Cartão em até ${wizPay.replace('cartao','').replace('x','×')} sem juros`:wizPay?.startsWith('boleto')?`Boleto ${wizPay.replace('boleto','').replace('x','×')}×`:wizPay
-        const variaveis={
-          empresa:co.empresa||cd.fantasia||cd.nome||'',
-          razao:co.razao||cd.nome||'',
-          cnpj:fmtDoc(S.doc||''),
-          contato:co.contato||'',
-          email:co.email||cd.email||'',
-          telefone:co.telefone||cd.telefone||'',
-          endereco:endStr,
-          regime:co.regime||'',
-          plano:S.plan?getPlanLabel(S.plan,c.plans):'—',
-          cnpjs_qty:String(S.cnpjs||''),
-          total_adesao:fmt(wizTAd),
-          total_mensalidade:fmt(wizTMen),
-          condicao_pagamento:payLabel,
-          vencimento_adesao:wizAd||'—',
-          vencimento_mensal:wizMen||'—',
-          data_hora:new Date().toLocaleString('pt-BR'),
-          data_hoje:new Date().toLocaleDateString('pt-BR'),
-          consultor_nome:userProfile?.nome||'',
-          consultor_tel:userProfile?.perfil?.telefone || userProfile?.telefone || '',
-          company:c.company||'Vivanexa',
-          nome_financeiro:co.rfinNome||'',
-          email_financeiro:co.rfinEmail||'',
-          telefone_financeiro:co.rfinTel||'',
-          nome_implementacao:co.rimpNome||'',
-          email_implementacao:co.rimpEmail||'',
-          telefone_implementacao:co.rimpTel||'',
-        }
-        const baixou=await gerarEBaixarDocx(contratoTemplate,variaveis,nomeArquivo)
+        const variaveis=buildDocxVars({S,c,userProfile,tAd:wizTAd,tMen:wizTMen,cd,co,wizPay,wizAd,wizMen})
         // Salva HTML padrão no histórico para link de assinatura
         const htmlFallback=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token)
+        // Armazena blob docx para download no preview
+        renderDocxBlob(contratoTemplate, variaveis)
+          .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo} })
+          .catch(e=>{ console.warn('Erro DOCX contrato:',e); window._vxDocxBlob=null })
         saveToHistory('contrato',clientName,htmlFallback,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
-          if(baixou){addBot('📝 Contrato baixado como DOCX! Abra no Word, revise e salve como PDF.\n\nO link de assinatura eletrônica também foi gerado — envie ao cliente.',false)}
-          setTimeout(()=>setShowSign(true),800)
+          setDocPreview({html:htmlFallback,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo})
         })
       } else {
         // ── CONTRATO VIA HTML (com preview em tela) ─────────
@@ -1375,7 +1517,6 @@ export default function Chat(){
         saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
           setDocPreview({html,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
-          setTimeout(()=>setShowSign(true),600)
         })
       }
     }
@@ -1648,6 +1789,41 @@ export default function Chat(){
         cfg={cfg}
         empresaId={empresaId}
         userProfile={userProfile}
+        onSalvarCRM={async (doc) => {
+          // Salvar/criar negócio no CRM a partir do documento
+          const co = S.contactData || {}
+          const cd = S.clientData || {}
+          const clientName = co.razao || co.empresa || cd.nome || cd.fantasia || fmtDoc(S.doc || '')
+          const tel = (co.telefone || cd.telefone || '').replace(/\D/g,'')
+          const email = co.email || cd.email || ''
+          // Salva no histórico/CRM
+          if (signDoc) {
+            try {
+              const { data: cfgRow } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+              const cfgData = cfgRow?.value ? JSON.parse(cfgRow.value) : {}
+              if (!cfgData.clients) cfgData.clients = []
+              const novoCliente = {
+                doc: S.doc || '',
+                nome: clientName,
+                fantasia: co.empresa || cd.fantasia || '',
+                email, telefone: tel ? `+${tel}` : '',
+                cidade: co.cidade || cd.municipio || '',
+                uf: co.uf || cd.uf || '',
+                ultimoContato: new Date().toISOString(),
+                documentos: [{ id: signDoc.id, type: signDoc.type, date: signDoc.date, status: 'draft', token: signDoc.signToken }]
+              }
+              const existe = cfgData.clients.findIndex(cl => cl.doc === S.doc || (cl.email && cl.email === email))
+              if (existe === -1) cfgData.clients.push(novoCliente)
+              else {
+                if (!cfgData.clients[existe].documentos) cfgData.clients[existe].documentos = []
+                cfgData.clients[existe].documentos.push({ id: signDoc.id, type: signDoc.type, date: signDoc.date, status: 'draft', token: signDoc.signToken })
+                cfgData.clients[existe].ultimoContato = new Date().toISOString()
+              }
+              await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(cfgData), updated_at: new Date().toISOString() })
+              cfgRef.current = cfgData; setCfg(cfgData)
+            } catch(e) { throw e }
+          }
+        }}
       />
     )}
 
