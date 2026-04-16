@@ -197,32 +197,48 @@ async function callAI(prompt, cfg, { temperature=0.7, maxTokens=2500, history=[]
   throw new Error('Nenhuma IA respondeu. Verifique as chaves em Configurações → Empresa.')
 }
 
-// Gerar imagem via Hugging Face Stable Diffusion (gratuito)
+// ─────────────────────────────────────────────────────────────────
+// Geração de imagem via Cloudflare Workers AI (sem CORS, gratuito)
+// Configure em: Configurações → Integrações → cloudflareImageWorkerUrl
+// Modelo padrão: FLUX.1 schnell (rápido e grátis)
+// Fallback: OpenAI DALL-E 3 (se houver openaiApiKey)
+// ─────────────────────────────────────────────────────────────────
 async function gerarImagemHF(prompt, cfg) {
-  const hfKey = cfg.huggingfaceKey || cfg.hfKey || ''
-  // Modelo público — funciona sem chave (mais lento) ou com chave HF
-  const url = 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0'
-  const headers = { 'Content-Type': 'application/json' }
-  if (hfKey) headers['Authorization'] = `Bearer ${hfKey}`
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ inputs: prompt, parameters: { width: 1024, height: 1024, num_inference_steps: 25 } })
-    })
-    if (!res.ok) {
-      // Tenta modelo menor como fallback
-      const res2 = await fetch('https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5', {
-        method: 'POST', headers,
-        body: JSON.stringify({ inputs: prompt })
+  // ── 1. Cloudflare Workers AI (preferencial — sem CORS) ────────
+  const workerUrl = (cfg.cloudflareImageWorkerUrl || '').trim()
+  if (workerUrl) {
+    try {
+      const headers = { 'Content-Type': 'application/json' }
+      const apiSecret = cfg.cloudflareWorkerSecret || ''
+      if (apiSecret) headers['X-Api-Key'] = apiSecret
+      const res = await fetch(workerUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ prompt, model: 'flux', steps: 6 })
       })
-      if (!res2.ok) return null
-      const blob2 = await res2.blob()
-      return URL.createObjectURL(blob2)
-    }
-    const blob = await res.blob()
-    return URL.createObjectURL(blob)
-  } catch { return null }
+      if (res.ok) {
+        const d = await res.json()
+        if (d?.image) return d.image   // data:image/png;base64,...
+      }
+    } catch { /* tenta próximo */ }
+  }
+  // ── 2. OpenAI DALL-E 3 (fallback, usa créditos da conta) ──────
+  const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
+  if (openaiKey) {
+    try {
+      const res = await fetch('https://api.openai.com/v1/images/generations', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'dall-e-3', prompt: prompt.slice(0, 1000), n: 1, size: '1024x1024', response_format: 'b64_json' })
+      })
+      if (res.ok) {
+        const d = await res.json()
+        const b64 = d?.data?.[0]?.b64_json
+        if (b64) return `data:image/png;base64,${b64}`
+      }
+    } catch { /* sem fallback */ }
+  }
+  return null   // nenhum gerador disponível
 }
 
 // System prompt do Agente Gestor de Marketing
