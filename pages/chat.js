@@ -20,6 +20,183 @@ import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 
+// ══════════════════════════════════════════════════════════════
+// COMPONENTE DocumentoPreviewModal
+// Exibe proposta/contrato gerado em tela com botões de ação
+// ══════════════════════════════════════════════════════════════
+function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile }) {
+  const [enviandoAssComp, setEnviandoAssComp] = useState(false)
+  const [linkAssinatura,  setLinkAssinatura]  = useState('')
+  const [msgEnvio,        setMsgEnvio]        = useState('')
+
+  if (!docPreview) return null
+
+  const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken } = docPreview
+  const isContrato = tipo === 'contrato'
+
+  // ── 1. Imprimir ──
+  function handleImprimir() {
+    const win = window.open('', '_blank', 'width=900,height=700')
+    if (!win) { alert('Permita popups.'); return }
+    win.document.write(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>${isContrato ? 'Contrato' : 'Proposta'}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  body{font-family:Inter,sans-serif;background:#fff;color:#1e293b;margin:0;padding:24px}
+  @media print{body{padding:0} .print-btn{display:none!important}}
+  .print-btn{position:fixed;top:16px;right:16px;padding:10px 20px;background:#0f172a;border:none;border-radius:8px;color:#fff;font-weight:700;cursor:pointer;font-size:14px;z-index:999}
+</style>
+</head><body>
+<button class="print-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+${html}
+</body></html>`)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 800)
+  }
+
+  // ── 2. Salvar como PDF ──
+  function handleSalvarPDF() {
+    const win = window.open('', '_blank', 'width=900,height=700')
+    if (!win) { alert('Permita popups.'); return }
+    win.document.write(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>${isContrato ? 'Contrato' : 'Proposta'}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{font-family:Inter,sans-serif;background:#fff;color:#1e293b;margin:0;padding:24px}
+  @media print{body{padding:0} .no-print{display:none!important}}
+  .no-print{position:fixed;top:16px;right:16px;padding:10px 20px;background:#7c3aed;border:none;border-radius:8px;color:#fff;font-weight:700;cursor:pointer;font-size:14px;z-index:999}
+</style>
+</head><body>
+<button class="no-print" onclick="window.print()">💾 Salvar como PDF (Ctrl+P → Salvar como PDF)</button>
+${html}
+<script>window.onafterprint=function(){window.close()}<\/script>
+</body></html>`)
+    win.document.close()
+    win.focus()
+  }
+
+  // ── 3. Enviar para assinatura ──
+  async function handleEnviarAssinatura() {
+    if (!isContrato) { setMsgEnvio('⚠️ Assinatura disponível apenas para contratos.'); return }
+    if (!clienteEmail && !clienteTel) { setMsgEnvio('⚠️ Cliente sem e-mail ou telefone cadastrado.'); return }
+
+    setEnviandoAssComp(true); setMsgEnvio('')
+    try {
+      const token  = signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
+      await supabase.from('vx_storage').upsert({
+        key:   `sign:${token}`,
+        value: JSON.stringify({
+          token, empresaId, html,
+          clienteNome, clienteEmail, clienteTel,
+          status: 'pendente',
+          criadoEm: new Date().toISOString(),
+          expiry,
+        }),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'key' })
+
+      const baseUrl  = cfg.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
+      const signLink = `${baseUrl}/sign/${token}`
+      setLinkAssinatura(signLink)
+
+      // Envia por WhatsApp se configurado
+      if (clienteTel && (cfg.wppInbox?.evolutionUrl || cfg.wpp?.phoneId)) {
+        try {
+          await fetch('/api/wpp/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              empresaId,
+              numero:   clienteTel.replace(/\D/g, ''),
+              mensagem: `📄 Olá ${clienteNome || 'cliente'}!\n\nSeu ${tipo} está pronto para assinatura.\n\nClique no link abaixo para assinar eletronicamente:\n${signLink}\n\n_O link é válido por 7 dias._`,
+            }),
+          })
+        } catch {}
+      }
+
+      // Envia por e-mail se configurado
+      if (clienteEmail && (cfg.smtpHost || cfg.emailApiKey)) {
+        try {
+          await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to:      clienteEmail,
+              subject: `${cfg.company || 'Vivanexa'} — ${tipo === 'contrato' ? 'Contrato' : 'Proposta'} para assinatura`,
+              html: `<p>Olá <strong>${clienteNome || 'cliente'}</strong>,</p>
+<p>Seu ${tipo} está pronto para assinatura eletrônica.</p>
+<p><a href="${signLink}" style="background:#00d4ff;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">✍️ Assinar Documento</a></p>
+<p style="color:#64748b;font-size:12px">O link é válido por 7 dias.</p>`,
+              config: { smtpHost: cfg.smtpHost, smtpPort: cfg.smtpPort, smtpUser: cfg.smtpUser, smtpPass: cfg.smtpPass },
+            }),
+          })
+        } catch {}
+      }
+
+      setMsgEnvio(`✅ Link de assinatura gerado! Enviado ${clienteTel ? 'via WhatsApp' : ''}${clienteTel && clienteEmail ? ' e ' : ''}${clienteEmail ? 'por e-mail' : ''}.`)
+    } catch (err) {
+      setMsgEnvio(`❌ Erro: ${err.message}`)
+    }
+    setEnviandoAssComp(false)
+  }
+
+  const acaoBtn = (cor, disabled = false) => ({
+    padding: '8px 16px', borderRadius: 8, fontFamily: 'DM Mono, monospace', fontSize: 13,
+    fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+    background: cor + '18', border: `1px solid ${cor}44`, color: cor,
+    opacity: disabled ? 0.6 : 1, transition: 'all .15s',
+  })
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Barra de ações */}
+      <div style={{ background: '#0a0f1e', borderBottom: '1px solid #1e2d4a', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', flexShrink: 0, flexWrap: 'wrap' }}>
+        <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 15, marginRight: 8 }}>
+          {isContrato ? '📄 Contrato' : '📋 Proposta'} gerado
+        </div>
+        <button onClick={handleImprimir} style={acaoBtn('#00d4ff')}>🖨 Imprimir</button>
+        <button onClick={handleSalvarPDF} style={acaoBtn('#7c3aed')}>💾 Salvar PDF</button>
+        {isContrato && (
+          <button onClick={handleEnviarAssinatura} disabled={enviandoAssComp} style={acaoBtn('#f59e0b', enviandoAssComp)}>
+            {enviandoAssComp ? '⏳ Enviando...' : '✍️ Enviar para Assinatura'}
+          </button>
+        )}
+        <div style={{ flex: 1 }} />
+        <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.3)', color: '#ef4444', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+          ✕ Fechar
+        </button>
+      </div>
+
+      {/* Mensagem de envio */}
+      {msgEnvio && (
+        <div style={{ padding: '10px 20px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : '#ef4444' }}>
+          {msgEnvio}
+          {linkAssinatura && (
+            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Link:</span>
+              <code style={{ fontSize: 11, color: '#00d4ff', wordBreak: 'break-all' }}>{linkAssinatura}</code>
+              <button onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio(m => m + ' · Link copiado!') }} style={{ padding: '3px 8px', borderRadius: 5, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: '#00d4ff', cursor: 'pointer', fontSize: 11 }}>Copiar</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Preview do documento */}
+      <div style={{ flex: 1, overflow: 'auto', padding: 24, background: '#f0f4f8' }}>
+        <div
+          style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      </div>
+    </div>
+  )
+}
+
 // ── Config padrão ─────────────────────────────────────────────
 const DEFAULT_CFG = {
   company:'VIVANEXA', slogan:'Assistente Comercial de Preços',
@@ -294,6 +471,7 @@ function buildProposal(S,cfg,user){
       '{{total_mensalidade}}': fmt(tMen),
       '{{data_hoje}}': today,
       '{{consultor_nome}}': user?.nome||'',
+      '{{consultor_tel}}': user?.perfil?.telefone || user?.telefone || '',
       '{{company}}': cfg.company||'Vivanexa',
       '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th><\/tr><\/thead><tbody>${rows}<\/tbody><\/table>`
     }
@@ -449,6 +627,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
       '{{data_hora}}': now,
       '{{data_hoje}}': today,
       '{{consultor_nome}}': user?.nome || '',
+      '{{consultor_tel}}': user?.perfil?.telefone || user?.telefone || '',
       '{{company}}': cfg.company || 'Vivanexa',
       '{{logo}}': cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">` : '',
       '{{produtos_tabela}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
@@ -620,6 +799,8 @@ export default function Chat(){
   const [wizTMen,  setWizTMen]  = useState(0)
 
   const [showSign,       setShowSign]       = useState(false)
+  const [docPreview,     setDocPreview]     = useState(null)
+  // docPreview = { html, tipo: 'proposta'|'contrato', clienteEmail, clienteNome, clienteTel, signToken }
   const [signDoc,        setSignDoc]        = useState(null)
   const [signEmailInput, setSignEmailInput] = useState('')
 
@@ -1108,6 +1289,7 @@ export default function Chat(){
           total_mensalidade:fmt(tMen),
           data_hoje:new Date().toLocaleDateString('pt-BR'),
           consultor_nome:userProfile?.nome||'',
+          consultor_tel:userProfile?.perfil?.telefone || userProfile?.telefone || '',
           company:c.company||'Vivanexa',
         }
         const baixou=await gerarEBaixarDocx(propTemplate,variaveis,nomeArquivo(clientName,'proposta'))
@@ -1118,11 +1300,11 @@ export default function Chat(){
         if(baixou){addBot('📄 Proposta baixada como DOCX! Abra no Word, revise e salve como PDF.\n\nO link de assinatura eletrônica também foi gerado — use o botão abaixo para enviá-lo ao cliente.',false)}
         setTimeout(()=>setShowSign(true),800)
       } else {
-        // ── PROPOSTA VIA HTML (comportamento original) ─────────
+        // ── PROPOSTA VIA HTML (com preview em tela) ─────────
         const html=buildProposal(S,c,userProfile)
-        openPrint(html,'Proposta Comercial')
         const doc=await saveToHistory('proposta',clientName,html,{tAd:S.quoteData?.tAdD||0,tMen:S.quoteData?.tMenD||0,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
+        setDocPreview({html,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
         setTimeout(()=>setShowSign(true),600)
       }
     }else{
@@ -1170,6 +1352,7 @@ export default function Chat(){
           data_hora:new Date().toLocaleString('pt-BR'),
           data_hoje:new Date().toLocaleDateString('pt-BR'),
           consultor_nome:userProfile?.nome||'',
+          consultor_tel:userProfile?.perfil?.telefone || userProfile?.telefone || '',
           company:c.company||'Vivanexa',
           nome_financeiro:co.rfinNome||'',
           email_financeiro:co.rfinEmail||'',
@@ -1187,11 +1370,11 @@ export default function Chat(){
           setTimeout(()=>setShowSign(true),800)
         })
       } else {
-        // ── CONTRATO VIA HTML (comportamento original) ─────────
+        // ── CONTRATO VIA HTML (com preview em tela) ─────────
         const html=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token)
-        openPrint(html,'Contrato')
         saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
+          setDocPreview({html,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
           setTimeout(()=>setShowSign(true),600)
         })
       }
@@ -1456,6 +1639,17 @@ export default function Chat(){
         </button>
       </div>
     </div>
+
+    {/* MODAL DOCUMENTO PREVIEW — proposta/contrato gerado em tela */}
+    {docPreview && (
+      <DocumentoPreviewModal
+        docPreview={docPreview}
+        onClose={() => setDocPreview(null)}
+        cfg={cfg}
+        empresaId={empresaId}
+        userProfile={userProfile}
+      />
+    )}
 
     {/* MODAL VER DOCUMENTO */}
     {showDocView&&(
