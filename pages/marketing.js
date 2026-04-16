@@ -662,6 +662,103 @@ async function publicarTikTok({ cfg, post }) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Upload de imagem: local (base64 temporário) → ImgBB (URL pública gratuita)
+// ─────────────────────────────────────────────────────────────────
+async function uploadImgBB(file, imgbbKey) {
+  // ImgBB free — https://api.imgbb.com  (chave gratuita em imgbb.com/api)
+  if (!imgbbKey) return null
+  const form = new FormData()
+  form.append('image', file)
+  try {
+    const res = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, { method:'POST', body:form })
+    const d = await res.json()
+    return d?.data?.url || null
+  } catch { return null }
+}
+
+// Campo inteligente de imagem: upload local ou URL manual
+function ImageUploadField({ value, onChange, cfg }) {
+  const [modo, setModo]     = useState(value && value.startsWith('http') ? 'url' : 'upload')
+  const [preview, setPreview] = useState(value||'')
+  const [uploading, setUploading] = useState(false)
+  const inputRef = useRef(null)
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Preview local imediato (base64)
+    const reader = new FileReader()
+    reader.onload = async ev => {
+      const b64url = ev.target.result
+      setPreview(b64url)
+
+      const imgbbKey = cfg?.imgbbApiKey || ''
+      if (imgbbKey) {
+        // Tentar fazer upload para ImgBB e obter URL pública
+        setUploading(true)
+        const publicUrl = await uploadImgBB(file, imgbbKey)
+        setUploading(false)
+        if (publicUrl) {
+          setPreview(publicUrl)
+          onChange(publicUrl)
+          return
+        }
+      }
+      // Sem chave ImgBB: usa base64 diretamente (funciona para pré-visualização, mas pesa mais no BD)
+      onChange(b64url)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <div className="field">
+      <label>Imagem do Post</label>
+      {/* Toggle Modo */}
+      <div style={{ display:'flex',gap:6,marginBottom:8 }}>
+        {[['upload','📎 Upload'],['url','🔗 URL']].map(([v,l])=>(
+          <button key={v} onClick={()=>setModo(v)}
+            style={{ padding:'4px 14px',borderRadius:20,border:'1px solid rgba(124,58,237,.3)',background:modo===v?'rgba(124,58,237,.2)':'transparent',color:modo===v?'#a78bfa':'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {modo==='upload' ? (
+        <div>
+          <div onClick={()=>inputRef.current?.click()}
+            style={{ border:'2px dashed #1e2d4a',borderRadius:10,padding:'16px',textAlign:'center',cursor:'pointer',background:'#0f1829',transition:'border-color .2s' }}
+            onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(124,58,237,.5)'}
+            onMouseLeave={e=>e.currentTarget.style.borderColor='#1e2d4a'}>
+            {preview ? (
+              <img src={preview} alt="preview" style={{ maxHeight:120,borderRadius:8,objectFit:'cover',maxWidth:'100%' }} onError={()=>setPreview('')}/>
+            ) : (
+              <div>
+                <div style={{ fontSize:28,marginBottom:6 }}>🖼️</div>
+                <div style={{ fontSize:11,color:'#64748b' }}>Clique ou arraste PNG, JPG, WEBP</div>
+                <div style={{ fontSize:10,color:'#475569',marginTop:3 }}>
+                  {cfg?.imgbbApiKey ? 'Será enviado para ImgBB → URL pública' : 'Sem chave ImgBB: salvo como base64 (configure em Config → Integrações)'}
+                </div>
+              </div>
+            )}
+          </div>
+          <input ref={inputRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleFile}/>
+          {uploading && <div style={{ fontSize:11,color:'#a78bfa',marginTop:6 }}>⏳ Enviando para ImgBB...</div>}
+          {preview && (
+            <div style={{ display:'flex',gap:6,marginTop:6 }}>
+              <button onClick={()=>inputRef.current?.click()} style={{ background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:10 }}>🔄 Trocar imagem</button>
+              <button onClick={()=>{setPreview('');onChange('')}} style={{ background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:10 }}>🗑 Remover</button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <input value={value||''} onChange={e=>{onChange(e.target.value);setPreview(e.target.value)}} placeholder="https://exemplo.com/imagem.jpg"
+          style={{ width:'100%',background:'#1a2540',border:'1px solid #1e2d4a',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono',fontSize:13,color:'#e2e8f0',outline:'none' }}/>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
 // COMPONENTE PRINCIPAL
 // ─────────────────────────────────────────────────────────────────
 export default function Marketing() {
@@ -843,7 +940,7 @@ Responda SOMENTE em JSON sem markdown:
       imagemUrl: campImagemUrl, status:'Aprovada',
       criadoEm: new Date().toISOString()
     }
-    // Adiciona posts na agenda
+    // Adiciona posts na agenda como Pendente (aguardando aprovação do usuário para publicar)
     const novosPostsAgenda = [...posts]
     plataformasCamp.forEach((pid, i) => {
       const pd = campResultado.plataformas?.[pid]
@@ -852,8 +949,9 @@ Responda SOMENTE em JSON sem markdown:
       novosPostsAgenda.push({
         id: String(Date.now()+i), titulo: pd.headline||`Campanha ${produto} — ${pid}`,
         descricao: pd.copy||'', plataforma:pid, data:d.toISOString().slice(0,10),
-        horario:'09:00', status:'Aprovado', tipo:'pago', cta:pd.cta||'',
-        imagemUrl:campImagemUrl, campanha:campObj.id
+        horario:'09:00', status:'Pendente', tipo:'pago', cta:pd.cta||'',
+        imagemUrl:campImagemUrl, campanha:campObj.id,
+        promptImagem:campResultado.promptImagem||''
       })
     })
     setPosts(novosPostsAgenda)
@@ -973,7 +1071,7 @@ Responda SOMENTE em JSON sem markdown:
       descricao: imgResultado.legenda||'', plataforma: plataformaImg,
       data: new Date().toISOString().slice(0,10),
       horario: imgResultado.melhorHorario?.match(/\d+/)?.[0] ? imgResultado.melhorHorario.match(/\d+/)[0]+':00' : '18:00',
-      status:'Aprovado', tipo:'organico', cta:imgResultado.cta||'',
+      status:'Pendente', tipo:'organico', cta:imgResultado.cta||'',
       hashtags:(imgResultado.hashtags||[]).join(' '), promptImagem:imgResultado.promptImagem||'',
       tipoMidia:imgResultado.tipoMidia||'imagem', imagemUrl:imgUrl||''
     }
@@ -1054,7 +1152,14 @@ Responda SOMENTE em JSON sem markdown:
     const novos = posts.map(p=>p.id===id?{ ...p, status }:p); setPosts(novos)
     const novoCfg = { ...cfg, mktPosts:novos }; setCfg(novoCfg); await salvarStorage(novoCfg)
     if (postPreview?.id===id) setPostPreview(novos.find(p=>p.id===id)||null)
-    toast(status==='Aprovado'?'✅ Aprovado!':status==='Publicado'?'📢 Publicado!':'⚠️ Rejeitado', status==='Rejeitado'?'warn':'ok')
+    toast(status==='Aprovado'?'✅ Aprovado! Publicando automaticamente...':status==='Publicado'?'📢 Publicado!':'⚠️ Rejeitado', status==='Rejeitado'?'warn':'ok')
+    // Publicar automaticamente ao aprovar
+    if (status === 'Aprovado') {
+      const post = novos.find(p=>p.id===id)
+      if (post && ['instagram','facebook','tiktok'].includes(post.plataforma)) {
+        setTimeout(() => publicarPostDireto(post), 800)
+      }
+    }
   }
   async function publicarPostDireto(post) {
     if (!post.imagemUrl && !post.descricao) { toast('Post sem conteúdo suficiente','err'); return }
@@ -1205,25 +1310,48 @@ Responda SOMENTE em JSON sem markdown:
                     </div>
                   </div>
 
-                  {/* Imagem do criativo */}
                   {campImagemUrl && (
                     <div style={{ marginBottom:16 }}>
                       <div style={{ fontSize:11,color:'#64748b',textTransform:'uppercase',letterSpacing:1,marginBottom:6 }}>🖼️ Criativo Gerado</div>
                       <img src={campImagemUrl} alt="criativo" className="img-preview" onError={e=>e.target.style.display='none'}/>
-                      <div style={{ display:'flex',gap:6,marginTop:8 }}>
+                      <div style={{ display:'flex',gap:6,marginTop:8,flexWrap:'wrap' }}>
                         <a href={campImagemUrl} download="criativo-campanha.jpg" className="btn btn-secondary" style={{ fontSize:10,padding:'4px 10px',textDecoration:'none' }}>⬇️ Baixar</a>
-                        <button onClick={()=>{ setImgStatus('rascunho'); setImgResultado(null); gerarImagemHF(campResultado.promptImagem,cfg).then(url=>{ if(url)setCampImagemUrl(url) }) }}
+                        <button onClick={async()=>{ setGerandoImgCamp(true); const u=await gerarImagemHF(campResultado.promptImagem,cfg); if(u)setCampImagemUrl(u); setGerandoImgCamp(false) }}
                           style={{ padding:'4px 10px',borderRadius:7,background:'rgba(255,255,255,.04)',border:'1px solid #1e2d4a',color:'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>
                           🔄 Regenerar
+                        </button>
+                        <button onClick={()=>setCampImagemUrl('')}
+                          style={{ padding:'4px 10px',borderRadius:7,background:'rgba(245,158,11,.06)',border:'1px solid rgba(245,158,11,.2)',color:'#f59e0b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>
+                          🎨 Editar Prompt
                         </button>
                       </div>
                     </div>
                   )}
                   {!campImagemUrl && !gerandoImgCamp && campResultado?.promptImagem && (
-                    <div style={{ marginBottom:14,padding:'10px 14px',background:'rgba(245,158,11,.06)',border:'1px solid rgba(245,158,11,.2)',borderRadius:8 }}>
-                      <div style={{ fontSize:11,color:'#f59e0b',fontWeight:700,marginBottom:4 }}>🎨 Prompt para o criativo (use em DALL-E ou Midjourney)</div>
-                      <div style={{ fontSize:12,color:'#94a3b8',fontStyle:'italic',lineHeight:1.6 }}>{campResultado.promptImagem}</div>
-                      <button onClick={()=>navigator.clipboard.writeText(campResultado.promptImagem)} style={{ background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:10,marginTop:4 }}>📋 Copiar</button>
+                    <div style={{ marginBottom:14,padding:'14px 16px',background:'rgba(245,158,11,.06)',border:'1px solid rgba(245,158,11,.2)',borderRadius:10 }}>
+                      <div style={{ fontSize:11,color:'#f59e0b',fontWeight:700,marginBottom:8 }}>🎨 Prompt do Criativo — edite antes de gerar</div>
+                      {/* Seletor de estilo visual */}
+                      <div style={{ display:'flex',gap:6,flexWrap:'wrap',marginBottom:10 }}>
+                        {[['photorealistic','📷 Foto Real'],['3D render','🧊 3D'],['flat illustration','🎨 Ilustração'],['cartoon','🖼️ Cartoon'],['cinematic','🎬 Cinemático'],['minimalist','⬜ Minimalista']].map(([v,l])=>(
+                          <button key={v}
+                            onClick={()=>{
+                              const base = campResultado.promptImagem.replace(/,?\s*(photorealistic|3D render|flat illustration|cartoon|cinematic|minimalist)[^,]*/gi,'').trim()
+                              setCampResultado(prev=>({...prev,promptImagem:`${base}, ${v} style`}))
+                            }}
+                            style={{ padding:'4px 11px',borderRadius:20,border:'1px solid rgba(245,158,11,.3)',background:campResultado.promptImagem?.includes(v)?'rgba(245,158,11,.2)':'transparent',color:campResultado.promptImagem?.includes(v)?'#f59e0b':'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                      <textarea value={campResultado.promptImagem} onChange={e=>setCampResultado(prev=>({...prev,promptImagem:e.target.value}))}
+                        style={{ width:'100%',background:'rgba(0,0,0,.3)',border:'1px solid rgba(245,158,11,.25)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono, monospace',fontSize:12,color:'#94a3b8',outline:'none',resize:'vertical',minHeight:70,lineHeight:1.6 }}/>
+                      <div style={{ display:'flex',gap:8,marginTop:8 }}>
+                        <button className="btn btn-gold" style={{ fontSize:10,padding:'5px 14px' }}
+                          onClick={async()=>{ setGerandoImgCamp(true); const u=await gerarImagemHF(campResultado.promptImagem,cfg); if(u){setCampImagemUrl(u);toast('🖼️ Criativo gerado!')} else toast('⚠️ Falha na geração. Use o prompt em DALL-E ou Midjourney.','warn'); setGerandoImgCamp(false) }}>
+                          ✨ Gerar Imagem
+                        </button>
+                        <button onClick={()=>navigator.clipboard.writeText(campResultado.promptImagem)} style={{ padding:'5px 12px',borderRadius:7,background:'none',border:'1px solid rgba(245,158,11,.25)',color:'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>📋 Copiar prompt</button>
+                      </div>
                     </div>
                   )}
 
@@ -1444,11 +1572,15 @@ Responda SOMENTE em JSON sem markdown:
                       {imgUrl ? (
                         <div>
                           <img src={imgUrl} alt="gerado" className="img-preview"/>
-                          <div style={{ display:'flex',gap:6,marginTop:8 }}>
+                          <div style={{ display:'flex',gap:6,marginTop:8,flexWrap:'wrap' }}>
                             <a href={imgUrl} download="conteudo.jpg" className="btn btn-secondary" style={{ fontSize:10,padding:'4px 10px',textDecoration:'none' }}>⬇️ Baixar</a>
                             <button onClick={()=>{ setImgUrl(''); setGerandoImagemReal(true); gerarImagemHF(imgResultado.promptImagem,cfg).then(url=>{ if(url)setImgUrl(url); setGerandoImagemReal(false) }) }}
                               style={{ padding:'4px 10px',borderRadius:7,background:'rgba(255,255,255,.04)',border:'1px solid #1e2d4a',color:'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>
                               🔄 Regenerar
+                            </button>
+                            <button onClick={()=>setImgUrl('')}
+                              style={{ padding:'4px 10px',borderRadius:7,background:'rgba(245,158,11,.06)',border:'1px solid rgba(245,158,11,.2)',color:'#f59e0b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>
+                              🎨 Editar Prompt
                             </button>
                           </div>
                         </div>
@@ -1458,10 +1590,29 @@ Responda SOMENTE em JSON sem markdown:
                         <div>
                           <div className="img-placeholder"><div style={{ textAlign:'center' }}><div style={{ fontSize:32,marginBottom:8 }}>🎨</div><div style={{ fontSize:11,color:'#64748b' }}>Prompt disponível</div></div></div>
                           {imgResultado.promptImagem && (
-                            <div style={{ marginTop:8,padding:'8px 12px',background:'rgba(245,158,11,.06)',border:'1px solid rgba(245,158,11,.2)',borderRadius:8 }}>
-                              <div style={{ fontSize:10,color:'#f59e0b',fontWeight:700,marginBottom:4 }}>🎨 Prompt DALL-E / Midjourney</div>
-                              <div style={{ fontSize:11,color:'#94a3b8',lineHeight:1.5,fontStyle:'italic' }}>{imgResultado.promptImagem.slice(0,200)}</div>
-                              <button onClick={()=>navigator.clipboard.writeText(imgResultado.promptImagem)} style={{ background:'none',border:'none',color:'#64748b',cursor:'pointer',fontSize:10,marginTop:4 }}>📋 Copiar</button>
+                            <div style={{ marginTop:8,padding:'12px 14px',background:'rgba(245,158,11,.06)',border:'1px solid rgba(245,158,11,.2)',borderRadius:10 }}>
+                              <div style={{ fontSize:10,color:'#f59e0b',fontWeight:700,marginBottom:6 }}>🎨 Estilo visual</div>
+                              <div style={{ display:'flex',gap:5,flexWrap:'wrap',marginBottom:8 }}>
+                                {[['photorealistic','📷 Foto'],['3D render','🧊 3D'],['flat illustration','🎨 Ilust.'],['cartoon','🖼️ Cartoon'],['cinematic','🎬 Cinem.'],['minimalist','⬜ Minim.']].map(([v,l])=>(
+                                  <button key={v}
+                                    onClick={()=>{
+                                      const base = imgResultado.promptImagem.replace(/,?\s*(photorealistic|3D render|flat illustration|cartoon|cinematic|minimalist)[^,]*/gi,'').trim()
+                                      setImgResultado(prev=>({...prev,promptImagem:`${base}, ${v} style`}))
+                                    }}
+                                    style={{ padding:'3px 9px',borderRadius:20,border:'1px solid rgba(245,158,11,.3)',background:imgResultado.promptImagem?.includes(v)?'rgba(245,158,11,.2)':'transparent',color:imgResultado.promptImagem?.includes(v)?'#f59e0b':'#64748b',fontFamily:'DM Mono',fontSize:9,cursor:'pointer' }}>
+                                    {l}
+                                  </button>
+                                ))}
+                              </div>
+                              <textarea value={imgResultado.promptImagem} onChange={e=>setImgResultado(prev=>({...prev,promptImagem:e.target.value}))}
+                                style={{ width:'100%',background:'rgba(0,0,0,.3)',border:'1px solid rgba(245,158,11,.2)',borderRadius:7,padding:'7px 10px',fontFamily:'DM Mono',fontSize:11,color:'#94a3b8',outline:'none',resize:'vertical',minHeight:60,lineHeight:1.6 }}/>
+                              <div style={{ display:'flex',gap:6,marginTop:6 }}>
+                                <button className="btn btn-gold" style={{ fontSize:10,padding:'4px 12px' }}
+                                  onClick={()=>{ setGerandoImagemReal(true); gerarImagemHF(imgResultado.promptImagem,cfg).then(url=>{ if(url)setImgUrl(url); else toast('⚠️ Falha na geração','warn'); setGerandoImagemReal(false) }) }}>
+                                  ✨ Gerar Imagem
+                                </button>
+                                <button onClick={()=>navigator.clipboard.writeText(imgResultado.promptImagem)} style={{ padding:'4px 10px',borderRadius:7,background:'none',border:'1px solid rgba(245,158,11,.2)',color:'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>📋 Copiar</button>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1793,7 +1944,12 @@ Responda SOMENTE em JSON sem markdown:
                   <div className="field"><label>Descrição / Legenda</label><textarea value={formPost.descricao} onChange={e=>setFormPost(f=>({...f,descricao:e.target.value}))} style={{ minHeight:90 }} placeholder="Legenda completa..."/></div>
                   <div className="field"><label>CTA</label><input value={formPost.cta||''} onChange={e=>setFormPost(f=>({...f,cta:e.target.value}))} placeholder="Ex: Clique no link da bio!"/></div>
                   <div className="field"><label>Hashtags</label><input value={formPost.hashtags||''} onChange={e=>setFormPost(f=>({...f,hashtags:e.target.value}))} placeholder="#marketing #vendas"/></div>
-                  <div className="field"><label>URL da Imagem (opcional)</label><input value={formPost.imagemUrl||''} onChange={e=>setFormPost(f=>({...f,imagemUrl:e.target.value}))} placeholder="https://..."/></div>
+                  {/* ── Upload de Imagem (local ou URL) ── */}
+                  <ImageUploadField
+                    value={formPost.imagemUrl||''}
+                    onChange={url=>setFormPost(f=>({...f,imagemUrl:url}))}
+                    cfg={cfg}
+                  />
                   <div className="grid2">
                     <div className="field"><label>Plataforma</label>
                       <select value={formPost.plataforma} onChange={e=>setFormPost(f=>({...f,plataforma:e.target.value}))} style={{ width:'100%',background:'#1a2540',border:'1px solid #1e2d4a',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono, monospace',fontSize:13,color:'#e2e8f0',outline:'none' }}>
