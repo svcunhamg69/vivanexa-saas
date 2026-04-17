@@ -48,20 +48,38 @@ const PRECOS_PADRAO = {
 }
 
 const PERMISSOES_DISPONIVEIS = [
+  // Dashboard e Chat
   { id: 'ver_dashboard',      label: '📊 Ver Dashboard' },
   { id: 'ver_chat',           label: '💬 Usar Chat' },
-  { id: 'ver_configuracoes',  label: '⚙️ Ver Configurações' },
-  { id: 'editar_precos',      label: '💲 Editar Preços' },
+  // Propostas e Contratos
   { id: 'gerar_proposta',     label: '📄 Gerar Proposta' },
   { id: 'gerar_contrato',     label: '📝 Gerar Contrato' },
+  // CRM
+  { id: 'ver_crm',            label: '🏆 Ver CRM' },
+  { id: 'editar_crm',         label: '✏️ Editar CRM (negócios/atividades)' },
+  { id: 'excluir_crm',        label: '🗑️ Excluir registros CRM' },
+  // Clientes
   { id: 'ver_clientes',       label: '🗃️ Ver Clientes' },
-  { id: 'gerenciar_usuarios', label: '👥 Gerenciar Usuários' },
+  // Relatórios
+  { id: 'ver_relatorios',     label: '📑 Ver Relatórios' },
+  // KPIs
   { id: 'ver_kpis',           label: '📈 Ver KPIs' },
   { id: 'lancar_kpis',        label: '✏️ Lançar KPIs diários' },
+  // Vouchers
   { id: 'ver_vouchers',       label: '🎫 Ver/Gerar Vouchers' },
+  // WhatsApp Inbox
+  { id: 'ver_inbox',          label: '💬 WhatsApp Inbox' },
+  { id: 'transferir_conversa', label: '🔄 Transferir Conversas' },
+  // Configurações (quem pode mexer)
+  { id: 'ver_configuracoes',  label: '⚙️ Ver Configurações' },
+  { id: 'editar_configuracoes', label: '🔧 Editar Configurações' },
+  { id: 'editar_precos',      label: '💲 Editar Preços' },
+  { id: 'gerenciar_usuarios', label: '👥 Gerenciar Usuários' },
+  // Google Agenda
+  { id: 'usar_google_agenda', label: '📅 Usar Google Agenda' },
 ]
 const PERMISSOES_ADMIN = PERMISSOES_DISPONIVEIS.map(p => p.id)
-const PERMISSOES_USER  = ['ver_dashboard','ver_chat','gerar_proposta','gerar_contrato','ver_clientes','ver_kpis','lancar_kpis']
+const PERMISSOES_USER  = ['ver_dashboard','ver_chat','gerar_proposta','gerar_contrato','ver_clientes','ver_kpis','lancar_kpis','ver_crm','editar_crm','ver_relatorios','ver_inbox','usar_google_agenda']
 
 // ══════════════════════════════════════════════
 // HELPERS
@@ -2155,9 +2173,136 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
         </button>
       </div>
 
+      {/* ── GOOGLE AGENDA ── */}
+      <div style={{ ...s.card, borderColor: (cfg.googleClientId || cfg.gcal?.clientId) ? 'rgba(16,185,129,.4)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700 }}>📅 Google Agenda</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+            background: (cfg.googleClientId || cfg.gcal?.clientId) ? 'rgba(16,185,129,.12)' : 'rgba(100,116,139,.12)',
+            color: (cfg.googleClientId || cfg.gcal?.clientId) ? '#10b981' : '#64748b',
+            border: '1px solid ' + ((cfg.googleClientId || cfg.gcal?.clientId) ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)') }}>
+            {(cfg.googleClientId || cfg.gcal?.clientId) ? '● Configurado' : '○ Não configurado'}
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 14 }}>
+          Permite criar eventos na <strong style={{ color: 'var(--text)' }}>Google Agenda</strong> diretamente ao registrar uma Reunião como atividade no CRM.
+          O botão "📅 Sincronizar com Google Agenda" aparece automaticamente nas atividades do tipo <strong style={{ color: '#10b981' }}>Reunião</strong>.
+        </div>
+
+        {/* Passo a passo */}
+        <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Como configurar:</div>
+        {[
+          ['1', 'Google Cloud Console', 'Acesse console.cloud.google.com → crie um projeto → ative a Google Calendar API em "APIs e Serviços → Biblioteca"', 'https://console.cloud.google.com'],
+          ['2', 'Criar credenciais OAuth', 'APIs e Serviços → Credenciais → "+ Criar Credenciais" → OAuth 2.0 Client ID → tipo "Web Application"', null],
+          ['3', 'Adicionar Redirect URI', 'Em "URIs de redirecionamento autorizados" adicione: https://SEU-DOMINIO/api/auth/google/callback', null],
+          ['4', 'Copiar Client ID e Secret', 'Copie o Client ID e Client Secret gerados e cole nos campos abaixo', null],
+        ].map(([n, t, d, link]) => (
+          <div key={n} style={{ background: 'rgba(16,185,129,.06)', border: '1px solid rgba(16,185,129,.15)', borderRadius: 10, padding: '12px 16px', marginBottom: 8, fontSize: 12, color: 'var(--text)', lineHeight: 1.7 }}>
+            <strong style={{ color: '#10b981' }}>Passo {n}: {t}</strong>
+            <div style={{ color: 'var(--muted)', marginTop: 2 }}>{d}</div>
+            {link && <a href={link} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#10b981', display: 'inline-block', marginTop: 4 }}>{link}</a>}
+          </div>
+        ))}
+
+        <GoogleAgendaForm cfg={cfg} setCfg={setCfg} empresaId={empresaId} s={s} setMsg={setMsg} />
+      </div>
+
       {msg && (
         <div style={{ padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>
           {msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// SUB-COMPONENTE: formulário Google Agenda
+// Separado para manter estado de campos sem re-renderizar tudo
+// ──────────────────────────────────────────────
+function GoogleAgendaForm({ cfg, setCfg, empresaId, s, setMsg }) {
+  const [clientId,     setClientId]     = React.useState(cfg.gcal?.clientId     || cfg.googleClientId     || '')
+  const [clientSecret, setClientSecret] = React.useState(cfg.gcal?.clientSecret || cfg.googleClientSecret || '')
+  const [saving,       setSaving]       = React.useState(false)
+  const [gcalToken,    setGcalToken]    = React.useState(null)
+
+  // Escutar retorno do popup OAuth
+  React.useEffect(() => {
+    function onMsg(e) {
+      if (e.data?.type === 'GCAL_TOKEN') {
+        setGcalToken(e.data.token)
+        setMsg('✅ Google Agenda conectado com sucesso!')
+      }
+    }
+    window.addEventListener('message', onMsg)
+    return () => window.removeEventListener('message', onMsg)
+  }, [setMsg])
+
+  async function salvarGoogleCfg() {
+    if (!clientId.trim() || !clientSecret.trim()) { setMsg('⚠️ Preencha Client ID e Client Secret'); return }
+    setSaving(true)
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo = { ...atual, gcal: { clientId: clientId.trim(), clientSecret: clientSecret.trim() }, googleClientId: clientId.trim(), googleClientSecret: clientSecret.trim() }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      setCfg(novo)
+      setMsg('✅ Credenciais Google salvas! Clique em "Conectar conta" para autorizar.')
+    } catch (e) { setMsg('❌ Erro ao salvar: ' + e.message) }
+    setSaving(false)
+  }
+
+  function conectarGoogle() {
+    if (!clientId.trim()) { setMsg('⚠️ Salve o Client ID primeiro'); return }
+    const redirectUri = window.location.origin + '/api/auth/google/callback'
+    const scope = 'https://www.googleapis.com/auth/calendar.events'
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${encodeURIComponent(empresaId)}`
+    window.open(url, '_blank', 'width=500,height=620,scrollbars=yes')
+  }
+
+  async function verificarToken() {
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `gcal_token:${empresaId}`).maybeSingle()
+      if (row?.value) {
+        const tk = JSON.parse(row.value)
+        setGcalToken(tk)
+        setMsg(`✅ Token ativo! Expira em: ${tk.expires_in ? new Date(tk.obtained_at + tk.expires_in * 1000).toLocaleString('pt-BR') : 'não definido'}`)
+      } else {
+        setMsg('⚠️ Nenhum token encontrado. Clique em "Conectar conta" para autorizar.')
+      }
+    } catch (e) { setMsg('❌ Erro ao verificar token: ' + e.message) }
+  }
+
+  return (
+    <div>
+      <label style={s.label}>Client ID (Google OAuth)</label>
+      <input style={s.input} value={clientId} onChange={e => setClientId(e.target.value)} placeholder="XXXXXXXX.apps.googleusercontent.com" />
+
+      <label style={s.label}>Client Secret</label>
+      <input style={{ ...s.input, fontFamily: 'monospace', fontSize: 11 }} type="password" value={clientSecret} onChange={e => setClientSecret(e.target.value)} placeholder="GOCSPX-XXXXXXXXXX" />
+
+      <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
+        <strong style={{ color: 'var(--text)' }}>Redirect URI para configurar no Google Cloud:</strong><br />
+        <code style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>
+          {typeof window !== 'undefined' ? window.location.origin : 'https://seu-dominio.vercel.app'}/api/auth/google/callback
+        </code>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: gcalToken ? 12 : 0 }}>
+        <button onClick={salvarGoogleCfg} disabled={saving} style={{ ...s.btnSec, borderColor: 'rgba(16,185,129,.3)', color: '#10b981', background: 'rgba(16,185,129,.08)' }}>
+          {saving ? '⏳ Salvando...' : '💾 Salvar credenciais Google'}
+        </button>
+        <button onClick={conectarGoogle} style={{ ...s.btnSec }}>
+          🔗 Conectar conta Google
+        </button>
+        <button onClick={verificarToken} style={{ ...s.btnSec, fontSize: 12 }}>
+          🔍 Verificar token
+        </button>
+      </div>
+
+      {gcalToken && (
+        <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 8, background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.25)', fontSize: 12, color: '#10b981' }}>
+          ✅ Google Agenda autorizado — a integração está ativa.
         </div>
       )}
     </div>
