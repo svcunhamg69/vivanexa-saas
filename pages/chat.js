@@ -1550,16 +1550,39 @@ export default function Chat(){
     const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
     const nomeArquivo=(n,tipo)=>`${tipo}_${(n||'cliente').replace(/[^a-zA-Z0-9_\-]/g,'_')}.docx`
 
-    // ── Garante que templates de docTemplates estão mapeados ──
+    // ── Busca templates FRESCOS do Supabase para garantir que o template correto será usado ──
+    // Não depende do que está em memória (cfgRef) para evitar problemas de stale state
+    const fetchTemplateFresco = async (tipo) => {
+      try {
+        const { data } = await supabase.from('vx_storage').select('value')
+          .eq('key', `template:${tipo}:${empresaId}`).maybeSingle()
+        if (data?.value) {
+          const parsed = JSON.parse(data.value)
+          return { content: parsed.content || '', tipo: parsed.tipo || 'html' }
+        }
+      } catch(e) { console.warn('fetchTemplate err:', e) }
+      return null
+    }
+    const [tmplPropFresco, tmplContFresco] = await Promise.all([
+      fetchTemplateFresco('proposta'),
+      fetchTemplateFresco('contrato'),
+    ])
+
     const dt = c.docTemplates || {}
-    const propTemplate = c.propostaTemplate || dt.proposta || ''
-    const contTemplate = c.contratoTemplate || dt.contrato || ''
-    // Atualiza cfgRef para ter sempre os templates disponíveis durante a sessão
-    if (!c.propostaTemplate && dt.proposta) cfgRef.current.propostaTemplate = dt.proposta
-    if (!c.contratoTemplate && dt.contrato) cfgRef.current.contratoTemplate = dt.contrato
+    // Prioridade: 1) chave separada (novo padrão), 2) em memória cfgRef, 3) docTemplates inline (legado)
+    const propTemplate = tmplPropFresco?.content || c.propostaTemplate || dt.proposta || ''
+    const contTemplate = tmplContFresco?.content || c.contratoTemplate || dt.contrato || ''
+    const propTipo = tmplPropFresco?.tipo || c.propostaTipo || dt.propostaTipo || 'html'
+    const contTipo = tmplContFresco?.tipo || c.contratoTipo || dt.contratoTipo || 'html'
+    // Atualiza cfgRef com os templates frescos
+    cfgRef.current.propostaTemplate = propTemplate
+    cfgRef.current.contratoTemplate = contTemplate
+    cfgRef.current.propostaTipo = propTipo
+    cfgRef.current.contratoTipo = contTipo
 
     if(clientMode==='proposta'){
-      const tipoTemplate=detectarTipoTemplate(propTemplate)
+      // Usa o tipo já resolvido (da chave separada ou detectado pelo conteúdo)
+      const tipoTemplate = propTipo === 'docx' ? 'docx' : detectarTipoTemplate(propTemplate)
 
       if(tipoTemplate==='docx'){
         // ── PROPOSTA VIA DOCX ──────────────────────────────────
@@ -1618,10 +1641,23 @@ export default function Chat(){
       const token=generateToken()
       const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
       const nomeArquivo=`contrato_${(clientName||'cliente').replace(/[^a-zA-Z0-9_\-]/g,'_')}.docx`
-      // Garante que template de contrato está mapeado de docTemplates
+      // Busca template FRESCO do Supabase (chave separada) para garantir uso correto
+      let contratoTemplate = c.contratoTemplate || ''
+      let contTipo2 = c.contratoTipo || 'html'
+      try {
+        const { data: tmplData } = await supabase.from('vx_storage').select('value')
+          .eq('key', `template:contrato:${empresaId}`).maybeSingle()
+        if (tmplData?.value) {
+          const parsed = JSON.parse(tmplData.value)
+          contratoTemplate = parsed.content || contratoTemplate
+          contTipo2 = parsed.tipo || contTipo2
+          cfgRef.current.contratoTemplate = contratoTemplate
+          cfgRef.current.contratoTipo = contTipo2
+        }
+      } catch(e) { console.warn('wizNext fetchTemplate err:', e) }
       const dt = c.docTemplates || {}
-      const contratoTemplate = c.contratoTemplate || dt.contrato || ''
-      const tipoTemplate=detectarTipoTemplate(contratoTemplate)
+      if (!contratoTemplate) contratoTemplate = dt.contrato || ''
+      const tipoTemplate = contTipo2 === 'docx' ? 'docx' : detectarTipoTemplate(contratoTemplate)
       // Reseta contractMode após gerar
       S.contractMode = 'closing'
       S.contractValues = null
