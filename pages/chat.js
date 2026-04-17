@@ -167,7 +167,7 @@ ${html}
           </button>
         )}
         <div style={{ flex: 1 }} />
-        <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: '#94a3b8', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+        <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.35)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
           ← Voltar ao Chat
         </button>
       </div>
@@ -1054,14 +1054,15 @@ export default function Chat(){
       if(row?.value){
         const saved=JSON.parse(row.value)
         // ── Mapeia docTemplates (salvo em configuracoes.js) para os campos que o chat usa ──
-        // configuracoes.js salva em: cfg.docTemplates.proposta / cfg.docTemplates.contrato
+        // TabDocumentos salva em: cfg.docTemplates.proposta / cfg.docTemplates.contrato
         // chat.js usa: cfg.propostaTemplate / cfg.contratoTemplate
         const dt = saved.docTemplates || {}
+        // Prioridade: 1) campo direto (legado), 2) docTemplates (novo padrão)
         const propostaTemplate = saved.propostaTemplate || dt.proposta || ''
         const contratoTemplate = saved.contratoTemplate || dt.contrato || ''
-        // Detecta tipo automaticamente pelo conteudo
+        // Detecta tipo automaticamente pelo conteúdo
         const _detectTipo = (tmpl, savedTipo) => {
-          if (savedTipo && savedTipo !== 'html') return savedTipo
+          if (savedTipo === 'docx') return 'docx'
           if (!tmpl) return 'html'
           if (tmpl.startsWith('data:application/vnd') || tmpl.startsWith('data:application/octet') || tmpl.startsWith('data:application/zip')) return 'docx'
           if (tmpl.length > 500 && /^[A-Za-z0-9+/=]+$/.test(tmpl.slice(0,100))) return 'docx'
@@ -1074,7 +1075,7 @@ export default function Chat(){
           ...saved,
           plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,
           prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices,
-          // Templates unificados
+          // Templates unificados — sempre populados
           propostaTemplate,
           contratoTemplate,
           propostaTipo,
@@ -1083,7 +1084,7 @@ export default function Chat(){
         cfgRef.current=merged
         setCfg(merged)
       }
-    }catch{}
+    }catch(e){ console.warn('loadCfg error:',e) }
     setCfgLoaded(true)
   }
 
@@ -1465,8 +1466,15 @@ export default function Chat(){
     const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
     const nomeArquivo=(n,tipo)=>`${tipo}_${(n||'cliente').replace(/[^a-zA-Z0-9_\-]/g,'_')}.docx`
 
+    // ── Garante que templates de docTemplates estão mapeados ──
+    const dt = c.docTemplates || {}
+    const propTemplate = c.propostaTemplate || dt.proposta || ''
+    const contTemplate = c.contratoTemplate || dt.contrato || ''
+    // Atualiza cfgRef para ter sempre os templates disponíveis durante a sessão
+    if (!c.propostaTemplate && dt.proposta) cfgRef.current.propostaTemplate = dt.proposta
+    if (!c.contratoTemplate && dt.contrato) cfgRef.current.contratoTemplate = dt.contrato
+
     if(clientMode==='proposta'){
-      const propTemplate=c.propostaTemplate||''
       const tipoTemplate=detectarTipoTemplate(propTemplate)
 
       if(tipoTemplate==='docx'){
@@ -1488,7 +1496,9 @@ export default function Chat(){
       } else {
         // ── PROPOSTA VIA HTML (com preview em tela) ─────────
         const html=buildProposal(S,c,userProfile)
-        const doc=await saveToHistory('proposta',clientName,html,{tAd:S.quoteData?.tAdD||0,tMen:S.quoteData?.tMenD||0,clientEmail:cf.email,modulos:S.modules})
+        const tAd=S.closingToday?S.closingData?.tAd:(S.quoteData?.tAdD||0)
+        const tMen=S.closingToday?S.closingData?.tMen:(S.quoteData?.tMenD||0)
+        const doc=await saveToHistory('proposta',clientName,html,{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
         setDocPreview({html,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
       }
@@ -1510,7 +1520,9 @@ export default function Chat(){
       const token=generateToken()
       const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
       const nomeArquivo=`contrato_${(clientName||'cliente').replace(/[^a-zA-Z0-9_\-]/g,'_')}.docx`
-      const contratoTemplate=c.contratoTemplate||''
+      // Garante que template de contrato está mapeado de docTemplates
+      const dt = c.docTemplates || {}
+      const contratoTemplate = c.contratoTemplate || dt.contrato || ''
       const tipoTemplate=detectarTipoTemplate(contratoTemplate)
 
       if(tipoTemplate==='docx'){
@@ -1803,7 +1815,17 @@ export default function Chat(){
     {docPreview && (
       <DocumentoPreviewModal
         docPreview={docPreview}
-        onClose={() => setDocPreview(null)}
+        onClose={() => {
+          setDocPreview(null)
+          // Mensagem de retorno ao chat com ações disponíveis
+          const tipo = docPreview.tipo === 'contrato' ? 'Contrato' : 'Proposta'
+          setTimeout(() => addBot(
+            `✅ ${tipo} fechado! Voltamos ao chat.\n\nDeseja fazer mais alguma coisa?\n` +
+            `• Gerar contrato → clique no botão acima ou diga "gerar contrato"\n` +
+            `• Nova consulta → diga "nova consulta" ou "reiniciar"`,
+            false
+          ), 100)
+        }}
         cfg={cfg}
         empresaId={empresaId}
         userProfile={userProfile}
