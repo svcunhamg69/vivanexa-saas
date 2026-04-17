@@ -1086,17 +1086,27 @@ export default function Chat(){
 
   async function loadCfg(eid){
     try{
-      const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).single()
-      if(row?.value){
-        const saved=JSON.parse(row.value)
-        // ── Mapeia docTemplates (salvo em configuracoes.js) para os campos que o chat usa ──
-        // TabDocumentos salva em: cfg.docTemplates.proposta / cfg.docTemplates.contrato
-        // chat.js usa: cfg.propostaTemplate / cfg.contratoTemplate
+      // Carrega cfg principal e templates separados em paralelo
+      const [cfgRes, tmplPropRes, tmplContRes] = await Promise.all([
+        supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).single(),
+        supabase.from('vx_storage').select('value').eq('key',`template:proposta:${eid}`).maybeSingle(),
+        supabase.from('vx_storage').select('value').eq('key',`template:contrato:${eid}`).maybeSingle(),
+      ])
+
+      if(cfgRes.data?.value){
+        const saved=JSON.parse(cfgRes.data.value)
         const dt = saved.docTemplates || {}
-        // Prioridade: 1) campo direto (legado), 2) docTemplates (novo padrão)
-        const propostaTemplate = saved.propostaTemplate || dt.proposta || ''
-        const contratoTemplate = saved.contratoTemplate || dt.contrato || ''
-        // Detecta tipo automaticamente pelo conteúdo
+
+        // Templates: tenta primeiro chave separada (novo padrão), depois fallback inline (legado)
+        const parseTmpl = (res) => {
+          try { return res?.data?.value ? JSON.parse(res.data.value) : null } catch { return null }
+        }
+        const tmplProp = parseTmpl(tmplPropRes)
+        const tmplCont = parseTmpl(tmplContRes)
+
+        const propostaTemplate = tmplProp?.content || saved.propostaTemplate || dt.proposta || ''
+        const contratoTemplate = tmplCont?.content || saved.contratoTemplate || dt.contrato || ''
+
         const _detectTipo = (tmpl, savedTipo) => {
           if (savedTipo === 'docx') return 'docx'
           if (!tmpl) return 'html'
@@ -1104,14 +1114,14 @@ export default function Chat(){
           if (tmpl.length > 500 && /^[A-Za-z0-9+/=]+$/.test(tmpl.slice(0,100))) return 'docx'
           return 'html'
         }
-        const propostaTipo = _detectTipo(propostaTemplate, saved.propostaTipo || dt.propostaTipo)
-        const contratoTipo = _detectTipo(contratoTemplate, saved.contratoTipo || dt.contratoTipo)
+        const propostaTipo = _detectTipo(propostaTemplate, tmplProp?.tipo || saved.propostaTipo || dt.propostaTipo)
+        const contratoTipo = _detectTipo(contratoTemplate, tmplCont?.tipo || saved.contratoTipo || dt.contratoTipo)
+
         const merged={
           ...DEFAULT_CFG,
           ...saved,
           plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,
           prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices,
-          // Templates unificados — sempre populados
           propostaTemplate,
           contratoTemplate,
           propostaTipo,
@@ -1210,8 +1220,17 @@ export default function Chat(){
           }
         }
       }
-      await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(cfgData),updated_at:new Date().toISOString()})
-      cfgRef.current=cfgData;setCfg(cfgData)
+      // Garante que templates em memória não sejam perdidos ao re-salvar cfg
+      const cfgParaSalvar = {...cfgData}
+      if(cfgParaSalvar.docTemplates) {
+        if(!cfgParaSalvar.docTemplates.proposta && cfgRef.current.propostaTemplate) delete cfgParaSalvar.propostaTemplate
+        if(!cfgParaSalvar.docTemplates.contrato && cfgRef.current.contratoTemplate) delete cfgParaSalvar.contratoTemplate
+      }
+      await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(cfgParaSalvar),updated_at:new Date().toISOString()})
+      // Mantém templates em memória ao atualizar cfgRef
+      const mergedCfg = {...cfgData, propostaTemplate:cfgRef.current.propostaTemplate||cfgData.propostaTemplate||''}
+      mergedCfg.contratoTemplate = cfgRef.current.contratoTemplate||cfgData.contratoTemplate||''
+      cfgRef.current=mergedCfg;setCfg(mergedCfg)
     }catch(e){console.warn(e)}
     return{id,token,html,type,clientName,...entry}
   }
