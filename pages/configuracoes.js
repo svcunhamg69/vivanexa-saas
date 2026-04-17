@@ -1301,20 +1301,40 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = {
-      ...cfg,
-      docTemplates: {
-        proposta: propostaTemplate,
-        contrato: contratoTemplate,
-        propostaTipo,
-        contratoTipo,
+    try {
+      // Salva templates DOCX em chaves SEPARADAS para evitar JSON gigante no cfg
+      const salvarTemplate = async (tipo, tmpl, tipoVal) => {
+        if (!tmpl) return
+        await supabase.from('vx_storage').upsert({
+          key: `template:${tipo}:${empresaId}`,
+          value: JSON.stringify({ content: tmpl, tipo: tipoVal, updatedAt: new Date().toISOString() }),
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'key' })
       }
+      await Promise.all([
+        salvarTemplate('proposta', propostaTemplate, propostaTipo),
+        salvarTemplate('contrato', contratoTemplate, contratoTipo),
+      ])
+      // No cfg salva apenas metadados (sem base64) para não estourar o JSON
+      const novoCfg = {
+        ...cfg,
+        docTemplates: {
+          proposta: isDocxTemplate(propostaTemplate) ? '' : propostaTemplate,
+          contrato: isDocxTemplate(contratoTemplate) ? '' : contratoTemplate,
+          propostaTipo,
+          contratoTipo,
+          propostaExterna: !!propostaTemplate,
+          contratoExterna: !!contratoTemplate,
+        }
+      }
+      const { error } = await salvarStorage(empresaId, novoCfg)
+      if (error) { toast('Erro ao salvar: ' + error.message, 'err'); setSaving(false); return }
+      setCfg(novoCfg)
+      toast('✅ Templates e configurações salvos!')
+    } catch (e) {
+      toast('Erro: ' + e.message, 'err')
     }
-    const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
-    if (error) { toast('Erro ao salvar', 'err'); return }
-    setCfg(novoCfg)
-    toast('✅ Configurações salvas!')
   }
 
   async function testarConexao() {
