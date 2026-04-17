@@ -530,7 +530,7 @@ async function renderDocxBlob(templateBase64, variaveis) {
 }
 
 // ── Build Proposta (com suporte a template) ──────────────────
-function buildProposal(S,cfg,user){
+function buildProposal(S,cfg,user,templateOverride){
   const isC=S.closingToday===true,cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
   const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
@@ -543,7 +543,9 @@ function buildProposal(S,cfg,user){
   const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
 
-  let template = cfg.propostaTemplate || ''
+  // Prioridade: 1) templateOverride (passado por saveClient — sempre correto)
+  // 2) cfg.propostaTemplate (legado) 3) cfg.docTemplates?.proposta (extra)
+  let template = templateOverride || cfg.propostaTemplate || cfg.docTemplates?.proposta || ''
   if (template && !template.startsWith('data:application')) {
     const vars = {
       '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
@@ -617,7 +619,7 @@ function buildProposal(S,cfg,user){
 }
 
 // ── Build Contrato com Manifesto de Assinatura ──
-function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token, signedData) {
+function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token, signedData, templateOverride) {
   const cd = S.clientData || {}
   const co = S.contactData || {}
   const today = new Date().toLocaleDateString('pt-BR')
@@ -695,7 +697,9 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
     </div>
   </div>`
 
-  let template = cfg.contratoTemplate || ''
+  // Prioridade: 1) templateOverride (passado por wizNext — sempre correto)
+  // 2) cfg.contratoTemplate (legado) 3) cfg.docTemplates?.contrato (extra)
+  let template = templateOverride || cfg.contratoTemplate || cfg.docTemplates?.contrato || ''
   if (template && !template.startsWith('data:application')) {
     const vars = {
       '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
@@ -998,11 +1002,20 @@ export default function Chat(){
   const [docViewTitle,   setDocViewTitle]   = useState('')
   const [docViewLoading, setDocViewLoading] = useState(false)
 
+  // ── Modal Salvar no CRM ──────────────────────────────────────
+  const [showModalCRM,  setShowModalCRM]  = useState(false)
+  const [docParaCRM,    setDocParaCRM]    = useState(null)
+  const [crmForm,       setCrmForm]       = useState({})
+  const [crmAba,        setCrmAba]        = useState('negocio')
+  const [crmSalvando,   setCrmSalvando]   = useState(false)
+  const [crmErro,       setCrmErro]       = useState('')
+
   const S = useRef({
     stage:'await_doc',doc:null,clientData:null,contactData:{},
     users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,
     quoteData:null,closingData:null,closingToday:false,
-    appliedVoucher:null,awaitingVoucher:false
+    appliedVoucher:null,awaitingVoucher:false,
+    contractMode:'closing', contractValues:null
   }).current
 
   // ── Auth ──────────────────────────────────────
@@ -1184,7 +1197,7 @@ export default function Chat(){
   const addUser =c           =>setMessages(p=>[...p,{role:'user',content:c,isHTML:false,id:Date.now()+Math.random()}])
 
   const resetS=()=>{
-    Object.assign(S,{stage:'await_doc',doc:null,clientData:null,contactData:{},users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,quoteData:null,closingData:null,closingToday:false,appliedVoucher:null,awaitingVoucher:false})
+    Object.assign(S,{stage:'await_doc',doc:null,clientData:null,contactData:{},users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,quoteData:null,closingData:null,closingToday:false,appliedVoucher:null,awaitingVoucher:false,contractMode:'closing',contractValues:null})
     // Limpar timer global
     if(window._vxTimerInt){clearInterval(window._vxTimerInt);window._vxTimerInt=null}
     window._vxTimerDeadline=null
@@ -1453,8 +1466,37 @@ export default function Chat(){
       setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
       setClientMode('proposta');setShowClient(true)
     }
+    // ── Contrato no fechamento (valores de fechamento) ──
     window.vx_cont=()=>{
       const cd=S.clientData||{},co=S.contactData||{}
+      // Usa valores de fechamento (closingData) ou quoteData como fallback
+      S.contractMode='closing'
+      setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
+      setClientMode('contrato');setShowClient(true)
+    }
+    // ── Contrato no preço cheio (sem desconto) ──
+    window.vx_cont_full=()=>{
+      const cd=S.clientData||{},co=S.contactData||{}
+      // Salva os valores cheios para uso no saveClient
+      S.contractMode='full'
+      S.contractValues={
+        tAd: S.quoteData?.tAd||0,
+        tMen: S.quoteData?.tMen||0,
+        results: S.quoteData?.results||[]
+      }
+      setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
+      setClientMode('contrato');setShowClient(true)
+    }
+    // ── Contrato com desconto de tela (valores com desconto padrão) ──
+    window.vx_cont_disc=()=>{
+      const cd=S.clientData||{},co=S.contactData||{}
+      // Usa os valores com desconto (tAdD, tMenD)
+      S.contractMode='disc'
+      S.contractValues={
+        tAd: S.quoteData?.tAdD||S.quoteData?.tAd||0,
+        tMen: S.quoteData?.tMenD||S.quoteData?.tMen||0,
+        results: S.quoteData?.results||[]
+      }
       setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
       setClientMode('contrato');setShowClient(true)
     }
@@ -1485,7 +1527,7 @@ export default function Chat(){
         const cd=S.clientData||{},co=S.contactData||{}
         const variaveis=buildDocxVars({S,c,userProfile,tAd,tMen,cd,co,wizPay:'',wizAd:'',wizMen:''})
         // Gerar blob DOCX e mostrar preview em tela (HTML fallback) + botão de download
-        const htmlFallback=buildProposal(S,c,userProfile)
+        const htmlFallback=buildProposal(S,c,userProfile,propTemplate)
         const doc=await saveToHistory('proposta',clientName,htmlFallback,{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
         // Armazena blob docx em window para download posterior
@@ -1495,7 +1537,7 @@ export default function Chat(){
         setDocPreview({html:htmlFallback,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo(clientName,'proposta')})
       } else {
         // ── PROPOSTA VIA HTML (com preview em tela) ─────────
-        const html=buildProposal(S,c,userProfile)
+        const html=buildProposal(S,c,userProfile,propTemplate)
         const tAd=S.closingToday?S.closingData?.tAd:(S.quoteData?.tAdD||0)
         const tMen=S.closingToday?S.closingData?.tMen:(S.quoteData?.tMenD||0)
         const doc=await saveToHistory('proposta',clientName,html,{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
@@ -1503,9 +1545,23 @@ export default function Chat(){
         setDocPreview({html,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
       }
     }else{
-      const isC=S.closingToday===true
-      const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
-      const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
+      // ── CONTRATO: determina os valores corretos de acordo com o modo ──
+      let tAd, tMen
+      const cm = S.contractMode || 'closing'
+      if (cm === 'full') {
+        // Preço cheio (sem nenhum desconto)
+        tAd  = S.contractValues?.tAd  ?? S.quoteData?.tAd  ?? 0
+        tMen = S.contractValues?.tMen ?? S.quoteData?.tMen ?? 0
+      } else if (cm === 'disc') {
+        // Com desconto de tela (não de fechamento)
+        tAd  = S.contractValues?.tAd  ?? S.quoteData?.tAdD ?? S.quoteData?.tAd  ?? 0
+        tMen = S.contractValues?.tMen ?? S.quoteData?.tMenD?? S.quoteData?.tMen ?? 0
+      } else {
+        // Fechamento (closing) — comportamento original
+        const isC = S.closingToday === true
+        tAd  = isC ? (S.closingData?.tAd  ?? 0) : (S.quoteData?.tAdD  ?? 0)
+        tMen = isC ? (S.closingData?.tMen ?? 0) : (S.quoteData?.tMenD ?? 0)
+      }
       setWizTAd(tAd);setWizTMen(tMen);setWizStep(1);setWizPay('');setWizAd('');setWizMen('');setShowWiz(true)
     }
   }
@@ -1524,13 +1580,16 @@ export default function Chat(){
       const dt = c.docTemplates || {}
       const contratoTemplate = c.contratoTemplate || dt.contrato || ''
       const tipoTemplate=detectarTipoTemplate(contratoTemplate)
+      // Reseta contractMode após gerar
+      S.contractMode = 'closing'
+      S.contractValues = null
 
       if(tipoTemplate==='docx'){
         // ── CONTRATO VIA DOCX ──────────────────────────────────
         const cd=S.clientData||{},co=S.contactData||{}
         const variaveis=buildDocxVars({S,c,userProfile,tAd:wizTAd,tMen:wizTMen,cd,co,wizPay,wizAd,wizMen})
         // Salva HTML padrão no histórico para link de assinatura
-        const htmlFallback=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token)
+        const htmlFallback=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined,contratoTemplate)
         // Armazena blob docx para download no preview
         renderDocxBlob(contratoTemplate, variaveis)
           .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo} })
@@ -1541,7 +1600,7 @@ export default function Chat(){
         })
       } else {
         // ── CONTRATO VIA HTML (com preview em tela) ─────────
-        const html=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token)
+        const html=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined,contratoTemplate)
         saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
           setDocPreview({html,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
@@ -1571,6 +1630,7 @@ export default function Chat(){
     h+=`<div class="teaser-card"><div class="teaser-title">🎫 Licenças com desconto disponíveis!</div><div class="teaser-body">Deseja ver os valores com desconto?</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_disc(true)">✅ Sim!</button><button class="yn-btn no" onclick="window.vx_disc(false)">Não, obrigado</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${getNextDates().map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     h+=`<div style="margin-top:8px"><button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button></div>`
+    h+=`<div style="margin-top:4px"><button class="prop-btn" style="background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(124,58,237,.06));border-color:rgba(124,58,237,.35);color:#a78bfa" onclick="window.vx_cont_full()">📝 Gerar Contrato (preço cheio)</button></div>`
     return h
   }
   function rDisc(data,dates,cn){
@@ -1583,6 +1643,7 @@ export default function Chat(){
     h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${c.discClosePct||40}% OFF</strong> na adesão!<br>Oferta válida até as <strong style="color:var(--gold)">${h2}h de hoje</strong>.</div>${textoExtra}<div class="yn-row" style="margin-top:12px"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     h+=`<div style="margin-top:8px"><button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial (com desconto)</button></div>`
+    h+=`<div style="margin-top:4px"><button class="prop-btn" style="background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(124,58,237,.06));border-color:rgba(124,58,237,.35);color:#a78bfa" onclick="window.vx_cont_disc()">📝 Gerar Contrato (com desconto)</button></div>`
     return h
   }
   function rClose(data){
@@ -1829,43 +1890,193 @@ export default function Chat(){
         cfg={cfg}
         empresaId={empresaId}
         userProfile={userProfile}
-        onSalvarCRM={async (doc) => {
-          // Salvar/criar negócio no CRM a partir do documento
+        onSalvarCRM={(doc) => {
+          // Abre o modal de integração CRM com dados pré-preenchidos
           const co = S.contactData || {}
           const cd = S.clientData || {}
           const clientName = co.razao || co.empresa || cd.nome || cd.fantasia || fmtDoc(S.doc || '')
-          const tel = (co.telefone || cd.telefone || '').replace(/\D/g,'')
-          const email = co.email || cd.email || ''
-          // Salva no histórico/CRM
-          if (signDoc) {
-            try {
-              const { data: cfgRow } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
-              const cfgData = cfgRow?.value ? JSON.parse(cfgRow.value) : {}
-              if (!cfgData.clients) cfgData.clients = []
-              const novoCliente = {
-                doc: S.doc || '',
-                nome: clientName,
-                fantasia: co.empresa || cd.fantasia || '',
-                email, telefone: tel ? `+${tel}` : '',
-                cidade: co.cidade || cd.municipio || '',
-                uf: co.uf || cd.uf || '',
-                ultimoContato: new Date().toISOString(),
-                documentos: [{ id: signDoc.id, type: signDoc.type, date: signDoc.date, status: 'draft', token: signDoc.signToken }]
-              }
-              const existe = cfgData.clients.findIndex(cl => cl.doc === S.doc || (cl.email && cl.email === email))
-              if (existe === -1) cfgData.clients.push(novoCliente)
-              else {
-                if (!cfgData.clients[existe].documentos) cfgData.clients[existe].documentos = []
-                cfgData.clients[existe].documentos.push({ id: signDoc.id, type: signDoc.type, date: signDoc.date, status: 'draft', token: signDoc.signToken })
-                cfgData.clients[existe].ultimoContato = new Date().toISOString()
-              }
-              await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(cfgData), updated_at: new Date().toISOString() })
-              cfgRef.current = cfgData; setCfg(cfgData)
-            } catch(e) { throw e }
-          }
+          const etapas = cfgRef.current.crm_etapas?.length ? cfgRef.current.crm_etapas : [
+            {id:'lead',label:'Lead'},
+            {id:'lead_qualificado',label:'Lead Qualificado'},
+            {id:'reuniao_agendada',label:'Reunião Agendada'},
+            {id:'proposta_enviada',label:'Proposta Enviada'},
+            {id:'negociacao',label:'Negociação'},
+            {id:'fechamento',label:'Fechamento'},
+          ]
+          setCrmForm({
+            titulo: doc.tipo === 'proposta' ? `Proposta – ${clientName}` : `Contrato – ${clientName}`,
+            etapa: doc.tipo === 'proposta' ? 'proposta_enviada' : 'fechamento',
+            observacoes: `${doc.tipo === 'proposta' ? 'Proposta' : 'Contrato'} gerado via Chat em ${new Date().toLocaleDateString('pt-BR')}`,
+            cnpj: S.doc || '',
+            nome: clientName,
+            fantasia: co.empresa || cd.fantasia || '',
+            razao: co.razao || cd.nome || '',
+            email: co.email || cd.email || '',
+            telefone: co.telefone || cd.telefone || '',
+            cidade: co.cidade || cd.municipio || '',
+            uf: co.uf || cd.uf || '',
+            salvarCliente: true,
+            tAd: doc.tAd || 0,
+            tMen: doc.tMen || 0,
+            signToken: doc.signToken || '',
+            docTipo: doc.tipo || 'proposta',
+            etapas,
+          })
+          setCrmAba('negocio')
+          setCrmErro('')
+          setDocParaCRM(doc)
+          setShowModalCRM(true)
         }}
       />
     )}
+
+    {/* MODAL SALVAR NO CRM */}
+    {showModalCRM && docParaCRM && (()=>{
+      const etapas = crmForm.etapas || [{id:'lead',label:'Lead'},{id:'proposta_enviada',label:'Proposta Enviada'},{id:'fechamento',label:'Fechamento'}]
+      const inp = {width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',color:'var(--text)',fontFamily:'DM Mono,monospace',fontSize:13,outline:'none',boxSizing:'border-box'}
+      const setF = (k,v) => setCrmForm(p=>({...p,[k]:v}))
+
+      async function salvarNoCRM(){
+        if(!crmForm.titulo?.trim()||!crmForm.nome?.trim()){setCrmErro('Título e nome são obrigatórios.');return}
+        setCrmSalvando(true);setCrmErro('')
+        try{
+          const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).maybeSingle()
+          const currentCfg=row?.value?JSON.parse(row.value):{...cfgRef.current}
+
+          // 1. Criar negócio no funil CRM
+          const novoNegocio={
+            id:`neg_${Date.now()}`,
+            titulo:crmForm.titulo,
+            etapa:crmForm.etapa,
+            nome:crmForm.razao||crmForm.nome,
+            fantasia:crmForm.fantasia||crmForm.nome,
+            cnpj:(crmForm.cnpj||'').replace(/\D/g,''),
+            email:crmForm.email,
+            telefone:crmForm.telefone,
+            cidade:crmForm.cidade,
+            uf:crmForm.uf,
+            observacoes:crmForm.observacoes,
+            origem:'chat',
+            responsavel:userProfile?.nome||userProfile?.email||'',
+            criadoEm:new Date().toISOString(),
+            atualizadoEm:new Date().toISOString(),
+            documentoToken:crmForm.signToken,
+            valorAdesao:crmForm.tAd||0,
+            valorMensal:crmForm.tMen||0,
+          }
+          if(!currentCfg.crm_negocios)currentCfg.crm_negocios=[]
+          currentCfg.crm_negocios.push(novoNegocio)
+
+          // 2. Salvar/atualizar cliente (opcional)
+          if(crmForm.salvarCliente){
+            const docLimpo=(crmForm.cnpj||'').replace(/\D/g,'')
+            if(!currentCfg.clients)currentCfg.clients=[]
+            const clienteNovo={
+              doc:docLimpo,
+              nome:crmForm.razao||crmForm.nome,
+              fantasia:crmForm.fantasia||crmForm.nome,
+              email:crmForm.email,
+              telefone:crmForm.telefone,
+              cidade:crmForm.cidade,
+              uf:crmForm.uf,
+              ultimoContato:new Date().toISOString(),
+              documentos:crmForm.signToken?[{id:crmForm.signToken,type:crmForm.docTipo,date:new Date().toLocaleString('pt-BR'),status:'draft',token:crmForm.signToken}]:[]
+            }
+            const idx=docLimpo?currentCfg.clients.findIndex(c=>c.doc===docLimpo):
+              (crmForm.email?currentCfg.clients.findIndex(c=>c.email===crmForm.email):-1)
+            if(idx===-1){currentCfg.clients.push(clienteNovo)}
+            else{
+              if(!currentCfg.clients[idx].documentos)currentCfg.clients[idx].documentos=[]
+              if(crmForm.signToken)currentCfg.clients[idx].documentos.push({id:crmForm.signToken,type:crmForm.docTipo,date:new Date().toLocaleString('pt-BR'),status:'draft',token:crmForm.signToken})
+              currentCfg.clients[idx].ultimoContato=new Date().toISOString()
+              currentCfg.clients[idx].nome=clienteNovo.nome
+              currentCfg.clients[idx].fantasia=clienteNovo.fantasia
+              currentCfg.clients[idx].email=clienteNovo.email
+              currentCfg.clients[idx].telefone=clienteNovo.telefone
+              currentCfg.clients[idx].cidade=clienteNovo.cidade
+            }
+          }
+
+          await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(currentCfg),updated_at:new Date().toISOString()},{onConflict:'key'})
+          cfgRef.current=currentCfg;setCfg(currentCfg)
+          setShowModalCRM(false)
+          addBot(`✅ Negócio **"${novoNegocio.titulo}"** salvo no CRM na etapa **${etapas.find(e=>e.id===novoNegocio.etapa)?.label||novoNegocio.etapa}**!`)
+        }catch(e){setCrmErro('Erro ao salvar: '+e.message)}
+        setCrmSalvando(false)
+      }
+
+      return(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.82)',zIndex:3500,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>setShowModalCRM(false)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:540,maxHeight:'92vh',overflowY:'auto',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{padding:'20px 24px 0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+              <div style={{fontFamily:'Syne,sans-serif',fontWeight:700,fontSize:17,color:'var(--accent)'}}>🤝 Salvar no CRM</div>
+              <button onClick={()=>setShowModalCRM(false)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer'}}>✕</button>
+            </div>
+            <div style={{padding:'4px 24px 0',fontSize:12,color:'var(--muted)'}}>
+              {docParaCRM.tipo==='proposta'?'📄 Proposta':'📝 Contrato'} · {crmForm.nome}
+            </div>
+
+            {/* Abas */}
+            <div style={{display:'flex',gap:0,padding:'14px 24px 0',borderBottom:'1px solid var(--border)',flexShrink:0}}>
+              {[['negocio','📋 Negócio'],['cliente','🏢 Cliente']].map(([id,label])=>(
+                <button key={id} onClick={()=>setCrmAba(id)} style={{padding:'7px 18px',border:'none',borderBottom:`2px solid ${crmAba===id?'var(--accent)':'transparent'}`,background:'none',color:crmAba===id?'var(--accent)':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',transition:'all .15s'}}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Corpo */}
+            <div style={{padding:'20px 24px',flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:12}}>
+              {crmAba==='negocio'&&<>
+                <div className="field"><label>Título do Negócio *</label><input style={inp} value={crmForm.titulo||''} onChange={e=>setF('titulo',e.target.value)} placeholder="Ex: Proposta – Empresa XYZ"/></div>
+                <div className="field"><label>Nome do Contato / Cliente *</label><input style={inp} value={crmForm.nome||''} onChange={e=>setF('nome',e.target.value)} placeholder="Nome completo ou empresa"/></div>
+                <div className="field"><label>Etapa do Funil</label>
+                  <select style={{...inp,cursor:'pointer'}} value={crmForm.etapa||''} onChange={e=>setF('etapa',e.target.value)}>
+                    {etapas.map(et=><option key={et.id} value={et.id}>{et.label}</option>)}
+                  </select>
+                </div>
+                {(crmForm.tAd>0||crmForm.tMen>0)&&(
+                  <div style={{padding:'10px 14px',background:'rgba(0,212,255,.06)',border:'1px solid rgba(0,212,255,.15)',borderRadius:8,fontSize:13,color:'var(--muted)'}}>
+                    💰 Adesão: <strong style={{color:'var(--accent)'}}>{fmt(crmForm.tAd||0)}</strong> · Mensalidade: <strong style={{color:'var(--accent)'}}>{fmt(crmForm.tMen||0)}</strong>
+                  </div>
+                )}
+                <div className="field"><label>Observações</label>
+                  <textarea style={{...inp,resize:'vertical',minHeight:72}} value={crmForm.observacoes||''} onChange={e=>setF('observacoes',e.target.value)}/>
+                </div>
+              </>}
+              {crmAba==='cliente'&&<>
+                <div className="modal-grid2">
+                  <div className="field"><label>Nome Fantasia</label><input style={inp} value={crmForm.fantasia||''} onChange={e=>setF('fantasia',e.target.value)}/></div>
+                  <div className="field"><label>Razão Social</label><input style={inp} value={crmForm.razao||''} onChange={e=>setF('razao',e.target.value)}/></div>
+                  <div className="field"><label>E-mail</label><input style={inp} value={crmForm.email||''} onChange={e=>setF('email',e.target.value)}/></div>
+                  <div className="field"><label>Telefone</label><input style={inp} value={crmForm.telefone||''} onChange={e=>setF('telefone',e.target.value)}/></div>
+                  <div className="field"><label>Cidade</label><input style={inp} value={crmForm.cidade||''} onChange={e=>setF('cidade',e.target.value)}/></div>
+                  <div className="field"><label>UF</label><input style={inp} value={crmForm.uf||''} onChange={e=>setF('uf',e.target.value)} maxLength={2}/></div>
+                </div>
+                <div onClick={()=>setF('salvarCliente',!crmForm.salvarCliente)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:crmForm.salvarCliente?'rgba(16,185,129,.06)':'var(--surface2)',border:`1px solid ${crmForm.salvarCliente?'rgba(16,185,129,.25)':'var(--border)'}`,borderRadius:8,cursor:'pointer',transition:'all .15s'}}>
+                  <div style={{width:17,height:17,borderRadius:4,border:`2px solid ${crmForm.salvarCliente?'var(--accent3)':'var(--border)'}`,background:crmForm.salvarCliente?'var(--accent3)':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {crmForm.salvarCliente&&<span style={{color:'#fff',fontSize:11,fontWeight:700}}>✓</span>}
+                  </div>
+                  <span style={{fontSize:13,color:'var(--text)'}}>Salvar também na base de <strong style={{color:'var(--accent3)'}}>Clientes</strong></span>
+                </div>
+              </>}
+            </div>
+
+            {crmErro&&<div style={{margin:'0 24px',padding:'8px 12px',background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',borderRadius:8,fontSize:12,color:'var(--danger)'}}>⚠️ {crmErro}</div>}
+
+            {/* Footer */}
+            <div style={{display:'flex',gap:10,padding:'16px 24px',borderTop:'1px solid var(--border)',flexShrink:0}}>
+              <button onClick={()=>setShowModalCRM(false)} style={{flex:1,padding:10,background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:10,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:13}}>Cancelar</button>
+              <button onClick={salvarNoCRM} disabled={crmSalvando} style={{flex:2,padding:10,background:'linear-gradient(135deg,var(--accent3),#059669)',border:'none',color:'#fff',borderRadius:10,cursor:crmSalvando?'not-allowed':'pointer',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,opacity:crmSalvando?.7:1}}>
+                {crmSalvando?'⏳ Salvando...':'✅ Salvar no CRM'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    })()}
 
     {/* MODAL VER DOCUMENTO */}
     {showDocView&&(
