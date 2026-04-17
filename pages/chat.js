@@ -167,8 +167,8 @@ ${html}
           </button>
         )}
         <div style={{ flex: 1 }} />
-        <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.3)', color: '#ef4444', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
-          ✕ Fechar
+        <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(100,116,139,.12)', border: '1px solid rgba(100,116,139,.3)', color: '#94a3b8', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}>
+          ← Voltar ao Chat
         </button>
       </div>
 
@@ -544,7 +544,7 @@ function buildProposal(S,cfg,user){
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
 
   let template = cfg.propostaTemplate || ''
-  if (template) {
+  if (template && !template.startsWith('data:application')) {
     const vars = {
       '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
       '{{razao}}': co.razao||cd.nome||'',
@@ -696,7 +696,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
   </div>`
 
   let template = cfg.contratoTemplate || ''
-  if (template) {
+  if (template && !template.startsWith('data:application')) {
     const vars = {
       '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
       '{{razao}}': co.razao || cd.nome || '',
@@ -920,12 +920,23 @@ function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='
     vencimento_mensal:  wizMen || '—',
 
     // Consultor e Sistema
-    consultor_nome: userProfile?.nome || '',
-    consultor_tel:  userProfile?.perfil?.telefone || userProfile?.telefone || '',
-    data_hora:      agora,
-    data_hoje:      hoje,
-    logo:           c.logob64 ? `<img src="${c.logob64}" style="height:52px">` : '',
+    consultor_nome:  userProfile?.nome || '',
+    consultor_tel:   userProfile?.perfil?.telefone || userProfile?.telefone || '',
+    email_consultor: userProfile?.email || '',
+    data_hora:       agora,
+    data_hoje:       hoje,
+    logo:            c.logob64 ? `<img src="${c.logob64}" style="height:52px">` : '',
   }
+
+  // Variáveis individuais por módulo (ex: {{modulo_1_nome}}, {{modulo_1_adesao}}, {{modulo_1_mensal}})
+  const results = S.closingToday ? (S.closingData?.results||[]) : (S.quoteData?.results||[])
+  results.forEach((r, i) => {
+    const n = i + 1
+    vars[`modulo_${n}_nome`]   = r.name || ''
+    vars[`modulo_${n}_adesao`] = (!r.isTributos && !r.isEP) ? fmt(S.closingToday ? r.ad : (r.adD ?? r.ad)) : '—'
+    vars[`modulo_${n}_mensal`] = fmt(S.closingToday ? r.men : (r.menD ?? r.men))
+    vars[`modulo_${n}_plano`]  = r.plan ? getPlanLabel(r.plan, c.plans) : ''
+  })
 
   return vars
 }
@@ -1420,7 +1431,12 @@ export default function Chat(){
         // Inicia timer após DOM renderizar a bolha — igual ao HTML local
         setTimeout(()=>startTimerGlobal(dl),200)
       }
-      else{S.stage='discounted';addUser('Não por agora');addBot('Entendido!');setTimeout(()=>addBot(`<button class="reset-btn" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)}
+      else{
+        S.stage='await_proposal_after_disc'
+        addUser('Não por agora')
+        addBot('Sem problemas! Deseja que eu gere uma proposta comercial com os valores com desconto?')
+        setTimeout(()=>addBot(`<button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button><button class="reset-btn" style="margin-top:6px" onclick="window.vx_reset()">🔄 Iniciar nova consulta</button>`,true),400)
+      }
     }
     window.vx_reset=()=>{
       resetS()
@@ -1542,6 +1558,7 @@ export default function Chat(){
     h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão total</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val">${fmt(tMen)}</span></div></div>`
     h+=`<div class="teaser-card"><div class="teaser-title">🎫 Licenças com desconto disponíveis!</div><div class="teaser-body">Deseja ver os valores com desconto?</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_disc(true)">✅ Sim!</button><button class="yn-btn no" onclick="window.vx_disc(false)">Não, obrigado</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${getNextDates().map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
+    h+=`<div style="margin-top:8px"><button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button></div>`
     return h
   }
   function rDisc(data,dates,cn){
@@ -1553,6 +1570,7 @@ export default function Chat(){
     const textoExtra=c.closingText?`<div style="font-size:13px;color:var(--muted);margin-top:6px;font-style:italic">${c.closingText}</div>`:''
     h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${c.discClosePct||40}% OFF</strong> na adesão!<br>Oferta válida até as <strong style="color:var(--gold)">${h2}h de hoje</strong>.</div>${textoExtra}<div class="yn-row" style="margin-top:12px"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
+    h+=`<div style="margin-top:8px"><button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial (com desconto)</button></div>`
     return h
   }
   function rClose(data){
