@@ -1362,6 +1362,15 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
         ['{{vencimento_mensal}}',  'Data de vencimento da mensalidade'],
         ['{{produtos_tabela}}',    'Tabela HTML completa dos módulos com adesão e mensalidade'],
         ['{{produtos_lista}}',     'Lista em texto dos módulos contratados'],
+        ['{{modulo_1_nome}}',      'Nome do 1º módulo contratado'],
+        ['{{modulo_1_adesao}}',    'Adesão do 1º módulo'],
+        ['{{modulo_1_mensal}}',    'Mensalidade do 1º módulo'],
+        ['{{modulo_2_nome}}',      'Nome do 2º módulo contratado'],
+        ['{{modulo_2_adesao}}',    'Adesão do 2º módulo'],
+        ['{{modulo_2_mensal}}',    'Mensalidade do 2º módulo'],
+        ['{{modulo_3_nome}}',      'Nome do 3º módulo contratado'],
+        ['{{modulo_3_adesao}}',    'Adesão do 3º módulo'],
+        ['{{modulo_3_mensal}}',    'Mensalidade do 3º módulo'],
       ]
     },
     {
@@ -1369,10 +1378,11 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
       desc: 'Dados do consultor que gerou o documento',
       cor: '#f59e0b',
       vars: [
-        ['{{consultor_nome}}', 'Nome do consultor'],
-        ['{{consultor_tel}}',  'Telefone do consultor (usuário)'],
-        ['{{data_hora}}',      'Data e hora atual de geração do documento'],
-        ['{{logo}}',           'Logo da empresa em base64 (para uso em <img src="{{logo}}">)'],
+        ['{{consultor_nome}}',   'Nome do consultor'],
+        ['{{consultor_tel}}',    'Telefone do consultor (usuário)'],
+        ['{{email_consultor}}',  'E-mail do consultor (usuário logado)'],
+        ['{{data_hora}}',        'Data e hora atual de geração do documento'],
+        ['{{logo}}',             'Logo da empresa em base64 (para uso em <img src="{{logo}}">)'],
       ]
     },
   ]
@@ -1861,6 +1871,13 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   const [cnpjApiToken, setCnpjApiToken] = React.useState(cfg.cnpjApiToken || '')
   const [testingApi,   setTestingApi]   = React.useState(false)
   const [msg,          setMsg]          = React.useState('')
+  // 3CX
+  const [tcxUrl,          setTcxUrl]          = React.useState(cfg.tcx?.url          || '')
+  const [tcxClientId,     setTcxClientId]     = React.useState(cfg.tcx?.clientId     || '')
+  const [tcxClientSecret, setTcxClientSecret] = React.useState(cfg.tcx?.clientSecret || '')
+  // Cloudflare Worker
+  const [cfWorkerUrl,    setCfWorkerUrl]    = React.useState(cfg.cloudflareImageWorkerUrl    || '')
+  const [cfWorkerSecret, setCfWorkerSecret] = React.useState(cfg.cloudflareWorkerSecret || '')
 
   const s = {
     card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px', marginBottom: 16 },
@@ -1885,6 +1902,32 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
     } catch (e) {
       setMsg('❌ Erro ao salvar: ' + e.message)
     }
+    setSaving(false)
+  }
+
+  async function salvarTcx() {
+    setSaving(true); setMsg('')
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo = { ...atual, tcx: { url: tcxUrl.trim(), clientId: tcxClientId.trim(), clientSecret: tcxClientSecret.trim() } }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      setCfg(novo)
+      setMsg('✅ Integração 3CX salva!')
+    } catch(e) { setMsg('❌ Erro: ' + e.message) }
+    setSaving(false)
+  }
+
+  async function salvarCloudflare() {
+    setSaving(true); setMsg('')
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo = { ...atual, cloudflareImageWorkerUrl: cfWorkerUrl.trim(), cloudflareWorkerSecret: cfWorkerSecret.trim() }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      setCfg(novo)
+      setMsg('✅ Cloudflare Worker salvo! O módulo Marketing já pode gerar imagens IA.')
+    } catch(e) { setMsg('❌ Erro: ' + e.message) }
     setSaving(false)
   }
 
@@ -2059,6 +2102,57 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
             Copiar
           </button>
         </div>
+      </div>
+
+      {/* ── 3CX ── */}
+      <div style={{ ...s.card, borderColor: cfg.tcx?.url ? 'rgba(0,212,255,.35)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700 }}>📞 Integração 3CX</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+            background: tcxUrl ? 'rgba(0,212,255,.12)' : 'rgba(100,116,139,.12)',
+            color: tcxUrl ? 'var(--accent)' : '#64748b',
+            border: '1px solid ' + (tcxUrl ? 'rgba(0,212,255,.3)' : 'rgba(100,116,139,.3)') }}>
+            {tcxUrl ? '● Configurado' : '○ Não configurado'}
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 14 }}>
+          Conecte o <strong style={{ color: 'var(--text)' }}>3CX</strong> para identificar clientes ao receber chamadas (pop-up automático no CRM) e registrar histórico de ligações. Requer 3CX Pro ou Enterprise com a <strong style={{ color: 'var(--accent)' }}>Call Control API v20</strong> ativada.
+        </div>
+        <label style={s.label}>URL da 3CX (ex: https://suaempresa.3cx.com.br)</label>
+        <input style={s.input} value={tcxUrl} onChange={e => setTcxUrl(e.target.value)} placeholder="https://suaempresa.3cx.com.br" />
+        <label style={s.label}>Client ID (gerado em Integrações → API no painel 3CX)</label>
+        <input style={s.input} value={tcxClientId} onChange={e => setTcxClientId(e.target.value)} placeholder="vivanexa-crm" />
+        <label style={s.label}>Client Secret</label>
+        <input style={{ ...s.input, fontFamily: 'monospace', fontSize: 11 }} type="password" value={tcxClientSecret} onChange={e => setTcxClientSecret(e.target.value)} placeholder="••••••••••••" />
+        <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 12 }}>
+          No painel 3CX: <strong>Configurações → Integrações → API</strong> → clique em "+ Novo" → copie Client ID e Secret.
+        </div>
+        <button onClick={salvarTcx} disabled={saving} style={s.btnSec}>
+          {saving ? '⏳ Salvando...' : '💾 Salvar 3CX'}
+        </button>
+      </div>
+
+      {/* ── CLOUDFLARE IMAGE WORKER ── */}
+      <div style={{ ...s.card, borderColor: cfg.cloudflareImageWorkerUrl ? 'rgba(124,58,237,.4)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700 }}>🖼️ Cloudflare Image Worker (IA)</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+            background: cfWorkerUrl ? 'rgba(124,58,237,.12)' : 'rgba(100,116,139,.12)',
+            color: cfWorkerUrl ? '#7c3aed' : '#64748b',
+            border: '1px solid ' + (cfWorkerUrl ? 'rgba(124,58,237,.3)' : 'rgba(100,116,139,.3)') }}>
+            {cfWorkerUrl ? '● Configurado' : '○ Não configurado'}
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 14 }}>
+          Worker Cloudflare com <strong style={{ color: '#7c3aed' }}>FLUX.1 schnell</strong> para geração de imagens no módulo Marketing. Grátis até 10.000 imagens/dia. Siga o guia <strong style={{ color: 'var(--text)' }}>GUIA-CLOUDFLARE-WORKER.md</strong> para criar e publicar o worker.
+        </div>
+        <label style={s.label}>URL do Worker (ex: https://vivanexa-image-gen.SEU-USUARIO.workers.dev)</label>
+        <input style={s.input} value={cfWorkerUrl} onChange={e => setCfWorkerUrl(e.target.value)} placeholder="https://vivanexa-image-gen.seu-usuario.workers.dev" />
+        <label style={s.label}>Chave Secreta do Worker (opcional — configurada via <code>wrangler secret put API_SECRET</code>)</label>
+        <input style={{ ...s.input, fontFamily: 'monospace', fontSize: 11 }} type="password" value={cfWorkerSecret} onChange={e => setCfWorkerSecret(e.target.value)} placeholder="vx_img_2025_abc123" />
+        <button onClick={salvarCloudflare} disabled={saving} style={{ ...s.btnSec, borderColor: 'rgba(124,58,237,.3)', color: '#7c3aed' }}>
+          {saving ? '⏳ Salvando...' : '💾 Salvar Cloudflare Worker'}
+        </button>
       </div>
 
       {msg && (
