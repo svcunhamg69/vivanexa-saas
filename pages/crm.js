@@ -1,5 +1,5 @@
-// pages/crm.js — CRM Vivanexa v3
-// Funil Kanban + Timeline de Atividades + 🆕 Gestão de Clientes (cadastro, edição, exclusão, CNPJ/CEP auto)
+// pages/crm.js — CRM Vivanexa v4
+// Melhorias: Google Agenda em Reunião + Player gravação 3CX + Aba Documentos + Permissões atualizadas
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
@@ -19,7 +19,7 @@ const ETAPAS_PADRAO = [
 
 const TIPO_ATIVIDADE = ['Ligação','Reunião','E-mail','WhatsApp','Proposta','Follow-up','Visita','Outro']
 const EMPTY_NEG  = { id:'',titulo:'',etapa:'lead',nome:'',fantasia:'',cnpj:'',cpf:'',email:'',telefone:'',endereco:'',cep:'',bairro:'',cidade:'',uf:'',responsavel:'',adesao:'',mensalidade:'',modulos:'',observacoes:'',origem:'manual',criadoEm:'',atualizadoEm:'' }
-const EMPTY_ATIV = { id:'',negocioId:'',tipo:'Ligação',descricao:'',prazo:'',concluida:false,criadoEm:'' }
+const EMPTY_ATIV = { id:'',negocioId:'',tipo:'Ligação',descricao:'',prazo:'',concluida:false,criadoEm:'',google_event_id:'',google_link:'',duracao_seg:0,gravacao_url:'' }
 const EMPTY_CLI  = { id:'',doc:'',fantasia:'',razao:'',contato:'',email:'',tel:'',cep:'',end:'',numero:'',complemento:'',bairro:'',cidade:'',uf:'',cpfContato:'',regime:'',rimpNome:'',rimpEmail:'',rimpTel:'',rfinNome:'',rfinEmail:'',rfinTel:'',updatedAt:'' }
 
 const fmt    = n => (!n&&n!==0)?'—':'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2})
@@ -36,37 +36,103 @@ function click2call(numero, cfg3cx) {
   if (!numero) return
   const tel = String(numero).replace(/\D/g, '')
   if (!tel) return
-
   const modo = cfg3cx?.modo || 'tel'
-
-  if (modo === 'tel') {
-    // Abre o discador padrão do SO (funciona com 3CX Desktop App)
-    window.open(`tel:${tel}`, '_self')
-    return
-  }
-
+  if (modo === 'tel') { window.open(`tel:${tel}`, '_self'); return }
   if (modo === '3cx_web') {
-    // 3CX Web Client Click2Call
-    const host = cfg3cx?.host || '' // ex: "minha-empresa.3cx.com.br:5001"
+    const host = cfg3cx?.host || ''
     if (!host) { alert('Configure o Host 3CX em Config → Integrações → Telefonia'); return }
-    window.open(`https://${host}/webclient/#/call?phone=${tel}`, '_blank')
-    return
+    window.open(`https://${host}/webclient/#/call?phone=${tel}`, '_blank'); return
+  }
+  if (modo === '3cx_api') {
+    const host=cfg3cx?.host||'', token3cx=cfg3cx?.token||'', ramal=cfg3cx?.ramal||''
+    if (!host||!token3cx||!ramal) { alert('Configure Host, Token e Ramal 3CX em Config → Integrações → Telefonia'); return }
+    fetch(`https://${host}/callcontrol/calls`,{method:'POST',headers:{'Authorization':`Bearer ${token3cx}`,'Content-Type':'application/json'},body:JSON.stringify({from:ramal,to:tel,callType:'pstn'})})
+      .then(r=>{ if(!r.ok)alert('Erro ao iniciar chamada via 3CX API') }).catch(()=>alert('Erro de conexão com 3CX'))
+  }
+}
+
+// ── Google Calendar: criar/atualizar evento ─────────────────────
+async function criarEventoGCal(atividade, negocio, accessToken) {
+  const prazoDate = atividade.prazo ? new Date(atividade.prazo) : new Date()
+  const endDate   = new Date(prazoDate.getTime() + 60 * 60 * 1000)
+  const titulo = `Reunião: ${negocio?.titulo || negocio?.fantasia || negocio?.nome || 'Lead'}`
+  const descricao = [atividade.descricao||'', negocio?.email?`E-mail: ${negocio.email}`:'', negocio?.telefone?`Fone: ${negocio.telefone}`:''].filter(Boolean).join('\n')
+  const event = {
+    summary: titulo, description: descricao,
+    start: { dateTime: prazoDate.toISOString(), timeZone: 'America/Sao_Paulo' },
+    end:   { dateTime: endDate.toISOString(),   timeZone: 'America/Sao_Paulo' },
+    reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 30 }] },
+  }
+  const url = atividade.google_event_id
+    ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${atividade.google_event_id}`
+    : 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+  const method = atividade.google_event_id ? 'PATCH' : 'POST'
+  const res = await fetch(url, {
+    method,
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(event),
+  })
+  if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || 'Erro Google Calendar') }
+  const created = await res.json()
+  return { google_event_id: created.id, google_link: created.htmlLink }
+}
+
+async function syncGCal(atividade, negocio, cfg, userId, setStatus) {
+  setStatus('🔄 Verificando token Google...')
+  // Buscar token salvo
+  let token = null
+  try {
+    const { data } = await supabase.from('vx_storage').select('value').eq('key', `gcal_token:${userId}`).maybeSingle()
+    if (data?.value) token = JSON.parse(data.value)
+  } catch {}
+
+  // Verificar expiração
+  if (token && token.obtained_at && token.expires_in) {
+    const expAt = token.obtained_at + (token.expires_in - 60) * 1000
+    if (Date.now() > expAt && token.refresh_token) {
+      setStatus('🔄 Renovando acesso...')
+      try {
+        const clientId = cfg.googleClientId || ''
+        const clientSecret = cfg.googleClientSecret || ''
+        if (clientId && clientSecret) {
+          const r = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ refresh_token: token.refresh_token, client_id: clientId, client_secret: clientSecret, grant_type: 'refresh_token' }),
+          })
+          if (r.ok) {
+            const nt = await r.json()
+            token = { ...token, ...nt, obtained_at: Date.now() }
+            await supabase.from('vx_storage').upsert({ key: `gcal_token:${userId}`, value: JSON.stringify(token), updated_at: new Date().toISOString() }, { onConflict: 'key' })
+          }
+        }
+      } catch {}
+    }
   }
 
-  if (modo === '3cx_api') {
-    // Call Control API — dispara chamada pelo ramal do agente logado
-    const host      = cfg3cx?.host      || ''
-    const token3cx  = cfg3cx?.token     || ''
-    const ramal     = cfg3cx?.ramal     || ''
-    if (!host || !token3cx || !ramal) { alert('Configure Host, Token e Ramal 3CX em Config → Integrações → Telefonia'); return }
-    fetch(`https://${host}/callcontrol/calls`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token3cx}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: ramal, to: tel, callType: 'pstn' })
-    }).then(r => { if (!r.ok) alert('Erro ao iniciar chamada via 3CX API') })
-      .catch(() => alert('Erro de conexão com 3CX'))
-    return
+  // Sem token: iniciar OAuth
+  if (!token?.access_token) {
+    const clientId = cfg.googleClientId || ''
+    if (!clientId) throw new Error('Configure o Google Client ID em Configurações → Integrações → Google Agenda')
+    const redirectUri = `${window.location.origin}/api/auth/google/callback`
+    const scope = encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=${encodeURIComponent(userId)}`
+    setStatus('🔐 Abrindo autenticação Google...')
+    const popup = window.open(authUrl, 'gcal_auth', 'width=520,height=640,left=200,top=100')
+    if (!popup) throw new Error('Popup bloqueado. Permita popups para este site.')
+    token = await new Promise((resolve, reject) => {
+      const to = setTimeout(() => { window.removeEventListener('message', h); reject(new Error('Timeout de autenticação')) }, 120000)
+      function h(e) { if (e.data?.type !== 'GCAL_TOKEN') return; clearTimeout(to); window.removeEventListener('message', h); resolve(e.data.token) }
+      window.addEventListener('message', h)
+      const ci = setInterval(() => { if (popup.closed) { clearInterval(ci); clearTimeout(to); window.removeEventListener('message', h); reject(new Error('Janela fechada pelo usuário')) } }, 500)
+    })
+    await supabase.from('vx_storage').upsert({ key: `gcal_token:${userId}`, value: JSON.stringify({ ...token, obtained_at: Date.now() }), updated_at: new Date().toISOString() }, { onConflict: 'key' })
   }
+
+  setStatus(atividade.google_event_id ? '🔄 Atualizando evento...' : '📅 Criando evento...')
+  const result = await criarEventoGCal(atividade, negocio, token.access_token)
+  setStatus('✅ Sincronizado com Google Agenda!')
+  return result
 }
 
 // ── APIs externas ──────────────────────────────────
@@ -78,21 +144,12 @@ async function fetchCNPJDados(cnpj) {
     const f = (d.ddd_telefone_1||d.ddd_telefone_2||'').replace(/\D/g,'')
     const cep = (d.cep||'').replace(/\D/g,'')
     return {
-      razao:     d.razao_social||'',
-      fantasia:  d.nome_fantasia||d.razao_social||'',
-      email:     d.email||'',
-      tel:       f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'',
-      cidade:    d.municipio||'',
-      uf:        d.uf||'',
-      cep,
-      end:       [d.descricao_tipo_logradouro,d.logradouro].filter(Boolean).join(' '),
-      numero:    d.numero&&d.numero!=='S/N'?d.numero:'',
-      complemento: d.complemento||'',
-      bairro:    d.bairro||'',
-      // retrocompat para crm_negocios
-      nome:      d.razao_social||'',
-      endereco:  [d.descricao_tipo_logradouro,d.logradouro,d.numero,d.bairro].filter(Boolean).join(' '),
-      telefone:  f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'',
+      razao:d.razao_social||'', fantasia:d.nome_fantasia||d.razao_social||'', email:d.email||'',
+      tel:f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'', cidade:d.municipio||'', uf:d.uf||'',
+      cep, end:[d.descricao_tipo_logradouro,d.logradouro].filter(Boolean).join(' '),
+      numero:d.numero&&d.numero!=='S/N'?d.numero:'', complemento:d.complemento||'', bairro:d.bairro||'',
+      nome:d.razao_social||'', endereco:[d.descricao_tipo_logradouro,d.logradouro,d.numero,d.bairro].filter(Boolean).join(' '),
+      telefone:f.length>=10?`(${f.slice(0,2)}) ${f.slice(2)}`:'',
     }
   } catch { return null }
 }
@@ -117,10 +174,12 @@ export default function CRM() {
   const [negocios,     setNegocios]     = useState([])
   const [atividades,   setAtividades]   = useState([])
   const [clientes,     setClientes]     = useState([])
+  const [documentos,   setDocumentos]   = useState([])
   const [etapas,       setEtapas]       = useState(ETAPAS_PADRAO)
-  const [visao,        setVisao]        = useState('funil') // funil | atividades | clientes
+  const [visao,        setVisao]        = useState('funil')
   const [cfg3cx,       setCfg3cx]       = useState({})
   const [negSel,       setNegSel]       = useState(null)
+  const [abaDetalhe,   setAbaDetalhe]   = useState('atividades') // atividades | documentos
   const [showFormNeg,  setShowFormNeg]  = useState(false)
   const [formNeg,      setFormNeg]      = useState({...EMPTY_NEG})
   const [showFormAtiv, setShowFormAtiv] = useState(false)
@@ -140,6 +199,10 @@ export default function CRM() {
   const [toast,        setToast]        = useState('')
   const [dragging,     setDragging]     = useState(null)
   const [dragOver,     setDragOver]     = useState(null)
+  const [gcalStatus,   setGcalStatus]   = useState('')
+  const [gcalLoading,  setGcalLoading]  = useState(false)
+  const [docViewer,    setDocViewer]    = useState(null) // HTML a exibir no viewer
+  const [playerAberto, setPlayerAberto] = useState({}) // {[ativId]: bool}
   const dragNode = useRef(null)
 
   useEffect(() => {
@@ -151,7 +214,13 @@ export default function CRM() {
       setPerfil(perf)
       const eid = perf?.empresa_id||session.user.id; setEmpresaId(eid)
       const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).maybeSingle()
-      if(row?.value){ const c=JSON.parse(row.value); setCfg(c); setNegocios(c.crm_negocios||[]); setAtividades(c.crm_atividades||[]); setClientes(c.clients||[]); if(c.crm_etapas?.length)setEtapas(c.crm_etapas); if(c.tel3cx)setCfg3cx(c.tel3cx) }
+      if(row?.value){
+        const c=JSON.parse(row.value)
+        setCfg(c); setNegocios(c.crm_negocios||[]); setAtividades(c.crm_atividades||[])
+        setClientes(c.clients||[]); setDocumentos(c.crm_documentos||[])
+        if(c.crm_etapas?.length)setEtapas(c.crm_etapas)
+        if(c.tel3cx)setCfg3cx(c.tel3cx)
+      }
       setLoading(false)
     }
     init()
@@ -160,7 +229,7 @@ export default function CRM() {
   const save = async nc => {
     await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(nc),updated_at:new Date().toISOString()},{onConflict:'key'})
   }
-  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3000) }
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3500) }
 
   // ── Negócios ─────────────────────────────────────
   async function salvarNeg() {
@@ -191,7 +260,8 @@ export default function CRM() {
   async function salvarAtiv() {
     if(!formAtiv.descricao.trim()){ alert('Informe a descrição.'); return }
     setSaving(true)
-    const now=new Date().toISOString(); const nova={...formAtiv,id:formAtiv.id||'atv_'+Date.now(),criadoEm:formAtiv.criadoEm||now}
+    const now=new Date().toISOString()
+    const nova={...formAtiv,id:formAtiv.id||'atv_'+Date.now(),criadoEm:formAtiv.criadoEm||now}
     const lista=formAtiv.id?atividades.map(a=>a.id===formAtiv.id?nova:a):[...atividades,nova]
     const nc={...cfg,crm_atividades:lista}; await save(nc); setAtividades(lista); setCfg(nc)
     setShowFormAtiv(false); setFormAtiv({...EMPTY_ATIV}); setSaving(false); showToast('✅ Atividade salva!')
@@ -209,6 +279,19 @@ export default function CRM() {
     await save(nc); setAtividades(lista); setCfg(nc); showToast('🗑 Removida!')
   }
 
+  // ── Google Agenda ─────────────────────────────────
+  async function handleSyncGCal() {
+    if(!formAtiv.prazo){ alert('Defina a data/hora antes de sincronizar.'); return }
+    setGcalLoading(true); setGcalStatus('')
+    try {
+      const result = await syncGCal(formAtiv, negSel, cfg, perfil?.user_id||empresaId, setGcalStatus)
+      setFormAtiv(f=>({...f, google_event_id: result.google_event_id, google_link: result.google_link }))
+    } catch(err) {
+      setGcalStatus(`❌ ${err.message}`)
+    }
+    setGcalLoading(false)
+  }
+
   // ── Clientes ──────────────────────────────────────
   async function salvarCliente() {
     const data = { ...formCli }
@@ -216,18 +299,12 @@ export default function CRM() {
     setSaving(true)
     const now = new Date().toLocaleDateString('pt-BR')
     if(!data.id) {
-      // checar duplicata
-      if(data.doc && clientes.find(c=>c.doc===data.doc.replace(/\D/g,''))) {
-        alert('Já existe um cliente com este CNPJ/CPF.'); setSaving(false); return
-      }
-      data.id = 'cli_'+Date.now()
-      data.doc = data.doc.replace(/\D/g,'')
-      data.updatedAt = now
+      if(data.doc && clientes.find(c=>c.doc===data.doc.replace(/\D/g,''))) { alert('Já existe um cliente com este CNPJ/CPF.'); setSaving(false); return }
+      data.id = 'cli_'+Date.now(); data.doc = data.doc.replace(/\D/g,''); data.updatedAt = now
       const lista = [...clientes, data]
       const nc = {...cfg, clients: lista}; await save(nc); setClientes(lista); setCfg(nc)
     } else {
-      data.doc = data.doc.replace(/\D/g,'')
-      data.updatedAt = now
+      data.doc = data.doc.replace(/\D/g,''); data.updatedAt = now
       const lista = clientes.map(c=>c.id===data.id?data:c)
       const nc = {...cfg, clients: lista}; await save(nc); setClientes(lista); setCfg(nc)
     }
@@ -253,29 +330,14 @@ export default function CRM() {
     const cnpj = formCli.doc.replace(/\D/g,'')
     if(cnpj.length!==14){ setCnpjMsg('⚠️ CNPJ inválido.'); return }
     setBuscandoCNPJCli(true); setCnpjMsg('⏳ Consultando Receita Federal...')
-    // verificar base local primeiro
     const local = clientes.find(c=>c.doc===cnpj)
-    if(local) {
-      setFormCli(f=>({...f,...local}))
-      setCnpjMsg('✅ Dados encontrados na base local!')
-      setBuscandoCNPJCli(false); return
-    }
+    if(local) { setFormCli(f=>({...f,...local})); setCnpjMsg('✅ Dados encontrados na base local!'); setBuscandoCNPJCli(false); return }
     const d = await fetchCNPJDados(cnpj)
     if(d) {
-      setFormCli(f=>({
-        ...f,
-        razao: f.razao||d.razao, fantasia: f.fantasia||d.fantasia,
-        email: f.email||d.email, tel: f.tel||d.tel,
-        cep: f.cep||d.cep, end: f.end||d.end, numero: f.numero||d.numero,
-        complemento: f.complemento||d.complemento, bairro: f.bairro||d.bairro,
-        cidade: f.cidade||d.cidade, uf: f.uf||d.uf,
-      }))
+      setFormCli(f=>({...f, razao:f.razao||d.razao, fantasia:f.fantasia||d.fantasia, email:f.email||d.email, tel:f.tel||d.tel, cep:f.cep||d.cep, end:f.end||d.end, numero:f.numero||d.numero, complemento:f.complemento||d.complemento, bairro:f.bairro||d.bairro, cidade:f.cidade||d.cidade, uf:f.uf||d.uf }))
       setCnpjMsg('✅ Dados da Receita Federal carregados!')
-      // se veio CEP, busca endereço completo caso end esteja vazio
       if(d.cep && !d.end) { const ce = await fetchCEPDados(d.cep); if(ce) setFormCli(f=>({...f,...ce})) }
-    } else {
-      setCnpjMsg('❌ CNPJ não localizado na Receita Federal.')
-    }
+    } else { setCnpjMsg('❌ CNPJ não localizado na Receita Federal.') }
     setBuscandoCNPJCli(false)
   }
 
@@ -300,7 +362,6 @@ export default function CRM() {
     const oe=filtroEtapa==='todas'||n.etapa===filtroEtapa
     return ob&&oe
   })
-
   const ativFiltradas = atividades.filter(a=>{
     if(filtroAtiv==='hoje')      return isHoje(a)
     if(filtroAtiv==='atrasada')  return isAtrasada(a)
@@ -308,20 +369,16 @@ export default function CRM() {
     if(filtroAtiv==='concluida') return a.concluida
     return true
   })
-
   const cliFiltrados = clientes.filter(c => {
     if(!buscaCli.trim()) return true
     const q = buscaCli.toLowerCase()
-    return (c.fantasia||'').toLowerCase().includes(q) || (c.razao||'').toLowerCase().includes(q) ||
-           (c.doc||'').includes(q) || (c.email||'').toLowerCase().includes(q) ||
-           (c.cidade||'').toLowerCase().includes(q)
+    return (c.fantasia||'').toLowerCase().includes(q)||(c.razao||'').toLowerCase().includes(q)||(c.doc||'').includes(q)||(c.email||'').toLowerCase().includes(q)||(c.cidade||'').toLowerCase().includes(q)
   })
-
   const atrasadas  = atividades.filter(isAtrasada).length
   const parHoje    = atividades.filter(isHoje).length
   const parFutura  = atividades.filter(isFutura).length
   const ativsDeNeg = id => atividades.filter(a=>a.negocioId===id).sort((a,b)=>new Date(b.criadoEm)-new Date(a.criadoEm))
-  const logoSrc    = cfg.logob64?(cfg.logob64.startsWith('data:')?cfg.logob64:`data:image/png;base64,${cfg.logob64}`):null
+  const docsDeNeg  = id => documentos.filter(d=>d.negocioId===id).sort((a,b)=>new Date(b.criadoEm)-new Date(a.criadoEm))
 
   if(loading) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#0a0f1e',color:'#64748b',fontFamily:'DM Mono,monospace'}}>Carregando CRM...</div>
 
@@ -345,9 +402,25 @@ export default function CRM() {
         .cli-row{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:border-color .2s}
         .cli-row:hover{border-color:rgba(0,212,255,.3)}
         input:focus,textarea:focus,select:focus{border-color:var(--accent)!important;outline:none}
+        audio{accent-color:#00d4ff}
       `}</style>
 
-      {toast&&<div style={{position:'fixed',bottom:28,left:'50%',transform:'translateX(-50%)',background:'rgba(16,185,129,.92)',color:'#fff',padding:'11px 22px',borderRadius:10,fontFamily:'DM Mono',fontSize:14,zIndex:9999}}>{toast}</div>}
+      {toast&&<div style={{position:'fixed',bottom:28,left:'50%',transform:'translateX(-50%)',background:'rgba(16,185,129,.92)',color:'#fff',padding:'11px 22px',borderRadius:10,fontFamily:'DM Mono',fontSize:14,zIndex:9999,whiteSpace:'nowrap'}}>{toast}</div>}
+
+      {/* ── Viewer de documento ── */}
+      {docViewer&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.88)',zIndex:3000,overflow:'auto',padding:24}}>
+          <div style={{maxWidth:860,margin:'0 auto'}}>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginBottom:12}}>
+              <button onClick={()=>{const w=window.open('','_blank');w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="margin:0;padding:20px;background:#f0f4f8">${docViewer.html}</body></html>`);w.document.close()}}
+                style={{padding:'8px 14px',borderRadius:8,background:'rgba(124,58,237,.15)',border:'1px solid rgba(124,58,237,.35)',color:'#7c3aed',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🖨 Imprimir</button>
+              <button onClick={()=>setDocViewer(null)}
+                style={{padding:'8px 16px',borderRadius:8,background:'#1e2d4a',border:'1px solid #334155',color:'#e2e8f0',cursor:'pointer',fontSize:13,fontFamily:'DM Mono,monospace'}}>✕ Fechar</button>
+            </div>
+            <div style={{background:'#fff',borderRadius:12,padding:32,boxShadow:'0 8px 40px rgba(0,0,0,.3)'}} dangerouslySetInnerHTML={{__html:docViewer.html}}/>
+          </div>
+        </div>
+      )}
 
       <Navbar cfg={cfg} perfil={perfil} />
 
@@ -355,11 +428,7 @@ export default function CRM() {
 
         {/* ── Barra de visão ── */}
         <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap',alignItems:'center'}}>
-          {[
-            ['funil','🗂️ Funil de Vendas'],
-            ['atividades','📅 Atividades'],
-            ['clientes','👥 Clientes'],
-          ].map(([v,l])=>(
+          {[['funil','🗂️ Funil de Vendas'],['atividades','📅 Atividades'],['clientes','👥 Clientes']].map(([v,l])=>(
             <button key={v} onClick={()=>{setVisao(v);setNegSel(null);setCliSel(null)}}
               style={{padding:'9px 16px',borderRadius:9,border:`1.5px solid ${visao===v&&!negSel?'var(--accent)':'var(--border)'}`,background:visao===v&&!negSel?'rgba(0,212,255,.12)':'var(--surface2)',color:visao===v&&!negSel?'var(--accent)':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:visao===v&&!negSel?700:400}}>
               {l}
@@ -371,17 +440,13 @@ export default function CRM() {
               <>
                 <input value={buscaCli} onChange={e=>setBuscaCli(e.target.value)} placeholder="🔍 Buscar cliente..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:200}}/>
                 <button onClick={()=>{setFormCli({...EMPTY_CLI,id:''});setCnpjMsg('');setShowFormCli(true)}}
-                  style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
-                  + Novo Cliente
-                </button>
+                  style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>+ Novo Cliente</button>
               </>
             ) : (
               <>
                 <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:180}}/>
                 <button onClick={()=>{setFormNeg({...EMPTY_NEG});setShowFormNeg(true)}}
-                  style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
-                  + Novo Negócio
-                </button>
+                  style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>+ Novo Negócio</button>
               </>
             )}
           </div>
@@ -390,13 +455,13 @@ export default function CRM() {
         {/* ── KPIs globais ── */}
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:10,marginBottom:20}}>
           {[
-            {l:'Total Negócios',  v:negocios.length,                                                               c:'var(--accent)'},
-            {l:'Propostas',       v:negocios.filter(n=>n.etapa==='proposta_enviada').length,                        c:'var(--accent2)'},
-            {l:'Fechamentos',     v:negocios.filter(n=>n.etapa==='fechamento').length,                              c:'var(--accent3)'},
-            {l:'⚠️ Atrasadas',   v:atrasadas,                                                                      c:'var(--danger)'},
-            {l:'📅 Hoje',         v:parHoje,                                                                       c:'var(--warning)'},
-            {l:'🔜 Futuras',      v:parFutura,                                                                     c:'var(--accent)'},
-            {l:'Adesão Total',    v:fmt(negocios.filter(n=>n.etapa==='fechamento').reduce((a,n)=>a+(Number(n.adesao)||0),0)), c:'var(--gold)'},
+            {l:'Total Negócios',v:negocios.length,c:'var(--accent)'},
+            {l:'Propostas',v:negocios.filter(n=>n.etapa==='proposta_enviada').length,c:'var(--accent2)'},
+            {l:'Fechamentos',v:negocios.filter(n=>n.etapa==='fechamento').length,c:'var(--accent3)'},
+            {l:'⚠️ Atrasadas',v:atrasadas,c:'var(--danger)'},
+            {l:'📅 Hoje',v:parHoje,c:'var(--warning)'},
+            {l:'🔜 Futuras',v:parFutura,c:'var(--accent)'},
+            {l:'Adesão Total',v:fmt(negocios.filter(n=>n.etapa==='fechamento').reduce((a,n)=>a+(Number(n.adesao)||0),0)),c:'var(--gold)'},
           ].map(k=>(
             <div key={k.l} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
               <div style={{fontSize:9,color:'var(--muted)',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>{k.l}</div>
@@ -410,13 +475,14 @@ export default function CRM() {
           <div>
             <button onClick={()=>{setNegSel(null);setVisao('funil')}} style={{...S.nb,marginBottom:16}}>← Voltar ao Funil</button>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+
+              {/* Dados do cliente */}
               <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 22px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
                   <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)'}}>🏢 Dados do Cliente</div>
                   <div style={{display:'flex',gap:6}}>
-                    {negSel.telefone && (
+                    {negSel.telefone&&(
                       <button onClick={()=>click2call(negSel.telefone,cfg3cx)}
-                        title={`Ligar: ${negSel.telefone}`}
                         style={{padding:'5px 12px',borderRadius:8,background:'rgba(16,185,129,.12)',border:'1px solid rgba(16,185,129,.3)',color:'var(--accent3)',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace',fontWeight:600}}>
                         📞 Ligar
                       </button>
@@ -444,43 +510,96 @@ export default function CRM() {
                 {negSel.observacoes&&<div style={{marginTop:12,padding:'10px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:12,color:'var(--muted)',lineHeight:1.6}}>{negSel.observacoes}</div>}
               </div>
 
+              {/* Timeline + Documentos */}
               <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,padding:'20px 22px'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-                  <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)'}}>📋 Timeline de Atividades</div>
-                  <button onClick={()=>{setFormAtiv({...EMPTY_ATIV,negocioId:negSel.id});setShowFormAtiv(true)}}
-                    style={{padding:'7px 14px',borderRadius:8,background:'rgba(0,212,255,.12)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',fontWeight:600}}>
-                    + Atividade
-                  </button>
+                {/* Abas */}
+                <div style={{display:'flex',gap:0,marginBottom:14,borderBottom:'1px solid var(--border)'}}>
+                  {[['atividades','📋 Atividades'],['documentos','📄 Documentos']].map(([id,label])=>(
+                    <button key={id} onClick={()=>setAbaDetalhe(id)}
+                      style={{padding:'8px 16px',border:'none',background:'none',color:abaDetalhe===id?'var(--accent)':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:abaDetalhe===id?700:400,borderBottom:abaDetalhe===id?'2px solid var(--accent)':'2px solid transparent',marginBottom:-1}}>
+                      {label} {id==='documentos'?`(${docsDeNeg(negSel.id).length})`:`(${ativsDeNeg(negSel.id).length})`}
+                    </button>
+                  ))}
+                  {abaDetalhe==='atividades'&&(
+                    <button onClick={()=>{setFormAtiv({...EMPTY_ATIV,negocioId:negSel.id});setGcalStatus('');setShowFormAtiv(true)}}
+                      style={{marginLeft:'auto',padding:'7px 14px',borderRadius:8,background:'rgba(0,212,255,.12)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',fontWeight:600}}>
+                      + Atividade
+                    </button>
+                  )}
                 </div>
-                {ativsDeNeg(negSel.id).length===0
-                  ?<div style={{textAlign:'center',padding:'30px 0',color:'var(--muted)',fontSize:13}}>Nenhuma atividade registrada.</div>
-                  :<div style={{maxHeight:440,overflowY:'auto',paddingRight:4}}>
-                    {ativsDeNeg(negSel.id).map((a,i,arr)=>{
-                      const atr=isAtrasada(a),ehH=isHoje(a)
-                      return(
-                        <div key={a.id} className="tl-item">
-                          {i<arr.length-1&&<div className="tl-line"/>}
-                          <div className="tl-dot" style={{background:a.concluida?'var(--accent3)':atr?'var(--danger)':ehH?'var(--warning)':'var(--accent)'}}/>
-                          <div style={{flex:1}}>
-                            <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
-                              <span style={{fontSize:11,padding:'1px 7px',borderRadius:4,background:'rgba(0,212,255,.1)',color:'var(--accent)'}}>{a.tipo}</span>
-                              {a.concluida&&<span style={{fontSize:10,color:'var(--accent3)'}}>✅ Concluída</span>}
-                              {atr&&!a.concluida&&<span style={{fontSize:10,color:'var(--danger)',fontWeight:700}}>⚠️ Atrasada</span>}
-                              {ehH&&!a.concluida&&<span style={{fontSize:10,color:'var(--warning)',fontWeight:700}}>📅 Hoje</span>}
-                            </div>
-                            <div style={{fontSize:13,color:a.concluida?'var(--muted)':'var(--text)',marginTop:4,fontWeight:500,textDecoration:a.concluida?'line-through':'none'}}>{a.descricao}</div>
-                            <div style={{display:'flex',gap:8,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
-                              {a.prazo&&<span style={{fontSize:10,color:'var(--muted)'}}>{fmtDT(a.prazo)}</span>}
-                              <button onClick={()=>toggleConcluida(a)} style={{fontSize:10,background:a.concluida?'rgba(16,185,129,.1)':'rgba(0,212,255,.08)',border:`1px solid ${a.concluida?'rgba(16,185,129,.3)':'rgba(0,212,255,.2)'}`,color:a.concluida?'var(--accent3)':'var(--accent)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>{a.concluida?'↩ Reabrir':'✅ Concluir'}</button>
-                              <button onClick={()=>{setFormAtiv({...a});setShowFormAtiv(true)}} style={{fontSize:10,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️</button>
-                              <button onClick={()=>excluirAtiv(a.id)} style={{fontSize:10,background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
+
+                {/* Aba Atividades */}
+                {abaDetalhe==='atividades'&&(
+                  ativsDeNeg(negSel.id).length===0
+                    ?<div style={{textAlign:'center',padding:'30px 0',color:'var(--muted)',fontSize:13}}>Nenhuma atividade registrada.</div>
+                    :<div style={{maxHeight:480,overflowY:'auto',paddingRight:4}}>
+                      {ativsDeNeg(negSel.id).map((a,i,arr)=>{
+                        const atr=isAtrasada(a),ehH=isHoje(a)
+                        const playerOn = playerAberto[a.id]
+                        return(
+                          <div key={a.id} className="tl-item">
+                            {i<arr.length-1&&<div className="tl-line"/>}
+                            <div className="tl-dot" style={{background:a.concluida?'var(--accent3)':atr?'var(--danger)':ehH?'var(--warning)':'var(--accent)'}}/>
+                            <div style={{flex:1}}>
+                              <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                                <span style={{fontSize:11,padding:'1px 7px',borderRadius:4,background:'rgba(0,212,255,.1)',color:'var(--accent)'}}>{a.tipo}</span>
+                                {a.concluida&&<span style={{fontSize:10,color:'var(--accent3)'}}>✅ Concluída</span>}
+                                {atr&&!a.concluida&&<span style={{fontSize:10,color:'var(--danger)',fontWeight:700}}>⚠️ Atrasada</span>}
+                                {ehH&&!a.concluida&&<span style={{fontSize:10,color:'var(--warning)',fontWeight:700}}>📅 Hoje</span>}
+                                {a.google_link&&<a href={a.google_link} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:'#4285f4',textDecoration:'none'}}>📅 Google Agenda</a>}
+                              </div>
+                              <div style={{fontSize:13,color:a.concluida?'var(--muted)':'var(--text)',marginTop:4,fontWeight:500,textDecoration:a.concluida?'line-through':'none'}}>{a.descricao}</div>
+                              {/* Duração ligação 3CX */}
+                              {a.duracao_seg>0&&<div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>⏱ {Math.floor(a.duracao_seg/60)}min {a.duracao_seg%60}s{a.agente_nome?` · ${a.agente_nome}`:''}</div>}
+                              <div style={{display:'flex',gap:8,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
+                                {a.prazo&&<span style={{fontSize:10,color:'var(--muted)'}}>{fmtDT(a.prazo)}</span>}
+                                <button onClick={()=>toggleConcluida(a)} style={{fontSize:10,background:a.concluida?'rgba(16,185,129,.1)':'rgba(0,212,255,.08)',border:`1px solid ${a.concluida?'rgba(16,185,129,.3)':'rgba(0,212,255,.2)'}`,color:a.concluida?'var(--accent3)':'var(--accent)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>{a.concluida?'↩ Reabrir':'✅ Concluir'}</button>
+                                <button onClick={()=>{setFormAtiv({...a});setGcalStatus(a.google_link?'✅ Já sincronizado':'');setShowFormAtiv(true)}} style={{fontSize:10,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️</button>
+                                <button onClick={()=>excluirAtiv(a.id)} style={{fontSize:10,background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
+                              </div>
+                              {/* Player de gravação 3CX */}
+                              {a.gravacao_url&&(
+                                <div style={{marginTop:8,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px'}}>
+                                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:playerOn?8:0}}>
+                                    <span style={{fontSize:11,color:'var(--muted)'}}>🎙 Gravação</span>
+                                    <button onClick={()=>setPlayerAberto(p=>({...p,[a.id]:!p[a.id]}))} style={{fontSize:10,color:'var(--accent)',background:'none',border:'none',cursor:'pointer',padding:0}}>{playerOn?'▲ Ocultar':'▼ Ouvir'}</button>
+                                    <a href={a.gravacao_url} download style={{fontSize:10,color:'var(--muted)',textDecoration:'none',marginLeft:'auto'}}>⬇ Baixar</a>
+                                  </div>
+                                  {playerOn&&<audio controls src={a.gravacao_url} style={{width:'100%',height:32,borderRadius:4}}/>}
+                                </div>
+                              )}
                             </div>
                           </div>
+                        )
+                      })}
+                    </div>
+                )}
+
+                {/* Aba Documentos */}
+                {abaDetalhe==='documentos'&&(
+                  docsDeNeg(negSel.id).length===0
+                    ?<div style={{textAlign:'center',padding:'30px 0',color:'var(--muted)',fontSize:13}}>
+                        📄 Nenhum documento gerado ainda.<br/>
+                        <span style={{fontSize:11}}>Gere uma proposta ou contrato no Chat.</span>
+                      </div>
+                    :<div style={{maxHeight:480,overflowY:'auto',paddingRight:4}}>
+                      {docsDeNeg(negSel.id).map(doc=>(
+                        <div key={doc.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
+                          <span style={{fontSize:20}}>{doc.tipo==='proposta'?'📋':'📄'}</span>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:13,color:'var(--text)',fontWeight:600}}>{doc.tipo==='proposta'?'Proposta':'Contrato'}{doc.clienteNome?` — ${doc.clienteNome}`:''}</div>
+                            <div style={{fontSize:11,color:'var(--muted)',marginTop:2}}>
+                              {doc.criadoEm?new Date(doc.criadoEm).toLocaleString('pt-BR'):''}
+                              {doc.criadoPor?` · ${doc.criadoPor}`:''}
+                            </div>
+                          </div>
+                          <div style={{display:'flex',gap:6}}>
+                            {doc.html&&<button onClick={()=>setDocViewer(doc)} style={{padding:'5px 10px',borderRadius:7,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>👁 Ver</button>}
+                          </div>
                         </div>
-                      )
-                    })}
-                  </div>
-                }
+                      ))}
+                    </div>
+                )}
               </div>
             </div>
           </div>
@@ -490,7 +609,7 @@ export default function CRM() {
         {!negSel&&visao==='funil'&&(
           <div>
             <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
-              {[['todas','Todas'],  ...etapas.map(e=>[e.id,e.label])].map(([id,label])=>(
+              {[['todas','Todas'],...etapas.map(e=>[e.id,e.label])].map(([id,label])=>(
                 <button key={id} onClick={()=>setFiltroEtapa(id)}
                   style={{padding:'5px 12px',borderRadius:20,border:`1px solid ${filtroEtapa===id?'var(--accent)':'var(--border)'}`,background:filtroEtapa===id?'rgba(0,212,255,.1)':'var(--surface2)',color:filtroEtapa===id?'var(--accent)':'var(--muted)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace',whiteSpace:'nowrap'}}>
                   {label} {id!=='todas'?`(${negocios.filter(n=>n.etapa===id).length})`:``}
@@ -501,8 +620,7 @@ export default function CRM() {
               {etapas.filter(e=>filtroEtapa==='todas'||e.id===filtroEtapa).map(etapa=>{
                 const cols=negFiltrados.filter(n=>n.etapa===etapa.id)
                 return(
-                  <div key={etapa.id} className="kb-col"
-                    onDragOver={e=>onDragOver(e,etapa.id)} onDrop={e=>onDrop(e,etapa.id)}>
+                  <div key={etapa.id} className="kb-col" onDragOver={e=>onDragOver(e,etapa.id)} onDrop={e=>onDrop(e,etapa.id)}>
                     <div style={{marginBottom:10}}>
                       <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
                         <div style={{width:8,height:8,borderRadius:'50%',background:etapa.cor,flexShrink:0}}/>
@@ -513,47 +631,32 @@ export default function CRM() {
                     </div>
                     <div className={dragOver===etapa.id?'drop-ok':''} style={{minHeight:60,borderRadius:8,padding:dragOver===etapa.id?'4px':0,transition:'all .2s'}}>
                       {cols.map(neg=>{
-                        const etapaInfo = etapas.find(e=>e.id===neg.etapa) || etapas[0]
-                        return (
-                        <div key={neg.id} className="neg-card"
-                          style={{ borderLeft: `3px solid ${etapaInfo.cor}` }}
-                          draggable onDragStart={e=>onDragStart(e,neg)} onDragEnd={onDragEnd}
-                          onClick={()=>{setNegSel(neg);setVisao('detalhe')}}>
-                          {/* Badge etapa colorida */}
-                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                            <span style={{ fontSize:9, fontWeight:700, padding:'2px 7px', borderRadius:10, background:`${etapaInfo.cor}22`, color:etapaInfo.cor, border:`1px solid ${etapaInfo.cor}44`, letterSpacing:.5, textTransform:'uppercase' }}>
-                              {etapaInfo.label}
-                            </span>
-                            {neg.adesao && <span style={{ fontSize:11, color:'var(--gold)', fontWeight:700 }}>{fmt(neg.adesao)}</span>}
+                        const etapaInfo=etapas.find(e=>e.id===neg.etapa)||etapas[0]
+                        return(
+                          <div key={neg.id} className="neg-card" style={{borderLeft:`3px solid ${etapaInfo.cor}`}}
+                            draggable onDragStart={e=>onDragStart(e,neg)} onDragEnd={onDragEnd}
+                            onClick={()=>{setNegSel(neg);setVisao('detalhe');setAbaDetalhe('atividades')}}>
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                              <span style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:10,background:`${etapaInfo.cor}22`,color:etapaInfo.cor,border:`1px solid ${etapaInfo.cor}44`,letterSpacing:.5,textTransform:'uppercase'}}>{etapaInfo.label}</span>
+                              {neg.adesao&&<span style={{fontSize:11,color:'var(--gold)',fontWeight:700}}>{fmt(neg.adesao)}</span>}
+                            </div>
+                            <div style={{fontSize:13,fontWeight:600,color:'var(--text)',marginBottom:3}}>{neg.titulo}</div>
+                            {neg.nome&&<div style={{fontSize:11,color:'var(--muted)',marginBottom:3}}>{neg.nome}</div>}
+                            {neg.cnpj&&<div style={{fontSize:10,color:'var(--muted)',marginBottom:3}}>{fmtDoc(neg.cnpj)}</div>}
+                            {neg.email&&<div style={{fontSize:10,color:'var(--muted)',marginBottom:3}}>{neg.email}</div>}
+                            <div style={{display:'flex',gap:5,marginTop:8}}>
+                              <button onClick={e=>{e.stopPropagation();setFormNeg({...neg});setShowFormNeg(true)}}
+                                style={{flex:1,padding:'4px 0',borderRadius:6,background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.15)',color:'var(--accent)',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️ Ver</button>
+                              {neg.telefone&&<button onClick={e=>{e.stopPropagation();click2call(neg.telefone,cfg3cx)}}
+                                style={{padding:'4px 8px',borderRadius:6,background:'rgba(16,185,129,.12)',border:'1px solid rgba(16,185,129,.3)',color:'var(--accent3)',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>📞</button>}
+                              <button onClick={e=>{e.stopPropagation();excluirNeg(neg.id)}}
+                                style={{padding:'4px 8px',borderRadius:6,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.15)',color:'var(--danger)',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
+                            </div>
                           </div>
-                          <div style={{ fontSize:13, fontWeight:600, color:'var(--text)', marginBottom:3 }}>{neg.titulo}</div>
-                          {neg.nome&&<div style={{ fontSize:11, color:'var(--muted)', marginBottom:3 }}>{neg.nome}</div>}
-                          {neg.cnpj&&<div style={{ fontSize:10, color:'var(--muted)', marginBottom:3 }}>{fmtDoc(neg.cnpj)}</div>}
-                          {neg.email&&<div style={{ fontSize:10, color:'var(--muted)', marginBottom:3 }}>{neg.email}</div>}
-                          <div style={{ display:'flex', gap:5, marginTop:8 }}>
-                            <button onClick={e=>{e.stopPropagation();setFormNeg({...neg});setShowFormNeg(true)}}
-                              style={{ flex:1, padding:'4px 0', borderRadius:6, background:'rgba(0,212,255,.08)', border:'1px solid rgba(0,212,255,.15)', color:'var(--accent)', fontSize:10, cursor:'pointer', fontFamily:'DM Mono,monospace' }}>
-                              ✏️ Ver
-                            </button>
-                            {neg.telefone && (
-                              <button onClick={e=>{e.stopPropagation();click2call(neg.telefone,cfg3cx)}}
-                                title={`Ligar: ${neg.telefone}`}
-                                style={{ padding:'4px 8px', borderRadius:6, background:'rgba(16,185,129,.12)', border:'1px solid rgba(16,185,129,.3)', color:'var(--accent3)', fontSize:10, cursor:'pointer', fontFamily:'DM Mono,monospace' }}>
-                                📞
-                              </button>
-                            )}
-                            <button onClick={e=>{e.stopPropagation();excluirNeg(neg.id)}}
-                              style={{ padding:'4px 8px', borderRadius:6, background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.15)', color:'var(--danger)', fontSize:10, cursor:'pointer', fontFamily:'DM Mono,monospace' }}>
-                              🗑
-                            </button>
-                          </div>
-                        </div>
                         )
                       })}
                     </div>
-                    <div style={{marginTop:6,fontSize:10,color:'var(--muted)',textAlign:'center',padding:'8px',border:'1px dashed var(--border)',borderRadius:8,cursor:'default'}}>
-                      Arrastar aqui
-                    </div>
+                    <div style={{marginTop:6,fontSize:10,color:'var(--muted)',textAlign:'center',padding:'8px',border:'1px dashed var(--border)',borderRadius:8,cursor:'default'}}>Arrastar aqui</div>
                   </div>
                 )
               })}
@@ -571,35 +674,49 @@ export default function CRM() {
                   {label}
                 </button>
               ))}
-              <button onClick={()=>{setFormAtiv({...EMPTY_ATIV});setShowFormAtiv(true)}}
-                style={{marginLeft:'auto',padding:'7px 16px',borderRadius:8,background:'rgba(0,212,255,.12)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',fontWeight:600}}>
-                + Nova Atividade
-              </button>
+              <button onClick={()=>{setFormAtiv({...EMPTY_ATIV});setGcalStatus('');setShowFormAtiv(true)}}
+                style={{marginLeft:'auto',padding:'7px 16px',borderRadius:8,background:'rgba(0,212,255,.12)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',fontWeight:600}}>+ Nova Atividade</button>
             </div>
             {ativFiltradas.length===0
               ?<div style={{textAlign:'center',padding:'50px 0',color:'var(--muted)',fontSize:14}}>Nenhuma atividade encontrada.</div>
               :<div>{ativFiltradas.sort((a,b)=>new Date(a.prazo||0)-new Date(b.prazo||0)).map(a=>{
                 const neg=negocios.find(n=>n.id===a.negocioId)
                 const atr=isAtrasada(a),ehH=isHoje(a)
+                const playerOn=playerAberto[a.id]
                 return(
-                  <div key={a.id} style={{background:'var(--surface)',border:`1px solid ${atr?'rgba(239,68,68,.3)':ehH?'rgba(245,158,11,.3)':'var(--border)'}`,borderRadius:12,padding:'14px 16px',marginBottom:10,display:'flex',gap:12,alignItems:'flex-start'}}>
-                    <div style={{width:10,height:10,borderRadius:'50%',background:a.concluida?'var(--accent3)':atr?'var(--danger)':ehH?'var(--warning)':'var(--accent)',flexShrink:0,marginTop:3}}/>
-                    <div style={{flex:1}}>
-                      <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:4}}>
-                        <span style={{fontSize:11,padding:'1px 7px',borderRadius:4,background:'rgba(0,212,255,.1)',color:'var(--accent)'}}>{a.tipo}</span>
-                        {neg&&<span style={{fontSize:11,color:'var(--muted)'}}>↗ {neg.titulo}</span>}
-                        {atr&&!a.concluida&&<span style={{fontSize:10,color:'var(--danger)',fontWeight:700}}>⚠️ Atrasada</span>}
-                        {ehH&&!a.concluida&&<span style={{fontSize:10,color:'var(--warning)',fontWeight:700}}>📅 Hoje</span>}
-                        {a.concluida&&<span style={{fontSize:10,color:'var(--accent3)'}}>✅ Concluída</span>}
+                  <div key={a.id} style={{background:'var(--surface)',border:`1px solid ${atr?'rgba(239,68,68,.3)':ehH?'rgba(245,158,11,.3)':'var(--border)'}`,borderRadius:12,padding:'14px 16px',marginBottom:10,display:'flex',flexDirection:'column',gap:8}}>
+                    <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+                      <div style={{width:10,height:10,borderRadius:'50%',background:a.concluida?'var(--accent3)':atr?'var(--danger)':ehH?'var(--warning)':'var(--accent)',flexShrink:0,marginTop:3}}/>
+                      <div style={{flex:1}}>
+                        <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:4}}>
+                          <span style={{fontSize:11,padding:'1px 7px',borderRadius:4,background:'rgba(0,212,255,.1)',color:'var(--accent)'}}>{a.tipo}</span>
+                          {neg&&<span style={{fontSize:11,color:'var(--muted)'}}>↗ {neg.titulo}</span>}
+                          {atr&&!a.concluida&&<span style={{fontSize:10,color:'var(--danger)',fontWeight:700}}>⚠️ Atrasada</span>}
+                          {ehH&&!a.concluida&&<span style={{fontSize:10,color:'var(--warning)',fontWeight:700}}>📅 Hoje</span>}
+                          {a.concluida&&<span style={{fontSize:10,color:'var(--accent3)'}}>✅ Concluída</span>}
+                          {a.google_link&&<a href={a.google_link} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:'#4285f4',textDecoration:'none'}}>📅 Agenda</a>}
+                        </div>
+                        <div style={{fontSize:13,color:a.concluida?'var(--muted)':'var(--text)',textDecoration:a.concluida?'line-through':'none'}}>{a.descricao}</div>
+                        {a.duracao_seg>0&&<div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>⏱ {Math.floor(a.duracao_seg/60)}min {a.duracao_seg%60}s{a.agente_nome?` · ${a.agente_nome}`:''}</div>}
+                        {a.prazo&&<div style={{fontSize:10,color:'var(--muted)',marginTop:4}}>{fmtDT(a.prazo)}</div>}
                       </div>
-                      <div style={{fontSize:13,color:a.concluida?'var(--muted)':'var(--text)',textDecoration:a.concluida?'line-through':'none'}}>{a.descricao}</div>
-                      {a.prazo&&<div style={{fontSize:10,color:'var(--muted)',marginTop:4}}>{fmtDT(a.prazo)}</div>}
+                      <div style={{display:'flex',gap:6,flexShrink:0}}>
+                        <button onClick={()=>toggleConcluida(a)} style={{fontSize:10,padding:'4px 8px',borderRadius:6,background:a.concluida?'rgba(16,185,129,.1)':'rgba(0,212,255,.08)',border:`1px solid ${a.concluida?'rgba(16,185,129,.3)':'rgba(0,212,255,.2)'}`,color:a.concluida?'var(--accent3)':'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>{a.concluida?'↩':'✅'}</button>
+                        <button onClick={()=>{setFormAtiv({...a});setGcalStatus(a.google_link?'✅ Já sincronizado':'');setShowFormAtiv(true)}} style={{fontSize:10,padding:'4px 8px',borderRadius:6,background:'rgba(0,212,255,.05)',border:'1px solid var(--border)',color:'var(--muted)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️</button>
+                        <button onClick={()=>excluirAtiv(a.id)} style={{fontSize:10,padding:'4px 8px',borderRadius:6,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.15)',color:'var(--danger)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
+                      </div>
                     </div>
-                    <div style={{display:'flex',gap:6,flexShrink:0}}>
-                      <button onClick={()=>toggleConcluida(a)} style={{fontSize:10,padding:'4px 8px',borderRadius:6,background:a.concluida?'rgba(16,185,129,.1)':'rgba(0,212,255,.08)',border:`1px solid ${a.concluida?'rgba(16,185,129,.3)':'rgba(0,212,255,.2)'}`,color:a.concluida?'var(--accent3)':'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>{a.concluida?'↩':'✅'}</button>
-                      <button onClick={()=>{setFormAtiv({...a});setShowFormAtiv(true)}} style={{fontSize:10,padding:'4px 8px',borderRadius:6,background:'rgba(0,212,255,.05)',border:'1px solid var(--border)',color:'var(--muted)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️</button>
-                      <button onClick={()=>excluirAtiv(a.id)} style={{fontSize:10,padding:'4px 8px',borderRadius:6,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.15)',color:'var(--danger)',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
-                    </div>
+                    {/* Player 3CX */}
+                    {a.gravacao_url&&(
+                      <div style={{marginLeft:22,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:playerOn?8:0}}>
+                          <span style={{fontSize:11,color:'var(--muted)'}}>🎙 Gravação</span>
+                          <button onClick={()=>setPlayerAberto(p=>({...p,[a.id]:!p[a.id]}))} style={{fontSize:10,color:'var(--accent)',background:'none',border:'none',cursor:'pointer',padding:0}}>{playerOn?'▲ Ocultar':'▼ Ouvir'}</button>
+                          <a href={a.gravacao_url} download style={{fontSize:10,color:'var(--muted)',textDecoration:'none',marginLeft:'auto'}}>⬇ Baixar</a>
+                        </div>
+                        {playerOn&&<audio controls src={a.gravacao_url} style={{width:'100%',height:32,borderRadius:4}}/>}
+                      </div>
+                    )}
                   </div>
                 )
               })}</div>
@@ -610,7 +727,6 @@ export default function CRM() {
         {/* ══════════ CLIENTES ══════════ */}
         {!negSel&&visao==='clientes'&&(
           <div>
-            {/* Detalhe do cliente selecionado */}
             {cliSel ? (
               <div>
                 <button onClick={()=>setCliSel(null)} style={{...S.nb,marginBottom:16}}>← Voltar à lista</button>
@@ -626,67 +742,33 @@ export default function CRM() {
                     </div>
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:0}}>
-                    {[
-                      ['CNPJ/CPF', fmtDoc(cliSel.doc)],
-                      ['Nome Fantasia', cliSel.fantasia],
-                      ['Razão Social', cliSel.razao],
-                      ['Contato Principal', cliSel.contato],
-                      ['E-mail', cliSel.email],
-                      ['Telefone', cliSel.tel],
-                      ['CEP', fmtCEP(cliSel.cep)],
-                      ['Endereço', [cliSel.end, cliSel.numero, cliSel.complemento].filter(Boolean).join(', ')],
-                      ['Bairro', cliSel.bairro],
-                      ['Cidade/UF', [cliSel.cidade, cliSel.uf].filter(Boolean).join(' – ')],
-                      ['Regime Tributário', cliSel.regime],
-                      ['Atualizado em', cliSel.updatedAt],
-                    ].filter(([,v])=>v).map(([l,v])=>(
+                    {[['CNPJ/CPF',fmtDoc(cliSel.doc)],['Nome Fantasia',cliSel.fantasia],['Razão Social',cliSel.razao],['Contato Principal',cliSel.contato],['E-mail',cliSel.email],['Telefone',cliSel.tel],['CEP',fmtCEP(cliSel.cep)],['Endereço',[cliSel.end,cliSel.numero,cliSel.complemento].filter(Boolean).join(', ')],['Bairro',cliSel.bairro],['Cidade/UF',[cliSel.cidade,cliSel.uf].filter(Boolean).join(' – ')],['Regime Tributário',cliSel.regime],['Atualizado em',cliSel.updatedAt]].filter(([,v])=>v).map(([l,v])=>(
                       <div key={l} style={{display:'flex',gap:8,padding:'9px 0',borderBottom:'1px solid var(--border)',fontSize:13}}>
                         <span style={{color:'var(--muted)',minWidth:140,flexShrink:0}}>{l}</span>
                         <span style={{color:'var(--text)',fontWeight:500}}>{v}</span>
                       </div>
                     ))}
                   </div>
-                  {/* Responsáveis */}
                   {(cliSel.rimpNome||cliSel.rfinNome)&&(
                     <div style={{marginTop:16,display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                      {cliSel.rimpNome&&(
-                        <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
-                          <div style={{fontSize:10,color:'var(--accent)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:8}}>Resp. Implantação</div>
-                          <div style={{fontSize:13,color:'var(--text)',fontWeight:600}}>{cliSel.rimpNome}</div>
-                          {cliSel.rimpEmail&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rimpEmail}</div>}
-                          {cliSel.rimpTel&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rimpTel}</div>}
-                        </div>
-                      )}
-                      {cliSel.rfinNome&&(
-                        <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}>
-                          <div style={{fontSize:10,color:'var(--gold)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:8}}>Resp. Financeiro</div>
-                          <div style={{fontSize:13,color:'var(--text)',fontWeight:600}}>{cliSel.rfinNome}</div>
-                          {cliSel.rfinEmail&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rfinEmail}</div>}
-                          {cliSel.rfinTel&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rfinTel}</div>}
-                        </div>
-                      )}
+                      {cliSel.rimpNome&&<div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}><div style={{fontSize:10,color:'var(--accent)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:8}}>Resp. Implantação</div><div style={{fontSize:13,color:'var(--text)',fontWeight:600}}>{cliSel.rimpNome}</div>{cliSel.rimpEmail&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rimpEmail}</div>}{cliSel.rimpTel&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rimpTel}</div>}</div>}
+                      {cliSel.rfinNome&&<div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px'}}><div style={{fontSize:10,color:'var(--gold)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:8}}>Resp. Financeiro</div><div style={{fontSize:13,color:'var(--text)',fontWeight:600}}>{cliSel.rfinNome}</div>{cliSel.rfinEmail&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rfinEmail}</div>}{cliSel.rfinTel&&<div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{cliSel.rfinTel}</div>}</div>}
                     </div>
                   )}
                 </div>
               </div>
             ) : (
-              /* Lista de clientes */
               <div>
                 {cliFiltrados.length===0
                   ?<div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)',fontSize:14}}>
-                    {clientes.length===0?'Nenhum cliente cadastrado.':'Nenhum cliente encontrado para a busca.'}
-                    <br/><br/>
-                    <button onClick={()=>{setFormCli({...EMPTY_CLI,id:''});setCnpjMsg('');setShowFormCli(true)}} style={{padding:'10px 20px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>
-                      + Cadastrar primeiro cliente
-                    </button>
+                    {clientes.length===0?'Nenhum cliente cadastrado.':'Nenhum cliente encontrado para a busca.'}<br/><br/>
+                    <button onClick={()=>{setFormCli({...EMPTY_CLI,id:''});setCnpjMsg('');setShowFormCli(true)}} style={{padding:'10px 20px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>+ Cadastrar primeiro cliente</button>
                   </div>
                   :<div>
                     <div style={{fontSize:12,color:'var(--muted)',marginBottom:12}}>{cliFiltrados.length} cliente{cliFiltrados.length!==1?'s':''} encontrado{cliFiltrados.length!==1?'s':''}</div>
                     {cliFiltrados.map(cl=>(
                       <div key={cl.id} className="cli-row" style={{cursor:'pointer'}} onClick={()=>setCliSel(cl)}>
-                        <div style={{width:40,height:40,borderRadius:'50%',background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>
-                          {(cl.fantasia||cl.razao||'?').slice(0,1).toUpperCase()}
-                        </div>
+                        <div style={{width:40,height:40,borderRadius:'50%',background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{(cl.fantasia||cl.razao||'?').slice(0,1).toUpperCase()}</div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:13,fontWeight:600,color:'var(--text)'}}>{cl.fantasia||cl.razao||'—'}</div>
                           {cl.razao&&cl.fantasia&&<div style={{fontSize:11,color:'var(--muted)'}}>{cl.razao}</div>}
@@ -697,10 +779,8 @@ export default function CRM() {
                           </div>
                         </div>
                         <div style={{display:'flex',gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
-                          <button onClick={()=>{setFormCli({...cl});setCnpjMsg('');setShowFormCli(true)}}
-                            style={{padding:'5px 10px',borderRadius:7,background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.2)',color:'var(--accent)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️</button>
-                          <button onClick={()=>excluirCliente(cl.id)}
-                            style={{padding:'5px 10px',borderRadius:7,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.2)',color:'var(--danger)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
+                          <button onClick={()=>{setFormCli({...cl});setCnpjMsg('');setShowFormCli(true)}} style={{padding:'5px 10px',borderRadius:7,background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.2)',color:'var(--accent)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>✏️</button>
+                          <button onClick={()=>excluirCliente(cl.id)} style={{padding:'5px 10px',borderRadius:7,background:'rgba(239,68,68,.08)',border:'1px solid rgba(239,68,68,.2)',color:'var(--danger)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>🗑</button>
                         </div>
                       </div>
                     ))}
@@ -754,7 +834,7 @@ export default function CRM() {
       {/* ════ MODAL ATIVIDADE ════ */}
       {showFormAtiv&&(
         <div style={S.ov}>
-          <div style={{...S.md,maxWidth:480}}>
+          <div style={{...S.md,maxWidth:500}}>
             <div style={S.mh}><h3 style={S.mt}>{formAtiv.id?'✏️ Editar Atividade':'➕ Nova Atividade'}</h3><button onClick={()=>setShowFormAtiv(false)} style={S.mc}>✕</button></div>
             <div style={S.mb}>
               {!formAtiv.negocioId&&(
@@ -769,8 +849,37 @@ export default function CRM() {
                 <input type="checkbox" checked={formAtiv.concluida} onChange={e=>setFormAtiv(f=>({...f,concluida:e.target.checked}))}/>
                 Marcar como concluída
               </label>
+
+              {/* ── Botão Google Agenda (somente para Reunião) ── */}
+              {formAtiv.tipo==='Reunião'&&(
+                <div style={{marginTop:14,padding:'14px',background:'rgba(66,133,244,.05)',border:'1px solid rgba(66,133,244,.25)',borderRadius:10}}>
+                  <div style={{fontSize:11,color:'rgba(66,133,244,.8)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:10}}>📅 Google Agenda</div>
+                  <button
+                    type="button"
+                    onClick={handleSyncGCal}
+                    disabled={gcalLoading}
+                    style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,width:'100%',padding:'10px 16px',borderRadius:9,border:'1.5px solid rgba(66,133,244,.4)',background:'rgba(66,133,244,.1)',color:'#4285f4',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:gcalLoading?'not-allowed':'pointer',opacity:gcalLoading?.7:1,transition:'all .2s'}}>
+                    {gcalLoading?'⏳ Sincronizando...':formAtiv.google_event_id?'🔄 Atualizar no Google Agenda':'📅 Sincronizar com Google Agenda'}
+                  </button>
+                  {gcalStatus&&(
+                    <div style={{marginTop:8,fontSize:12,textAlign:'center',color:gcalStatus.startsWith('✅')?'var(--accent3)':gcalStatus.startsWith('❌')?'var(--danger)':'var(--muted)'}}>
+                      {gcalStatus}
+                    </div>
+                  )}
+                  {formAtiv.google_link&&(
+                    <a href={formAtiv.google_link} target="_blank" rel="noopener noreferrer"
+                      style={{display:'block',textAlign:'center',marginTop:6,fontSize:12,color:'#4285f4',textDecoration:'none'}}>
+                      🔗 Abrir no Google Agenda
+                    </a>
+                  )}
+                </div>
+              )}
+
             </div>
-            <div style={S.mf}><button onClick={()=>setShowFormAtiv(false)} style={S.bc}>Cancelar</button><button onClick={salvarAtiv} disabled={saving} style={S.bp}>{saving?'⏳...':'✅ Salvar'}</button></div>
+            <div style={S.mf}>
+              <button onClick={()=>setShowFormAtiv(false)} style={S.bc}>Cancelar</button>
+              <button onClick={salvarAtiv} disabled={saving} style={S.bp}>{saving?'⏳...':'✅ Salvar'}</button>
+            </div>
           </div>
         </div>
       )}
@@ -784,8 +893,6 @@ export default function CRM() {
               <button onClick={()=>setShowFormCli(false)} style={S.mc}>✕</button>
             </div>
             <div style={S.mb}>
-
-              {/* Bloco CNPJ lookup */}
               <div style={{background:'var(--surface2)',border:'1px solid rgba(0,212,255,.2)',borderRadius:10,padding:14,marginBottom:16}}>
                 <div style={{fontSize:10,color:'var(--accent)',marginBottom:8,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>🔍 Buscar CNPJ — preenchimento automático</div>
                 <div style={{display:'flex',gap:8}}>
@@ -796,8 +903,6 @@ export default function CRM() {
                 </div>
                 {cnpjMsg&&<div style={{marginTop:8,fontSize:12,color:cnpjMsg.startsWith('✅')?'var(--accent3)':cnpjMsg.startsWith('❌')?'var(--danger)':'var(--muted)'}}>{cnpjMsg}</div>}
               </div>
-
-              {/* Dados principais */}
               <div style={{fontSize:11,color:'var(--accent)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:10,paddingBottom:6,borderBottom:'1px solid var(--border)'}}>Dados da Empresa</div>
               <div style={S.g2}>
                 <F l="Nome Fantasia"><input value={formCli.fantasia} onChange={e=>setFormCli(f=>({...f,fantasia:e.target.value}))} style={S.ip}/></F>
@@ -809,21 +914,14 @@ export default function CRM() {
                 <F l="Regime Tributário">
                   <select value={formCli.regime} onChange={e=>setFormCli(f=>({...f,regime:e.target.value}))} style={{...S.ip,cursor:'pointer'}}>
                     <option value="">— Selecionar —</option>
-                    <option>Simples Nacional</option>
-                    <option>Lucro Presumido</option>
-                    <option>Lucro Real</option>
-                    <option>MEI</option>
+                    <option>Simples Nacional</option><option>Lucro Presumido</option><option>Lucro Real</option><option>MEI</option>
                   </select>
                 </F>
               </div>
-
-              {/* Endereço */}
               <div style={{fontSize:11,color:'var(--accent)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',margin:'14px 0 10px',paddingBottom:6,borderBottom:'1px solid var(--border)'}}>Endereço</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8,marginBottom:12}}>
                 <F l="CEP"><input value={formCli.cep} onChange={e=>setFormCli(f=>({...f,cep:e.target.value}))} onBlur={buscarCEPCli} placeholder="00000-000" style={S.ip}/></F>
-                <div style={{paddingTop:18}}>
-                  {buscandoCEP&&<span style={{fontSize:11,color:'var(--muted)'}}>🔍</span>}
-                </div>
+                <div style={{paddingTop:18}}>{buscandoCEP&&<span style={{fontSize:11,color:'var(--muted)'}}>🔍</span>}</div>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:12}}>
                 <F l="Logradouro / Rua"><input value={formCli.end} onChange={e=>setFormCli(f=>({...f,end:e.target.value}))} style={S.ip}/></F>
@@ -837,8 +935,6 @@ export default function CRM() {
                   <F l="UF"><input value={formCli.uf} onChange={e=>setFormCli(f=>({...f,uf:e.target.value}))} maxLength={2} style={S.ip}/></F>
                 </div>
               </div>
-
-              {/* Responsáveis */}
               <div style={{fontSize:11,color:'var(--accent)',fontWeight:700,letterSpacing:1,textTransform:'uppercase',margin:'14px 0 10px',paddingBottom:6,borderBottom:'1px solid var(--border)'}}>Responsáveis</div>
               <div style={S.g2}>
                 <div>
@@ -854,7 +950,6 @@ export default function CRM() {
                   <F l="Telefone"><input value={formCli.rfinTel} onChange={e=>setFormCli(f=>({...f,rfinTel:e.target.value}))} style={S.ip}/></F>
                 </div>
               </div>
-
             </div>
             <div style={S.mf}>
               <button onClick={()=>setShowFormCli(false)} style={S.bc}>Cancelar</button>
