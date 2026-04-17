@@ -1,9 +1,17 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v6
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v5
 // ============================================================
-// v6 ADICIONA:
-// • Geração de contrato em qualquer etapa (preço cheio ou com desconto)
-// • Modal de integração com CRM (salvar negócio e cliente)
-// • Botões "Gerar Contrato" disponíveis nas telas de preço
+// v5 ADICIONA ao v4:
+// • Manifesto de assinatura no contrato (token + signatários)
+// • Contagem regressiva configurável (hora + texto)
+// • Salvar clientes com histórico de documentos
+// • Módulos clicáveis (chips) — toggle em cfg.modChips
+// • Limpar mensagens ao iniciar nova consulta
+// • Header clicável (logo e nome levam para /chat)
+// • Suporte a templates de proposta/contrato via configurações
+// • Tabela vertical de produtos no contrato
+// • Logo da empresa no contrato
+// • Validação de duplicatas de clientes
+// • Botão Relatórios no header
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -11,7 +19,6 @@ import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
-import ModalSalvarCRM from '../components/ModalSalvarCRM'
 
 // ══════════════════════════════════════════════════════════════
 // COMPONENTE DocumentoPreviewModal
@@ -27,11 +34,13 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
 
   if (!docPreview) return null
 
-  const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken, hasDocx, docxNome, tAd, tMen } = docPreview
+  const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken, hasDocx, docxNome } = docPreview
   const isContrato = tipo === 'contrato'
 
+  // Preenche email do cliente
   if (!emailEnvio && clienteEmail) setEmailEnvio(clienteEmail)
 
+  // ── 1. Imprimir ──
   function handleImprimir() {
     const win = window.open('', '_blank', 'width=900,height=700')
     if (!win) { alert('Permita popups.'); return }
@@ -53,6 +62,7 @@ ${html}
     setTimeout(() => win.print(), 800)
   }
 
+  // ── 2. Baixar DOCX ──
   function handleBaixarDocx() {
     if (window._vxDocxBlob?.blob) {
       const url = URL.createObjectURL(window._vxDocxBlob.blob)
@@ -68,23 +78,27 @@ ${html}
     }
   }
 
+  // ── 3. Salvar no CRM ──
   async function handleSalvarCRM() {
     setSalvandoCRM(true)
     try {
       if (onSalvarCRM) await onSalvarCRM(docPreview)
-      setMsgEnvio('✅ Documento enviado para o CRM!')
+      setMsgEnvio('✅ Salvo no CRM com sucesso!')
     } catch (err) {
       setMsgEnvio('❌ Erro ao salvar no CRM: ' + err.message)
     }
     setSalvandoCRM(false)
   }
 
+  // ── 4. Enviar para assinatura (contrato) ──
   async function handleEnviarAssinatura() {
     if (!clienteEmail && !clienteTel) { setMsgEnvio('⚠️ Cliente sem e-mail ou telefone cadastrado.'); return }
+
     setEnviandoAssComp(true); setMsgEnvio('')
     try {
       const token  = signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
       await supabase.from('vx_storage').upsert({
         key:   `sign:${token}`,
         value: JSON.stringify({
@@ -96,6 +110,7 @@ ${html}
         }),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'key' })
+
       const baseUrl  = cfg.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
       const signLink = `${baseUrl}/sign/${token}`
       setLinkAssinatura(signLink)
@@ -107,6 +122,7 @@ ${html}
     setEnviandoAssComp(false)
   }
 
+  // ── 5. Enviar proposta para cliente (WhatsApp / Email) ──
   function handleEnviarPropostaWpp() {
     const msg = encodeURIComponent(`Olá ${clienteNome || 'cliente'}! Segue abaixo a proposta comercial da ${cfg.company || 'Vivanexa'}.\n\nAcesse o link para visualizar:\n${window.location.origin}/sign/${signToken}`)
     const tel = (clienteTel||'').replace(/\D/g,'')
@@ -129,12 +145,15 @@ ${html}
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Barra de ações */}
       <div style={{ background: '#0a0f1e', borderBottom: '1px solid #1e2d4a', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', flexShrink: 0, flexWrap: 'wrap' }}>
         <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 15, marginRight: 8 }}>
           {isContrato ? '📄 Contrato' : '📋 Proposta'} gerado
         </div>
         <button onClick={handleImprimir} style={acaoBtn('#00d4ff')}>🖨 Imprimir / PDF</button>
-        {hasDocx && <button onClick={handleBaixarDocx} style={acaoBtn('#7c3aed')}>💾 Baixar DOCX</button>}
+        {hasDocx && (
+          <button onClick={handleBaixarDocx} style={acaoBtn('#7c3aed')}>💾 Baixar DOCX</button>
+        )}
         <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={acaoBtn('#10b981', salvandoCRM)}>
           {salvandoCRM ? '⏳...' : '💼 Salvar no CRM'}
         </button>
@@ -153,15 +172,22 @@ ${html}
         </button>
       </div>
 
+      {/* Painel de envio proposta */}
       {!isContrato && showEnvioOpcoes && (
         <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#64748b' }}>Enviar para:</span>
-          <input value={emailEnvio} onChange={e => setEmailEnvio(e.target.value)} placeholder="email do cliente" style={{ background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, width: 220 }} />
+          <input
+            value={emailEnvio}
+            onChange={e => setEmailEnvio(e.target.value)}
+            placeholder="email do cliente"
+            style={{ background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, width: 220 }}
+          />
           <button onClick={handleEnviarPropostaWpp} style={acaoBtn('#25d366')}>💬 WhatsApp</button>
           <button onClick={handleEnviarPropostaEmail} style={acaoBtn('#00d4ff')}>📧 E-mail</button>
         </div>
       )}
 
+      {/* Painel de opções de assinatura */}
       {isContrato && showEnvioOpcoes && linkAssinatura && (
         <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -180,19 +206,27 @@ ${html}
               const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg.company || 'Vivanexa'}`)
               window.open(`mailto:${clienteEmail||''}?subject=${subj}&body=${body}`, '_blank')
             }} style={acaoBtn('#00d4ff')}>📧 Enviar por E-mail</button>
-            <button onClick={() => window.open(linkAssinatura, '_blank')} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (esta tela)</button>
+            <button onClick={() => {
+              // Abrir link de assinatura nesta própria tela
+              window.open(linkAssinatura, '_blank')
+            }} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (esta tela)</button>
           </div>
         </div>
       )}
 
+      {/* Mensagem de status */}
       {msgEnvio && (
         <div style={{ padding: '10px 20px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : '#ef4444' }}>
           {msgEnvio}
         </div>
       )}
 
+      {/* Preview do documento */}
       <div style={{ flex: 1, overflow: 'auto', padding: 24, background: '#f0f4f8' }}>
-        <div style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }} dangerouslySetInnerHTML={{ __html: html }} />
+        <div
+          style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
       </div>
     </div>
   )
@@ -349,13 +383,24 @@ function openPrint(html,title){
 // DOCX — Detecção de tipo e geração com substituição de variáveis
 // ══════════════════════════════════════════════════════════════
 
+/**
+ * Detecta se o template é DOCX (base64/data-url) ou HTML puro.
+ */
 function detectarTipoTemplate(template) {
   if (!template) return 'html'
-  if (template.startsWith('data:application/vnd') || template.startsWith('data:application/octet') || template.startsWith('data:application/zip')) return 'docx'
+  if (
+    template.startsWith('data:application/vnd') ||
+    template.startsWith('data:application/octet') ||
+    template.startsWith('data:application/zip')
+  ) return 'docx'
+  // Base64 puro sem prefixo: long string sem espaços e chars válidos
   if (template.length > 500 && /^[A-Za-z0-9+/=]+$/.test(template.slice(0, 100))) return 'docx'
   return 'html'
 }
 
+/**
+ * Carrega dinamicamente PizZip e Docxtemplater via CDN (apenas uma vez).
+ */
 async function loadDocxLibs() {
   if (window._pizZipLoaded) return { PizZip: window.PizZip, Docxtemplater: window.docxtemplater }
   await new Promise((res, rej) => {
@@ -374,15 +419,93 @@ async function loadDocxLibs() {
   return { PizZip: window.PizZip, Docxtemplater: window.docxtemplater }
 }
 
+/**
+ * Gera e baixa um DOCX com variáveis substituídas.
+ * Retorna true se o DOCX foi baixado com sucesso.
+ */
+async function gerarEBaixarDocx(templateBase64, variaveis, nomeArquivo) {
+  try {
+    const { PizZip, Docxtemplater } = await loadDocxLibs()
+    if (!PizZip || !Docxtemplater) throw new Error('Libs não carregadas')
+
+    let b64 = templateBase64
+    if (b64.includes(',')) b64 = b64.split(',')[1]
+    const binaryStr = atob(b64)
+    const bytes = new Uint8Array(binaryStr.length)
+    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
+
+    const zip = new PizZip(bytes.buffer)
+    // Tenta primeiro com delimitadores padrão {variavel}
+    // Se falhar, tenta com delimitadores duplos {{variavel}}
+    let doc
+    try {
+      doc = new Docxtemplater(zip, { paragraphLoop: true, nullGetter: () => '', delimiters: { start: '{', end: '}' } })
+      doc.render(variaveis)
+    } catch(e1) {
+      try {
+        const zip2 = new PizZip(bytes.buffer)
+        doc = new Docxtemplater(zip2, { paragraphLoop: true, nullGetter: () => '', delimiters: { start: '{{{', end: '}}}' } })
+        doc.render(variaveis)
+      } catch(e2) {
+        // Fallback: delimitadores padrão sem erro
+        const zip3 = new PizZip(bytes.buffer)
+        doc = new Docxtemplater(zip3, { paragraphLoop: true, nullGetter: () => '' })
+        doc.render(variaveis)
+      }
+    }
+
+    const blob = doc.getZip().generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      compression: 'DEFLATE',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = nomeArquivo
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    return true
+  } catch (err) {
+    console.error('Erro ao gerar DOCX:', err)
+    // Fallback: baixa o template original sem substituição
+    try {
+      let b64 = templateBase64
+      if (b64.includes(',')) b64 = b64.split(',')[1]
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = nomeArquivo
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {}
+    return false
+  }
+}
+
+/**
+ * Renderiza variáveis num DOCX template e retorna Blob.
+ * Tenta delimitadores {var} e {{var}} automaticamente.
+ */
 async function renderDocxBlob(templateBase64, variaveis) {
   const { PizZip, Docxtemplater } = await loadDocxLibs()
   if (!PizZip || !Docxtemplater) throw new Error('Libs não carregadas')
+
   const toBytes = (b64) => {
     let b = b64; if (b.includes(',')) b = b.split(',')[1]
     const bin = atob(b); const bytes = new Uint8Array(bin.length)
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
     return bytes
   }
+
   const tryRender = (delimiters) => {
     const zip = new PizZip(toBytes(templateBase64).buffer)
     const opts = { paragraphLoop: true, nullGetter: () => '' }
@@ -395,16 +518,19 @@ async function renderDocxBlob(templateBase64, variaveis) {
       compression: 'DEFLATE',
     })
   }
+
+  // Tenta delimitadores padrão {var} primeiro (correto para Word)
   try { return tryRender(null) } catch(e1) {
+    // Tenta {{var}}
     try { return tryRender({ start: '{{', end: '}}' }) } catch(e2) {
       console.warn('Ambos delimitadores falharam, usando template sem substituição:', e2)
-      return tryRender(null)
+      return tryRender(null) // último recurso
     }
   }
 }
 
-// ── Build Proposta ──────────────────────────────────────────
-function buildProposal(S,cfg,user){
+// ── Build Proposta (com suporte a template) ──────────────────
+function buildProposal(S,cfg,user,templateOverride){
   const isC=S.closingToday===true,cd=S.clientData||{},co=S.contactData||{}
   const today=new Date().toLocaleDateString('pt-BR')
   const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
@@ -417,7 +543,9 @@ function buildProposal(S,cfg,user){
   const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
 
-  let template = cfg.propostaTemplate || ''
+  // Prioridade: 1) templateOverride (passado por saveClient — sempre correto)
+  // 2) cfg.propostaTemplate (legado) 3) cfg.docTemplates?.proposta (extra)
+  let template = templateOverride || cfg.propostaTemplate || cfg.docTemplates?.proposta || ''
   if (template && !template.startsWith('data:application')) {
     const vars = {
       '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
@@ -491,7 +619,7 @@ function buildProposal(S,cfg,user){
 }
 
 // ── Build Contrato com Manifesto de Assinatura ──
-function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token, signedData) {
+function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token, signedData, templateOverride) {
   const cd = S.clientData || {}
   const co = S.contactData || {}
   const today = new Date().toLocaleDateString('pt-BR')
@@ -569,7 +697,9 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
     </div>
   </div>`
 
-  let template = cfg.contratoTemplate || ''
+  // Prioridade: 1) templateOverride (passado por wizNext — sempre correto)
+  // 2) cfg.contratoTemplate (legado) 3) cfg.docTemplates?.contrato (extra)
+  let template = templateOverride || cfg.contratoTemplate || cfg.docTemplates?.contrato || ''
   if (template && !template.startsWith('data:application')) {
     const vars = {
       '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
@@ -707,7 +837,27 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
 }
 
 // ══════════════════════════════════════════════════════════════
+// TIMER GLOBAL (fora do React para não ser afetado por re-renders)
+// Mesma lógica do HTML local que funciona
+// ══════════════════════════════════════════════════════════════
+function startTimerGlobal(deadline){
+  if(window._vxTimerInt){clearInterval(window._vxTimerInt);window._vxTimerInt=null}
+  window._vxTimerDeadline=deadline
+  function tick(){
+    const el=document.getElementById('vx-timer')
+    if(!el) return // não encerra o interval — espera o React recriar o elemento
+    const diff=deadline-new Date()
+    if(diff<=0){el.textContent='EXPIRADO';el.style.color='var(--muted)';clearInterval(window._vxTimerInt);window._vxTimerInt=null;window._vxTimerDeadline=null;return}
+    const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
+    el.textContent=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
+  }
+  tick()
+  window._vxTimerInt=setInterval(tick,100) // 100ms: minimiza o flash após re-renders do React
+}
+
+// ══════════════════════════════════════════════════════════════
 // BUILD DOCX VARS — Monta objeto com TODAS as variáveis do template
+// Suporta tanto {variavel} quanto {{variavel}} no Word
 // ══════════════════════════════════════════════════════════════
 function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='', wizMen=''}) {
   const payLabel = wizPay === 'pix' ? 'PIX / Boleto à vista'
@@ -722,6 +872,7 @@ function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='
   const agora = new Date().toLocaleString('pt-BR')
 
   const vars = {
+    // Contratada
     company:          c.company || 'VIVANEXA',
     razao_empresa:    c.razaoEmpresa || c.razao_empresa || c.company || '',
     cnpj_empresa:     c.cnpjEmpresa  || c.cnpj_empresa  || '',
@@ -729,6 +880,8 @@ function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='
     telefone_empresa: c.telefone     || c.telefoneEmpresa || '',
     email_empresa:    c.emailEmpresa || c.email_empresa   || '',
     endereco_empresa: c.enderecoEmpresa || c.endereco_empresa || '',
+
+    // Contratante (cliente)
     empresa:   co.empresa  || cd?.fantasia || cd?.nome || '',
     razao:     co.razao    || cd?.nome     || '',
     cpf:       isCPF(S.doc||'') ? fmtDoc(S.doc||'') : '',
@@ -743,18 +896,24 @@ function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='
     regime:    co.regime   || '',
     cpf_contato:    co.cpfContato || '',
     cpf_contato_val:co.cpfContato || '',
+
+    // Responsável pela Implementação
     rimp_nome:  co.rimpNome  || '',
     rimp_email: co.rimpEmail || '',
     rimp_tel:   co.rimpTel   || '',
     nome_implementacao:     co.rimpNome  || '',
     email_implementacao:    co.rimpEmail || '',
     telefone_implementacao: co.rimpTel   || '',
+
+    // Responsável Financeiro
     rfin_nome:  co.rfinNome  || '',
     rfin_email: co.rfinEmail || '',
     rfin_tel:   co.rfinTel   || '',
     nome_financeiro:     co.rfinNome  || '',
     email_financeiro:    co.rfinEmail || '',
     telefone_financeiro: co.rfinTel   || '',
+
+    // Produtos e Serviços
     plano:              S.plan ? getPlanLabel(S.plan, c.plans) : '—',
     cnpjs_qty:          String(S.cnpjs || ''),
     total_adesao:       fmt(tAd),
@@ -763,6 +922,8 @@ function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='
     condicao_pagamento: payLabel,
     vencimento_adesao:  wizAd  || '—',
     vencimento_mensal:  wizMen || '—',
+
+    // Consultor e Sistema
     consultor_nome:  userProfile?.nome || '',
     consultor_tel:   userProfile?.perfil?.telefone || userProfile?.telefone || '',
     email_consultor: userProfile?.email || '',
@@ -771,6 +932,7 @@ function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='
     logo:            c.logob64 ? `<img src="${c.logob64}" style="height:52px">` : '',
   }
 
+  // Variáveis individuais por módulo (ex: {{modulo_1_nome}}, {{modulo_1_adesao}}, {{modulo_1_mensal}})
   const results = S.closingToday ? (S.closingData?.results||[]) : (S.quoteData?.results||[])
   results.forEach((r, i) => {
     const n = i + 1
@@ -781,24 +943,6 @@ function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='
   })
 
   return vars
-}
-
-// ══════════════════════════════════════════════════════════════
-// TIMER GLOBAL
-// ══════════════════════════════════════════════════════════════
-function startTimerGlobal(deadline){
-  if(window._vxTimerInt){clearInterval(window._vxTimerInt);window._vxTimerInt=null}
-  window._vxTimerDeadline=deadline
-  function tick(){
-    const el=document.getElementById('vx-timer')
-    if(!el) return
-    const diff=deadline-new Date()
-    if(diff<=0){el.textContent='EXPIRADO';el.style.color='var(--muted)';clearInterval(window._vxTimerInt);window._vxTimerInt=null;window._vxTimerDeadline=null;return}
-    const hh=Math.floor(diff/3600000),mm=Math.floor((diff%3600000)/60000),ss=Math.floor((diff%60000)/1000)
-    el.textContent=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
-  }
-  tick()
-  window._vxTimerInt=setInterval(tick,100)
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -839,6 +983,7 @@ export default function Chat(){
 
   const [showSign,       setShowSign]       = useState(false)
   const [docPreview,     setDocPreview]     = useState(null)
+  // docPreview = { html, tipo: 'proposta'|'contrato', clienteEmail, clienteNome, clienteTel, signToken }
   const [signDoc,        setSignDoc]        = useState(null)
   const [signEmailInput, setSignEmailInput] = useState('')
 
@@ -857,17 +1002,20 @@ export default function Chat(){
   const [docViewTitle,   setDocViewTitle]   = useState('')
   const [docViewLoading, setDocViewLoading] = useState(false)
 
-  // NOVOS ESTADOS PARA CONTRATO EM QUALQUER ETAPA E MODAL CRM
-  const [showModalCRM, setShowModalCRM] = useState(false)
-  const [docParaCRM, setDocParaCRM] = useState(null)
+  // ── Modal Salvar no CRM ──────────────────────────────────────
+  const [showModalCRM,  setShowModalCRM]  = useState(false)
+  const [docParaCRM,    setDocParaCRM]    = useState(null)
+  const [crmForm,       setCrmForm]       = useState({})
+  const [crmAba,        setCrmAba]        = useState('negocio')
+  const [crmSalvando,   setCrmSalvando]   = useState(false)
+  const [crmErro,       setCrmErro]       = useState('')
 
   const S = useRef({
     stage:'await_doc',doc:null,clientData:null,contactData:{},
     users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,
     quoteData:null,closingData:null,closingToday:false,
     appliedVoucher:null,awaitingVoucher:false,
-    contractMode:null,   // 'full' ou 'disc' para contrato antecipado
-    contractValues:null   // valores a serem usados no contrato
+    contractMode:'closing', contractValues:null
   }).current
 
   // ── Auth ──────────────────────────────────────
@@ -893,7 +1041,11 @@ export default function Chat(){
     setTimeout(()=>addBot(`Olá, ${userProfile.nome}! 👋\n\nSou o assistente comercial da ${nomeEmpresa}.\nPara começar, informe o **CPF ou CNPJ** do cliente:`),300)
   },[userProfile,cfgLoaded])
 
+  // Timer gerenciado fora do React (igual ao HTML local) para evitar
+  // que re-renders do dangerouslySetInnerHTML resetem o textContent
   useEffect(()=>{ return()=>{ if(window._vxTimerInt){clearInterval(window._vxTimerInt);window._vxTimerInt=null} } },[])
+
+  // Após cada re-render das mensagens, reaplicar o timer imediatamente no elemento recriado
   useEffect(()=>{
     if(window._vxTimerDeadline){
       const el=document.getElementById('vx-timer')
@@ -914,9 +1066,14 @@ export default function Chat(){
       const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).single()
       if(row?.value){
         const saved=JSON.parse(row.value)
+        // ── Mapeia docTemplates (salvo em configuracoes.js) para os campos que o chat usa ──
+        // TabDocumentos salva em: cfg.docTemplates.proposta / cfg.docTemplates.contrato
+        // chat.js usa: cfg.propostaTemplate / cfg.contratoTemplate
         const dt = saved.docTemplates || {}
+        // Prioridade: 1) campo direto (legado), 2) docTemplates (novo padrão)
         const propostaTemplate = saved.propostaTemplate || dt.proposta || ''
         const contratoTemplate = saved.contratoTemplate || dt.contrato || ''
+        // Detecta tipo automaticamente pelo conteúdo
         const _detectTipo = (tmpl, savedTipo) => {
           if (savedTipo === 'docx') return 'docx'
           if (!tmpl) return 'html'
@@ -931,6 +1088,7 @@ export default function Chat(){
           ...saved,
           plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,
           prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices,
+          // Templates unificados — sempre populados
           propostaTemplate,
           contratoTemplate,
           propostaTipo,
@@ -1039,7 +1197,8 @@ export default function Chat(){
   const addUser =c           =>setMessages(p=>[...p,{role:'user',content:c,isHTML:false,id:Date.now()+Math.random()}])
 
   const resetS=()=>{
-    Object.assign(S,{stage:'await_doc',doc:null,clientData:null,contactData:{},users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,quoteData:null,closingData:null,closingToday:false,appliedVoucher:null,awaitingVoucher:false,contractMode:null,contractValues:null})
+    Object.assign(S,{stage:'await_doc',doc:null,clientData:null,contactData:{},users:null,cnpjs:null,modules:[],plan:null,ifPlan:null,notas:null,quoteData:null,closingData:null,closingToday:false,appliedVoucher:null,awaitingVoucher:false,contractMode:'closing',contractValues:null})
+    // Limpar timer global
     if(window._vxTimerInt){clearInterval(window._vxTimerInt);window._vxTimerInt=null}
     window._vxTimerDeadline=null
     setSelectedMods([]);setAwaitingMods(false)
@@ -1127,17 +1286,23 @@ export default function Chat(){
       }
       const bothSigned=!!(docData.signedAt&&docData.consultantSignedAt)
       docData.status=bothSigned?'signed':docData.signedAt?'pending':'sent'
+
+      // Atualiza o HTML do manifesto com os dados reais de assinatura
       if(docData.html){
         let html=docData.html
+        // Substitui campos do manifesto do cliente
         html=html.replace(/<span id="manifest-client-name">[^<]*<\/span>/,`<span id="manifest-client-name">${docData.signedBy||'—'}</span>`)
         html=html.replace(/<span id="manifest-client-cpf">[^<]*<\/span>/,`<span id="manifest-client-cpf">${docData.signCPF||'—'}</span>`)
         html=html.replace(/<span id="manifest-client-email">[^<]*<\/span>/,`<span id="manifest-client-email">${docData.clientEmail||docData.signEmail||'—'}</span>`)
         html=html.replace(/<span id="manifest-client-date">[^<]*<\/span>/,`<span id="manifest-client-date">${docData.signedAt||'Aguardando assinatura'}</span>`)
+        // Substitui campos do manifesto do consultor
         html=html.replace(/<span id="manifest-consult-name">[^<]*<\/span>/,`<span id="manifest-consult-name">${docData.consultantSignedBy||'—'}</span>`)
         html=html.replace(/<span id="manifest-consult-date">[^<]*<\/span>/,`<span id="manifest-consult-date">${docData.consultantSignedAt||'Aguardando assinatura'}</span>`)
         docData.html=html
       }
+
       await supabase.from('vx_storage').upsert({key:`doc:${signFormDoc.signToken}`,value:JSON.stringify(docData),updated_at:now.toISOString()})
+
       const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
       if(cfgRow?.value){
         const c=JSON.parse(cfgRow.value)
@@ -1170,26 +1335,6 @@ export default function Chat(){
       }
     }catch(e){console.error(e);setSfErro('Erro ao salvar. Tente novamente.')}
     finally{setSfSaving(false)}
-  }
-
-  // NOVA FUNÇÃO: Inicia o fluxo de contrato com os valores atuais (qualquer etapa)
-  function iniciarContrato() {
-    const cd = S.clientData || {}, co = S.contactData || {}
-    setCf({
-      ...emptyForm,
-      empresa: co.empresa || cd.fantasia || cd.nome || '',
-      razao: co.razao || cd.nome || '',
-      email: co.email || cd.email || '',
-      telefone: co.telefone || cd.telefone || '',
-      cidade: co.cidade || cd.municipio || '',
-      uf: co.uf || cd.uf || '',
-      logradouro: co.logradouro || cd.logradouro || '',
-      bairro: co.bairro || cd.bairro || '',
-      cep: co.cep || cd.cep || '',
-      contato: co.contato || ''
-    })
-    setClientMode('contrato')
-    setShowClient(true)
   }
 
   async function processInput(t){
@@ -1297,6 +1442,7 @@ export default function Chat(){
       if(yes){const d=calcClose(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.closingData=d;S.closingToday=true;S.stage='closing'
         const h=c.closingHour||18;const dl=new Date();dl.setHours(h,0,0,0);
         addUser('✅ Fechar hoje!');addBot(rClose(d),true)
+        // Inicia timer após DOM renderizar a bolha — igual ao HTML local
         setTimeout(()=>startTimerGlobal(dl),200)
       }
       else{
@@ -1312,26 +1458,45 @@ export default function Chat(){
       setTimeout(()=>addBot(`🔄 Nova consulta!\n\nInforme o CPF ou CNPJ do próximo cliente:`),100)
     }
     window.vx_prop=()=>{
+      // Se estamos na tela de fechamento, voltar aos valores com desconto padrão para a proposta
       if(S.closingToday) {
-        S.closingToday = false
+        S.closingToday = false  // proposta usa valores discountados, não de fechamento
       }
       const cd=S.clientData||{},co=S.contactData||{}
       setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
       setClientMode('proposta');setShowClient(true)
     }
-    // NOVOS BOTÕES GLOBAIS PARA CONTRATO EM QUALQUER ETAPA
-    window.vx_cont_full = () => {
-      S.contractMode = 'full'
-      S.contractValues = { ...S.quoteData } // valores cheios
-      iniciarContrato()
-    }
-    window.vx_cont_disc = () => {
-      S.contractMode = 'disc'
-      S.contractValues = { ...S.quoteData } // valores com desconto atuais
-      iniciarContrato()
-    }
-    window.vx_cont = () => {
+    // ── Contrato no fechamento (valores de fechamento) ──
+    window.vx_cont=()=>{
       const cd=S.clientData||{},co=S.contactData||{}
+      // Usa valores de fechamento (closingData) ou quoteData como fallback
+      S.contractMode='closing'
+      setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
+      setClientMode('contrato');setShowClient(true)
+    }
+    // ── Contrato no preço cheio (sem desconto) ──
+    window.vx_cont_full=()=>{
+      const cd=S.clientData||{},co=S.contactData||{}
+      // Salva os valores cheios para uso no saveClient
+      S.contractMode='full'
+      S.contractValues={
+        tAd: S.quoteData?.tAd||0,
+        tMen: S.quoteData?.tMen||0,
+        results: S.quoteData?.results||[]
+      }
+      setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
+      setClientMode('contrato');setShowClient(true)
+    }
+    // ── Contrato com desconto de tela (valores com desconto padrão) ──
+    window.vx_cont_disc=()=>{
+      const cd=S.clientData||{},co=S.contactData||{}
+      // Usa os valores com desconto (tAdD, tMenD)
+      S.contractMode='disc'
+      S.contractValues={
+        tAd: S.quoteData?.tAdD||S.quoteData?.tAd||0,
+        tMen: S.quoteData?.tMenD||S.quoteData?.tMen||0,
+        results: S.quoteData?.results||[]
+      }
       setCf({...emptyForm,empresa:co.empresa||cd.fantasia||cd.nome||'',razao:co.razao||cd.nome||'',email:co.email||cd.email||'',telefone:co.telefone||cd.telefone||'',cidade:co.cidade||cd.municipio||'',uf:co.uf||cd.uf||'',logradouro:co.logradouro||cd.logradouro||'',bairro:co.bairro||cd.bairro||'',cep:co.cep||cd.cep||'',contato:co.contato||''})
       setClientMode('contrato');setShowClient(true)
     }
@@ -1343,54 +1508,59 @@ export default function Chat(){
     const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
     const nomeArquivo=(n,tipo)=>`${tipo}_${(n||'cliente').replace(/[^a-zA-Z0-9_\-]/g,'_')}.docx`
 
+    // ── Garante que templates de docTemplates estão mapeados ──
     const dt = c.docTemplates || {}
     const propTemplate = c.propostaTemplate || dt.proposta || ''
     const contTemplate = c.contratoTemplate || dt.contrato || ''
+    // Atualiza cfgRef para ter sempre os templates disponíveis durante a sessão
     if (!c.propostaTemplate && dt.proposta) cfgRef.current.propostaTemplate = dt.proposta
     if (!c.contratoTemplate && dt.contrato) cfgRef.current.contratoTemplate = dt.contrato
 
     if(clientMode==='proposta'){
       const tipoTemplate=detectarTipoTemplate(propTemplate)
-      const isC=S.closingToday===true
-      let tAd, tMen, results
-      if (S.contractMode && S.contractValues) {
-        tAd = S.contractValues.tAdD || S.contractValues.tAd
-        tMen = S.contractValues.tMenD || S.contractValues.tMen
-        results = S.contractValues.results
-      } else {
-        tAd = isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
-        tMen = isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
-        results = isC?S.closingData?.results:S.quoteData?.results
-      }
+
       if(tipoTemplate==='docx'){
-        const variaveis=buildDocxVars({S,c,userProfile,tAd,tMen,cd:S.clientData||{},co:S.contactData||{},wizPay:'',wizAd:'',wizMen:''})
-        const htmlFallback=buildProposal(S,c,userProfile)
+        // ── PROPOSTA VIA DOCX ──────────────────────────────────
+        const isC=S.closingToday===true
+        const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
+        const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
+        const cd=S.clientData||{},co=S.contactData||{}
+        const variaveis=buildDocxVars({S,c,userProfile,tAd,tMen,cd,co,wizPay:'',wizAd:'',wizMen:''})
+        // Gerar blob DOCX e mostrar preview em tela (HTML fallback) + botão de download
+        const htmlFallback=buildProposal(S,c,userProfile,propTemplate)
         const doc=await saveToHistory('proposta',clientName,htmlFallback,{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
+        // Armazena blob docx em window para download posterior
         renderDocxBlob(propTemplate, variaveis)
           .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo(clientName,'proposta')} })
           .catch(e=>{ console.warn('Erro DOCX proposta:',e); window._vxDocxBlob=null })
-        setDocPreview({html:htmlFallback,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo(clientName,'proposta'),tAd,tMen})
+        setDocPreview({html:htmlFallback,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo(clientName,'proposta')})
       } else {
-        const html=buildProposal(S,c,userProfile)
+        // ── PROPOSTA VIA HTML (com preview em tela) ─────────
+        const html=buildProposal(S,c,userProfile,propTemplate)
+        const tAd=S.closingToday?S.closingData?.tAd:(S.quoteData?.tAdD||0)
+        const tMen=S.closingToday?S.closingData?.tMen:(S.quoteData?.tMenD||0)
         const doc=await saveToHistory('proposta',clientName,html,{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
-        setDocPreview({html,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,tAd,tMen})
+        setDocPreview({html,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
       }
     }else{
-      let tAd, tMen, results
-      if (S.contractMode && S.contractValues) {
-        tAd = S.contractValues.tAdD || S.contractValues.tAd
-        tMen = S.contractValues.tMenD || S.contractValues.tMen
-        results = S.contractValues.results
-      } else if (S.closingToday) {
-        tAd = S.closingData?.tAd
-        tMen = S.closingData?.tMen
-        results = S.closingData?.results
+      // ── CONTRATO: determina os valores corretos de acordo com o modo ──
+      let tAd, tMen
+      const cm = S.contractMode || 'closing'
+      if (cm === 'full') {
+        // Preço cheio (sem nenhum desconto)
+        tAd  = S.contractValues?.tAd  ?? S.quoteData?.tAd  ?? 0
+        tMen = S.contractValues?.tMen ?? S.quoteData?.tMen ?? 0
+      } else if (cm === 'disc') {
+        // Com desconto de tela (não de fechamento)
+        tAd  = S.contractValues?.tAd  ?? S.quoteData?.tAdD ?? S.quoteData?.tAd  ?? 0
+        tMen = S.contractValues?.tMen ?? S.quoteData?.tMenD?? S.quoteData?.tMen ?? 0
       } else {
-        tAd = S.quoteData?.tAdD || S.quoteData?.tAd
-        tMen = S.quoteData?.tMenD || S.quoteData?.tMen
-        results = S.quoteData?.results
+        // Fechamento (closing) — comportamento original
+        const isC = S.closingToday === true
+        tAd  = isC ? (S.closingData?.tAd  ?? 0) : (S.quoteData?.tAdD  ?? 0)
+        tMen = isC ? (S.closingData?.tMen ?? 0) : (S.quoteData?.tMenD ?? 0)
       }
       setWizTAd(tAd);setWizTMen(tMen);setWizStep(1);setWizPay('');setWizAd('');setWizMen('');setShowWiz(true)
     }
@@ -1406,27 +1576,34 @@ export default function Chat(){
       const token=generateToken()
       const clientName=cf.razao||cf.empresa||fmtDoc(S.doc||'')||'Cliente'
       const nomeArquivo=`contrato_${(clientName||'cliente').replace(/[^a-zA-Z0-9_\-]/g,'_')}.docx`
+      // Garante que template de contrato está mapeado de docTemplates
       const dt = c.docTemplates || {}
       const contratoTemplate = c.contratoTemplate || dt.contrato || ''
       const tipoTemplate=detectarTipoTemplate(contratoTemplate)
+      // Reseta contractMode após gerar
+      S.contractMode = 'closing'
+      S.contractValues = null
 
-      let tAd = wizTAd, tMen = wizTMen
       if(tipoTemplate==='docx'){
+        // ── CONTRATO VIA DOCX ──────────────────────────────────
         const cd=S.clientData||{},co=S.contactData||{}
-        const variaveis=buildDocxVars({S,c,userProfile,tAd,tMen,cd,co,wizPay,wizAd,wizMen})
-        const htmlFallback=buildContract(S,c,userProfile,tAd,tMen,wizAd,wizMen,wizPay,token)
+        const variaveis=buildDocxVars({S,c,userProfile,tAd:wizTAd,tMen:wizTMen,cd,co,wizPay,wizAd,wizMen})
+        // Salva HTML padrão no histórico para link de assinatura
+        const htmlFallback=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined,contratoTemplate)
+        // Armazena blob docx para download no preview
         renderDocxBlob(contratoTemplate, variaveis)
           .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo} })
           .catch(e=>{ console.warn('Erro DOCX contrato:',e); window._vxDocxBlob=null })
-        saveToHistory('contrato',clientName,htmlFallback,{tAd,tMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
+        saveToHistory('contrato',clientName,htmlFallback,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
-          setDocPreview({html:htmlFallback,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo,tAd,tMen})
+          setDocPreview({html:htmlFallback,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo})
         })
       } else {
-        const html=buildContract(S,c,userProfile,tAd,tMen,wizAd,wizMen,wizPay,token)
-        saveToHistory('contrato',clientName,html,{tAd,tMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
+        // ── CONTRATO VIA HTML (com preview em tela) ─────────
+        const html=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined,contratoTemplate)
+        saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
-          setDocPreview({html,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,tAd,tMen})
+          setDocPreview({html,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
         })
       }
     }
@@ -1453,7 +1630,7 @@ export default function Chat(){
     h+=`<div class="teaser-card"><div class="teaser-title">🎫 Licenças com desconto disponíveis!</div><div class="teaser-body">Deseja ver os valores com desconto?</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_disc(true)">✅ Sim!</button><button class="yn-btn no" onclick="window.vx_disc(false)">Não, obrigado</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${getNextDates().map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     h+=`<div style="margin-top:8px"><button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button></div>`
-    h+=`<div style="margin-top:4px"><button class="prop-btn" onclick="window.vx_cont_full()">📝 Gerar Contrato (valores cheios)</button></div>`
+    h+=`<div style="margin-top:4px"><button class="prop-btn" style="background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(124,58,237,.06));border-color:rgba(124,58,237,.35);color:#a78bfa" onclick="window.vx_cont_full()">📝 Gerar Contrato (preço cheio)</button></div>`
     return h
   }
   function rDisc(data,dates,cn){
@@ -1466,7 +1643,7 @@ export default function Chat(){
     h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${c.discClosePct||40}% OFF</strong> na adesão!<br>Oferta válida até as <strong style="color:var(--gold)">${h2}h de hoje</strong>.</div>${textoExtra}<div class="yn-row" style="margin-top:12px"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
     h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
     h+=`<div style="margin-top:8px"><button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial (com desconto)</button></div>`
-    h+=`<div style="margin-top:4px"><button class="prop-btn" onclick="window.vx_cont_disc()">📝 Gerar Contrato (com desconto)</button></div>`
+    h+=`<div style="margin-top:4px"><button class="prop-btn" style="background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(124,58,237,.06));border-color:rgba(124,58,237,.35);color:#a78bfa" onclick="window.vx_cont_disc()">📝 Gerar Contrato (com desconto)</button></div>`
     return h
   }
   function rClose(data){
@@ -1657,8 +1834,10 @@ export default function Chat(){
     <div className="orb orb1"/><div className="orb orb2"/>
     {renderPainel()}
 
+    {/* ✅ NAVBAR GLOBAL — substitui o header antigo */}
     <Navbar cfg={cfg} perfil={userProfile} />
 
+    {/* Barra secundária: status + botões internos do chat */}
     <div style={{display:'flex',gap:6,padding:'6px 20px',background:'rgba(10,15,30,.9)',borderBottom:'1px solid var(--border)',flexWrap:'wrap',alignItems:'center',width:'100%'}}>
       <div className="status-dot">online</div>
       {[{id:'historico',label:'🗂️ Histórico'},{id:'assinaturas',label:'✍️ Assinaturas'}].map(({id,label})=>(
@@ -1693,11 +1872,13 @@ export default function Chat(){
       </div>
     </div>
 
+    {/* MODAL DOCUMENTO PREVIEW — proposta/contrato gerado em tela */}
     {docPreview && (
       <DocumentoPreviewModal
         docPreview={docPreview}
         onClose={() => {
           setDocPreview(null)
+          // Mensagem de retorno ao chat com ações disponíveis
           const tipo = docPreview.tipo === 'contrato' ? 'Contrato' : 'Proposta'
           setTimeout(() => addBot(
             `✅ ${tipo} fechado! Voltamos ao chat.\n\nDeseja fazer mais alguma coisa?\n` +
@@ -1710,27 +1891,194 @@ export default function Chat(){
         empresaId={empresaId}
         userProfile={userProfile}
         onSalvarCRM={(doc) => {
+          // Abre o modal de integração CRM com dados pré-preenchidos
+          const co = S.contactData || {}
+          const cd = S.clientData || {}
+          const clientName = co.razao || co.empresa || cd.nome || cd.fantasia || fmtDoc(S.doc || '')
+          const etapas = cfgRef.current.crm_etapas?.length ? cfgRef.current.crm_etapas : [
+            {id:'lead',label:'Lead'},
+            {id:'lead_qualificado',label:'Lead Qualificado'},
+            {id:'reuniao_agendada',label:'Reunião Agendada'},
+            {id:'proposta_enviada',label:'Proposta Enviada'},
+            {id:'negociacao',label:'Negociação'},
+            {id:'fechamento',label:'Fechamento'},
+          ]
+          setCrmForm({
+            titulo: doc.tipo === 'proposta' ? `Proposta – ${clientName}` : `Contrato – ${clientName}`,
+            etapa: doc.tipo === 'proposta' ? 'proposta_enviada' : 'fechamento',
+            observacoes: `${doc.tipo === 'proposta' ? 'Proposta' : 'Contrato'} gerado via Chat em ${new Date().toLocaleDateString('pt-BR')}`,
+            cnpj: S.doc || '',
+            nome: clientName,
+            fantasia: co.empresa || cd.fantasia || '',
+            razao: co.razao || cd.nome || '',
+            email: co.email || cd.email || '',
+            telefone: co.telefone || cd.telefone || '',
+            cidade: co.cidade || cd.municipio || '',
+            uf: co.uf || cd.uf || '',
+            salvarCliente: true,
+            tAd: doc.tAd || 0,
+            tMen: doc.tMen || 0,
+            signToken: doc.signToken || '',
+            docTipo: doc.tipo || 'proposta',
+            etapas,
+          })
+          setCrmAba('negocio')
+          setCrmErro('')
           setDocParaCRM(doc)
           setShowModalCRM(true)
         }}
       />
     )}
 
-    {showModalCRM && docParaCRM && (
-      <ModalSalvarCRM
-        documento={docParaCRM}
-        clienteData={{ clientData: S.clientData, contactData: S.contactData, doc: S.doc }}
-        empresaId={empresaId}
-        user={userProfile}
-        cfg={cfg}
-        onClose={() => setShowModalCRM(false)}
-        onSalvo={(negocio) => {
-          setShowModalCRM(false)
-          addBot(`✅ Negócio criado no CRM: ${negocio.titulo} (${negocio.etapa})`)
-        }}
-      />
-    )}
+    {/* MODAL SALVAR NO CRM */}
+    {showModalCRM && docParaCRM && (()=>{
+      const etapas = crmForm.etapas || [{id:'lead',label:'Lead'},{id:'proposta_enviada',label:'Proposta Enviada'},{id:'fechamento',label:'Fechamento'}]
+      const inp = {width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',color:'var(--text)',fontFamily:'DM Mono,monospace',fontSize:13,outline:'none',boxSizing:'border-box'}
+      const setF = (k,v) => setCrmForm(p=>({...p,[k]:v}))
 
+      async function salvarNoCRM(){
+        if(!crmForm.titulo?.trim()||!crmForm.nome?.trim()){setCrmErro('Título e nome são obrigatórios.');return}
+        setCrmSalvando(true);setCrmErro('')
+        try{
+          const{data:row}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).maybeSingle()
+          const currentCfg=row?.value?JSON.parse(row.value):{...cfgRef.current}
+
+          // 1. Criar negócio no funil CRM
+          const novoNegocio={
+            id:`neg_${Date.now()}`,
+            titulo:crmForm.titulo,
+            etapa:crmForm.etapa,
+            nome:crmForm.razao||crmForm.nome,
+            fantasia:crmForm.fantasia||crmForm.nome,
+            cnpj:(crmForm.cnpj||'').replace(/\D/g,''),
+            email:crmForm.email,
+            telefone:crmForm.telefone,
+            cidade:crmForm.cidade,
+            uf:crmForm.uf,
+            observacoes:crmForm.observacoes,
+            origem:'chat',
+            responsavel:userProfile?.nome||userProfile?.email||'',
+            criadoEm:new Date().toISOString(),
+            atualizadoEm:new Date().toISOString(),
+            documentoToken:crmForm.signToken,
+            valorAdesao:crmForm.tAd||0,
+            valorMensal:crmForm.tMen||0,
+          }
+          if(!currentCfg.crm_negocios)currentCfg.crm_negocios=[]
+          currentCfg.crm_negocios.push(novoNegocio)
+
+          // 2. Salvar/atualizar cliente (opcional)
+          if(crmForm.salvarCliente){
+            const docLimpo=(crmForm.cnpj||'').replace(/\D/g,'')
+            if(!currentCfg.clients)currentCfg.clients=[]
+            const clienteNovo={
+              doc:docLimpo,
+              nome:crmForm.razao||crmForm.nome,
+              fantasia:crmForm.fantasia||crmForm.nome,
+              email:crmForm.email,
+              telefone:crmForm.telefone,
+              cidade:crmForm.cidade,
+              uf:crmForm.uf,
+              ultimoContato:new Date().toISOString(),
+              documentos:crmForm.signToken?[{id:crmForm.signToken,type:crmForm.docTipo,date:new Date().toLocaleString('pt-BR'),status:'draft',token:crmForm.signToken}]:[]
+            }
+            const idx=docLimpo?currentCfg.clients.findIndex(c=>c.doc===docLimpo):
+              (crmForm.email?currentCfg.clients.findIndex(c=>c.email===crmForm.email):-1)
+            if(idx===-1){currentCfg.clients.push(clienteNovo)}
+            else{
+              if(!currentCfg.clients[idx].documentos)currentCfg.clients[idx].documentos=[]
+              if(crmForm.signToken)currentCfg.clients[idx].documentos.push({id:crmForm.signToken,type:crmForm.docTipo,date:new Date().toLocaleString('pt-BR'),status:'draft',token:crmForm.signToken})
+              currentCfg.clients[idx].ultimoContato=new Date().toISOString()
+              currentCfg.clients[idx].nome=clienteNovo.nome
+              currentCfg.clients[idx].fantasia=clienteNovo.fantasia
+              currentCfg.clients[idx].email=clienteNovo.email
+              currentCfg.clients[idx].telefone=clienteNovo.telefone
+              currentCfg.clients[idx].cidade=clienteNovo.cidade
+            }
+          }
+
+          await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(currentCfg),updated_at:new Date().toISOString()},{onConflict:'key'})
+          cfgRef.current=currentCfg;setCfg(currentCfg)
+          setShowModalCRM(false)
+          addBot(`✅ Negócio **"${novoNegocio.titulo}"** salvo no CRM na etapa **${etapas.find(e=>e.id===novoNegocio.etapa)?.label||novoNegocio.etapa}**!`)
+        }catch(e){setCrmErro('Erro ao salvar: '+e.message)}
+        setCrmSalvando(false)
+      }
+
+      return(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.82)',zIndex:3500,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>setShowModalCRM(false)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:540,maxHeight:'92vh',overflowY:'auto',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{padding:'20px 24px 0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+              <div style={{fontFamily:'Syne,sans-serif',fontWeight:700,fontSize:17,color:'var(--accent)'}}>🤝 Salvar no CRM</div>
+              <button onClick={()=>setShowModalCRM(false)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer'}}>✕</button>
+            </div>
+            <div style={{padding:'4px 24px 0',fontSize:12,color:'var(--muted)'}}>
+              {docParaCRM.tipo==='proposta'?'📄 Proposta':'📝 Contrato'} · {crmForm.nome}
+            </div>
+
+            {/* Abas */}
+            <div style={{display:'flex',gap:0,padding:'14px 24px 0',borderBottom:'1px solid var(--border)',flexShrink:0}}>
+              {[['negocio','📋 Negócio'],['cliente','🏢 Cliente']].map(([id,label])=>(
+                <button key={id} onClick={()=>setCrmAba(id)} style={{padding:'7px 18px',border:'none',borderBottom:`2px solid ${crmAba===id?'var(--accent)':'transparent'}`,background:'none',color:crmAba===id?'var(--accent)':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',transition:'all .15s'}}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Corpo */}
+            <div style={{padding:'20px 24px',flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:12}}>
+              {crmAba==='negocio'&&<>
+                <div className="field"><label>Título do Negócio *</label><input style={inp} value={crmForm.titulo||''} onChange={e=>setF('titulo',e.target.value)} placeholder="Ex: Proposta – Empresa XYZ"/></div>
+                <div className="field"><label>Nome do Contato / Cliente *</label><input style={inp} value={crmForm.nome||''} onChange={e=>setF('nome',e.target.value)} placeholder="Nome completo ou empresa"/></div>
+                <div className="field"><label>Etapa do Funil</label>
+                  <select style={{...inp,cursor:'pointer'}} value={crmForm.etapa||''} onChange={e=>setF('etapa',e.target.value)}>
+                    {etapas.map(et=><option key={et.id} value={et.id}>{et.label}</option>)}
+                  </select>
+                </div>
+                {(crmForm.tAd>0||crmForm.tMen>0)&&(
+                  <div style={{padding:'10px 14px',background:'rgba(0,212,255,.06)',border:'1px solid rgba(0,212,255,.15)',borderRadius:8,fontSize:13,color:'var(--muted)'}}>
+                    💰 Adesão: <strong style={{color:'var(--accent)'}}>{fmt(crmForm.tAd||0)}</strong> · Mensalidade: <strong style={{color:'var(--accent)'}}>{fmt(crmForm.tMen||0)}</strong>
+                  </div>
+                )}
+                <div className="field"><label>Observações</label>
+                  <textarea style={{...inp,resize:'vertical',minHeight:72}} value={crmForm.observacoes||''} onChange={e=>setF('observacoes',e.target.value)}/>
+                </div>
+              </>}
+              {crmAba==='cliente'&&<>
+                <div className="modal-grid2">
+                  <div className="field"><label>Nome Fantasia</label><input style={inp} value={crmForm.fantasia||''} onChange={e=>setF('fantasia',e.target.value)}/></div>
+                  <div className="field"><label>Razão Social</label><input style={inp} value={crmForm.razao||''} onChange={e=>setF('razao',e.target.value)}/></div>
+                  <div className="field"><label>E-mail</label><input style={inp} value={crmForm.email||''} onChange={e=>setF('email',e.target.value)}/></div>
+                  <div className="field"><label>Telefone</label><input style={inp} value={crmForm.telefone||''} onChange={e=>setF('telefone',e.target.value)}/></div>
+                  <div className="field"><label>Cidade</label><input style={inp} value={crmForm.cidade||''} onChange={e=>setF('cidade',e.target.value)}/></div>
+                  <div className="field"><label>UF</label><input style={inp} value={crmForm.uf||''} onChange={e=>setF('uf',e.target.value)} maxLength={2}/></div>
+                </div>
+                <div onClick={()=>setF('salvarCliente',!crmForm.salvarCliente)} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:crmForm.salvarCliente?'rgba(16,185,129,.06)':'var(--surface2)',border:`1px solid ${crmForm.salvarCliente?'rgba(16,185,129,.25)':'var(--border)'}`,borderRadius:8,cursor:'pointer',transition:'all .15s'}}>
+                  <div style={{width:17,height:17,borderRadius:4,border:`2px solid ${crmForm.salvarCliente?'var(--accent3)':'var(--border)'}`,background:crmForm.salvarCliente?'var(--accent3)':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    {crmForm.salvarCliente&&<span style={{color:'#fff',fontSize:11,fontWeight:700}}>✓</span>}
+                  </div>
+                  <span style={{fontSize:13,color:'var(--text)'}}>Salvar também na base de <strong style={{color:'var(--accent3)'}}>Clientes</strong></span>
+                </div>
+              </>}
+            </div>
+
+            {crmErro&&<div style={{margin:'0 24px',padding:'8px 12px',background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',borderRadius:8,fontSize:12,color:'var(--danger)'}}>⚠️ {crmErro}</div>}
+
+            {/* Footer */}
+            <div style={{display:'flex',gap:10,padding:'16px 24px',borderTop:'1px solid var(--border)',flexShrink:0}}>
+              <button onClick={()=>setShowModalCRM(false)} style={{flex:1,padding:10,background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:10,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:13}}>Cancelar</button>
+              <button onClick={salvarNoCRM} disabled={crmSalvando} style={{flex:2,padding:10,background:'linear-gradient(135deg,var(--accent3),#059669)',border:'none',color:'#fff',borderRadius:10,cursor:crmSalvando?'not-allowed':'pointer',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,opacity:crmSalvando?.7:1}}>
+                {crmSalvando?'⏳ Salvando...':'✅ Salvar no CRM'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    })()}
+
+    {/* MODAL VER DOCUMENTO */}
     {showDocView&&(
       <div className="modal-overlay" style={{zIndex:300}}>
         <div className="modal-box" style={{maxWidth:860,maxHeight:'92vh'}}>
@@ -1747,6 +2095,7 @@ export default function Chat(){
       </div>
     )}
 
+    {/* MODAL CLIENTE */}
     {showClient&&(
       <div className="modal-overlay">
         <div className="modal-box" style={{maxWidth:620}}>
@@ -1797,6 +2146,7 @@ export default function Chat(){
       </div>
     )}
 
+    {/* WIZARD CONTRATO */}
     {showWiz&&(
       <div className="modal-overlay">
         <div className="modal-box" style={{maxWidth:680}}>
@@ -1842,6 +2192,7 @@ export default function Chat(){
       </div>
     )}
 
+    {/* MODAL ENVIAR ASSINATURA */}
     {showSign&&signDoc&&(
       <div className="modal-overlay" style={{zIndex:250}}>
         <div className="modal-box" style={{maxWidth:500}}>
@@ -1873,6 +2224,7 @@ export default function Chat(){
       </div>
     )}
 
+    {/* MODAL FORMULÁRIO ASSINATURA */}
     {showSignForm&&(
       <div className="modal-overlay" style={{zIndex:300}}>
         <div className="modal-box" style={{maxWidth:480}}>
@@ -1964,7 +2316,7 @@ const CSS=`
   .prop-btn{width:100%;padding:12px;border-radius:10px;background:linear-gradient(135deg,rgba(0,212,255,.15),rgba(0,212,255,.05));border:1px solid rgba(0,212,255,.3);color:var(--accent);font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;text-align:left;margin-bottom:4px}
   .reset-btn{width:100%;padding:10px;border-radius:10px;background:rgba(100,116,139,.1);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;margin-top:4px}
   #inputArea{display:flex;gap:10px;align-items:flex-end;padding:14px 0 20px}
-  #userInput{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 16px;font-family:'DM Mono',monospace;font-size:15px;color:var(--text);outline:none;resize:none;line-height:1.5;min-height:48px}
+  #userInput{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 16px;font-family:'DM Mono',monospace;font-size:15px;color:var(--text);outline:none;resize:none;line-height:1.5;transition:border-color .2s;min-height:48px}
   #userInput:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.08)}
   #userInput::placeholder{color:var(--muted)}
   .send-btn{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#0099bb);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s}
