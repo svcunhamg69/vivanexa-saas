@@ -143,37 +143,55 @@ ${html}
     opacity: disabled ? 0.6 : 1, transition: 'all .15s',
   })
 
+  const [docxPronto, setDocxPronto] = useState(!!(typeof window !== 'undefined' && window._vxDocxBlob))
+  // Polling para detectar quando o blob DOCX ficou pronto
+  useEffect(() => {
+    if (!hasDocx || docxPronto) return
+    const t = setInterval(() => { if (window._vxDocxBlob?.blob) { setDocxPronto(true); clearInterval(t) } }, 600)
+    return () => clearInterval(t)
+  }, [hasDocx, docxPronto])
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Barra de ações */}
       <div style={{ background: '#0a0f1e', borderBottom: '1px solid #1e2d4a', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', flexShrink: 0, flexWrap: 'wrap' }}>
         <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 15, marginRight: 8 }}>
-          {isContrato ? '📄 Contrato' : '📋 Proposta'} gerado
+          {isContrato ? '📝 Contrato' : '📋 Proposta'} gerado
         </div>
+
+        {/* Imprimir — sempre visível */}
         <button onClick={handleImprimir} style={acaoBtn('#00d4ff')}>🖨 Imprimir / PDF</button>
+
+        {/* Baixar DOCX — aparece quando template é DOCX */}
         {hasDocx && (
-          <button onClick={handleBaixarDocx} style={acaoBtn('#7c3aed')}>💾 Baixar DOCX</button>
+          docxPronto
+            ? <button onClick={handleBaixarDocx} style={acaoBtn('#7c3aed')}>💾 Baixar DOCX</button>
+            : <button disabled style={{...acaoBtn('#7c3aed',true),fontSize:12}}>⏳ Preparando DOCX...</button>
         )}
+
+        {/* Salvar no CRM */}
         <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={acaoBtn('#10b981', salvandoCRM)}>
           {salvandoCRM ? '⏳...' : '💼 Salvar no CRM'}
         </button>
-        {isContrato ? (
-          <button onClick={handleEnviarAssinatura} disabled={enviandoAssComp} style={acaoBtn('#f59e0b', enviandoAssComp)}>
-            {enviandoAssComp ? '⏳ Gerando...' : '✍️ Enviar para Assinatura'}
-          </button>
-        ) : (
-          <button onClick={() => setShowEnvioOpcoes(v => !v)} style={acaoBtn('#10b981')}>
-            📤 Enviar para Cliente
-          </button>
-        )}
+
+        {/* Enviar para assinatura — aparece em AMBOS proposta e contrato */}
+        <button onClick={handleEnviarAssinatura} disabled={enviandoAssComp} style={acaoBtn('#f59e0b', enviandoAssComp)}>
+          {enviandoAssComp ? '⏳ Gerando...' : '✍️ Enviar p/ Assinatura'}
+        </button>
+
+        {/* Enviar proposta para cliente (WhatsApp/Email) */}
+        <button onClick={() => setShowEnvioOpcoes(v => !v)} style={acaoBtn('#25d366')}>
+          📤 Enviar para Cliente
+        </button>
+
         <div style={{ flex: 1 }} />
         <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.35)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
           ← Voltar ao Chat
         </button>
       </div>
 
-      {/* Painel de envio proposta */}
-      {!isContrato && showEnvioOpcoes && (
+      {/* Painel de envio (WhatsApp/Email direto) — ambos proposta e contrato */}
+      {showEnvioOpcoes && !linkAssinatura && (
         <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#64748b' }}>Enviar para:</span>
           <input
@@ -187,8 +205,8 @@ ${html}
         </div>
       )}
 
-      {/* Painel de opções de assinatura */}
-      {isContrato && showEnvioOpcoes && linkAssinatura && (
+      {/* Painel de link de assinatura — aparece após gerar link (proposta ou contrato) */}
+      {showEnvioOpcoes && linkAssinatura && (
         <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: '#64748b' }}>Link de assinatura:</span>
@@ -197,19 +215,18 @@ ${html}
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button onClick={() => {
-              const msg = encodeURIComponent(`📄 Olá ${clienteNome || 'cliente'}!\n\nSeu contrato está pronto para assinatura.\n\n${linkAssinatura}\n\n_Válido por 7 dias._`)
+              const docTipo = isContrato ? 'contrato' : 'proposta'
+              const msg = encodeURIComponent(`📄 Olá ${clienteNome || 'cliente'}!\n\nSeu ${docTipo} está pronto para assinatura.\n\n${linkAssinatura}\n\n_Válido por 7 dias._`)
               const tel = (clienteTel||'').replace(/\D/g,'')
               window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
             }} style={acaoBtn('#25d366')}>💬 Enviar via WhatsApp</button>
             <button onClick={() => {
-              const subj = encodeURIComponent(`Contrato para Assinatura – ${cfg.company || 'Vivanexa'}`)
-              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg.company || 'Vivanexa'}`)
+              const docTipo = isContrato ? 'Contrato' : 'Proposta'
+              const subj = encodeURIComponent(`${docTipo} para Assinatura – ${cfg.company || 'Vivanexa'}`)
+              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu ${docTipo.toLowerCase()} está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg.company || 'Vivanexa'}`)
               window.open(`mailto:${clienteEmail||''}?subject=${subj}&body=${body}`, '_blank')
             }} style={acaoBtn('#00d4ff')}>📧 Enviar por E-mail</button>
-            <button onClick={() => {
-              // Abrir link de assinatura nesta própria tela
-              window.open(linkAssinatura, '_blank')
-            }} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (esta tela)</button>
+            <button onClick={() => window.open(linkAssinatura, '_blank')} style={acaoBtn('#f59e0b')}>🖊 Assinar agora</button>
           </div>
         </div>
       )}
@@ -546,7 +563,9 @@ function buildProposal(S,cfg,user,templateOverride){
   // Prioridade: 1) templateOverride (passado por saveClient — sempre correto)
   // 2) cfg.propostaTemplate (legado) 3) cfg.docTemplates?.proposta (extra)
   let template = templateOverride || cfg.propostaTemplate || cfg.docTemplates?.proposta || ''
-  if (template && !template.startsWith('data:application')) {
+
+  // Se template existe e NÃO é DOCX (é HTML puro), substituir variáveis
+  if (template && !template.startsWith('data:application') && !(/^[A-Za-z0-9+/=]{500,}$/.test(template.slice(0,100)))) {
     const vars = {
       '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
       '{{razao}}': co.razao||cd.nome||'',
@@ -572,6 +591,9 @@ function buildProposal(S,cfg,user,templateOverride){
     return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">${template}</div>`
   }
 
+  // Se template é DOCX (base64) ou não existe: gerar preview HTML completo com todos os dados
+  // (O DOCX real é gerado separadamente via renderDocxBlob)
+  const planLabel = S.plan ? getPlanLabel(S.plan, cfg.plans) : '—'
   return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px">
     ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">`:`<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">${cfg.company||'Vivanexa'}</div>`}
@@ -700,7 +722,8 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
   // Prioridade: 1) templateOverride (passado por wizNext — sempre correto)
   // 2) cfg.contratoTemplate (legado) 3) cfg.docTemplates?.contrato (extra)
   let template = templateOverride || cfg.contratoTemplate || cfg.docTemplates?.contrato || ''
-  if (template && !template.startsWith('data:application')) {
+  const isDocxTpl = template && (template.startsWith('data:application/vnd') || template.startsWith('data:application/octet') || template.startsWith('data:application/zip') || (template.length > 500 && /^[A-Za-z0-9+/=]+$/.test(template.slice(0,100))))
+  if (template && !isDocxTpl) {
     const vars = {
       '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
       '{{razao}}': co.razao || cd.nome || '',
@@ -2032,11 +2055,27 @@ export default function Chat(){
               {crmAba==='negocio'&&<>
                 <div className="field"><label>Título do Negócio *</label><input style={inp} value={crmForm.titulo||''} onChange={e=>setF('titulo',e.target.value)} placeholder="Ex: Proposta – Empresa XYZ"/></div>
                 <div className="field"><label>Nome do Contato / Cliente *</label><input style={inp} value={crmForm.nome||''} onChange={e=>setF('nome',e.target.value)} placeholder="Nome completo ou empresa"/></div>
-                <div className="field"><label>Etapa do Funil</label>
-                  <select style={{...inp,cursor:'pointer'}} value={crmForm.etapa||''} onChange={e=>setF('etapa',e.target.value)}>
-                    {etapas.map(et=><option key={et.id} value={et.id}>{et.label}</option>)}
-                  </select>
+
+                {/* ── Seleção visual de etapa do funil ── */}
+                <div className="field">
+                  <label style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:8,letterSpacing:.5}}>ETAPA DO FUNIL</label>
+                  <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                    {etapas.map((et,idx)=>{
+                      const sel = crmForm.etapa === et.id
+                      const colors = ['#64748b','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#10b981']
+                      const cor = colors[idx % colors.length]
+                      return(
+                        <div key={et.id} onClick={()=>setF('etapa',et.id)}
+                          style={{display:'flex',alignItems:'center',gap:10,padding:'9px 14px',borderRadius:9,border:`1.5px solid ${sel?cor+'88':'var(--border)'}`,background:sel?cor+'18':'var(--surface2)',cursor:'pointer',transition:'all .15s'}}>
+                          <div style={{width:10,height:10,borderRadius:'50%',background:sel?cor:'var(--border)',transition:'all .15s',flexShrink:0}}/>
+                          <span style={{fontSize:13,color:sel?'var(--text)':'var(--muted)',fontWeight:sel?600:400}}>{et.label}</span>
+                          {sel&&<span style={{marginLeft:'auto',fontSize:10,color:cor,fontWeight:700,letterSpacing:.5}}>✓ SELECIONADO</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
+
                 {(crmForm.tAd>0||crmForm.tMen>0)&&(
                   <div style={{padding:'10px 14px',background:'rgba(0,212,255,.06)',border:'1px solid rgba(0,212,255,.15)',borderRadius:8,fontSize:13,color:'var(--muted)'}}>
                     💰 Adesão: <strong style={{color:'var(--accent)'}}>{fmt(crmForm.tAd||0)}</strong> · Mensalidade: <strong style={{color:'var(--accent)'}}>{fmt(crmForm.tMen||0)}</strong>
