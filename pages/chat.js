@@ -1063,122 +1063,130 @@ export default function Chat(){
 
   async function loadCfg(eid){
     try{
-      // Busca cfg principal E templates em chaves separadas em paralelo
-      const [cfgResult, tplPropostaResult, tplContratoResult] = await Promise.all([
-        supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).single(),
-        supabase.from('vx_storage').select('value').eq('key',`template:proposta:${eid}`).maybeSingle(),
-        supabase.from('vx_storage').select('value').eq('key',`template:contrato:${eid}`).maybeSingle(),
-      ])
-      if(cfgResult.data?.value){
-        const saved=JSON.parse(cfgResult.data.value)
-        const dt = saved.docTemplates || {}
-
-        // ── MIGRAÇÃO AUTOMÁTICA ──────────────────────────────────────
-        // Se o cfg principal ainda contém templates DOCX (arquitetura antiga),
-        // migra para chaves separadas e limpa o cfg para evitar 406 futuros.
-        const _isDocx = (t) => t && (
-          t.startsWith('data:application/vnd') ||
-          t.startsWith('data:application/octet') ||
-          t.startsWith('data:application/zip') ||
-          (t.length > 500 && /^[A-Za-z0-9+/=]+$/.test(t.slice(0,100)))
-        )
-        let cfgDirty = false  // sinaliza se o cfg precisa ser re-salvo limpo
-
-        // Template proposta: verificar se está no cfg e precisa migrar
-        const tplPropNoBanco = tplPropostaResult.data?.value || ''
-        const tplPropNoCfg = saved.propostaTemplate || dt.proposta || ''
-        let propostaTemplate = tplPropNoBanco  // prioridade: chave separada já migrada
-
-        if (!tplPropNoBanco && tplPropNoCfg && _isDocx(tplPropNoCfg)) {
-          // Migra: salva na chave separada
-          try {
-            await supabase.from('vx_storage').upsert({
-              key: `template:proposta:${eid}`,
-              value: tplPropNoCfg,
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'key' })
-            propostaTemplate = tplPropNoCfg
-            cfgDirty = true
-            console.log('✅ Template proposta migrado para chave separada')
-          } catch(me) { console.warn('Migração proposta falhou:', me) }
-        } else if (!tplPropNoBanco) {
-          propostaTemplate = tplPropNoCfg  // HTML pequeno: usa do cfg diretamente
-        }
-
-        // Template contrato: idem
-        const tplContNoBanco = tplContratoResult.data?.value || ''
-        const tplContNoCfg = saved.contratoTemplate || dt.contrato || ''
-        let contratoTemplate = tplContNoBanco
-
-        if (!tplContNoBanco && tplContNoCfg && _isDocx(tplContNoCfg)) {
-          try {
-            await supabase.from('vx_storage').upsert({
-              key: `template:contrato:${eid}`,
-              value: tplContNoCfg,
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'key' })
-            contratoTemplate = tplContNoCfg
-            cfgDirty = true
-            console.log('✅ Template contrato migrado para chave separada')
-          } catch(me) { console.warn('Migração contrato falhou:', me) }
-        } else if (!tplContNoBanco) {
-          contratoTemplate = tplContNoCfg
-        }
-
-        // Se houve migração, re-salva o cfg SEM os templates para não ter 406 no futuro
-        if (cfgDirty) {
-          try {
-            const cfgLimpo = { ...saved }
-            delete cfgLimpo.propostaTemplate
-            delete cfgLimpo.contratoTemplate
-            if (cfgLimpo.docTemplates) {
-              cfgLimpo.docTemplates = {
-                propostaTipo: cfgLimpo.docTemplates.propostaTipo || 'docx',
-                contratoTipo: cfgLimpo.docTemplates.contratoTipo || 'docx',
-                proposta: '',  // limpo — real está na chave separada
-                contrato: '',
-              }
-            }
-            await supabase.from('vx_storage').upsert({
-              key: `cfg:${eid}`,
-              value: JSON.stringify(cfgLimpo),
-              updated_at: new Date().toISOString()
-            }, { onConflict: 'key' })
-            console.log('✅ cfg limpo (templates removidos do JSON principal)')
-          } catch(ce) { console.warn('Limpeza cfg falhou:', ce) }
-        }
-        // ── FIM MIGRAÇÃO ─────────────────────────────────────────────
-
-        const _detectTipo = (tmpl, savedTipo) => {
-          if (savedTipo === 'docx') return 'docx'
-          if (!tmpl) return 'html'
-          if (tmpl.startsWith('data:application/vnd') || tmpl.startsWith('data:application/octet') || tmpl.startsWith('data:application/zip')) return 'docx'
-          if (tmpl.length > 500 && /^[A-Za-z0-9+/=]+$/.test(tmpl.slice(0,100))) return 'docx'
-          return 'html'
-        }
-        const propostaTipo = _detectTipo(propostaTemplate, saved.propostaTipo || dt.propostaTipo)
-        const contratoTipo = _detectTipo(contratoTemplate, saved.contratoTipo || dt.contratoTipo)
-        const merged={
-          ...DEFAULT_CFG,
-          ...saved,
-          plans:saved.plans?.length?saved.plans:DEFAULT_CFG.plans,
-          prices:Object.keys(saved.prices||{}).length?saved.prices:DEFAULT_CFG.prices,
-          propostaTemplate,
-          contratoTemplate,
-          propostaTipo,
-          contratoTipo,
-          docTemplates: {
-            ...dt,
-            proposta: propostaTemplate,
-            contrato: contratoTemplate,
-            propostaTipo,
-            contratoTipo,
+      // ── Helpers ─────────────────────────────────────────────────
+      const _isDocx = (t) => !!(t && (
+        t.startsWith('data:application/vnd') ||
+        t.startsWith('data:application/octet') ||
+        t.startsWith('data:application/zip') ||
+        (t.length > 500 && /^[A-Za-z0-9+/=]+$/.test(t.slice(0, 100)))
+      ))
+      const _detectTipo = (tmpl, hint) => {
+        if (hint === 'docx' || _isDocx(tmpl)) return 'docx'
+        return 'html'
+      }
+      // Remove qualquer base64 DOCX de um objeto cfg recursivamente
+      const _stripDocx = (obj) => {
+        if (!obj || typeof obj !== 'object') return obj
+        const out = {}
+        for (const [k, v] of Object.entries(obj)) {
+          if (typeof v === 'string' && _isDocx(v)) {
+            out[k] = ''  // substitui DOCX por string vazia
+          } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+            out[k] = _stripDocx(v)
+          } else {
+            out[k] = v
           }
         }
-        cfgRef.current=merged
-        setCfg(merged)
+        return out
       }
-    }catch(e){ console.warn('loadCfg error:',e) }
+
+      // ── Busca cfg + templates separados em paralelo ──────────────
+      const [cfgResult, tplPropResult, tplContResult] = await Promise.all([
+        supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single(),
+        supabase.from('vx_storage').select('value').eq('key', `template:proposta:${eid}`).maybeSingle(),
+        supabase.from('vx_storage').select('value').eq('key', `template:contrato:${eid}`).maybeSingle(),
+      ])
+
+      if (!cfgResult.data?.value) { setCfgLoaded(true); return }
+
+      const saved = JSON.parse(cfgResult.data.value)
+      const dt = saved.docTemplates || {}
+
+      // ── Coleta templates de todas as fontes ──────────────────────
+      // Chave separada tem prioridade; depois cfg legado; depois docTemplates
+      const tplPropSeparado = tplPropResult.data?.value || ''
+      const tplContSeparado = tplContResult.data?.value || ''
+      const tplPropCfg = saved.propostaTemplate || dt.proposta || ''
+      const tplContCfg = saved.contratoTemplate || dt.contrato || ''
+
+      // Template final para uso em memória
+      let propostaTemplate = tplPropSeparado || tplPropCfg
+      let contratoTemplate = tplContSeparado || tplContCfg
+
+      // ── MIGRAÇÃO: move DOCX do cfg → chaves separadas ────────────
+      let needClean = false
+
+      if (!tplPropSeparado && _isDocx(tplPropCfg)) {
+        const { error } = await supabase.from('vx_storage').upsert(
+          { key: `template:proposta:${eid}`, value: tplPropCfg, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+        if (!error) { needClean = true; console.log('✅ Proposta migrada') }
+        else { console.warn('Migração proposta err:', error) }
+      }
+
+      if (!tplContSeparado && _isDocx(tplContCfg)) {
+        const { error } = await supabase.from('vx_storage').upsert(
+          { key: `template:contrato:${eid}`, value: tplContCfg, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+        if (!error) { needClean = true; console.log('✅ Contrato migrado') }
+        else { console.warn('Migração contrato err:', error) }
+      }
+
+      // ── LIMPEZA: remove qualquer DOCX do JSON cfg principal ──────
+      // Faz isso SEMPRE que detectar DOCX no cfg (independente de migração)
+      const temDocxNoCfg = _isDocx(tplPropCfg) || _isDocx(tplContCfg)
+      if (needClean || temDocxNoCfg) {
+        const cfgLimpo = _stripDocx({ ...saved })
+        // Garante que docTemplates fica com apenas tipos (sem base64)
+        cfgLimpo.docTemplates = {
+          propostaTipo: dt.propostaTipo || (propostaTemplate ? _detectTipo(propostaTemplate) : 'html'),
+          contratoTipo: dt.contratoTipo || (contratoTemplate ? _detectTipo(contratoTemplate) : 'html'),
+          proposta: '',
+          contrato: '',
+        }
+        delete cfgLimpo.propostaTemplate
+        delete cfgLimpo.contratoTemplate
+
+        const { error: cleanErr } = await supabase.from('vx_storage').upsert(
+          { key: `cfg:${eid}`, value: JSON.stringify(cfgLimpo), updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+        if (!cleanErr) console.log('✅ cfg limpo no Supabase (sem DOCX)')
+        else console.warn('Limpeza cfg err:', cleanErr)
+      }
+
+      // ── Monta merged para uso em memória ─────────────────────────
+      const propostaTipo = _detectTipo(propostaTemplate, dt.propostaTipo || saved.propostaTipo)
+      const contratoTipo = _detectTipo(contratoTemplate, dt.contratoTipo || saved.contratoTipo)
+
+      // saved pode ainda ter os campos base64 em memória — limpa antes do merge
+      const savedLimpo = _stripDocx({ ...saved })
+      delete savedLimpo.propostaTemplate
+      delete savedLimpo.contratoTemplate
+
+      const merged = {
+        ...DEFAULT_CFG,
+        ...savedLimpo,
+        plans: saved.plans?.length ? saved.plans : DEFAULT_CFG.plans,
+        prices: Object.keys(saved.prices || {}).length ? saved.prices : DEFAULT_CFG.prices,
+        // Templates reais apenas em memória — nunca volta pro banco
+        propostaTemplate,
+        contratoTemplate,
+        propostaTipo,
+        contratoTipo,
+        docTemplates: {
+          proposta: propostaTemplate,
+          contrato: contratoTemplate,
+          propostaTipo,
+          contratoTipo,
+        },
+      }
+
+      cfgRef.current = merged
+      setCfg(merged)
+    } catch(e) { console.warn('loadCfg error:', e) }
     setCfgLoaded(true)
   }
 
