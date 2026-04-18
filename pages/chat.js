@@ -2073,5 +2073,4 @@ const CSS=`
   .date-inp:focus{border-color:var(--accent)}
 `
 
-// APENAS UMA EXPORTAÇÃO DEFAULT
-export default Chat
+
