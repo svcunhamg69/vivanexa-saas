@@ -1135,7 +1135,7 @@ export default function Chat(){
       // Faz isso SEMPRE que detectar DOCX no cfg (independente de migração)
       const temDocxNoCfg = _isDocxStr(tplPropCfg) || _isDocxStr(tplContCfg)
       if (needClean || temDocxNoCfg) {
-        const cfgLimpo = _stripDocx({ ...saved })
+        const cfgLimpo = stripDocxFromObj({ ...saved })
         // Garante que docTemplates fica com apenas tipos (sem base64)
         cfgLimpo.docTemplates = {
           propostaTipo: dt.propostaTipo || (propostaTemplate ? _detectTipo(propostaTemplate) : 'html'),
