@@ -506,9 +506,21 @@ async function renderDocxBlob(templateBase64, variaveis) {
     return bytes
   }
 
+  // O Word às vezes divide tags {{var}} em múltiplos runs de XML
+  // ex: {{pla</w:t><w:t>no}} → causa "Duplicate close tag"
+  // A opção linebreaks:true + parser tolerante resolve isso
   const tryRender = (delimiters) => {
     const zip = new PizZip(toBytes(templateBase64).buffer)
-    const opts = { paragraphLoop: true, nullGetter: () => '' }
+    const opts = {
+      paragraphLoop: true,
+      linebreaks: true,
+      nullGetter: () => '',
+      // Parser tolerante: nunca lança erro para variável desconhecida
+      parser: (tag) => ({ get: (scope) => {
+        const val = tag.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), scope)
+        return val !== undefined ? val : ''
+      }})
+    }
     if (delimiters) opts.delimiters = delimiters
     const doc = new Docxtemplater(zip, opts)
     doc.render(variaveis)
@@ -519,12 +531,13 @@ async function renderDocxBlob(templateBase64, variaveis) {
     })
   }
 
-  // Tenta delimitadores padrão {var} primeiro (correto para Word)
+  // Tenta delimitadores padrão {var} primeiro, depois {{var}}, depois sem substituição
   try { return tryRender(null) } catch(e1) {
-    // Tenta {{var}}
     try { return tryRender({ start: '{{', end: '}}' }) } catch(e2) {
-      console.warn('Ambos delimitadores falharam, usando template sem substituição:', e2)
-      return tryRender(null) // último recurso
+      console.warn('Ambos delimitadores falharam, baixando template sem substituição:', e2)
+      // Fallback: retorna o template original sem substituição
+      const bytes = toBytes(templateBase64)
+      return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
     }
   }
 }
@@ -560,17 +573,22 @@ function buildProposal(S,cfg,user,templateOverride){
   const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
   const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
   const results=isC?S.closingData?.results:S.quoteData?.results
+  // Plano com fallback seguro — nunca deixa 'undefined' aparecer
+  const plans=cfg.plans?.length?cfg.plans:DEFAULT_CFG.plans
+  const planLabel=S.plan?getPlanLabel(S.plan,plans)||S.plan:'—'
   const rows=(results||[]).map(r=>{
     const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:r.adD)
-    return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,cfg.plans)}</div>`:''}<\/td><td style="padding:10px 14px;text-align:center">${adS}<\/td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}<\/td>`
+    return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,plans)||r.plan}</div>`:''}<\/td><td style="padding:10px 14px;text-align:center">${adS}<\/td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}<\/td>`
   }).join('')
   const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
   const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
 
-  // Prioridade: 1) templateOverride (passado por saveClient — sempre correto)
-  // 2) cfg.propostaTemplate (legado) 3) cfg.docTemplates?.proposta (extra)
+  // Prioridade: templateOverride > cfg.propostaTemplate > cfg.docTemplates?.proposta
+  // Se for DOCX (data:application...), ignora e usa HTML hardcoded como preview
   let template = templateOverride || cfg.propostaTemplate || cfg.docTemplates?.proposta || ''
-  if (template && !template.startsWith('data:application')) {
+  const isDocxTpl = _isDocxStr(template)
+  if (template && !isDocxTpl) {
+    // Template HTML: substitui variáveis
     const vars = {
       '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
       '{{razao}}': co.razao||cd.nome||'',
@@ -580,10 +598,11 @@ function buildProposal(S,cfg,user,templateOverride){
       '{{telefone}}': co.telefone||cd.telefone||'',
       '{{cidade}}': co.cidade||cd.municipio||'',
       '{{uf}}': co.uf||cd.uf||'',
-      '{{plano}}': S.plan?getPlanLabel(S.plan,cfg.plans):'—',
-      '{{cnpjs_qty}}': S.cnpjs||'0',
+      '{{plano}}': planLabel,
+      '{{cnpjs_qty}}': String(S.cnpjs||'0'),
       '{{total_adesao}}': fmt(tAd),
       '{{total_mensalidade}}': fmt(tMen),
+      '{{total_mensal}}': fmt(tMen),
       '{{data_hoje}}': today,
       '{{consultor_nome}}': user?.nome||'',
       '{{consultor_tel}}': user?.perfil?.telefone || user?.telefone || '',
@@ -591,7 +610,7 @@ function buildProposal(S,cfg,user,templateOverride){
       '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th><\/tr><\/thead><tbody>${rows}<\/tbody><\/table>`
     }
     for (const [k, v] of Object.entries(vars)) {
-      template = template.replace(new RegExp(k, 'g'), v)
+      template = template.replace(new RegExp(k.replace(/[{}]/g,'\\$&'), 'g'), v)
     }
     return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">${template}</div>`
   }
@@ -603,7 +622,7 @@ function buildProposal(S,cfg,user,templateOverride){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Data</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${today}</div></div>
       <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Validade</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${isC?'Válida até as 18h de hoje':'Válida por 7 dias'}</div></div>
-      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Plano</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${S.plan?getPlanLabel(S.plan,cfg.plans):'—'}</div></div>
+      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Plano</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${planLabel}</div></div>
       <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">CNPJs</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${S.cnpjs||'—'}</div></div>
     </div>
   </div>
@@ -650,6 +669,9 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
   const now = new Date().toLocaleString('pt-BR')
   const isC = S.closingToday === true
   const results = isC ? S.closingData?.results : S.quoteData?.results
+  // Plano com fallback seguro
+  const plans = cfg.plans?.length ? cfg.plans : DEFAULT_CFG.plans
+  const planLabel = S.plan ? (getPlanLabel(S.plan, plans) || S.plan) : '—'
 
   const payLabel =
     payMethod === 'pix'
@@ -664,7 +686,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
     .map(r => {
       const adS = r.isTributos || r.isEP ? '—' : fmt(isC ? r.ad : r.adD || 0)
       const menS = fmt(isC ? r.men : r.menD || r.men || 0)
-      const planoNome = r.plan ? getPlanLabel(r.plan, cfg.plans) : ''
+      const planoNome = r.plan ? (getPlanLabel(r.plan, plans) || r.plan) : ''
       return `
       <div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px">
         <div style="font-weight:600;margin-bottom:6px">${r.name}${planoNome ? `<span style="font-size:11px;color:#64748b;margin-left:6px">(Plano ${planoNome})</span>` : ''}</div>
@@ -721,10 +743,10 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
     </div>
   </div>`
 
-  // Prioridade: 1) templateOverride (passado por wizNext — sempre correto)
-  // 2) cfg.contratoTemplate (legado) 3) cfg.docTemplates?.contrato (extra)
+  // Template: usa DOCX ou HTML. Se DOCX, apenas gera HTML hardcoded como preview.
   let template = templateOverride || cfg.contratoTemplate || cfg.docTemplates?.contrato || ''
-  if (template && !template.startsWith('data:application')) {
+  const isDocxTpl = _isDocxStr(template)
+  if (template && !isDocxTpl) {
     const vars = {
       '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
       '{{razao}}': co.razao || cd.nome || '',
@@ -734,10 +756,11 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
       '{{telefone}}': co.telefone || cd.telefone || '',
       '{{endereco}}': endStr,
       '{{regime}}': co.regime || '',
-      '{{plano}}': S.plan ? getPlanLabel(S.plan, cfg.plans) : '—',
-      '{{cnpjs_qty}}': S.cnpjs || '0',
+      '{{plano}}': planLabel,
+      '{{cnpjs_qty}}': String(S.cnpjs || '0'),
       '{{total_adesao}}': fmt(tAd),
       '{{total_mensalidade}}': fmt(tMen),
+      '{{total_mensal}}': fmt(tMen),
       '{{condicao_pagamento}}': payLabel,
       '{{vencimento_adesao}}': dateAd || '—',
       '{{vencimento_mensal}}': dateMen || '—',
@@ -757,7 +780,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
       '{{telefone_implementacao}}': co.rimpTel || '',
     }
     for (const [k, v] of Object.entries(vars)) {
-      template = template.replace(new RegExp(k, 'g'), v)
+      template = template.replace(new RegExp(k.replace(/[{}]/g,'\\$&'), 'g'), v)
     }
     if (!template.includes('MANIFESTO DE ASSINATURAS')) {
       template += manifesto
@@ -938,7 +961,7 @@ function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='
     telefone_financeiro: co.rfinTel   || '',
 
     // Produtos e Serviços
-    plano:              S.plan ? getPlanLabel(S.plan, c.plans) : '—',
+    plano:              S.plan ? (getPlanLabel(S.plan, c.plans?.length ? c.plans : DEFAULT_CFG.plans) || S.plan) : '—',
     cnpjs_qty:          String(S.cnpjs || ''),
     total_adesao:       fmt(tAd),
     total_mensalidade:  fmt(tMen),
