@@ -529,6 +529,30 @@ async function renderDocxBlob(templateBase64, variaveis) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// STRIP DOCX — remove base64 DOCX de qualquer objeto recursivamente
+// Usado antes de qualquer upsert no Supabase para evitar 406
+// ══════════════════════════════════════════════════════════════
+function _isDocxStr(t) {
+  return !!(t && typeof t === 'string' && (
+    t.startsWith('data:application/vnd') ||
+    t.startsWith('data:application/octet') ||
+    t.startsWith('data:application/zip') ||
+    (t.length > 500 && /^[A-Za-z0-9+/=]+$/.test(t.slice(0, 100)))
+  ))
+}
+function stripDocxFromObj(obj) {
+  if (!obj || typeof obj !== 'object') return obj
+  if (Array.isArray(obj)) return obj.map(stripDocxFromObj)
+  const out = {}
+  for (const [k, v] of Object.entries(obj)) {
+    if (_isDocxStr(v)) out[k] = ''
+    else if (v && typeof v === 'object') out[k] = stripDocxFromObj(v)
+    else out[k] = v
+  }
+  return out
+}
+
 // ── Build Proposta (com suporte a template) ──────────────────
 function buildProposal(S,cfg,user,templateOverride){
   const isC=S.closingToday===true,cd=S.clientData||{},co=S.contactData||{}
@@ -1063,33 +1087,6 @@ export default function Chat(){
 
   async function loadCfg(eid){
     try{
-      // ── Helpers ─────────────────────────────────────────────────
-      const _isDocx = (t) => !!(t && (
-        t.startsWith('data:application/vnd') ||
-        t.startsWith('data:application/octet') ||
-        t.startsWith('data:application/zip') ||
-        (t.length > 500 && /^[A-Za-z0-9+/=]+$/.test(t.slice(0, 100)))
-      ))
-      const _detectTipo = (tmpl, hint) => {
-        if (hint === 'docx' || _isDocx(tmpl)) return 'docx'
-        return 'html'
-      }
-      // Remove qualquer base64 DOCX de um objeto cfg recursivamente
-      const _stripDocx = (obj) => {
-        if (!obj || typeof obj !== 'object') return obj
-        const out = {}
-        for (const [k, v] of Object.entries(obj)) {
-          if (typeof v === 'string' && _isDocx(v)) {
-            out[k] = ''  // substitui DOCX por string vazia
-          } else if (v && typeof v === 'object' && !Array.isArray(v)) {
-            out[k] = _stripDocx(v)
-          } else {
-            out[k] = v
-          }
-        }
-        return out
-      }
-
       // ── Busca cfg + templates separados em paralelo ──────────────
       const [cfgResult, tplPropResult, tplContResult] = await Promise.all([
         supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single(),
@@ -1116,7 +1113,7 @@ export default function Chat(){
       // ── MIGRAÇÃO: move DOCX do cfg → chaves separadas ────────────
       let needClean = false
 
-      if (!tplPropSeparado && _isDocx(tplPropCfg)) {
+      if (!tplPropSeparado && _isDocxStr(tplPropCfg)) {
         const { error } = await supabase.from('vx_storage').upsert(
           { key: `template:proposta:${eid}`, value: tplPropCfg, updated_at: new Date().toISOString() },
           { onConflict: 'key' }
@@ -1125,7 +1122,7 @@ export default function Chat(){
         else { console.warn('Migração proposta err:', error) }
       }
 
-      if (!tplContSeparado && _isDocx(tplContCfg)) {
+      if (!tplContSeparado && _isDocxStr(tplContCfg)) {
         const { error } = await supabase.from('vx_storage').upsert(
           { key: `template:contrato:${eid}`, value: tplContCfg, updated_at: new Date().toISOString() },
           { onConflict: 'key' }
@@ -1136,7 +1133,7 @@ export default function Chat(){
 
       // ── LIMPEZA: remove qualquer DOCX do JSON cfg principal ──────
       // Faz isso SEMPRE que detectar DOCX no cfg (independente de migração)
-      const temDocxNoCfg = _isDocx(tplPropCfg) || _isDocx(tplContCfg)
+      const temDocxNoCfg = _isDocxStr(tplPropCfg) || _isDocxStr(tplContCfg)
       if (needClean || temDocxNoCfg) {
         const cfgLimpo = _stripDocx({ ...saved })
         // Garante que docTemplates fica com apenas tipos (sem base64)
@@ -1158,11 +1155,15 @@ export default function Chat(){
       }
 
       // ── Monta merged para uso em memória ─────────────────────────
+      const _detectTipo = (tmpl, hint) => {
+        if (hint === 'docx' || _isDocxStr(tmpl)) return 'docx'
+        return 'html'
+      }
       const propostaTipo = _detectTipo(propostaTemplate, dt.propostaTipo || saved.propostaTipo)
       const contratoTipo = _detectTipo(contratoTemplate, dt.contratoTipo || saved.contratoTipo)
 
       // saved pode ainda ter os campos base64 em memória — limpa antes do merge
-      const savedLimpo = _stripDocx({ ...saved })
+      const savedLimpo = stripDocxFromObj({ ...saved })
       delete savedLimpo.propostaTemplate
       delete savedLimpo.contratoTemplate
 
@@ -1240,7 +1241,17 @@ export default function Chat(){
 
     try{
       const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
-      const cfgData=cfgRow?.value?JSON.parse(cfgRow.value):{...c}
+      // CRÍTICO: se cfgRow é null, usa c mas SEM os templates DOCX em memória
+      // (nunca usar {...c} diretamente pois c tem propostaTemplate/contratoTemplate em memória)
+      let cfgData
+      if(cfgRow?.value){
+        cfgData = JSON.parse(cfgRow.value)
+      } else {
+        // Cria um cfg base sem templates para não re-introduzir DOCX no banco
+        cfgData = stripDocxFromObj({...c})
+        delete cfgData.propostaTemplate
+        delete cfgData.contratoTemplate
+      }
       if(!cfgData.docHistory)cfgData.docHistory=[]
       cfgData.docHistory.unshift(entry)
       if(cfgData.docHistory.length>200)cfgData.docHistory=cfgData.docHistory.slice(0,200)
@@ -1276,9 +1287,7 @@ export default function Chat(){
           }
         }
       }
-      // ── CRÍTICO: preservar templates em memória mas NUNCA salvar base64 DOCX no cfg principal
-      // Templates DOCX são grandes (>30KB) e causam 406 no Supabase quando dentro do JSON cfg
-      // Eles vivem apenas em: chaves separadas (template:proposta:eid) ou em memória (cfgRef)
+      // Salvar templates em memória para restaurar no cfgRef após o save
       const templatesEmMemoria = {
         propostaTemplate: cfgRef.current.propostaTemplate || '',
         contratoTemplate: cfgRef.current.contratoTemplate || '',
@@ -1286,21 +1295,20 @@ export default function Chat(){
         contratoTipo: cfgRef.current.contratoTipo || 'html',
         docTemplates: cfgRef.current.docTemplates || {},
       }
-      // Remover templates do cfgData para evitar JSON gigante → 406 no Supabase
-      const cfgParaSalvar = { ...cfgData }
+      // Limpa QUALQUER base64 DOCX do cfgData antes de salvar (segurança total)
+      const cfgParaSalvar = stripDocxFromObj(cfgData)
       delete cfgParaSalvar.propostaTemplate
       delete cfgParaSalvar.contratoTemplate
-      if (cfgParaSalvar.docTemplates) {
+      if(cfgParaSalvar.docTemplates){
         cfgParaSalvar.docTemplates = {
           propostaTipo: cfgParaSalvar.docTemplates.propostaTipo || 'html',
           contratoTipo: cfgParaSalvar.docTemplates.contratoTipo || 'html',
-          // Mantém templates HTML pequenos, remove DOCX grandes
-          proposta: detectarTipoTemplate(cfgParaSalvar.docTemplates.proposta) === 'docx' ? '' : (cfgParaSalvar.docTemplates.proposta || ''),
-          contrato: detectarTipoTemplate(cfgParaSalvar.docTemplates.contrato) === 'docx' ? '' : (cfgParaSalvar.docTemplates.contrato || ''),
+          proposta: '',
+          contrato: '',
         }
       }
       await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(cfgParaSalvar),updated_at:new Date().toISOString()})
-      // cfgRef em memória recebe os dados do banco + templates preservados da sessão
+      // cfgRef em memória = banco limpo + templates da sessão
       const mergedCfg = { ...cfgParaSalvar, ...templatesEmMemoria }
       cfgRef.current=mergedCfg;setCfg(mergedCfg)
     }catch(e){console.warn(e)}
