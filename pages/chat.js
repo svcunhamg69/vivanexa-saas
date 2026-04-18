@@ -1154,6 +1154,13 @@ export default function Chat(){
         else { console.warn('Migração contrato err:', error) }
       }
 
+      // ── _detectTipo: DEVE ser declarado ANTES de qualquer uso ────
+      // (era declarado depois, causando ReferenceError com const)
+      const _detectTipo = (tmpl, hint) => {
+        if (hint === 'docx' || _isDocxStr(tmpl)) return 'docx'
+        return 'html'
+      }
+
       // ── LIMPEZA: remove qualquer DOCX do JSON cfg principal ──────
       // Faz isso SEMPRE que detectar DOCX no cfg (independente de migração)
       const temDocxNoCfg = _isDocxStr(tplPropCfg) || _isDocxStr(tplContCfg)
@@ -1178,10 +1185,6 @@ export default function Chat(){
       }
 
       // ── Monta merged para uso em memória ─────────────────────────
-      const _detectTipo = (tmpl, hint) => {
-        if (hint === 'docx' || _isDocxStr(tmpl)) return 'docx'
-        return 'html'
-      }
       const propostaTipo = _detectTipo(propostaTemplate, dt.propostaTipo || saved.propostaTipo)
       const contratoTipo = _detectTipo(contratoTemplate, dt.contratoTipo || saved.contratoTipo)
 
