@@ -1,7 +1,8 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v8 (COMPLETO)
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v9
 // ============================================================
-// v8 CORREÇÕES:
+// v9 CORREÇÕES:
 // • Preview HTML SEMPRE exibido, mesmo para templates DOCX
+// • Renderização de DOCX via docx-preview (visualização fiel)
 // • Botões: imprimir, salvar CRM, enviar assinatura, voltar
 // • Assinatura: token salvo, link funcional, IP do cliente
 // • CRM: modal completo com busca CNPJ e etapas do funil
@@ -12,9 +13,10 @@ import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
+import { renderAsync } from 'docx-preview'
 
 // ══════════════════════════════════════════════════════════════
-// COMPONENTE DocumentoPreviewModal — v8 (exibe HTML sempre)
+// COMPONENTE DocumentoPreviewModal — v9 (renderiza DOCX na tela)
 // ══════════════════════════════════════════════════════════════
 function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {
   const [enviandoAss,    setEnviandoAss]    = useState(false)
@@ -24,6 +26,8 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
   const [emailEnvio,     setEmailEnvio]      = useState('')
   const [salvandoCRM,    setSalvandoCRM]     = useState(false)
   const [docxBaixado,    setDocxBaixado]     = useState(false)
+  const [renderizandoDocx, setRenderizandoDocx] = useState(false)
+  const docxPreviewRef = useRef(null)
 
   if (!docPreview) return null
 
@@ -32,11 +36,26 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
 
   if (!emailEnvio && clienteEmail) setEmailEnvio(clienteEmail)
 
+  // Renderiza o DOCX quando o blob estiver disponível
+  useEffect(() => {
+    if (hasDocx && window._vxDocxBlob?.blob && docxPreviewRef.current) {
+      setRenderizandoDocx(true)
+      renderAsync(window._vxDocxBlob.blob, docxPreviewRef.current)
+        .then(() => setRenderizandoDocx(false))
+        .catch(err => { console.error('Erro ao renderizar DOCX:', err); setRenderizandoDocx(false) })
+    }
+  }, [hasDocx, window._vxDocxBlob])
+
   function handleImprimir() {
-    if (!html) return
-    const win = window.open('', '_blank', 'width=900,height=700')
-    if (!win) { alert('Permita popups neste site.'); return }
-    win.document.write(`<!DOCTYPE html>
+    if (hasDocx && window._vxDocxBlob?.blob) {
+      // Abre o DOCX em nova aba para impressão (funciona se o navegador tiver plugin)
+      const url = URL.createObjectURL(window._vxDocxBlob.blob)
+      window.open(url, '_blank')
+      URL.revokeObjectURL(url)
+    } else if (html) {
+      const win = window.open('', '_blank', 'width=900,height=700')
+      if (!win) { alert('Permita popups neste site.'); return }
+      win.document.write(`<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <title>${isContrato ? 'Contrato' : 'Proposta'}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
@@ -49,9 +68,10 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
 <button class="print-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
 ${html}
 </body></html>`)
-    win.document.close()
-    win.focus()
-    setTimeout(() => win.print(), 800)
+      win.document.close()
+      win.focus()
+      setTimeout(() => win.print(), 800)
+    }
   }
 
   function handleBaixarDocx() {
@@ -67,7 +87,7 @@ ${html}
       setDocxBaixado(true)
       setMsgEnvio('✅ DOCX baixado com sucesso!')
     } else {
-      setMsgEnvio('⏳ Arquivo DOCX ainda sendo gerado. Aguarde 2 segundos e tente novamente.')
+      setMsgEnvio('⏳ Arquivo DOCX ainda não disponível. Aguarde um momento.')
     }
   }
 
@@ -160,6 +180,7 @@ ${html}
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Barra de ações */}
       <div style={{ background: '#0a0f1e', borderBottom: '1px solid #1e2d4a', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', flexShrink: 0, flexWrap: 'wrap' }}>
         <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 15, marginRight: 8 }}>
           {isContrato ? '📄 Contrato' : '📋 Proposta'} gerado
@@ -184,6 +205,7 @@ ${html}
         </button>
       </div>
 
+      {/* Painel envio proposta */}
       {!isContrato && showEnvioOpc && (
         <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#64748b' }}>Enviar para:</span>
@@ -194,6 +216,7 @@ ${html}
         </div>
       )}
 
+      {/* Painel assinatura contrato */}
       {isContrato && showEnvioOpc && linkAssinatura && (
         <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -218,19 +241,25 @@ ${html}
         </div>
       )}
 
+      {/* Status */}
       {msgEnvio && (
         <div style={{ padding: '10px 20px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444' }}>
           {msgEnvio}
         </div>
       )}
 
+      {/* Preview do documento — com suporte a DOCX via docx-preview */}
       <div style={{ flex: 1, overflow: 'auto', padding: 24, background: '#f0f4f8' }}>
         <div style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}>
-          {html ? (
+          {hasDocx ? (
+            <div ref={docxPreviewRef} style={{ padding: 20 }}>
+              {renderizandoDocx && <div style={{ textAlign: 'center', padding: 40 }}>⏳ Carregando visualização do documento...</div>}
+            </div>
+          ) : html ? (
             <div dangerouslySetInnerHTML={{ __html: html }} />
           ) : (
             <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
-              Nenhum conteúdo HTML disponível. Configure um template HTML em Configurações → Documentos.
+              Nenhum conteúdo disponível. Configure um template HTML ou DOCX em Configurações → Documentos.
             </div>
           )}
         </div>
@@ -240,7 +269,7 @@ ${html}
 }
 
 // ══════════════════════════════════════════════════════════════
-// Config padrão e utilitários
+// CONFIGURAÇÕES PADRÃO E UTILITÁRIOS (mantidos do original)
 // ══════════════════════════════════════════════════════════════
 
 const DEFAULT_CFG = {
@@ -571,7 +600,7 @@ function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='
 }
 
 // ============================================================
-// FUNÇÕES BUILD (SEMPRE RETORNAM HTML)
+// FUNÇÕES BUILD (SEMPRE RETORNAM HTML FALLBACK QUANDO DOCX)
 // ============================================================
 function buildProposal(S, cfg, user) {
   const template = cfg.propostaTemplate || cfg.docTemplates?.proposta || ''
@@ -618,7 +647,7 @@ function buildProposal(S, cfg, user) {
     return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">${out}</div>`
   }
   
-  // Fallback HTML
+  // Fallback HTML (usado quando template é DOCX)
   return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;padding:24px">
     <h2 style="color:#0f172a;margin-bottom:12px">📋 Proposta Comercial</h2>
     <div><strong>Empresa:</strong> ${vars['{{empresa}}']}</div>
@@ -749,7 +778,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
     return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">${out}</div>`
   }
   
-  // Fallback HTML
+  // Fallback HTML (usado quando template é DOCX)
   return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;padding:24px">
     <h2 style="color:#0f172a;margin-bottom:12px">📝 Contrato</h2>
     <div><strong>Empresa:</strong> ${vars['{{empresa}}']}</div>
@@ -779,7 +808,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
 }
 
 // ══════════════════════════════════════════════════════════════
-// COMPONENTE PRINCIPAL — Chat v8 (restante)
+// COMPONENTE PRINCIPAL — Chat v9 (restante, igual ao original)
 // ══════════════════════════════════════════════════════════════
 
 export default function Chat(){
@@ -1406,7 +1435,7 @@ export default function Chat(){
   if(!userProfile)return<div style={{background:'#0a0f1e',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'#64748b',fontFamily:'DM Mono,monospace'}}>Carregando...</div>
 
   // ══════════════════════════════════════════════════════════
-  // MODAL CRM
+  // MODAL CRM (igual ao original)
   // ══════════════════════════════════════════════════════════
   async function buscarCNPJCRM() {
     const cnpj = (crmForm.cnpj||'').replace(/\D/g,'')
@@ -1602,7 +1631,7 @@ export default function Chat(){
   }
 
   // ══════════════════════════════════════════════════════════
-  // PAINEL LATERAL (Histórico / Assinaturas)
+  // PAINEL LATERAL (Histórico / Assinaturas) — igual ao original
   // ══════════════════════════════════════════════════════════
   const renderPainel=()=>{
     if(!painel)return null
@@ -1728,7 +1757,7 @@ export default function Chat(){
   }
 
   // ══════════════════════════════════════════════════════════
-  // RENDER PRINCIPAL
+  // RENDER PRINCIPAL (com todos os modais)
   // ══════════════════════════════════════════════════════════
   return(<>
     <Head>
@@ -1781,6 +1810,7 @@ export default function Chat(){
         docPreview={docPreview}
         onClose={() => {
           setDocPreview(null)
+          window._vxDocxBlob = null
           const tipo = docPreview.tipo === 'contrato' ? 'Contrato' : 'Proposta'
           setTimeout(() => addBot(`✅ ${tipo} fechado! Voltamos ao chat.\n\nDeseja fazer mais alguma coisa?`), 100)
         }}
@@ -2072,5 +2102,4 @@ const CSS=`
   .date-inp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;margin-top:6px}
   .date-inp:focus{border-color:var(--accent)}
 `
-
 
