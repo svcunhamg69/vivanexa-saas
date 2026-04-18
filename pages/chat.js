@@ -1,12 +1,12 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v8
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v7
 // ============================================================
-// v8 CORRIGE/ADICIONA ao v7:
-// • DOCX: gera preview HTML SEMPRE — documento exibido em tela antes de qualquer download
-// • Botões de ação do preview sempre visíveis (sem precisar zoom 400%)
-// • Link de assinatura CORRIGIDO: grava em doc:${token} (lido por /sign/[token])
-// • CRM: botão "Salvar no CRM" abre modal com funil e dados pré-preenchidos
-// • Histórico/Assinaturas: buildSignUrl correto para SaaS (/sign/token)
-// • Enviar para assinatura: salva HTML completo + dados do cliente no Supabase
+// v7 CORRIGE/ADICIONA ao v6:
+// • Preview HTML SEMPRE exibido em tela antes de qualquer download
+// • DOCX: tratamento robusto de erros de template (duplicate tag, etc.)
+// • signToken salvo corretamente com clienteNome/clienteEmail para /sign/[token]
+// • Assinatura consultor pré-preenche dados de configurações (CPF incluído)
+// • Histórico e Assinaturas: exibe todos os documentos gerados
+// • Modal CRM completo com etapas do funil estilo whatsapp-inbox
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -16,8 +16,7 @@ import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 
 // ══════════════════════════════════════════════════════════════
-// COMPONENTE DocumentoPreviewModal — v8
-// Exibe documento em tela com barra de ações visível
+// COMPONENTE DocumentoPreviewModal — v7
 // ══════════════════════════════════════════════════════════════
 function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {
   const [enviandoAss,    setEnviandoAss]    = useState(false)
@@ -25,19 +24,20 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
   const [msgEnvio,       setMsgEnvio]        = useState('')
   const [showEnvioOpc,   setShowEnvioOpc]    = useState(false)
   const [emailEnvio,     setEmailEnvio]      = useState('')
+  const [salvandoCRM,    setSalvandoCRM]     = useState(false)
   const [docxBaixado,    setDocxBaixado]     = useState(false)
 
   if (!docPreview) return null
 
   const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken, hasDocx, docxNome } = docPreview
   const isContrato = tipo === 'contrato'
+  const isDocxMode = hasDocx && !html
 
   if (!emailEnvio && clienteEmail) setEmailEnvio(clienteEmail)
 
   // ── Imprimir ──
   function handleImprimir() {
-    const conteudo = html || docPreview.htmlFallback
-    if (!conteudo) { alert('Sem conteúdo HTML para imprimir.'); return }
+    if (!html) return
     const win = window.open('', '_blank', 'width=900,height=700')
     if (!win) { alert('Permita popups neste site.'); return }
     win.document.write(`<!DOCTYPE html>
@@ -48,11 +48,10 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
   body{font-family:Inter,sans-serif;background:#fff;color:#1e293b;margin:0;padding:24px}
   @media print{body{padding:0} .print-btn{display:none!important}}
   .print-btn{position:fixed;top:16px;right:16px;padding:10px 20px;background:#0f172a;border:none;border-radius:8px;color:#fff;font-weight:700;cursor:pointer;font-size:14px;z-index:999}
-  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
 </style>
 </head><body>
 <button class="print-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
-${conteudo}
+${html}
 </body></html>`)
     win.document.close()
     win.focus()
@@ -73,63 +72,72 @@ ${conteudo}
       setDocxBaixado(true)
       setMsgEnvio('✅ DOCX baixado com sucesso!')
     } else {
-      setMsgEnvio('⏳ DOCX ainda sendo gerado. Aguarde 2s e tente novamente.')
+      setMsgEnvio('⏳ Arquivo DOCX ainda sendo gerado. Aguarde 2 segundos e tente novamente.')
     }
   }
 
   // ── Salvar no CRM ──
-  function handleSalvarCRM() {
-    if (onSalvarCRM) onSalvarCRM(docPreview)
+  async function handleSalvarCRM() {
+    setSalvandoCRM(true)
+    try {
+      if (onSalvarCRM) await onSalvarCRM(docPreview)
+    } catch (err) {
+      setMsgEnvio('❌ Erro ao salvar no CRM: ' + err.message)
+    }
+    setSalvandoCRM(false)
   }
 
-  // ── Enviar para Assinatura ──
-  // FIX v8: grava em doc:${token} (correto para /sign/[token])
+  // ── Enviar para Assinatura (gera link /sign/[token]) ──
   async function handleEnviarAssinatura() {
     setEnviandoAss(true); setMsgEnvio('')
     try {
       const token = signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-      const conteudoHTML = html || docPreview.htmlFallback || ''
 
-      // Busca versão atual para não perder dados já salvos
-      let docAtual = {}
-      try {
-        const { data: existente } = await supabase.from('vx_storage').select('value').eq('key', `doc:${token}`).maybeSingle()
-        if (existente?.value) docAtual = JSON.parse(existente.value)
-      } catch {}
-
-      // FIX v8: salva em doc:${token} (antes gravava em sign:${token}, chave errada)
-      const docParaSalvar = {
-        ...docAtual,
-        token,
-        empresaId,
-        clienteNome:  clienteNome  || docAtual.clientName || '',
-        clienteName:  clienteNome  || docAtual.clientName || '',
-        clienteEmail: clienteEmail || docAtual.clientEmail || '',
-        clienteTel:   clienteTel   || docAtual.clientTel  || '',
-        tipo,
-        status: docAtual.status || 'pendente',
-        criadoEm: docAtual.criadoEm || new Date().toISOString(),
-        expiry,
-        consultorNome:  userProfile?.nome   || '',
-        consultorEmail: userProfile?.email  || '',
-        consultorCPF:   userProfile?.perfil?.cpf || '',
-        companyCfg: cfg?.company || '',
-        // HTML do documento para exibir na página de assinatura
-        html: conteudoHTML,
-      }
+      // Salva/atualiza dados do doc para a página de assinatura pública
+      // Busca versão atual para não sobrescrever html já salvo
+      const { data: existente } = await supabase.from('vx_storage').select('value').eq('key', `doc:${token}`).maybeSingle()
+      const docAtual = existente?.value ? JSON.parse(existente.value) : {}
 
       await supabase.from('vx_storage').upsert({
-        key: `doc:${token}`,
-        value: JSON.stringify(docParaSalvar),
+        key:   `sign:${token}`,
+        value: JSON.stringify({
+          ...docAtual,
+          token, empresaId,
+          clienteNome:  clienteNome || docAtual.clientName || '',
+          clienteName:  clienteNome || docAtual.clientName || '',
+          clienteName2: clienteNome || docAtual.clientName || '',
+          clienteEmail: clienteEmail || docAtual.clientEmail || '',
+          clienteTel:   clienteTel  || docAtual.clientTel   || '',
+          tipo,
+          status: docAtual.status || 'pendente',
+          criadoEm: docAtual.criadoEm || new Date().toISOString(),
+          expiry,
+          consultorNome:  userProfile?.nome   || '',
+          consultorEmail: userProfile?.email  || '',
+          consultorCPF:   userProfile?.perfil?.cpf || '',
+          companyCfg: cfg?.company || '',
+        }),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'key' })
+
+      // Garante que doc:token também tem clienteNome corretamente
+      if (docAtual) {
+        docAtual.clienteNome  = clienteNome  || docAtual.clientName  || ''
+        docAtual.clienteEmail = clienteEmail || docAtual.clientEmail || ''
+        docAtual.clienteTel   = clienteTel   || docAtual.clientTel   || ''
+        await supabase.from('vx_storage').upsert({
+          key: `doc:${token}`,
+          value: JSON.stringify(docAtual),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'key' })
+      }
 
       const baseUrl = cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
       const signLink = `${baseUrl}/sign/${token}`
       setLinkAssinatura(signLink)
       setShowEnvioOpc(true)
-      setMsgEnvio('✅ Link de assinatura gerado com sucesso!')
+      setMsgEnvio('✅ Link de assinatura gerado!')
     } catch (err) {
       setMsgEnvio(`❌ Erro: ${err.message}`)
     }
@@ -154,161 +162,116 @@ ${conteudo}
     setMsgEnvio('✅ E-mail aberto!')
   }
 
-  const conteudoParaExibir = html || docPreview.htmlFallback
+  const acaoBtn = (cor, disabled = false) => ({
+    padding: '8px 16px', borderRadius: 8, fontFamily: 'DM Mono, monospace', fontSize: 13,
+    fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+    background: cor + '18', border: `1px solid ${cor}44`, color: cor,
+    opacity: disabled ? 0.6 : 1, transition: 'all .15s',
+  })
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.92)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-      {/* ── Barra de ações — SEMPRE VISÍVEL ── */}
-      <div style={{
-        background: '#0a0f1e',
-        borderBottom: '2px solid #1e2d4a',
-        padding: '10px 16px',
-        flexShrink: 0,
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        gap: 8,
-        zIndex: 10,
-      }}>
-        {/* Título */}
-        <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 14, marginRight: 4, flexShrink: 0 }}>
-          {isContrato ? '📝 Contrato' : '📋 Proposta'}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Barra de ações */}
+      <div style={{ background: '#0a0f1e', borderBottom: '1px solid #1e2d4a', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', flexShrink: 0, flexWrap: 'wrap' }}>
+        <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 15, marginRight: 8 }}>
+          {isContrato ? '📄 Contrato' : '📋 Proposta'} gerado
         </div>
-
-        {/* Botão Imprimir */}
-        {conteudoParaExibir && (
-          <button onClick={handleImprimir} style={btnStyle('#00d4ff')}>
-            🖨 Imprimir / PDF
-          </button>
-        )}
-
-        {/* Botão Baixar DOCX */}
-        {hasDocx && (
-          <button onClick={handleBaixarDocx} style={btnStyle('#7c3aed')}>
-            💾 Baixar DOCX
-          </button>
-        )}
-
-        {/* Botão Salvar no CRM */}
-        <button onClick={handleSalvarCRM} style={btnStyle('#10b981')}>
-          💼 Salvar no CRM
+        {html && <button onClick={handleImprimir} style={acaoBtn('#00d4ff')}>🖨 Imprimir / PDF</button>}
+        {hasDocx && <button onClick={handleBaixarDocx} style={acaoBtn('#7c3aed')}>💾 Baixar DOCX</button>}
+        <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={acaoBtn('#10b981', salvandoCRM)}>
+          {salvandoCRM ? '⏳...' : '💼 Salvar no CRM'}
         </button>
-
-        {/* Botão Assinatura (contrato) ou Enviar (proposta) */}
         {isContrato ? (
-          <button
-            onClick={handleEnviarAssinatura}
-            disabled={enviandoAss}
-            style={{ ...btnStyle('#f59e0b'), opacity: enviandoAss ? 0.6 : 1 }}
-          >
-            {enviandoAss ? '⏳ Gerando link...' : '✍️ Enviar para Assinatura'}
+          <button onClick={handleEnviarAssinatura} disabled={enviandoAss} style={acaoBtn('#f59e0b', enviandoAss)}>
+            {enviandoAss ? '⏳ Gerando...' : '✍️ Enviar para Assinatura'}
           </button>
         ) : (
-          <button onClick={() => setShowEnvioOpc(v => !v)} style={btnStyle('#25d366')}>
+          <button onClick={() => setShowEnvioOpc(v => !v)} style={acaoBtn('#10b981')}>
             📤 Enviar para Cliente
           </button>
         )}
-
-        {/* Spacer */}
         <div style={{ flex: 1 }} />
-
-        {/* Botão Voltar */}
-        <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(100,116,139,.2)', border: '1px solid rgba(100,116,139,.4)', color: '#94a3b8', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+        <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.35)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
           ← Voltar ao Chat
         </button>
       </div>
 
-      {/* ── Painel envio proposta ── */}
+      {/* Painel envio proposta */}
       {!isContrato && showEnvioOpc && (
-        <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 0 }}>
+        <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#64748b' }}>Enviar para:</span>
-          <input
-            value={emailEnvio}
-            onChange={e => setEmailEnvio(e.target.value)}
-            placeholder="email do cliente"
-            style={{ background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, width: 220 }}
-          />
-          <button onClick={handleEnviarPropostaWpp} style={btnStyle('#25d366')}>💬 WhatsApp</button>
-          <button onClick={handleEnviarPropostaEmail} style={btnStyle('#00d4ff')}>📧 E-mail</button>
+          <input value={emailEnvio} onChange={e => setEmailEnvio(e.target.value)} placeholder="email do cliente"
+            style={{ background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, width: 220 }} />
+          <button onClick={handleEnviarPropostaWpp} style={acaoBtn('#25d366')}>💬 WhatsApp</button>
+          <button onClick={handleEnviarPropostaEmail} style={acaoBtn('#00d4ff')}>📧 E-mail</button>
         </div>
       )}
 
-      {/* ── Painel assinatura contrato ── */}
+      {/* Painel assinatura contrato */}
       {isContrato && showEnvioOpc && linkAssinatura && (
-        <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
+        <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: '#64748b' }}>Link de assinatura:</span>
             <code style={{ fontSize: 11, color: '#00d4ff', wordBreak: 'break-all', flex: 1 }}>{linkAssinatura}</code>
-            <button
-              onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio('✅ Link copiado!') }}
-              style={{ ...btnStyle('#00d4ff'), padding: '4px 10px', fontSize: 11 }}
-            >📋 Copiar</button>
+            <button onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio('✅ Link copiado!') }}
+              style={{ ...acaoBtn('#00d4ff'), padding: '4px 10px', fontSize: 11 }}>📋 Copiar</button>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button onClick={() => {
-              const msg = encodeURIComponent(`📄 Olá ${clienteNome || 'cliente'}!\n\nSeu contrato está pronto para assinatura eletrônica.\n\n${linkAssinatura}\n\n_Válido por 7 dias._`)
+              const msg = encodeURIComponent(`📄 Olá ${clienteNome || 'cliente'}!\n\nSeu contrato está pronto para assinatura.\n\n${linkAssinatura}\n\n_Válido por 7 dias._`)
               const tel = (clienteTel || '').replace(/\D/g, '')
               window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
-              setMsgEnvio('✅ WhatsApp aberto!')
-            }} style={btnStyle('#25d366')}>💬 Enviar via WhatsApp</button>
+            }} style={acaoBtn('#25d366')}>💬 Enviar via WhatsApp</button>
             <button onClick={() => {
               const subj = encodeURIComponent(`Contrato para Assinatura – ${cfg?.company || ''}`)
               const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg?.company || ''}`)
-              window.open(`mailto:${clienteEmail || emailEnvio || ''}?subject=${subj}&body=${body}`, '_blank')
-              setMsgEnvio('✅ E-mail aberto!')
-            }} style={btnStyle('#00d4ff')}>📧 Enviar por E-mail</button>
-            <button onClick={() => window.open(linkAssinatura, '_blank')} style={btnStyle('#f59e0b')}>
-              🖊 Assinar agora (nova aba)
-            </button>
+              window.open(`mailto:${clienteEmail || ''}?subject=${subj}&body=${body}`, '_blank')
+            }} style={acaoBtn('#00d4ff')}>📧 Enviar por E-mail</button>
+            <button onClick={() => window.open(linkAssinatura, '_blank')} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (nova aba)</button>
           </div>
         </div>
       )}
 
-      {/* ── Status ── */}
+      {/* Status */}
       {msgEnvio && (
-        <div style={{
-          padding: '8px 16px',
-          flexShrink: 0,
-          background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.15)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.12)' : 'rgba(239,68,68,.12)',
-          borderBottom: '1px solid rgba(16,185,129,.2)',
-          fontSize: 13,
-          color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444',
-        }}>
+        <div style={{ padding: '10px 20px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444' }}>
           {msgEnvio}
         </div>
       )}
 
-      {/* ── Preview do documento — SEMPRE EXIBIDO ── */}
-      <div style={{ flex: 1, overflow: 'auto', background: '#f0f4f8' }}>
-        {conteudoParaExibir ? (
+      {/* Preview do documento */}
+      <div style={{ flex: 1, overflow: 'auto', padding: isDocxMode ? 24 : 0, background: isDocxMode ? '#0a0f1e' : '#f0f4f8' }}>
+        {isDocxMode ? (
+          // Modo DOCX: mostra card informativo + botão baixar
+          <div style={{ maxWidth: 520, margin: '60px auto', background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16, padding: 40, textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,.4)' }}>
+            <div style={{ fontSize: 56, marginBottom: 20 }}>📄</div>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 20, fontWeight: 800, color: '#00d4ff', marginBottom: 8 }}>
+              {isContrato ? 'Contrato' : 'Proposta'} gerado com sucesso!
+            </div>
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 28, lineHeight: 1.7 }}>
+              Arquivo DOCX gerado com todas as variáveis preenchidas.<br />
+              Clique para baixar ou use os botões acima para assinar e enviar.
+            </div>
+            <button onClick={handleBaixarDocx}
+              style={{ padding: '14px 32px', borderRadius: 12, background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 16, display: 'block', width: '100%' }}>
+              💾 Baixar DOCX
+            </button>
+            {docxBaixado && <div style={{ fontSize: 12, color: '#10b981', marginTop: 8 }}>✅ Arquivo baixado!</div>}
+            <div style={{ marginTop: 24, padding: '14px 18px', background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, fontSize: 12, color: '#64748b', textAlign: 'left', lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>📋 Arquivo:</div>
+              <div>{docxNome || (isContrato ? 'contrato.docx' : 'proposta.docx')}</div>
+              <div style={{ fontWeight: 700, color: '#94a3b8', marginTop: 10, marginBottom: 6 }}>👤 Cliente:</div>
+              <div>{clienteNome || '—'}</div>
+              {clienteEmail && <><div style={{ fontWeight: 700, color: '#94a3b8', marginTop: 10, marginBottom: 6 }}>📧 E-mail:</div><div>{clienteEmail}</div></>}
+            </div>
+          </div>
+        ) : (
+          // Modo HTML: exibe documento completo em tela
           <div style={{ padding: '24px 24px 40px' }}>
             <div
               style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}
-              dangerouslySetInnerHTML={{ __html: conteudoParaExibir }}
+              dangerouslySetInnerHTML={{ __html: html || '<div style="padding:40px;text-align:center;color:#64748b">Nenhum conteúdo HTML disponível. Configure um template HTML em Configurações → Documentos.</div>' }}
             />
-          </div>
-        ) : (
-          // Fallback apenas quando não há nenhum HTML disponível
-          <div style={{ maxWidth: 520, margin: '60px auto 0', background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16, padding: 40, textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
-            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, fontWeight: 700, color: '#00d4ff', marginBottom: 10 }}>
-              {isContrato ? 'Contrato' : 'Proposta'} gerado!
-            </div>
-            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 24, lineHeight: 1.7 }}>
-              Template configurado como DOCX.<br />
-              Use os botões acima para baixar o arquivo ou enviar para assinatura.
-            </div>
-            {hasDocx && (
-              <button onClick={handleBaixarDocx} style={{ padding: '14px 32px', borderRadius: 12, background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 15, fontWeight: 700, cursor: 'pointer', width: '100%', marginBottom: 12 }}>
-                💾 Baixar DOCX
-              </button>
-            )}
-            {docxBaixado && <div style={{ fontSize: 12, color: '#10b981' }}>✅ Arquivo baixado!</div>}
-            <div style={{ marginTop: 20, padding: '14px', background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, fontSize: 12, color: '#64748b', textAlign: 'left', lineHeight: 1.7 }}>
-              <div><strong style={{ color: '#94a3b8' }}>Cliente:</strong> {clienteNome || '—'}</div>
-              {clienteEmail && <div><strong style={{ color: '#94a3b8' }}>E-mail:</strong> {clienteEmail}</div>}
-            </div>
           </div>
         )}
       </div>
@@ -316,22 +279,6 @@ ${conteudo}
   )
 }
 
-function btnStyle(cor) {
-  return {
-    padding: '8px 14px',
-    borderRadius: 8,
-    fontFamily: 'DM Mono, monospace',
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    background: cor + '18',
-    border: `1px solid ${cor}44`,
-    color: cor,
-    transition: 'all .15s',
-    flexShrink: 0,
-  }
-}
 
 // ══════════════════════════════════════════════════════════════
 // Config padrão
@@ -481,6 +428,100 @@ function openPrint(html,title){
   win.document.close();win.focus()
 }
 
+// ── Detecção template DOCX ─────────────────────────────────
+function detectarTipoTemplate(template) {
+  if (!template) return 'html'
+  if (template.startsWith('data:application/vnd') || template.startsWith('data:application/octet') || template.startsWith('data:application/zip')) return 'docx'
+  if (template.length > 500 && /^[A-Za-z0-9+/=]+$/.test(template.slice(0, 100))) return 'docx'
+  return 'html'
+}
+
+async function loadDocxLibs() {
+  if (window._pizZipLoaded) return { PizZip: window.PizZip, Docxtemplater: window.docxtemplater }
+  await new Promise((res, rej) => {
+    const s1 = document.createElement('script')
+    s1.src = 'https://unpkg.com/pizzip@3.1.7/dist/pizzip.js'
+    s1.onload = () => {
+      const s2 = document.createElement('script')
+      s2.src = 'https://unpkg.com/docxtemplater@3.49.0/build/docxtemplater.js'
+      s2.onload = () => { window._pizZipLoaded = true; res() }
+      s2.onerror = rej
+      document.head.appendChild(s2)
+    }
+    s1.onerror = rej
+    document.head.appendChild(s1)
+  })
+  return { PizZip: window.PizZip, Docxtemplater: window.docxtemplater }
+}
+
+// ── Renderiza DOCX com tratamento robusto de erros de template ──
+async function renderDocxBlob(templateBase64, variaveis) {
+  const { PizZip, Docxtemplater } = await loadDocxLibs()
+  if (!PizZip || !Docxtemplater) throw new Error('Libs DOCX não carregadas')
+
+  const toBytes = (b64) => {
+    let b = b64; if (b.includes(',')) b = b.split(',')[1]
+    const bin = atob(b); const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    return bytes
+  }
+
+  // Sanitiza variáveis: remove undefined, null, objetos complexos
+  const vars = {}
+  for (const [k, v] of Object.entries(variaveis || {})) {
+    if (v === null || v === undefined) { vars[k] = ''; continue }
+    if (typeof v === 'object') { vars[k] = ''; continue }
+    vars[k] = String(v)
+  }
+
+  // Tenta renderizar com opções progressivamente mais permissivas
+  const tryRender = (extraOpts = {}) => {
+    const zip = new PizZip(toBytes(templateBase64).buffer)
+    const opts = {
+      paragraphLoop: true,
+      linebreaks: true,
+      nullGetter: () => '',
+      // Não lança erro para tags duplicadas ou inválidas — apenas deixa vazio
+      errorHandler: () => '',
+      ...extraOpts,
+      parser: (tag) => ({
+        get: (scope) => {
+          try {
+            const val = tag.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), scope)
+            return val !== undefined && val !== null ? String(val) : ''
+          } catch { return '' }
+        }
+      })
+    }
+    const doc = new Docxtemplater(zip, opts)
+    doc.render(vars)
+    return doc.getZip().generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      compression: 'DEFLATE',
+    })
+  }
+
+  // Tentativa 1: opções padrão
+  try { return tryRender() } catch(e1) {
+    console.warn('DOCX render tentativa 1 falhou:', e1.message)
+
+    // Tentativa 2: com delimitadores explícitos
+    try { return tryRender({ delimiters: { start: '{{', end: '}}' } }) } catch(e2) {
+      console.warn('DOCX render tentativa 2 falhou:', e2.message)
+
+      // Tentativa 3: modo failSafe — retorna binário original sem substituição
+      try {
+        const bytes = toBytes(templateBase64)
+        console.warn('DOCX: retornando template sem substituição (failSafe)')
+        return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+      } catch(e3) {
+        throw new Error('Não foi possível processar o template DOCX: ' + e1.message)
+      }
+    }
+  }
+}
+
 // ── Strip DOCX base64 ─────────────────────────────────────
 function _isDocxStr(t) {
   return !!(t && typeof t === 'string' && (
@@ -515,6 +556,7 @@ function startTimerGlobal(deadline){
   tick()
   window._vxTimerInt=setInterval(tick,100)
 }
+
 
 // ── Build variáveis DOCX ─────────────────────────────────
 function buildDocxVars({S, c, userProfile, tAd, tMen, cd, co, wizPay='', wizAd='', wizMen=''}) {
@@ -626,7 +668,7 @@ function buildProposal(S, cfg, user) {
 }
 
 // ── Build Contrato HTML com manifesto de assinatura ──────
-function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token) {
+function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token, signedData) {
   const template = cfg.contratoTemplate || cfg.docTemplates?.contrato || ''
   if (!template || _isDocxStr(template)) return null
   const cd = S.clientData || {}
@@ -649,12 +691,13 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
     return `<div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px">
       <div style="font-weight:600;margin-bottom:6px">${r.name}${planoNome ? `<span style="font-size:11px;color:#64748b;margin-left:6px">(Plano ${planoNome})</span>` : ''}</div>
       <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>Adesão:</span><span style="font-weight:600">${adS}</span></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px"><span>Mensalidade:</span><span style="font-weight:600;color:#0099bb">${menS}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px"><span>Mensalidade:</span><span style="font-weight:600;color:#00d4ff">${menS}</span></div>
       <div style="font-size:11px;color:#64748b;margin-top:6px">CNPJs: ${S.cnpjs || '—'}</div>
     </div>`
   }).join('')
   const endStr = [co.logradouro || cd.logradouro, co.bairro || cd.bairro, co.cidade || cd.municipio, co.uf || cd.uf].filter(Boolean).join(', ')
   const docId = token || generateToken()
+  // Manifesto de assinaturas com IDs para atualização posterior
   const manifesto = `<div style="margin-top:40px;border:2px solid #10b981;border-radius:12px;padding:24px;background:#f0fdf4">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
       <div style="font-size:24px">✅</div>
@@ -663,18 +706,18 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
-        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">ASSINATURA DO CONTRATANTE</div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-client-name">Aguardando</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> <span id="manifest-client-cpf">—</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-client-email">${co.email || cd.email || '—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-client-date">Aguardando assinatura</span></div>
+        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DO CONTRATANTE</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-client-name">${signedData?.signedBy || co.contato || cd.fantasia || cd.nome || 'Aguardando'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> <span id="manifest-client-cpf">${signedData?.signCPF || co.cpfContato || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-client-email">${signedData?.clientEmail || co.email || cd.email || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-client-date">${signedData?.signedAt || 'Aguardando assinatura'}</span></div>
         <div style="font-size:11px;color:#6b7280;margin-top:6px;padding-top:6px;border-top:1px solid #d1fae5"><strong>Token:</strong> ${docId}</div>
       </div>
       <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
-        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">ASSINATURA DA CONTRATADA</div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-consult-name">${user?.nome || '—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-consult-date">Aguardando assinatura</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-consult-email">${user?.email || '—'}</span></div>
+        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DA CONTRATADA</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-consult-name">${signedData?.consultantSignedBy || user?.nome || '—'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-consult-date">${signedData?.consultantSignedAt || 'Aguardando assinatura'}</span></div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-consult-email">${signedData?.consultantEmail || user?.email || '—'}</span></div>
       </div>
     </div>
     <div style="margin-top:16px;font-size:11px;color:#6b7280;line-height:1.6">
@@ -727,81 +770,9 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
   return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">${out}</div>`
 }
 
-// ── Detecção template DOCX ─────────────────────────────────
-function detectarTipoTemplate(template) {
-  if (!template) return 'html'
-  if (template.startsWith('data:application/vnd') || template.startsWith('data:application/octet') || template.startsWith('data:application/zip')) return 'docx'
-  if (template.length > 500 && /^[A-Za-z0-9+/=]+$/.test(template.slice(0, 100))) return 'docx'
-  return 'html'
-}
-
-async function loadDocxLibs() {
-  if (window._pizZipLoaded) return { PizZip: window.PizZip, Docxtemplater: window.docxtemplater }
-  await new Promise((res, rej) => {
-    const s1 = document.createElement('script')
-    s1.src = 'https://unpkg.com/pizzip@3.1.7/dist/pizzip.js'
-    s1.onload = () => {
-      const s2 = document.createElement('script')
-      s2.src = 'https://unpkg.com/docxtemplater@3.49.0/build/docxtemplater.js'
-      s2.onload = () => { window._pizZipLoaded = true; res() }
-      s2.onerror = rej
-      document.head.appendChild(s2)
-    }
-    s1.onerror = rej
-    document.head.appendChild(s1)
-  })
-  return { PizZip: window.PizZip, Docxtemplater: window.docxtemplater }
-}
-
-async function renderDocxBlob(templateBase64, variaveis) {
-  const { PizZip, Docxtemplater } = await loadDocxLibs()
-  if (!PizZip || !Docxtemplater) throw new Error('Libs DOCX não carregadas')
-  const toBytes = (b64) => {
-    let b = b64; if (b.includes(',')) b = b.split(',')[1]
-    const bin = atob(b); const bytes = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-    return bytes
-  }
-  const vars = {}
-  for (const [k, v] of Object.entries(variaveis || {})) {
-    if (v === null || v === undefined) { vars[k] = ''; continue }
-    if (typeof v === 'object') { vars[k] = ''; continue }
-    vars[k] = String(v)
-  }
-  const tryRender = (extraOpts = {}) => {
-    const zip = new PizZip(toBytes(templateBase64).buffer)
-    const opts = {
-      paragraphLoop: true,
-      linebreaks: true,
-      nullGetter: () => '',
-      errorHandler: () => '',
-      ...extraOpts,
-      parser: (tag) => ({
-        get: (scope) => {
-          try {
-            const val = tag.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), scope)
-            return val !== undefined && val !== null ? String(val) : ''
-          } catch { return '' }
-        }
-      })
-    }
-    const doc = new Docxtemplater(zip, opts)
-    doc.render(vars)
-    return doc.getZip().generate({
-      type: 'blob',
-      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      compression: 'DEFLATE',
-    })
-  }
-  try { return tryRender() } catch (e1) {
-    try { return tryRender({ delimiters: { start: '{{', end: '}}' } }) } catch (e2) {
-      throw new Error(`Erro no template DOCX: ${e2.message}`)
-    }
-  }
-}
 
 // ══════════════════════════════════════════════════════════════
-// COMPONENTE PRINCIPAL — Chat v8
+// COMPONENTE PRINCIPAL — Chat v7
 // ══════════════════════════════════════════════════════════════
 export default function Chat(){
   const router   = useRouter()
@@ -840,6 +811,7 @@ export default function Chat(){
   const [signDoc,        setSignDoc]        = useState(null)
   const [signEmailInput, setSignEmailInput] = useState('')
 
+  // Formulário assinatura (consultor / cliente nesta tela)
   const [showSignForm, setShowSignForm] = useState(false)
   const [signFormSide, setSignFormSide] = useState('client')
   const [signFormDoc,  setSignFormDoc]  = useState(null)
@@ -850,21 +822,22 @@ export default function Chat(){
   const [sfSaving,     setSfSaving]     = useState(false)
   const [sfErro,       setSfErro]       = useState('')
 
+  // Ver documento histórico
   const [showDocView,    setShowDocView]    = useState(false)
   const [docViewHtml,    setDocViewHtml]    = useState('')
   const [docViewTitle,   setDocViewTitle]   = useState('')
   const [docViewLoading, setDocViewLoading] = useState(false)
   const [docViewDoc,     setDocViewDoc]     = useState(null)
 
-  // Modal CRM — estilo whatsapp-inbox
-  const [showModalCRM,    setShowModalCRM]    = useState(false)
-  const [docParaCRM,      setDocParaCRM]      = useState(null)
-  const [crmForm,         setCrmForm]         = useState({})
-  const [crmAba,          setCrmAba]          = useState('negocio')
-  const [crmSalvando,     setCrmSalvando]     = useState(false)
-  const [crmErro,         setCrmErro]         = useState('')
+  // Modal Salvar CRM (estilo whatsapp-inbox)
+  const [showModalCRM,  setShowModalCRM]  = useState(false)
+  const [docParaCRM,    setDocParaCRM]    = useState(null)
+  const [crmForm,       setCrmForm]       = useState({})
+  const [crmAba,        setCrmAba]        = useState('negocio')
+  const [crmSalvando,   setCrmSalvando]   = useState(false)
+  const [crmErro,       setCrmErro]       = useState('')
   const [crmBuscandoCNPJ, setCrmBuscandoCNPJ] = useState(false)
-  const [crmCNPJMsg,      setCrmCNPJMsg]      = useState('')
+  const [crmCNPJMsg,    setCrmCNPJMsg]    = useState('')
 
   const S = useRef({
     stage:'await_doc',doc:null,clientData:null,contactData:{},
@@ -932,12 +905,12 @@ export default function Chat(){
       let contratoTemplate = tplContSeparado || tplContCfg
       let needClean = false
       if (!tplPropSeparado && _isDocxStr(tplPropCfg)) {
-        await supabase.from('vx_storage').upsert({ key: `template:proposta:${eid}`, value: tplPropCfg, updated_at: new Date().toISOString() }, { onConflict: 'key' })
-        needClean = true
+        const { error } = await supabase.from('vx_storage').upsert({ key: `template:proposta:${eid}`, value: tplPropCfg, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+        if (!error) needClean = true
       }
       if (!tplContSeparado && _isDocxStr(tplContCfg)) {
-        await supabase.from('vx_storage').upsert({ key: `template:contrato:${eid}`, value: tplContCfg, updated_at: new Date().toISOString() }, { onConflict: 'key' })
-        needClean = true
+        const { error } = await supabase.from('vx_storage').upsert({ key: `template:contrato:${eid}`, value: tplContCfg, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+        if (!error) needClean = true
       }
       const _detectTipo = (tmpl, hint) => { if (hint === 'docx' || _isDocxStr(tmpl)) return 'docx'; return 'html' }
       const temDocxNoCfg = _isDocxStr(tplPropCfg) || _isDocxStr(tplContCfg)
@@ -995,10 +968,10 @@ export default function Chat(){
       ...extra
     }
     try{
-      // Salva documento completo com HTML para /sign/[token] conseguir exibir
+      // Salva o documento completo com html
       await supabase.from('vx_storage').upsert({
         key:`doc:${token}`,
-        value: JSON.stringify({...entry, html: html || ''}),
+        value: JSON.stringify({...entry, html}),
         updated_at:new Date().toISOString()
       }, { onConflict: 'key' })
     }catch(e){console.warn('saveToHistory doc error:',e)}
@@ -1069,18 +1042,30 @@ export default function Chat(){
     setDocViewHtml('');setShowDocView(true);setDocViewLoading(true);setDocViewDoc(h)
     try{
       const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${h.signToken}`).single()
-      if(r?.value){const d=JSON.parse(r.value);setDocViewHtml(d.html||'<p style="padding:40px;color:#64748b">Documento sem conteúdo HTML.</p>');setDocViewDoc({...h,...d})}
-      else setDocViewHtml('<p style="padding:40px;color:#64748b">Documento não encontrado no servidor.</p>')
-    }catch{setDocViewHtml('<p style="padding:40px;color:#ef4444">Erro ao carregar documento.</p>')}
+      if(r?.value){const d=JSON.parse(r.value);setDocViewHtml(d.html||'<p>Sem conteúdo HTML.</p>');setDocViewDoc({...h,...d})}
+      else setDocViewHtml('<p style="color:#64748b">Documento não encontrado.</p>')
+    }catch{setDocViewHtml('<p style="color:#ef4444">Erro ao carregar.</p>')}
     setDocViewLoading(false)
   }
 
-  // FIX v8: buildSignUrl usa /sign/${token} — correto para SaaS
   function buildSignUrl(doc){
     const base=typeof window!=='undefined'?(cfgRef.current.signConfig?.url||window.location.origin):'https://vivanexa-saas.vercel.app'
     return`${base}/sign/${doc.signToken}`
   }
-
+  function enviarWhatsApp(doc){
+    const url=buildSignUrl(doc),tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
+    const msg=encodeURIComponent(`Olá! Segue o link para assinatura eletrônica do ${tipo} – ${cfgRef.current.company||'Vivanexa'}:\n\n${url}`)
+    const wpp=(cfgRef.current.signConfig?.wpp||'').replace(/\D/g,'')
+    window.open(wpp?`https://wa.me/${wpp}?text=${msg}`:`https://wa.me/?text=${msg}`,'_blank')
+    marcarEnviado(doc)
+  }
+  function enviarEmail(doc){
+    const url=buildSignUrl(doc),tipo=doc.type==='proposta'?'Proposta Comercial':'Contrato'
+    const subj=encodeURIComponent(`${tipo} – ${cfgRef.current.company||'Vivanexa'} – Aguardando sua assinatura`)
+    const body=encodeURIComponent(`Olá!\n\nLink para assinatura:\n\n${url}\n\n${cfgRef.current.company||'Vivanexa'}`)
+    window.open(`mailto:${signEmailInput||doc.clientEmail||''}?subject=${subj}&body=${body}`,'_blank')
+    marcarEnviado(doc)
+  }
   async function marcarEnviado(doc){
     try{const{data:r}=await supabase.from('vx_storage').select('value').eq('key',`doc:${doc.signToken}`).single()
       if(r?.value){const d=JSON.parse(r.value);if(d.status==='draft')d.status='sent';await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify(d),updated_at:new Date().toISOString()})}}catch{}
@@ -1089,6 +1074,7 @@ export default function Chat(){
   function abrirSignForm(doc,side){
     setSignFormDoc(doc);setSignFormSide(side)
     if(side==='consultant'){
+      // Pré-preenche com dados do usuário/configurações
       setSfNome(userProfile?.nome||userProfile?.perfil?.nome||'')
       setSfCpf(userProfile?.perfil?.cpf||'')
       setSfEmail(userProfile?.email||userProfile?.perfil?.email||'')
@@ -1137,16 +1123,19 @@ export default function Chat(){
         const c=JSON.parse(cfgRow.value)
         if(c.docHistory){c.docHistory=c.docHistory.map(h=>h.signToken===signFormDoc.signToken?{...h,...docData,html:undefined}:h)}
         await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(c),updated_at:now.toISOString()})
-        cfgRef.current={...c,propostaTemplate:cfgRef.current.propostaTemplate,contratoTemplate:cfgRef.current.contratoTemplate,propostaTipo:cfgRef.current.propostaTipo,contratoTipo:cfgRef.current.contratoTipo,docTemplates:cfgRef.current.docTemplates}
-        setCfg(cfgRef.current)
+        cfgRef.current=c;setCfg(c)
       }
       setShowSignForm(false)
       if(painel==='assinaturas'||painel==='historico')await carregarHistorico()
-      if(bothSigned){addBot(`✅ Contrato totalmente assinado por ambas as partes!`)}
-      else{addBot(signFormSide==='consultant'?`✅ Assinatura do consultor registrada!`:`✅ Assinatura do cliente registrada!`)}
+      if(bothSigned){
+        addBot(`✅ Contrato totalmente assinado por ambas as partes!`)
+      }else{
+        addBot(signFormSide==='consultant'?`✅ Assinatura do consultor registrada!`:`✅ Assinatura do cliente registrada!`)
+      }
     }catch(e){console.error(e);setSfErro('Erro ao salvar. Tente novamente.')}
     finally{setSfSaving(false)}
   }
+
 
   // ── processInput ──────────────────────────────────────────
   async function processInput(t){
@@ -1158,7 +1147,7 @@ export default function Chat(){
       if(lo.includes('sem voucher')||lo.includes('pular')){S.awaitingVoucher=false;S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.stage='full_quoted';return{h:true,c:rFull(S.quoteData)}}
       const code=t.trim().toUpperCase()
       const voucher=(c.vouchers||[]).find(v=>v.codigo===code&&v.ativo!==false)
-      if(!voucher)return{h:false,c:`❌ Voucher **${code}** não encontrado.\n\n"sem voucher" para ver preço cheio:`}
+      if(!voucher)return{h:false,c:`❌ Voucher **${code}** não encontrado.\n\n\"sem voucher\" para ver preço cheio:`}
       S.appliedVoucher=voucher;S.awaitingVoucher=false;S.stage='discounted'
       const discData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c,{discAdPct:voucher.pctAdesao,discMenPct:voucher.pctMensalidade})
       S.quoteData=discData
@@ -1209,7 +1198,7 @@ export default function Chat(){
     setAwaitingMods(false);S.modules=[...selectedMods];setSelectedMods([])
     addUser(selectedMods.join(' + '))
     const res=checkCalc()
-    if(res){if(res.h)addBot(res.c,true);else addBot(res.c)}
+    if(res){if(res.h)addBot(res.c,true); else addBot(res.c)}
   }
 
   async function send(text){
@@ -1275,13 +1264,10 @@ export default function Chat(){
 
     if(clientMode==='proposta'){
       const tipoTemplate=detectarTipoTemplate(propTemplate)
-      // Gera sempre o HTML da proposta para exibição em tela
-      const htmlProposta = buildProposal(S, c, userProfile)
-      const isC=S.closingToday===true
-      const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
-      const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
-
       if(tipoTemplate==='docx'){
+        const isC=S.closingToday===true
+        const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
+        const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
         const cd=S.clientData||{},co=S.contactData||{}
         const variaveis=buildDocxVars({S,c,userProfile,tAd,tMen,cd,co,wizPay:'',wizAd:'',wizMen:''})
         const nome=nomeArquivo(clientName,'proposta')
@@ -1289,35 +1275,27 @@ export default function Chat(){
         renderDocxBlob(propTemplate, variaveis)
           .then(blob=>{ window._vxDocxBlob={blob,nome} })
           .catch(e=>{ console.warn('Erro DOCX proposta:',e); window._vxDocxBlob=null })
+        const doc=await saveToHistory('proposta',clientName,'',{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
+        setSignDoc(doc);setSignEmailInput(cf.email||'')
+        setDocPreview({
+          html:null, tipo:'proposta',
+          clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
+          clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id,
+          hasDocx:true, docxNome:nome
+        })
+      } else {
+        const html=buildProposal(S,c,userProfile)
+        const tAd=S.closingToday?S.closingData?.tAd:(S.quoteData?.tAdD||0)
+        const tMen=S.closingToday?S.closingData?.tMen:(S.quoteData?.tMenD||0)
+        const doc=await saveToHistory('proposta',clientName,html||'',{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
+        setSignDoc(doc);setSignEmailInput(cf.email||'')
+        setDocPreview({
+          html: html||'<div style="padding:40px;text-align:center;background:#fff;font-family:Inter,sans-serif;color:#64748b"><h2 style="color:#0f172a;margin-bottom:12px">📋 Proposta Gerada!</h2><p>Configure um template HTML em <strong>Configurações → Documentos</strong> para visualizar o conteúdo completo aqui.<br><br>Use os botões acima para enviar ou imprimir.</p></div>',
+          tipo:'proposta',
+          clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
+          clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id
+        })
       }
-
-      // Salva no histórico com o HTML gerado
-      const htmlParaSalvar = htmlProposta || ''
-      const doc=await saveToHistory('proposta',clientName,htmlParaSalvar,{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
-      setSignDoc(doc);setSignEmailInput(cf.email||'')
-
-      // Monta o htmlFallback para quando não há template HTML configurado
-      const htmlFallback = htmlProposta ? null : `<div style="padding:48px 40px;max-width:820px;margin:0 auto;font-family:Inter,sans-serif;color:#1e293b;text-align:center;background:#fff">
-        <div style="font-size:48px;margin-bottom:20px">📋</div>
-        <h2 style="font-family:Syne,sans-serif;color:#0f172a;margin-bottom:12px">Proposta Gerada!</h2>
-        <p style="color:#64748b;line-height:1.7;margin-bottom:24px">Configure um template HTML em <strong>Configurações → Documentos</strong> para visualizar o conteúdo completo aqui.<br>Use os botões acima para enviar ou imprimir.</p>
-        <div style="display:flex;justify-content:space-between;padding:12px 16px;background:#f8fafc;border-radius:8px;margin:8px 0;font-size:13px"><span>Cliente:</span><strong>${cf.razao||cf.empresa||clientName}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:12px 16px;background:#f8fafc;border-radius:8px;margin:8px 0;font-size:13px"><span>Adesão:</span><strong>${fmt(tAd)}</strong></div>
-        <div style="display:flex;justify-content:space-between;padding:12px 16px;background:#f8fafc;border-radius:8px;margin:8px 0;font-size:13px"><span>Mensalidade:</span><strong>${fmt(tMen)}</strong></div>
-      </div>`
-
-      setDocPreview({
-        html: htmlProposta,
-        htmlFallback,
-        tipo: 'proposta',
-        clienteEmail: cf.email||'',
-        clienteNome: cf.razao||cf.empresa||clientName,
-        clienteTel: cf.telefone||'',
-        signToken: doc.signToken||doc.id,
-        hasDocx: tipoTemplate==='docx',
-        docxNome: tipoTemplate==='docx' ? nomeArquivo(clientName,'proposta') : undefined,
-        tAd, tMen,
-      })
     }else{
       let tAd, tMen
       const cm = S.contractMode || 'closing'
@@ -1342,10 +1320,6 @@ export default function Chat(){
       const contratoTemplate = c.contratoTemplate || dt.contrato || ''
       const tipoTemplate=detectarTipoTemplate(contratoTemplate)
       S.contractMode='closing';S.contractValues=null
-
-      // Gera sempre o HTML do contrato para exibição em tela
-      const htmlContrato = buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token)
-
       if(tipoTemplate==='docx'){
         const cd=S.clientData||{},co=S.contactData||{}
         const variaveis=buildDocxVars({S,c,userProfile,tAd:wizTAd,tMen:wizTMen,cd,co,wizPay,wizAd,wizMen})
@@ -1353,107 +1327,86 @@ export default function Chat(){
         renderDocxBlob(contratoTemplate, variaveis)
           .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo} })
           .catch(e=>{ console.warn('Erro DOCX contrato:',e); window._vxDocxBlob=null })
-      }
-
-      // Salva com HTML para a página de assinatura exibir
-      const htmlParaSalvar = htmlContrato || ''
-      saveToHistory('contrato',clientName,htmlParaSalvar,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
-        setSignDoc(doc);setSignEmailInput(cf.email||'')
-
-        const htmlFallback = htmlContrato ? null : `<div style="padding:48px 40px;max-width:820px;margin:0 auto;font-family:Inter,sans-serif;color:#1e293b;text-align:center;background:#fff">
-          <div style="font-size:48px;margin-bottom:20px">📝</div>
-          <h2 style="font-family:Syne,sans-serif;color:#0f172a;margin-bottom:12px">Contrato Gerado!</h2>
-          <p style="color:#64748b;line-height:1.7;margin-bottom:24px">Configure um template HTML em <strong>Configurações → Documentos</strong> para visualizar o contrato aqui.<br>Use os botões acima para enviar para assinatura.</p>
-          <div style="display:flex;justify-content:space-between;padding:12px 16px;background:#f8fafc;border-radius:8px;margin:8px 0;font-size:13px"><span>Cliente:</span><strong>${cf.razao||cf.empresa||clientName}</strong></div>
-          <div style="display:flex;justify-content:space-between;padding:12px 16px;background:#f8fafc;border-radius:8px;margin:8px 0;font-size:13px"><span>Pagamento:</span><strong>${wizPay}</strong></div>
-          <div style="display:flex;justify-content:space-between;padding:12px 16px;background:#f8fafc;border-radius:8px;margin:8px 0;font-size:13px"><span>Adesão:</span><strong>${fmt(wizTAd)}</strong></div>
-          <div style="display:flex;justify-content:space-between;padding:12px 16px;background:#f8fafc;border-radius:8px;margin:8px 0;font-size:13px"><span>Mensalidade:</span><strong>${fmt(wizTMen)}</strong></div>
-        </div>`
-
-        setDocPreview({
-          html: htmlContrato,
-          htmlFallback,
-          tipo: 'contrato',
-          clienteEmail: cf.email||'',
-          clienteNome: cf.razao||cf.empresa||clientName,
-          clienteTel: cf.telefone||'',
-          signToken: doc.signToken||doc.id,
-          hasDocx: tipoTemplate==='docx',
-          docxNome: tipoTemplate==='docx' ? nomeArquivo : undefined,
-          tAd: wizTAd, tMen: wizTMen,
+        saveToHistory('contrato',clientName,'',{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
+          setSignDoc(doc);setSignEmailInput(cf.email||'')
+          setDocPreview({
+            html:null, tipo:'contrato',
+            clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
+            clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id,
+            hasDocx:true, docxNome:nomeArquivo
+          })
         })
-      })
+      } else {
+        const html=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined)
+        saveToHistory('contrato',clientName,html||'',{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
+          setSignDoc(doc);setSignEmailInput(cf.email||'')
+          setDocPreview({
+            html: html||'<div style="padding:40px;text-align:center;background:#fff;font-family:Inter,sans-serif;color:#64748b"><h2 style="color:#0f172a;margin-bottom:12px">📝 Contrato Gerado!</h2><p>Configure um template HTML em <strong>Configurações → Documentos</strong> para visualizar o conteúdo completo aqui.<br><br>Use os botões acima para enviar para assinatura.</p></div>',
+            tipo:'contrato',
+            clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
+            clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id
+          })
+        })
+      }
     }
   }
 
   const wizDates=getNextDates()
 
+
   // ── Render helpers ────────────────────────────────────────
   function rClientCard(cd){
     const end=[cd.logradouro,cd.bairro,cd.municipio&&cd.uf?cd.municipio+' – '+cd.uf:cd.municipio||cd.uf].filter(Boolean).join(', ')
     const cep=cd.cep?cd.cep.replace(/^(\d{5})(\d{3})$/,'$1-$2'):''
-    return`<div class="client-card"><div class="cl-name">🏢 ${cd.fantasia||cd.nome}</div>
-      ${cd.nome&&cd.fantasia?`<div class="client-row"><span class="cl-label">Razão:</span><span class="cl-val">${cd.nome}</span></div>`:''}
-      <div class="client-row"><span class="cl-label">CNPJ:</span><span class="cl-val">${fmtDoc(cd.cnpj||'')}</span></div>
-      ${cd.email?`<div class="client-row"><span class="cl-label">E-mail:</span><span class="cl-val">${cd.email}</span></div>`:''}
-      ${cd.telefone?`<div class="client-row"><span class="cl-label">Telefone:</span><span class="cl-val">${cd.telefone}</span></div>`:''}
-      ${end?`<div class="client-row"><span class="cl-label">Endereço:</span><span class="cl-val">${end}${cep?' – CEP '+cep:''}</span></div>`:''}
+    return`<div class="client-card"><div class="cl-name">${cd.fantasia||cd.nome||fmtDoc(cd.cnpj)}</div>
+      ${cd.nome&&cd.fantasia?`<div class="client-row"><span class="cl-label">Razão Social</span><span class="cl-val">${cd.nome}</span></div>`:''}
+      ${cd.cnpj?`<div class="client-row"><span class="cl-label">CNPJ</span><span class="cl-val">${fmtDoc(cd.cnpj)}</span></div>`:''}
+      ${end?`<div class="client-row"><span class="cl-label">Endereço</span><span class="cl-val">${end}</span></div>`:''}
+      ${cep?`<div class="client-row"><span class="cl-label">CEP</span><span class="cl-val">${cep}</span></div>`:''}
+      ${cd.telefone?`<div class="client-row"><span class="cl-label">Telefone</span><span class="cl-val">${cd.telefone}</span></div>`:''}
+      ${cd.email?`<div class="client-row"><span class="cl-label">E-mail</span><span class="cl-val">${cd.email}</span></div>`:''}
     </div>`
   }
 
-  function rFull(q){
+  function rFull(data){
+    const{results,tAd,tMen}=data;let h=''
+    for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}${r.isPrepaid?' <small style="font-size:11px;color:var(--warning)">(pré-pago)</small>':''}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div></div>`}
+    h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão total</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val">${fmt(tMen)}</span></div></div>`
+    h+=`<div class="teaser-card"><div class="teaser-title">🎫 Licenças com desconto disponíveis!</div><div class="teaser-body">Deseja ver os valores com desconto?</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_disc(true)">✅ Sim!</button><button class="yn-btn no" onclick="window.vx_disc(false)">Não, obrigado</button></div></div>`
+    h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${getNextDates().map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
+    h+=`<div style="margin-top:8px"><button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button></div>`
+    h+=`<div style="margin-top:4px"><button class="prop-btn" style="background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(124,58,237,.06));border-color:rgba(124,58,237,.35);color:#a78bfa" onclick="window.vx_cont_full()">📝 Gerar Contrato (preço cheio)</button></div>`
+    return h
+  }
+
+  function rDisc(data,dates,cn){
     const c=cfgRef.current
-    const plans=c.plans?.length?c.plans:DEFAULT_CFG.plans
-    const cn=S.clientData?.fantasia||S.clientData?.nome||fmtDoc(S.doc||'')
-    const rows=(q.results||[]).map(r=>`<div class="price-row"><span class="label">${r.name}${r.plan?' <span style="font-size:11px;opacity:.6">(${getPlanLabel(r.plan,plans)})</span>':''}</span><span class="val">${r.isTributos||r.isEP?'—':fmt(r.ad)}</span><span class="val">${fmt(r.men)}</span></div>`).join('')
-    const discEnabled=c.discMode!=='none'
-    return`<div class="price-card"><h4>💰 ${cn}</h4>
-      <div style="display:flex;gap:8px;margin-bottom:8px;font-size:11px;color:var(--muted);font-weight:600"><span style="flex:1">MÓDULO</span><span>ADESÃO</span><span style="margin-left:16px">MENSAL</span></div>
-      ${rows}
-      <hr class="section-divider">
-      <div class="price-row"><span class="label" style="font-weight:700">TOTAL</span><span class="val" style="color:var(--accent)">${fmt(q.tAd)}</span><span class="val" style="color:var(--accent)">${fmt(q.tMen)}/mês</span></div>
-      <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px">
-        ${discEnabled?`<div class="teaser-card" style="width:100%;margin:4px 0"><div class="teaser-title">💡 Oferta Especial</div><div class="teaser-body">Temos condições especiais de contratação. Deseja ver o preço com desconto?</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_disc(true)">✅ Sim, quero desconto</button><button class="yn-btn no" onclick="window.vx_disc(false)">Não, obrigado</button></div></div>`:''}
-      </div>
-      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
-        <button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button>
-        <button class="prop-btn" onclick="window.vx_cont_full()">📝 Gerar Contrato (valores cheios)</button>
-        <button class="reset-btn" onclick="window.vx_reset()">🔄 Nova consulta</button>
-      </div>
-    </div>`
+    const{results,tAd,tMen,tAdD,tMenD}=data;let h=''
+    for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(r.men)}</span></div><hr class="section-divider">${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(r.adD)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(r.menD)}</span></div></div>`}
+    h+=`<div class="price-card" style="border-color:rgba(0,212,255,.25)"><h4>🔸 Total</h4><div class="price-row"><span class="label">Adesão</span><span class="val">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade</span><span class="val">${fmt(tMen)}</span></div><hr class="section-divider"><div class="price-row"><span class="label">Adesão c/ desc.</span><span class="val discount">${fmt(tAdD)}</span></div><div class="price-row"><span class="label">Mensalidade c/ desc.</span><span class="val discount">${fmt(tMenD)}</span></div>${c.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
+    const h2=c.closingHour??18
+    const textoExtra=c.closingText?`<div style="font-size:13px;color:var(--muted);margin-top:6px;font-style:italic">${c.closingText}</div>`:''
+    h+=`<div class="opp-banner"><div class="opp-title">🔥 Oportunidade de Negociação</div><div class="opp-body"><strong style="color:var(--gold)">${cn}</strong> pode fechar com <strong style="color:var(--gold)">${c.discClosePct||40}% OFF</strong> na adesão!<br>Oferta válida até as <strong style="color:var(--gold)">${h2}h de hoje</strong>.</div>${textoExtra}<div class="yn-row" style="margin-top:12px"><button class="yn-btn yes" onclick="window.vx_close(true)">✅ Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`
+    h+=`<div class="section-label">Próximos vencimentos</div><div class="dates-box">${dates.map(d=>`<span class="date-chip">${d}</span>`).join('')}</div>`
+    h+=`<div style="margin-top:8px"><button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial (com desconto)</button></div>`
+    h+=`<div style="margin-top:4px"><button class="prop-btn" style="background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(124,58,237,.06));border-color:rgba(124,58,237,.35);color:#a78bfa" onclick="window.vx_cont_disc()">📝 Gerar Contrato (com desconto)</button></div>`
+    return h
   }
 
-  function rDisc(q,dates,cn){
+  function rClose(data){
     const c=cfgRef.current
-    const plans=c.plans?.length?c.plans:DEFAULT_CFG.plans
-    const rows=(q.results||[]).map(r=>`<div class="price-row"><span class="label">${r.name}</span><span class="val discount">${r.isTributos||r.isEP?'—':fmt(r.adD)}</span><span class="val discount">${fmt(r.menD||r.men)}</span></div>`).join('')
-    const closingEnabled=c.discMode!=='screen'
-    return`<div class="price-card"><h4>🏷️ Proposta com Desconto — ${cn}</h4>
-      <div style="display:flex;gap:8px;margin-bottom:8px;font-size:11px;color:var(--muted);font-weight:600"><span style="flex:1">MÓDULO</span><span>ADESÃO</span><span style="margin-left:16px">MENSAL</span></div>
-      ${rows}
-      <hr class="section-divider">
-      <div class="price-row"><span class="label" style="font-weight:700">TOTAL COM DESCONTO</span><span class="val discount">${fmt(q.tAdD)}</span><span class="val discount">${fmt(q.tMenD)}/mês</span></div>
-      ${closingEnabled?`<div class="opp-banner" style="margin-top:12px"><div class="opp-title">⚡ Fechamento no Dia</div><div class="opp-body">Se o cliente fechar <strong>hoje</strong>, temos condições ainda melhores de adesão!</div><div class="yn-row"><button class="yn-btn yes" onclick="window.vx_close(true)">🔥 Fechar hoje!</button><button class="yn-btn no" onclick="window.vx_close(false)">Não por agora</button></div></div>`:''}
-      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
-        <button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta com Desconto</button>
-        <button class="prop-btn" onclick="window.vx_cont_disc()">📝 Gerar Contrato com Desconto</button>
-        <button class="reset-btn" onclick="window.vx_reset()">🔄 Nova consulta</button>
-      </div>
+    const{results,tAd,tMen}=data;let h=''
+    const h2=c.closingHour??18
+    const textoTimer=c.closingText||`Oferta válida até as ${h2}h de hoje`
+    h+=`<div class="timer-block"><div class="timer-label">⏱ ${textoTimer}</div><div id="vx-timer" class="timer-live">--:--:--</div><div class="timer-sub">Após este horário retornam os valores com desconto padrão</div></div>`
+    for(const r of results){h+=`<div class="price-card"><h4>🔹 ${r.name}</h4>${!r.isTributos&&!r.isEP?`<div class="price-row"><span class="label">Adesão (fechamento)</span><span class="val closing">${fmt(r.ad)}</span></div>`:''}<div class="price-row"><span class="label">Mensalidade</span><span class="val closing">${fmt(r.men)}</span></div></div>`}
+    h+=`<div class="price-card" style="border-color:rgba(251,191,36,.3)"><h4 style="color:var(--gold)">🔸 Total – Fechamento</h4><div class="price-row"><span class="label">Adesão total</span><span class="val closing">${fmt(tAd)}</span></div><div class="price-row"><span class="label">Mensalidade total</span><span class="val closing">${fmt(tMen)}</span></div>${c.unlimitedStrategy?`<div style="margin-top:8px"><span class="unlimited-badge">♾ Usuários Ilimitados</span></div>`:''}</div>`
+    h+=`<div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+      <button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Comercial</button>
+      <button class="prop-btn" style="background:linear-gradient(135deg,rgba(251,191,36,.2),rgba(251,191,36,.08));border-color:rgba(251,191,36,.4);color:var(--gold)" onclick="window.vx_cont()">📝 Gerar Contrato</button>
+      <button class="reset-btn" onclick="window.vx_reset()">🔄 Encerrar e iniciar nova consulta</button>
     </div>`
-  }
-
-  function rClose(q){
-    return`<div class="price-card"><h4>🔥 Fechamento no Dia</h4>
-      ${(q.results||[]).map(r=>`<div class="price-row"><span class="label">${r.name}</span><span class="val closing">${r.isTributos||r.isEP?'—':fmt(r.ad)}</span><span class="val closing">${fmt(r.men)}</span></div>`).join('')}
-      <hr class="section-divider">
-      <div class="price-row"><span class="label" style="font-weight:700">TOTAL</span><span class="val closing">${fmt(q.tAd)}</span><span class="val closing">${fmt(q.tMen)}/mês</span></div>
-      <div class="timer-block" style="margin-top:12px"><div class="timer-label">⏰ OFERTA EXPIRA EM</div><div class="timer-live" id="vx-timer">--:--:--</div><div class="timer-sub">Válido apenas até as ${cfgRef.current.closingHour||18}h de hoje</div></div>
-      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
-        <button class="prop-btn" onclick="window.vx_prop()">📄 Gerar Proposta Fechamento</button>
-        <button class="prop-btn" onclick="window.vx_cont()">📝 Gerar Contrato Fechamento</button>
-        <button class="reset-btn" onclick="window.vx_reset()">🔄 Nova consulta</button>
-      </div>
-    </div>`
+    return h
   }
 
   function statusBadge(h){
@@ -1467,8 +1420,9 @@ export default function Chat(){
 
   if(!userProfile)return<div style={{background:'#0a0f1e',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'#64748b',fontFamily:'DM Mono,monospace'}}>Carregando...</div>
 
+
   // ══════════════════════════════════════════════════════════
-  // MODAL CRM — estilo whatsapp-inbox com funil e dados pré-preenchidos
+  // MODAL CRM — estilo whatsapp-inbox com busca CNPJ e etapas
   // ══════════════════════════════════════════════════════════
   async function buscarCNPJCRM() {
     const cnpj = (crmForm.cnpj||'').replace(/\D/g,'')
@@ -1566,8 +1520,7 @@ export default function Chat(){
         delete cfgParaSalvar.propostaTemplate; delete cfgParaSalvar.contratoTemplate
         if(cfgParaSalvar.docTemplates){cfgParaSalvar.docTemplates={propostaTipo:cfgParaSalvar.docTemplates.propostaTipo||'html',contratoTipo:cfgParaSalvar.docTemplates.contratoTipo||'html',proposta:'',contrato:''}}
         await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(cfgParaSalvar),updated_at:new Date().toISOString()},{onConflict:'key'})
-        cfgRef.current={...cfgParaSalvar,propostaTemplate:cfgRef.current.propostaTemplate,contratoTemplate:cfgRef.current.contratoTemplate,propostaTipo:cfgRef.current.propostaTipo,contratoTipo:cfgRef.current.contratoTipo,docTemplates:cfgRef.current.docTemplates}
-        setCfg(cfgRef.current)
+        cfgRef.current={...cfgParaSalvar,...{propostaTemplate:cfgRef.current.propostaTemplate,contratoTemplate:cfgRef.current.contratoTemplate,propostaTipo:cfgRef.current.propostaTipo,contratoTipo:cfgRef.current.contratoTipo,docTemplates:cfgRef.current.docTemplates}};setCfg(cfgRef.current)
         setShowModalCRM(false)
         addBot(`✅ Negócio **"${novoNegocio.titulo}"** salvo no CRM na etapa **${etapas.find(e=>e.id===novoNegocio.etapa)?.label||novoNegocio.etapa}**!`)
       }catch(e){setCrmErro('Erro ao salvar: '+e.message)}
@@ -1577,6 +1530,7 @@ export default function Chat(){
     return(
       <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.82)',zIndex:3500,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>setShowModalCRM(false)}>
         <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:560,maxHeight:'92vh',overflowY:'auto',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
+          {/* Header */}
           <div style={{padding:'20px 24px 0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
             <div style={{fontFamily:'Syne,sans-serif',fontWeight:700,fontSize:17,color:'var(--accent)'}}>🤝 Salvar no CRM</div>
             <button onClick={()=>setShowModalCRM(false)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:22,cursor:'pointer'}}>✕</button>
@@ -1584,6 +1538,7 @@ export default function Chat(){
           <div style={{padding:'4px 24px 0',fontSize:12,color:'var(--muted)'}}>
             {docParaCRM.tipo==='proposta'?'📄 Proposta':'📝 Contrato'} · {crmForm.nome}
           </div>
+          {/* Abas */}
           <div style={{display:'flex',padding:'14px 24px 0',borderBottom:'1px solid var(--border)',flexShrink:0}}>
             {[['negocio','📋 Negócio'],['cliente','🏢 Cliente']].map(([id,label])=>(
               <button key={id} onClick={()=>setCrmAba(id)} style={{padding:'7px 18px',border:'none',borderBottom:`2px solid ${crmAba===id?'var(--accent)':'transparent'}`,background:'none',color:crmAba===id?'var(--accent)':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',transition:'all .15s'}}>
@@ -1591,6 +1546,7 @@ export default function Chat(){
               </button>
             ))}
           </div>
+          {/* Corpo */}
           <div style={{padding:'20px 24px',flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:12}}>
             {crmAba==='negocio'&&<>
               <div className="field"><label>Título do Negócio *</label><input style={inp} value={crmForm.titulo||''} onChange={e=>setF('titulo',e.target.value)} placeholder="Ex: Proposta – Empresa XYZ"/></div>
@@ -1664,6 +1620,7 @@ export default function Chat(){
     )
   }
 
+
   // ══════════════════════════════════════════════════════════
   // PAINEL LATERAL (Histórico / Assinaturas)
   // ══════════════════════════════════════════════════════════
@@ -1705,13 +1662,6 @@ export default function Chat(){
                         <button onClick={()=>{setSignFormDoc(h);setSignFormSide('client');setSfNome(h.clienteName||h.clienteNome||h.clientName||'');setSfCpf('');setSfEmail(h.clienteEmail||h.clientEmail||'');setSfAgreed(false);setSfErro('');setShowSignForm(true);setPainel(null)}}
                           style={{padding:'7px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>✍️ Assinar</button>
                       )}
-                      {h.type==='contrato'&&h.status!=='signed'&&(
-                        <button onClick={()=>{
-                          const url=buildSignUrl(h)
-                          const msg=encodeURIComponent(`📄 Olá!\n\nSeu contrato está pronto para assinatura.\n\n${url}`)
-                          window.open(`https://wa.me/?text=${msg}`,'_blank')
-                        }} style={{padding:'7px 14px',borderRadius:8,background:'rgba(37,211,102,.1)',border:'1px solid rgba(37,211,102,.3)',color:'#25d366',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>💬 Enviar link</button>
-                      )}
                     </div>
                   </div>
                 )
@@ -1739,6 +1689,7 @@ export default function Chat(){
                       </span>
                     </div>
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                      {/* Consultor */}
                       <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
                         <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATADA (Consultor)</div>
                         {consultorAssinou
@@ -1746,10 +1697,11 @@ export default function Chat(){
                           :<><div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.consultor||'—'} — aguardando</div>
                           <button onClick={()=>abrirSignForm(h,'consultant')} style={{padding:'8px 14px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>✍️ Assinar agora</button></>}
                       </div>
+                      {/* Cliente */}
                       <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px'}}>
                         <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATANTE (Cliente)</div>
                         {clienteAssinou
-                          ?<><div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.signedBy}</div><div style={{fontSize:11,color:'var(--muted)'}}>{h.signedAt}<br/><span>CPF: {h.signCPF||'—'}</span></div></>
+                          ?<><div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.signedBy}</div><div style={{fontSize:11,color:'var(--muted)'}}>{h.signedAt}<br/><span style={{color:'var(--muted)'}}>CPF: {h.signCPF||'—'}</span></div></>
                           :<><div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.clientName||h.clienteNome||'—'} — aguardando</div>
                           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                             <button onClick={()=>abrirSignForm(h,'client')} style={{padding:'8px 14px',borderRadius:8,background:'rgba(16,185,129,.1)',border:'1px solid rgba(16,185,129,.3)',color:'var(--accent3)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>✍️ Assinar nesta tela</button>
@@ -1796,6 +1748,7 @@ export default function Chat(){
       </div>
     )
   }
+
 
   // ══════════════════════════════════════════════════════════
   // RENDER PRINCIPAL
@@ -1845,7 +1798,7 @@ export default function Chat(){
       </div>
     </div>
 
-    {/* MODAL PREVIEW DOCUMENTO */}
+    {/* MODAL PREVIEW DOCUMENTO — abre SEMPRE ao gerar proposta/contrato */}
     {docPreview && (
       <DocumentoPreviewModal
         docPreview={docPreview}
@@ -1920,90 +1873,92 @@ export default function Chat(){
       </div>
     )}
 
-    {/* MODAL FORMULÁRIO DADOS CLIENTE */}
+    {/* MODAL CLIENTE */}
     {showClient&&(
       <div className="modal-overlay">
-        <div className="modal-box" style={{maxWidth:680}}>
-          <div className="modal-header">
-            <h3>{clientMode==='proposta'?'📋 Dados para Proposta':'📝 Dados para Contrato'}</h3>
-            <button className="modal-close" onClick={()=>setShowClient(false)}>✕</button>
-          </div>
+        <div className="modal-box" style={{maxWidth:620}}>
+          <div className="modal-header"><h3>{clientMode==='proposta'?'📄':'📝'} Confirmar Dados do Cliente</h3><button className="modal-close" onClick={()=>setShowClient(false)}>✕</button></div>
           <div className="modal-body">
+            <div style={{padding:'9px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:13,color:'var(--muted)',fontFamily:'DM Mono,monospace',marginBottom:12}}>{fmtDoc(S.doc||'')}</div>
             <div className="modal-grid2">
-              <div className="field"><label>Nome Fantasia / Empresa</label><input value={cf.empresa} onChange={e=>setCf(f=>({...f,empresa:e.target.value}))} placeholder="Nome Fantasia"/></div>
-              <div className="field"><label>Razão Social</label><input value={cf.razao} onChange={e=>setCf(f=>({...f,razao:e.target.value}))} placeholder="Razão Social"/></div>
-              <div className="field"><label>Contato Principal</label><input value={cf.contato} onChange={e=>setCf(f=>({...f,contato:e.target.value}))} placeholder="Nome do contato"/></div>
+              <div className="field"><label>Nome Fantasia</label><input value={cf.empresa} onChange={e=>setCf(f=>({...f,empresa:e.target.value}))} placeholder="Nome fantasia"/></div>
+              <div className="field"><label>Razão Social</label><input value={cf.razao} onChange={e=>setCf(f=>({...f,razao:e.target.value}))} placeholder="Razão social"/></div>
+              <div className="field"><label>Contato</label><input value={cf.contato} onChange={e=>setCf(f=>({...f,contato:e.target.value}))} placeholder="Responsável"/></div>
               <div className="field"><label>E-mail</label><input type="email" value={cf.email} onChange={e=>setCf(f=>({...f,email:e.target.value}))} placeholder="email@empresa.com"/></div>
               <div className="field"><label>Telefone</label><input value={cf.telefone} onChange={e=>setCf(f=>({...f,telefone:e.target.value}))} placeholder="(00) 00000-0000"/></div>
-              <div className="field"><label>CEP</label><input value={cf.cep} onChange={e=>{setCf(f=>({...f,cep:e.target.value}));if(e.target.value.replace(/\D/g,'').length===8)buscarCep(e.target.value)}} placeholder="00000-000"/></div>
-              <div className="field"><label>Logradouro {buscandoCep&&'⏳'}</label><input value={cf.logradouro} onChange={e=>setCf(f=>({...f,logradouro:e.target.value}))} placeholder="Rua, Av..."/></div>
-              <div className="field"><label>Bairro</label><input value={cf.bairro} onChange={e=>setCf(f=>({...f,bairro:e.target.value}))}/></div>
-              <div className="field"><label>Cidade</label><input value={cf.cidade} onChange={e=>setCf(f=>({...f,cidade:e.target.value}))}/></div>
-              <div className="field"><label>UF</label><input value={cf.uf} onChange={e=>setCf(f=>({...f,uf:e.target.value}))} maxLength={2}/></div>
-              {clientMode==='contrato'&&<>
-                <div className="field"><label>CPF do Contato</label><input value={cf.cpfContato} onChange={e=>setCf(f=>({...f,cpfContato:e.target.value}))} placeholder="000.000.000-00"/></div>
-                <div className="field"><label>Regime Tributário</label><input value={cf.regime} onChange={e=>setCf(f=>({...f,regime:e.target.value}))} placeholder="Simples Nacional..."/></div>
-              </>}
-            </div>
-            {clientMode==='contrato'&&<>
-              <div style={{marginTop:16,paddingTop:16,borderTop:'1px solid var(--border)',fontFamily:'Syne,sans-serif',fontSize:12,color:'var(--muted)',fontWeight:700,marginBottom:10}}>RESPONSÁVEIS (opcional)</div>
-              <div className="modal-grid3">
-                <div className="field"><label>Resp. Implementação</label><input value={cf.rimpNome} onChange={e=>setCf(f=>({...f,rimpNome:e.target.value}))}/></div>
-                <div className="field"><label>E-mail Impl.</label><input value={cf.rimpEmail} onChange={e=>setCf(f=>({...f,rimpEmail:e.target.value}))}/></div>
-                <div className="field"><label>Tel. Impl.</label><input value={cf.rimpTel} onChange={e=>setCf(f=>({...f,rimpTel:e.target.value}))}/></div>
-                <div className="field"><label>Resp. Financeiro</label><input value={cf.rfinNome} onChange={e=>setCf(f=>({...f,rfinNome:e.target.value}))}/></div>
-                <div className="field"><label>E-mail Fin.</label><input value={cf.rfinEmail} onChange={e=>setCf(f=>({...f,rfinEmail:e.target.value}))}/></div>
-                <div className="field"><label>Tel. Fin.</label><input value={cf.rfinTel} onChange={e=>setCf(f=>({...f,rfinTel:e.target.value}))}/></div>
+              <div className="field"><label>CEP</label>
+                <div style={{display:'flex',gap:6}}>
+                  <input value={cf.cep} onChange={e=>setCf(f=>({...f,cep:e.target.value}))} placeholder="00000-000" style={{flex:1}} onBlur={e=>e.target.value.replace(/\D/g,'').length>=8&&buscarCep(e.target.value)}/>
+                  <button onClick={()=>buscarCep(cf.cep)} disabled={buscandoCep} style={{padding:'8px 12px',borderRadius:8,background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12}}>{buscandoCep?'⏳':'📍'}</button>
+                </div>
               </div>
-            </>}
+              <div className="field"><label>Endereço</label><input value={cf.logradouro} onChange={e=>setCf(f=>({...f,logradouro:e.target.value}))} placeholder="Rua, número"/></div>
+              <div className="field"><label>Bairro</label><input value={cf.bairro} onChange={e=>setCf(f=>({...f,bairro:e.target.value}))} placeholder="Bairro"/></div>
+              <div className="field"><label>Cidade</label><input value={cf.cidade} onChange={e=>setCf(f=>({...f,cidade:e.target.value}))} placeholder="Cidade"/></div>
+              <div className="field"><label>UF</label><input value={cf.uf} onChange={e=>setCf(f=>({...f,uf:e.target.value}))} placeholder="UF" maxLength={2}/></div>
+              <div className="field"><label>CPF do Contato</label><input value={cf.cpfContato} onChange={e=>setCf(f=>({...f,cpfContato:e.target.value}))} placeholder="000.000.000-00"/></div>
+              <div className="field"><label>Regime Tributário</label>
+                <select value={cf.regime} onChange={e=>setCf(f=>({...f,regime:e.target.value}))} style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'9px 12px',fontFamily:'DM Mono,monospace',fontSize:13,color:'var(--text)',outline:'none'}}>
+                  <option value="">Selecione...</option>
+                  <option value="Simples Nacional">Simples Nacional</option>
+                  <option value="Lucro Presumido">Lucro Presumido</option>
+                  <option value="Lucro Real">Lucro Real</option>
+                  <option value="MEI">MEI</option>
+                </select>
+              </div>
+            </div>
+            <div style={{marginTop:12,padding:14,background:'rgba(251,191,36,.06)',border:'1px solid rgba(251,191,36,.2)',borderRadius:10}}>
+              <div style={{fontSize:11,color:'var(--gold)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:10}}>🔧 Responsável pela Implantação</div>
+              <div className="modal-grid3">{[['Nome','rimpNome'],['E-mail','rimpEmail'],['Telefone','rimpTel']].map(([l,k])=><div key={k} className="field"><label>{l}</label><input value={cf[k]||''} onChange={e=>setCf(f=>({...f,[k]:e.target.value}))} placeholder={l}/></div>)}</div>
+            </div>
+            <div style={{marginTop:12,padding:14,background:'rgba(16,185,129,.06)',border:'1px solid rgba(16,185,129,.2)',borderRadius:10}}>
+              <div style={{fontSize:11,color:'var(--accent3)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:10}}>💰 Responsável Financeiro</div>
+              <div className="modal-grid3">{[['Nome','rfinNome'],['E-mail','rfinEmail'],['Telefone','rfinTel']].map(([l,k])=><div key={k} className="field"><label>{l}</label><input value={cf[k]||''} onChange={e=>setCf(f=>({...f,[k]:e.target.value}))} placeholder={l}/></div>)}</div>
+            </div>
           </div>
           <div className="modal-footer">
             <button className="btn-cancel" onClick={()=>setShowClient(false)}>Cancelar</button>
-            <button className="btn-primary" onClick={saveClient}>
-              {clientMode==='proposta'?'📄 Gerar Proposta':'📝 Gerar Contrato'}
-            </button>
+            <button className="btn-primary" onClick={saveClient}>{clientMode==='proposta'?'✅ Salvar e Gerar Proposta':'📝 Avançar'}</button>
           </div>
         </div>
       </div>
     )}
 
-    {/* WIZARD DATAS CONTRATO */}
+    {/* WIZARD CONTRATO */}
     {showWiz&&(
       <div className="modal-overlay">
-        <div className="modal-box" style={{maxWidth:500}}>
-          <div className="modal-header">
-            <h3>📝 Configurar Contrato</h3>
-            <button className="modal-close" onClick={()=>setShowWiz(false)}>✕</button>
-          </div>
+        <div className="modal-box" style={{maxWidth:680}}>
+          <div className="modal-header"><h3>📝 Configurar Contrato — Passo {wizStep}/2</h3><button className="modal-close" onClick={()=>setShowWiz(false)}>✕</button></div>
           <div className="modal-body">
             {wizStep===1&&<>
-              <div className="wiz-title">Condição de Pagamento</div>
-              {[
-                {id:'pix',    ico:'⚡',txt:'PIX / Boleto à vista',    desc:'Pagamento à vista com desconto'},
-                {id:'cartao3x',ico:'💳',txt:'Cartão 3× sem juros',    desc:'Parcelado em 3 vezes'},
-                {id:'cartao6x',ico:'💳',txt:'Cartão 6× sem juros',    desc:'Parcelado em 6 vezes'},
-                {id:'boleto3x', ico:'📄',txt:'Boleto 3× mensal',       desc:'3 boletos mensais'},
-              ].map(op=>(
-                <div key={op.id} className={`pay-opt ${wizPay===op.id?'sel':''}`} onClick={()=>setWizPay(op.id)}>
-                  <span>{op.ico}</span>
-                  <div style={{flex:1}}><div className="po-t">{op.txt}</div><div className="po-s">{op.desc}</div></div>
-                  {wizTAd>0&&<span className="po-v">{fmt(wizTAd)}</span>}
+              <div className="wiz-title">💳 Condição de Pagamento — Adesão: <strong>{fmt(wizTAd)}</strong></div>
+              <div className="wiz-sec">À VISTA</div>
+              <div className={`pay-opt${wizPay==='pix'?' sel':''}`} onClick={()=>setWizPay('pix')}><span>🏦</span><div style={{flex:1}}><div className="po-t">PIX ou Boleto à vista</div></div><div className="po-v">{fmt(wizTAd)}</div></div>
+              <div className="wiz-sec" style={{marginTop:12}}>CARTÃO — SEM JUROS</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                {Array.from({length:10},(_,i)=>i+1).map(n=>(
+                  <div key={n} className={`pay-opt sm${wizPay===`cartao${n}x`?' sel':''}`} onClick={()=>setWizPay(`cartao${n}x`)}>
+                    <span>💳</span><div style={{flex:1}}><div className="po-t">{n}×</div></div><div className="po-v" style={{fontSize:12}}>{fmt(wizTAd/n)}/m</div>
+                  </div>
+                ))}
+              </div>
+              <div className="wiz-sec" style={{marginTop:12}}>BOLETO PARCELADO</div>
+              {[{n:2,d:`${fmt(wizTAd*0.5)} + ${fmt(wizTAd*0.5)} em 30d`},{n:3,d:`${fmt(wizTAd*0.5)} + 2× de ${fmt(wizTAd*0.25)}`}].map(o=>(
+                <div key={o.n} className={`pay-opt${wizPay===`boleto${o.n}x`?' sel':''}`} onClick={()=>setWizPay(`boleto${o.n}x`)} style={{marginBottom:8}}>
+                  <span>📄</span><div style={{flex:1}}><div className="po-t">{o.n}× Boleto</div><div className="po-s">{o.d}</div></div><div className="po-v">{fmt(wizTAd/o.n)}</div>
                 </div>
               ))}
             </>}
             {wizStep===2&&<>
+              <div className="wiz-title">📅 Datas de Vencimento</div>
               {wizTAd>0&&<>
-                <div className="wiz-title">Vencimento da Adesão ({fmt(wizTAd)})</div>
-                <div className="dates-box" style={{flexWrap:'wrap',gap:8,marginBottom:16}}>
-                  {wizDates.map(d=><button key={d} className={`date-pill ${wizAd===d?'chosen':''}`} onClick={()=>setWizAd(d)}>{d}</button>)}
-                  <input className="date-inp" type="text" placeholder="Outra data" style={{width:110}} value={!wizDates.includes(wizAd)?wizAd:''} onChange={e=>setWizAd(e.target.value)}/>
-                </div>
+                <div style={{fontSize:13,color:'var(--muted)',margin:'12px 0 8px'}}>Vencimento da Adesão ({fmt(wizTAd)})</div>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{wizDates.map(d=><button key={d} className={`date-pill${wizAd===d?' chosen':''}`} onClick={()=>setWizAd(d)}>{d}</button>)}</div>
+                <input className="date-inp" placeholder="Outra data (DD/MM)" value={wizAd&&!wizDates.includes(wizAd)?wizAd:''} onChange={e=>setWizAd(e.target.value)} style={{marginBottom:16}}/>
               </>}
-              <div className="wiz-title">1ª Mensalidade ({fmt(wizTMen)})</div>
-              <div className="dates-box" style={{flexWrap:'wrap',gap:8}}>
-                {wizDates.map(d=><button key={d} className={`date-pill ${wizMen===d?'chosen':''}`} onClick={()=>setWizMen(d)}>{d}</button>)}
-                <input className="date-inp" type="text" placeholder="Outra data" style={{width:110}} value={!wizDates.includes(wizMen)?wizMen:''} onChange={e=>setWizMen(e.target.value)}/>
-              </div>
+              <div style={{fontSize:13,color:'var(--muted)',margin:'4px 0 8px'}}>1ª Mensalidade ({fmt(wizTMen)}/mês)</div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{wizDates.map(d=><button key={d} className={`date-pill${wizMen===d?' chosen':''}`} onClick={()=>setWizMen(d)}>{d}</button>)}</div>
+              <input className="date-inp" placeholder="Outra data (DD/MM)" value={wizMen&&!wizDates.includes(wizMen)?wizMen:''} onChange={e=>setWizMen(e.target.value)}/>
             </>}
           </div>
           <div className="modal-footer">
@@ -2015,42 +1970,44 @@ export default function Chat(){
       </div>
     )}
 
-    {/* MODAL ASSINATURA (consultor ou cliente nesta tela) */}
+    {/* MODAL FORMULÁRIO ASSINATURA */}
     {showSignForm&&(
-      <div className="modal-overlay" style={{zIndex:400}}>
-        <div className="modal-box" style={{maxWidth:460}}>
+      <div className="modal-overlay" style={{zIndex:300}}>
+        <div className="modal-box" style={{maxWidth:480}}>
           <div className="modal-header">
-            <h3>{signFormSide==='consultant'?'✍️ Assinatura do Consultor':'✍️ Assinatura do Cliente'}</h3>
+            <h3>✍️ {signFormSide==='consultant'?'Assinatura do Consultor':'Assinatura do Cliente'}</h3>
             <button className="modal-close" onClick={()=>setShowSignForm(false)}>✕</button>
           </div>
           <div className="modal-body">
-            <div style={{padding:'10px 14px',background:'rgba(0,212,255,.06)',border:'1px solid rgba(0,212,255,.15)',borderRadius:8,fontSize:12,color:'var(--muted)',marginBottom:14,lineHeight:1.6}}>
-              {signFormSide==='consultant'
-                ?'Você está assinando como representante da empresa contratada. Seus dados de configuração foram pré-preenchidos.'
-                :'Registre a assinatura do cliente neste contrato. Nome, CPF, e-mail e IP serão registrados.'}
+            <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:16}}>
+              Preencha os dados para registrar a assinatura eletrônica conforme a <strong style={{color:'var(--text)'}}>Lei nº 14.063/2020</strong>.
+            </p>
+            {signFormSide==='consultant'&&<div style={{padding:'10px 14px',background:'rgba(0,212,255,.06)',border:'1px solid rgba(0,212,255,.15)',borderRadius:8,fontSize:12,color:'var(--muted)',marginBottom:12}}>
+              ℹ️ Dados pré-preenchidos das configurações do usuário. Verifique antes de assinar.
+            </div>}
+            <div className="field"><label>Nome completo *</label><input value={sfNome} onChange={e=>setSfNome(e.target.value)} placeholder="Nome completo"/></div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div className="field"><label>CPF *</label><input value={sfCpf} onChange={e=>setSfCpf(e.target.value)} placeholder="000.000.000-00"/></div>
+              <div className="field"><label>E-mail *</label><input type="email" value={sfEmail} onChange={e=>setSfEmail(e.target.value)} placeholder="email"/></div>
             </div>
-            <div className="field"><label>Nome Completo *</label><input value={sfNome} onChange={e=>setSfNome(e.target.value)} placeholder="Nome como no documento"/></div>
-            <div className="field"><label>CPF *</label><input value={sfCpf} onChange={e=>setSfCpf(e.target.value)} placeholder="000.000.000-00"/></div>
-            <div className="field"><label>E-mail *</label><input type="email" value={sfEmail} onChange={e=>setSfEmail(e.target.value)} placeholder="email@exemplo.com"/></div>
-            <div onClick={()=>setSfAgreed(v=>!v)} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'12px 14px',background:sfAgreed?'rgba(16,185,129,.08)':'var(--surface2)',border:`1px solid ${sfAgreed?'rgba(16,185,129,.3)':'var(--border)'}`,borderRadius:8,cursor:'pointer',marginTop:8,transition:'all .15s'}}>
-              <div style={{width:18,height:18,borderRadius:4,border:`2px solid ${sfAgreed?'var(--accent3)':'var(--border)'}`,background:sfAgreed?'var(--accent3)':'transparent',flexShrink:0,marginTop:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <div onClick={()=>setSfAgreed(!sfAgreed)} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',background:sfAgreed?'rgba(16,185,129,.06)':'var(--surface2)',border:`1px solid ${sfAgreed?'rgba(16,185,129,.3)':'var(--border)'}`,borderRadius:10,cursor:'pointer',marginTop:4}}>
+              <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${sfAgreed?'var(--accent3)':'var(--border)'}`,background:sfAgreed?'var(--accent3)':'transparent',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',marginTop:2}}>
                 {sfAgreed&&<span style={{color:'#fff',fontSize:11,fontWeight:700}}>✓</span>}
               </div>
-              <span style={{fontSize:12,color:'var(--muted)',lineHeight:1.5}}>Confirmo que li e concordo com todos os termos deste documento. Autorizo o registro desta assinatura eletrônica conforme a <strong>Lei nº 14.063/2020</strong>.</span>
+              <p style={{fontSize:12,color:'var(--muted)',lineHeight:1.6,margin:0}}>Declaro que li e concordo com todos os termos, conforme a Lei nº 14.063/2020. Esta assinatura tem validade jurídica.</p>
             </div>
-            {sfErro&&<div style={{marginTop:10,padding:'8px 12px',background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',borderRadius:8,fontSize:12,color:'var(--danger)'}}>⚠️ {sfErro}</div>}
+            {sfErro&&<div style={{padding:'10px 14px',background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',borderRadius:8,fontSize:12,color:'var(--danger)',marginTop:12}}>⚠️ {sfErro}</div>}
           </div>
           <div className="modal-footer">
             <button className="btn-cancel" onClick={()=>setShowSignForm(false)}>Cancelar</button>
-            <button className="btn-primary" onClick={confirmarSignForm} disabled={sfSaving} style={{opacity:sfSaving?.6:1}}>
-              {sfSaving?'⏳ Registrando...':'✅ Confirmar Assinatura'}
-            </button>
+            <button className="btn-primary" onClick={confirmarSignForm} disabled={sfSaving}>{sfSaving?'⏳ Registrando...':'✅ Confirmar Assinatura'}</button>
           </div>
         </div>
       </div>
     )}
   </>)
 }
+
 
 const CSS=`
   :root{--bg:#0a0f1e;--surface:#111827;--surface2:#1a2540;--border:#1e2d4a;--accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;--text:#e2e8f0;--muted:#64748b;--user-bubble:#1e3a5f;--bot-bubble:#131f35;--danger:#ef4444;--warning:#f59e0b;--gold:#fbbf24;--card-bg:#1a2540;--shadow:0 4px 24px rgba(0,0,0,.4)}
@@ -2122,8 +2079,8 @@ const CSS=`
   .modal-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .modal-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
   .field{margin-bottom:10px}.field label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;letter-spacing:.5px}
-  .field input,.field textarea{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none}
-  .field input:focus,.field textarea:focus{border-color:var(--accent)}
+  .field input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none}
+  .field input:focus{border-color:var(--accent)}
   .modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
   .btn-cancel{padding:10px 18px;border-radius:10px;background:rgba(100,116,139,.12);border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:13px;cursor:pointer}
   .btn-primary{padding:10px 22px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#0099bb);border:none;color:#fff;font-family:'DM Mono',monospace;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
@@ -2131,12 +2088,12 @@ const CSS=`
   .wiz-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--text);margin-bottom:14px}
   .wiz-sec{font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px;margin-top:8px}
   .pay-opt{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;transition:all .2s;margin-bottom:8px;font-size:18px}
+  .pay-opt.sm{font-size:14px;padding:9px 12px;margin-bottom:0}
   .pay-opt.sel,.pay-opt:hover{border-color:var(--accent);background:rgba(0,212,255,.08)}
   .po-t{font-weight:700;font-size:13px;color:var(--text)}.po-s{font-size:11px;color:var(--muted);margin-top:2px}
   .po-v{font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap}
   .date-pill{padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:var(--surface2);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all .2s}
   .date-pill.chosen,.date-pill:hover{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,.1)}
-  .date-inp{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;margin-top:6px}
+  .date-inp{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text);outline:none;margin-top:6px}
   .date-inp:focus{border-color:var(--accent)}
-  @media(max-width:600px){.modal-grid2,.modal-grid3{grid-template-columns:1fr}}
 `
