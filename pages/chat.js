@@ -1,11 +1,11 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v9
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v9 (sem docx-preview)
 // ============================================================
 // v9 CORREÇÕES:
 // • Preview HTML SEMPRE exibido, mesmo para templates DOCX
-// • Renderização de DOCX via docx-preview (visualização fiel)
 // • Botões: imprimir, salvar CRM, enviar assinatura, voltar
 // • Assinatura: token salvo, link funcional, IP do cliente
 // • CRM: modal completo com busca CNPJ e etapas do funil
+// • DOCX: download disponível, visualização via fallback HTML
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -13,10 +13,9 @@ import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
-import { renderAsync } from 'docx-preview'
 
 // ══════════════════════════════════════════════════════════════
-// COMPONENTE DocumentoPreviewModal — v9 (renderiza DOCX na tela)
+// COMPONENTE DocumentoPreviewModal — v9 (exibe HTML sempre)
 // ══════════════════════════════════════════════════════════════
 function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {
   const [enviandoAss,    setEnviandoAss]    = useState(false)
@@ -26,8 +25,6 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
   const [emailEnvio,     setEmailEnvio]      = useState('')
   const [salvandoCRM,    setSalvandoCRM]     = useState(false)
   const [docxBaixado,    setDocxBaixado]     = useState(false)
-  const [renderizandoDocx, setRenderizandoDocx] = useState(false)
-  const docxPreviewRef = useRef(null)
 
   if (!docPreview) return null
 
@@ -36,26 +33,11 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
 
   if (!emailEnvio && clienteEmail) setEmailEnvio(clienteEmail)
 
-  // Renderiza o DOCX quando o blob estiver disponível
-  useEffect(() => {
-    if (hasDocx && window._vxDocxBlob?.blob && docxPreviewRef.current) {
-      setRenderizandoDocx(true)
-      renderAsync(window._vxDocxBlob.blob, docxPreviewRef.current)
-        .then(() => setRenderizandoDocx(false))
-        .catch(err => { console.error('Erro ao renderizar DOCX:', err); setRenderizandoDocx(false) })
-    }
-  }, [hasDocx, window._vxDocxBlob])
-
   function handleImprimir() {
-    if (hasDocx && window._vxDocxBlob?.blob) {
-      // Abre o DOCX em nova aba para impressão (funciona se o navegador tiver plugin)
-      const url = URL.createObjectURL(window._vxDocxBlob.blob)
-      window.open(url, '_blank')
-      URL.revokeObjectURL(url)
-    } else if (html) {
-      const win = window.open('', '_blank', 'width=900,height=700')
-      if (!win) { alert('Permita popups neste site.'); return }
-      win.document.write(`<!DOCTYPE html>
+    if (!html) return
+    const win = window.open('', '_blank', 'width=900,height=700')
+    if (!win) { alert('Permita popups neste site.'); return }
+    win.document.write(`<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <title>${isContrato ? 'Contrato' : 'Proposta'}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
@@ -68,10 +50,9 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
 <button class="print-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
 ${html}
 </body></html>`)
-      win.document.close()
-      win.focus()
-      setTimeout(() => win.print(), 800)
-    }
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 800)
   }
 
   function handleBaixarDocx() {
@@ -180,7 +161,6 @@ ${html}
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Barra de ações */}
       <div style={{ background: '#0a0f1e', borderBottom: '1px solid #1e2d4a', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', flexShrink: 0, flexWrap: 'wrap' }}>
         <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 15, marginRight: 8 }}>
           {isContrato ? '📄 Contrato' : '📋 Proposta'} gerado
@@ -205,7 +185,6 @@ ${html}
         </button>
       </div>
 
-      {/* Painel envio proposta */}
       {!isContrato && showEnvioOpc && (
         <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#64748b' }}>Enviar para:</span>
@@ -216,7 +195,6 @@ ${html}
         </div>
       )}
 
-      {/* Painel assinatura contrato */}
       {isContrato && showEnvioOpc && linkAssinatura && (
         <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -241,21 +219,15 @@ ${html}
         </div>
       )}
 
-      {/* Status */}
       {msgEnvio && (
         <div style={{ padding: '10px 20px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444' }}>
           {msgEnvio}
         </div>
       )}
 
-      {/* Preview do documento — com suporte a DOCX via docx-preview */}
       <div style={{ flex: 1, overflow: 'auto', padding: 24, background: '#f0f4f8' }}>
         <div style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}>
-          {hasDocx ? (
-            <div ref={docxPreviewRef} style={{ padding: 20 }}>
-              {renderizandoDocx && <div style={{ textAlign: 'center', padding: 40 }}>⏳ Carregando visualização do documento...</div>}
-            </div>
-          ) : html ? (
+          {html ? (
             <div dangerouslySetInnerHTML={{ __html: html }} />
           ) : (
             <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>
@@ -2103,3 +2075,5 @@ const CSS=`
   .date-inp:focus{border-color:var(--accent)}
 `
 
+// APENAS UMA EXPORTAÇÃO DEFAULT
+export default Chat
