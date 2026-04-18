@@ -31,17 +31,19 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
   const [showEnvioOpcoes, setShowEnvioOpcoes] = useState(false)
   const [emailEnvio,      setEmailEnvio]      = useState('')
   const [salvandoCRM,     setSalvandoCRM]     = useState(false)
+  const [docxBaixado,     setDocxBaixado]     = useState(false)
 
   if (!docPreview) return null
 
   const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken, hasDocx, docxNome } = docPreview
   const isContrato = tipo === 'contrato'
+  const isDocxMode = hasDocx && !html   // modo DOCX puro: sem preview HTML
 
-  // Preenche email do cliente
   if (!emailEnvio && clienteEmail) setEmailEnvio(clienteEmail)
 
-  // ── 1. Imprimir ──
+  // ── 1. Imprimir (só disponível quando há HTML) ──
   function handleImprimir() {
+    if (!html) return
     const win = window.open('', '_blank', 'width=900,height=700')
     if (!win) { alert('Permita popups.'); return }
     win.document.write(`<!DOCTYPE html>
@@ -68,13 +70,15 @@ ${html}
       const url = URL.createObjectURL(window._vxDocxBlob.blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = window._vxDocxBlob.nome || (isContrato ? 'contrato.docx' : 'proposta.docx')
+      a.download = window._vxDocxBlob.nome || docxNome || (isContrato ? 'contrato.docx' : 'proposta.docx')
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+      setDocxBaixado(true)
+      setMsgEnvio('✅ DOCX baixado com sucesso!')
     } else {
-      alert('Arquivo DOCX ainda sendo preparado. Aguarde um instante.')
+      setMsgEnvio('⏳ Arquivo DOCX ainda sendo gerado. Aguarde 2 segundos e tente novamente.')
     }
   }
 
@@ -93,45 +97,36 @@ ${html}
   // ── 4. Enviar para assinatura (contrato) ──
   async function handleEnviarAssinatura() {
     if (!clienteEmail && !clienteTel) { setMsgEnvio('⚠️ Cliente sem e-mail ou telefone cadastrado.'); return }
-
     setEnviandoAssComp(true); setMsgEnvio('')
     try {
       const token  = signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-
       await supabase.from('vx_storage').upsert({
         key:   `sign:${token}`,
-        value: JSON.stringify({
-          token, empresaId, html,
-          clienteNome, clienteEmail, clienteTel,
-          status: 'pendente',
-          criadoEm: new Date().toISOString(),
-          expiry,
-        }),
+        value: JSON.stringify({ token, empresaId, html: html || '', clienteNome, clienteEmail, clienteTel, status: 'pendente', criadoEm: new Date().toISOString(), expiry }),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'key' })
-
       const baseUrl  = cfg.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
       const signLink = `${baseUrl}/sign/${token}`
       setLinkAssinatura(signLink)
       setShowEnvioOpcoes(true)
-      setMsgEnvio(`✅ Link de assinatura gerado!`)
+      setMsgEnvio('✅ Link de assinatura gerado!')
     } catch (err) {
       setMsgEnvio(`❌ Erro: ${err.message}`)
     }
     setEnviandoAssComp(false)
   }
 
-  // ── 5. Enviar proposta para cliente (WhatsApp / Email) ──
+  // ── 5. Enviar proposta para cliente ──
   function handleEnviarPropostaWpp() {
-    const msg = encodeURIComponent(`Olá ${clienteNome || 'cliente'}! Segue abaixo a proposta comercial da ${cfg.company || 'Vivanexa'}.\n\nAcesse o link para visualizar:\n${window.location.origin}/sign/${signToken}`)
+    const msg = encodeURIComponent(`Olá ${clienteNome || 'cliente'}! Segue a proposta comercial da ${cfg.company || ''}.\n\nAcesse o link para visualizar:\n${window.location.origin}/sign/${signToken}`)
     const tel = (clienteTel||'').replace(/\D/g,'')
     window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
     setMsgEnvio('✅ WhatsApp aberto com o link da proposta!')
   }
   function handleEnviarPropostaEmail() {
-    const subj = encodeURIComponent(`Proposta Comercial – ${cfg.company || 'Vivanexa'}`)
-    const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSegue a proposta comercial.\n\nLink: ${window.location.origin}/sign/${signToken}\n\n${cfg.company || 'Vivanexa'}`)
+    const subj = encodeURIComponent(`Proposta Comercial – ${cfg.company || ''}`)
+    const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSegue a proposta comercial.\n\nLink: ${window.location.origin}/sign/${signToken}\n\n${cfg.company || ''}`)
     window.open(`mailto:${emailEnvio||clienteEmail||''}?subject=${subj}&body=${body}`, '_blank')
     setMsgEnvio('✅ E-mail aberto com a proposta!')
   }
@@ -150,7 +145,9 @@ ${html}
         <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 15, marginRight: 8 }}>
           {isContrato ? '📄 Contrato' : '📋 Proposta'} gerado
         </div>
-        <button onClick={handleImprimir} style={acaoBtn('#00d4ff')}>🖨 Imprimir / PDF</button>
+        {/* Imprimir só aparece quando há HTML para renderizar */}
+        {html && <button onClick={handleImprimir} style={acaoBtn('#00d4ff')}>🖨 Imprimir / PDF</button>}
+        {/* Baixar DOCX: sempre visível quando é modo DOCX */}
         {hasDocx && (
           <button onClick={handleBaixarDocx} style={acaoBtn('#7c3aed')}>💾 Baixar DOCX</button>
         )}
@@ -176,12 +173,8 @@ ${html}
       {!isContrato && showEnvioOpcoes && (
         <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#64748b' }}>Enviar para:</span>
-          <input
-            value={emailEnvio}
-            onChange={e => setEmailEnvio(e.target.value)}
-            placeholder="email do cliente"
-            style={{ background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, width: 220 }}
-          />
+          <input value={emailEnvio} onChange={e => setEmailEnvio(e.target.value)} placeholder="email do cliente"
+            style={{ background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, width: 220 }} />
           <button onClick={handleEnviarPropostaWpp} style={acaoBtn('#25d366')}>💬 WhatsApp</button>
           <button onClick={handleEnviarPropostaEmail} style={acaoBtn('#00d4ff')}>📧 E-mail</button>
         </div>
@@ -202,31 +195,61 @@ ${html}
               window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
             }} style={acaoBtn('#25d366')}>💬 Enviar via WhatsApp</button>
             <button onClick={() => {
-              const subj = encodeURIComponent(`Contrato para Assinatura – ${cfg.company || 'Vivanexa'}`)
-              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg.company || 'Vivanexa'}`)
+              const subj = encodeURIComponent(`Contrato para Assinatura – ${cfg.company || ''}`)
+              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg.company || ''}`)
               window.open(`mailto:${clienteEmail||''}?subject=${subj}&body=${body}`, '_blank')
             }} style={acaoBtn('#00d4ff')}>📧 Enviar por E-mail</button>
-            <button onClick={() => {
-              // Abrir link de assinatura nesta própria tela
-              window.open(linkAssinatura, '_blank')
-            }} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (esta tela)</button>
+            <button onClick={() => window.open(linkAssinatura, '_blank')} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (esta tela)</button>
           </div>
         </div>
       )}
 
       {/* Mensagem de status */}
       {msgEnvio && (
-        <div style={{ padding: '10px 20px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : '#ef4444' }}>
+        <div style={{ padding: '10px 20px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444' }}>
           {msgEnvio}
         </div>
       )}
 
-      {/* Preview do documento */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 24, background: '#f0f4f8' }}>
-        <div
-          style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+      {/* Área de conteúdo */}
+      <div style={{ flex: 1, overflow: 'auto', padding: 24, background: isDocxMode ? '#0a0f1e' : '#f0f4f8' }}>
+        {isDocxMode ? (
+          // ── Modo DOCX puro: tela de confirmação ──
+          <div style={{ maxWidth: 520, margin: '60px auto', background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16, padding: 40, textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,.4)' }}>
+            <div style={{ fontSize: 56, marginBottom: 20 }}>📄</div>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 20, fontWeight: 800, color: '#00d4ff', marginBottom: 8 }}>
+              {isContrato ? 'Contrato' : 'Proposta'} gerado com sucesso!
+            </div>
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 28, lineHeight: 1.7 }}>
+              O arquivo DOCX foi gerado com todas as variáveis preenchidas.<br />
+              Clique no botão abaixo para baixar o documento.
+            </div>
+            <button
+              onClick={handleBaixarDocx}
+              style={{ padding: '14px 32px', borderRadius: 12, background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 16, display: 'block', width: '100%' }}
+            >
+              💾 Baixar DOCX
+            </button>
+            {docxBaixado && (
+              <div style={{ fontSize: 12, color: '#10b981', marginTop: 8 }}>
+                ✅ Arquivo baixado! Use os botões no topo para salvar no CRM ou enviar para assinatura.
+              </div>
+            )}
+            <div style={{ marginTop: 24, padding: '14px 18px', background: 'rgba(0,212,255,.06)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, fontSize: 12, color: '#64748b', textAlign: 'left', lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>📋 Arquivo:</div>
+              <div>{docxNome || (isContrato ? 'contrato.docx' : 'proposta.docx')}</div>
+              <div style={{ fontWeight: 700, color: '#94a3b8', marginTop: 10, marginBottom: 6 }}>👤 Cliente:</div>
+              <div>{clienteNome || '—'}</div>
+              {clienteEmail && <><div style={{ fontWeight: 700, color: '#94a3b8', marginTop: 10, marginBottom: 6 }}>📧 E-mail:</div><div>{clienteEmail}</div></>}
+            </div>
+          </div>
+        ) : (
+          // ── Modo HTML: preview em tela ──
+          <div
+            style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}
+            dangerouslySetInnerHTML={{ __html: html || '' }}
+          />
+        )}
       </div>
     </div>
   )
@@ -566,321 +589,164 @@ function stripDocxFromObj(obj) {
   return out
 }
 
-// ── Build Proposta (com suporte a template) ──────────────────
-function buildProposal(S,cfg,user,templateOverride){
-  const isC=S.closingToday===true,cd=S.clientData||{},co=S.contactData||{}
-  const today=new Date().toLocaleDateString('pt-BR')
-  const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
-  const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
-  const results=isC?S.closingData?.results:S.quoteData?.results
-  // Plano com fallback seguro — nunca deixa 'undefined' aparecer
-  const plans=cfg.plans?.length?cfg.plans:DEFAULT_CFG.plans
-  const planLabel=S.plan?getPlanLabel(S.plan,plans)||S.plan:'—'
-  const rows=(results||[]).map(r=>{
-    const adS=(r.isTributos||r.isEP)?'—':fmt(isC?r.ad:r.adD)
-    return`<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan?`<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan,plans)||r.plan}</div>`:''}<\/td><td style="padding:10px 14px;text-align:center">${adS}<\/td><td style="padding:10px 14px;text-align:center">${fmt(isC?r.men:(r.menD||r.men))}<\/td>`
+// ── Build Proposta ────────────────────────────────────────────
+// Retorna HTML string quando template é HTML, ou NULL quando é DOCX/sem template.
+// Nenhum HTML hardcoded é gerado: se não há template HTML configurado → retorna null.
+function buildProposal(S, cfg, user) {
+  // Pega o template (apenas HTML; DOCX é tratado separadamente no saveClient)
+  const template = cfg.propostaTemplate || cfg.docTemplates?.proposta || ''
+  if (!template || _isDocxStr(template)) return null  // sem HTML para renderizar
+
+  const isC = S.closingToday === true
+  const cd = S.clientData || {}, co = S.contactData || {}
+  const today = new Date().toLocaleDateString('pt-BR')
+  const tAd = isC ? S.closingData?.tAd : (S.quoteData?.tAdD || 0)
+  const tMen = isC ? S.closingData?.tMen : (S.quoteData?.tMenD || 0)
+  const results = isC ? S.closingData?.results : S.quoteData?.results
+  const plans = cfg.plans?.length ? cfg.plans : DEFAULT_CFG.plans
+  const planLabel = S.plan ? getPlanLabel(S.plan, plans) || S.plan : '—'
+  const rows = (results || []).map(r => {
+    const adS = (r.isTributos || r.isEP) ? '—' : fmt(isC ? r.ad : r.adD)
+    return `<td style="padding:10px 14px"><div style="font-weight:600;color:#0f172a">${r.name}</div>${r.plan ? `<div style="font-size:11px;color:#64748b">Plano ${getPlanLabel(r.plan, plans) || r.plan}</div>` : ''}<\/td><td style="padding:10px 14px;text-align:center">${adS}<\/td><td style="padding:10px 14px;text-align:center">${fmt(isC ? r.men : (r.menD || r.men))}<\/td>`
   }).join('')
-  const field=(l,v)=>`<div><label style="font-size:10px;color:#64748b;text-transform:uppercase;display:block;margin-bottom:4px">${l}</label><div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:13px;color:#1e293b;min-height:34px">${v||'—'}</div></div>`
-  const sec=t=>`<div style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:0 0 13px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;display:flex;align-items:center;gap:8px"><div style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0"></div>${t}</div>`
 
-  // Prioridade: templateOverride > cfg.propostaTemplate > cfg.docTemplates?.proposta
-  // Se for DOCX (data:application...), ignora e usa HTML hardcoded como preview
-  let template = templateOverride || cfg.propostaTemplate || cfg.docTemplates?.proposta || ''
-  const isDocxTpl = _isDocxStr(template)
-  if (template && !isDocxTpl) {
-    // Template HTML: substitui variáveis
-    const vars = {
-      '{{empresa}}': co.empresa||cd.fantasia||cd.nome||'',
-      '{{razao}}': co.razao||cd.nome||'',
-      '{{cnpj}}': fmtDoc(S.doc||''),
-      '{{contato}}': co.contato||'',
-      '{{email}}': co.email||cd.email||'',
-      '{{telefone}}': co.telefone||cd.telefone||'',
-      '{{cidade}}': co.cidade||cd.municipio||'',
-      '{{uf}}': co.uf||cd.uf||'',
-      '{{plano}}': planLabel,
-      '{{cnpjs_qty}}': String(S.cnpjs||'0'),
-      '{{total_adesao}}': fmt(tAd),
-      '{{total_mensalidade}}': fmt(tMen),
-      '{{total_mensal}}': fmt(tMen),
-      '{{data_hoje}}': today,
-      '{{consultor_nome}}': user?.nome||'',
-      '{{consultor_tel}}': user?.perfil?.telefone || user?.telefone || '',
-      '{{company}}': cfg.company||'Vivanexa',
-      '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th><\/tr><\/thead><tbody>${rows}<\/tbody><\/table>`
-    }
-    for (const [k, v] of Object.entries(vars)) {
-      template = template.replace(new RegExp(k.replace(/[{}]/g,'\\$&'), 'g'), v)
-    }
-    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">${template}</div>`
+  const vars = {
+    '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
+    '{{razao}}': co.razao || cd.nome || '',
+    '{{cnpj}}': fmtDoc(S.doc || ''),
+    '{{contato}}': co.contato || '',
+    '{{email}}': co.email || cd.email || '',
+    '{{telefone}}': co.telefone || cd.telefone || '',
+    '{{cidade}}': co.cidade || cd.municipio || '',
+    '{{uf}}': co.uf || cd.uf || '',
+    '{{plano}}': planLabel,
+    '{{cnpjs_qty}}': String(S.cnpjs || '0'),
+    '{{total_adesao}}': fmt(tAd),
+    '{{total_mensalidade}}': fmt(tMen),
+    '{{total_mensal}}': fmt(tMen),
+    '{{data_hoje}}': today,
+    '{{consultor_nome}}': user?.nome || '',
+    '{{consultor_tel}}': user?.perfil?.telefone || user?.telefone || '',
+    '{{company}}': cfg.company || '',
+    '{{produtos_tabela}}': `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left">Módulo</th><th style="padding:10px 14px;text-align:center">Adesão</th><th style="padding:10px 14px;text-align:center">Mensalidade</th><\/tr><\/thead><tbody>${rows}<\/tbody><\/table>`,
   }
-
-  return`<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">
-  <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);padding:32px 44px">
-    ${cfg.logob64?`<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">`:`<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">${cfg.company||'Vivanexa'}</div>`}
-    <div style="font-size:11px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:18px">Proposta Comercial</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Data</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${today}</div></div>
-      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Validade</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${isC?'Válida até as 18h de hoje':'Válida por 7 dias'}</div></div>
-      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">Plano</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${planLabel}</div></div>
-      <div><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">CNPJs</div><div style="font-size:13px;color:#e2e8f0;font-weight:500">${S.cnpjs||'—'}</div></div>
-    </div>
-  </div>
-  <div style="padding:32px 44px">
-    <div style="margin-bottom:26px">${sec('Dados do Cliente')}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        ${field('Empresa',co.empresa||cd.fantasia||cd.nome||'')}${field('Razão Social',co.razao||cd.nome||'')}
-        ${field('CPF / CNPJ',fmtDoc(S.doc||''))}${field('Contato',co.contato||'')}
-        ${field('E-mail',co.email||cd.email||'')}${field('Telefone',co.telefone||cd.telefone||'')}
-        ${field('Cidade',co.cidade||cd.municipio||'')}${field('Estado',co.uf||cd.uf||'')}
-      </div>
-    </div>
-    <div style="margin-bottom:26px">${sec('Módulos Contratados')}
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr style="background:#f8fafc"><th style="padding:10px 14px;text-align:left;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Módulo</th><th style="padding:10px 14px;text-align:center;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Adesão</th><th style="padding:10px 14px;text-align:center;font-size:10px;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0">Mensalidade</th><\/tr><\/thead>
-        <tbody>${rows}<\/tbody>
-      <\/table>
-      <div style="background:#f8fafc;border-radius:10px;padding:16px 20px;margin-top:14px">
-        <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px"><span style="color:#64748b">Total Adesão</span><span style="font-weight:600;color:#0f172a">${fmt(tAd)}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:16px"><span style="font-weight:600;color:#0f172a">Total Mensalidade</span><span style="font-weight:700;color:#00d4ff">${fmt(tMen)}</span></div>
-      </div>
-    </div>
-    <div style="margin-bottom:26px">${sec('Condições de Pagamento — Adesão')}
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-        <div style="border:2px solid #00d4ff;border-radius:10px;padding:14px;text-align:center"><div style="font-size:22px;margin-bottom:6px">💳</div><div style="font-size:11px;font-weight:700;color:#0f172a;text-transform:uppercase;margin-bottom:6px">Cartão de Crédito</div><div style="font-size:12px;color:#10b981;font-weight:600">em até 10× sem juros</div><div style="font-size:11px;color:#64748b;margin-top:4px">${fmt(tAd/10)} / mês</div></div>
-        <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;text-align:center"><div style="font-size:22px;margin-bottom:6px">🏦</div><div style="font-size:11px;font-weight:700;color:#0f172a;text-transform:uppercase;margin-bottom:6px">Boleto / PIX</div><div style="font-size:12px;color:#10b981;font-weight:600">${fmt(tAd)}</div><div style="font-size:11px;color:#64748b;margin-top:4px">à vista</div></div>
-        <div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px;text-align:center"><div style="font-size:22px;margin-bottom:6px">📄</div><div style="font-size:11px;font-weight:700;color:#0f172a;text-transform:uppercase;margin-bottom:6px">Boleto Parcelado</div><div style="font-size:12px;color:#10b981;font-weight:600">${fmt(tAd*0.5)} entrada</div><div style="font-size:11px;color:#64748b;margin-top:4px">+ ${fmt(tAd*0.25)} em 30/60 dias</div></div>
-      </div>
-    </div>
-    ${sec('Seu Consultor')}
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;display:flex;gap:12px">
-      <div style="font-size:24px">👤</div>
-      <div><div style="font-weight:700;font-size:14px;color:#14532d;margin-bottom:4px">${user?.nome||'—'}</div><div style="font-size:12px;color:#166534">${user?.email?'📧 '+user.email:''}</div></div>
-    </div>
-  </div>
-</div>`
+  let out = template
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.replace(new RegExp(k.replace(/[{}]/g, '\\$&'), 'g'), v)
+  }
+  return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto">${out}</div>`
 }
 
-// ── Build Contrato com Manifesto de Assinatura ──
-function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token, signedData, templateOverride) {
+// ── Build Contrato ────────────────────────────────────────────
+// Retorna HTML string quando template é HTML, ou NULL quando é DOCX/sem template.
+// Nenhum HTML hardcoded é gerado: se não há template HTML configurado → retorna null.
+function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, token, signedData) {
+  const template = cfg.contratoTemplate || cfg.docTemplates?.contrato || ''
+  if (!template || _isDocxStr(template)) return null  // sem HTML para renderizar
+
   const cd = S.clientData || {}
   const co = S.contactData || {}
   const today = new Date().toLocaleDateString('pt-BR')
   const now = new Date().toLocaleString('pt-BR')
   const isC = S.closingToday === true
   const results = isC ? S.closingData?.results : S.quoteData?.results
-  // Plano com fallback seguro
   const plans = cfg.plans?.length ? cfg.plans : DEFAULT_CFG.plans
   const planLabel = S.plan ? (getPlanLabel(S.plan, plans) || S.plan) : '—'
 
   const payLabel =
-    payMethod === 'pix'
-      ? 'PIX / Boleto à vista'
-      : payMethod?.startsWith('cartao')
-        ? `Cartão em até ${payMethod.replace('cartao', '').replace('x', '×')} sem juros`
-        : payMethod?.startsWith('boleto')
-          ? `Boleto ${payMethod.replace('boleto', '').replace('x', '×')}×`
-          : payMethod
+    payMethod === 'pix' ? 'PIX / Boleto à vista'
+    : payMethod?.startsWith('cartao') ? `Cartão em até ${payMethod.replace('cartao','').replace('x','×')} sem juros`
+    : payMethod?.startsWith('boleto') ? `Boleto ${payMethod.replace('boleto','').replace('x','×')}×`
+    : payMethod
 
-  const produtosVertical = (results || [])
-    .map(r => {
-      const adS = r.isTributos || r.isEP ? '—' : fmt(isC ? r.ad : r.adD || 0)
-      const menS = fmt(isC ? r.men : r.menD || r.men || 0)
-      const planoNome = r.plan ? (getPlanLabel(r.plan, plans) || r.plan) : ''
-      return `
-      <div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px">
-        <div style="font-weight:600;margin-bottom:6px">${r.name}${planoNome ? `<span style="font-size:11px;color:#64748b;margin-left:6px">(Plano ${planoNome})</span>` : ''}</div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px">
-          <span>Adesão:</span><span style="font-weight:600">${adS}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px">
-          <span>Mensalidade:</span><span style="font-weight:600;color:#00d4ff">${menS}</span>
-        </div>
-        <div style="font-size:11px;color:#64748b;margin-top:6px">CNPJs: ${S.cnpjs || '—'}</div>
-      </div>`
-    })
-    .join('')
-
-  const sec = (n, t) =>
-    `<h3 style="font-family:Syne,sans-serif;font-size:14px;font-weight:700;color:#0f172a;margin:22px 0 10px;display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;background:#00d4ff;border-radius:50%;flex-shrink:0;display:inline-block"></span>${n} - ${t}</h3>`
-
-  const row = (l, v) =>
-    `<div style="margin-bottom:6px"><span style="font-size:12px;color:#64748b;min-width:120px;display:inline-block">${l}:</span><span style="font-size:13px;color:#1e293b;font-weight:500">${v || '—'}</span></div>`
+  const produtosVertical = (results || []).map(r => {
+    const adS = r.isTributos || r.isEP ? '—' : fmt(isC ? r.ad : r.adD || 0)
+    const menS = fmt(isC ? r.men : r.menD || r.men || 0)
+    const planoNome = r.plan ? (getPlanLabel(r.plan, plans) || r.plan) : ''
+    return `<div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px">
+      <div style="font-weight:600;margin-bottom:6px">${r.name}${planoNome ? `<span style="font-size:11px;color:#64748b;margin-left:6px">(Plano ${planoNome})</span>` : ''}</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px"><span>Adesão:</span><span style="font-weight:600">${adS}</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:4px"><span>Mensalidade:</span><span style="font-weight:600;color:#00d4ff">${menS}</span></div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px">CNPJs: ${S.cnpjs || '—'}</div>
+    </div>`
+  }).join('')
 
   const endStr = [co.logradouro || cd.logradouro, co.bairro || cd.bairro, co.cidade || cd.municipio, co.uf || cd.uf]
-    .filter(Boolean)
-    .join(', ')
+    .filter(Boolean).join(', ')
 
   const docId = token || generateToken()
-  const manifesto = `
-  <div style="margin-top:40px;border:2px solid #10b981;border-radius:12px;padding:24px;background:#f0fdf4">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
-      <div style="font-size:24px">✅</div>
-      <div>
-        <div style="font-family:Syne,sans-serif;font-size:16px;font-weight:800;color:#065f46">MANIFESTO DE ASSINATURAS ELETRÔNICAS</div>
-        <div style="font-size:11px;color:#10b981;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:2px">DOCUMENTO VÁLIDO</div>
-      </div>
+  const manifesto = `<div style="margin-top:40px;border:2px solid #10b981;border-radius:12px;padding:24px;background:#f0fdf4">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px"><div style="font-size:24px">✅</div>
+      <div><div style="font-family:Syne,sans-serif;font-size:16px;font-weight:800;color:#065f46">MANIFESTO DE ASSINATURAS ELETRÔNICAS</div>
+      <div style="font-size:11px;color:#10b981;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-top:2px">DOCUMENTO VÁLIDO</div></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
-        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DO CONTRATANTE (CLIENTE)</div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-client-name">${signedData?.signedBy || co.contato || cd.fantasia || cd.nome || 'Aguardando'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> <span id="manifest-client-cpf">${signedData?.signCPF || co.cpfContato || '—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> <span id="manifest-client-email">${signedData?.clientEmail || co.email || cd.email || '—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-client-date">${signedData?.signedAt || 'Aguardando assinatura'}</span></div>
+        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DO CONTRATANTE</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> ${signedData?.signedBy || co.contato || cd.fantasia || cd.nome || 'Aguardando'}</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>CPF:</strong> ${signedData?.signCPF || co.cpfContato || '—'}</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> ${signedData?.clientEmail || co.email || cd.email || '—'}</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> ${signedData?.signedAt || 'Aguardando assinatura'}</div>
         <div style="font-size:11px;color:#6b7280;margin-top:6px;padding-top:6px;border-top:1px solid #d1fae5"><strong>Token:</strong> ${docId}</div>
       </div>
       <div style="border:1px solid #6ee7b7;border-radius:8px;padding:16px;background:#fff">
-        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DA CONTRATADA (CONSULTOR)</div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> <span id="manifest-consult-name">${signedData?.consultantSignedBy || user?.nome || '—'}</span></div>
-        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> <span id="manifest-consult-date">${signedData?.consultantSignedAt || 'Aguardando assinatura'}</span></div>
+        <div style="font-size:10px;color:#10b981;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:10px">✅ ASSINATURA DA CONTRATADA</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Assinado por:</strong> ${signedData?.consultantSignedBy || user?.nome || '—'}</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>Data/Hora:</strong> ${signedData?.consultantSignedAt || 'Aguardando assinatura'}</div>
         <div style="font-size:12px;color:#374151;margin-bottom:4px"><strong>E-mail:</strong> ${signedData?.consultantEmail || user?.email || '—'}</div>
       </div>
     </div>
     <div style="margin-top:16px;font-size:11px;color:#6b7280;line-height:1.6">
       Assinaturas eletrônicas simples conforme <strong>Lei nº 14.063/2020</strong> e MP 2.200-2/2001.<br>
-      Documento: <strong>doc_${docId}</strong> · Verificação: <a href="https://assinatura.iti.gov.br" style="color:#10b981">assinatura.iti.gov.br</a>
+      Documento: <strong>doc_${docId}</strong>
     </div>
   </div>`
 
-  // Template: usa DOCX ou HTML. Se DOCX, apenas gera HTML hardcoded como preview.
-  let template = templateOverride || cfg.contratoTemplate || cfg.docTemplates?.contrato || ''
-  const isDocxTpl = _isDocxStr(template)
-  if (template && !isDocxTpl) {
-    const vars = {
-      '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
-      '{{razao}}': co.razao || cd.nome || '',
-      '{{cnpj}}': fmtDoc(S.doc || ''),
-      '{{contato}}': co.contato || '',
-      '{{email}}': co.email || cd.email || '',
-      '{{telefone}}': co.telefone || cd.telefone || '',
-      '{{endereco}}': endStr,
-      '{{regime}}': co.regime || '',
-      '{{plano}}': planLabel,
-      '{{cnpjs_qty}}': String(S.cnpjs || '0'),
-      '{{total_adesao}}': fmt(tAd),
-      '{{total_mensalidade}}': fmt(tMen),
-      '{{total_mensal}}': fmt(tMen),
-      '{{condicao_pagamento}}': payLabel,
-      '{{vencimento_adesao}}': dateAd || '—',
-      '{{vencimento_mensal}}': dateMen || '—',
-      '{{data_hora}}': now,
-      '{{data_hoje}}': today,
-      '{{consultor_nome}}': user?.nome || '',
-      '{{consultor_tel}}': user?.perfil?.telefone || user?.telefone || '',
-      '{{company}}': cfg.company || 'Vivanexa',
-      '{{logo}}': cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">` : '',
-      '{{produtos_tabela}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
-      '{{produtos_lista}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
-      '{{nome_financeiro}}': co.rfinNome || '',
-      '{{email_financeiro}}': co.rfinEmail || '',
-      '{{telefone_financeiro}}': co.rfinTel || '',
-      '{{nome_implementacao}}': co.rimpNome || '',
-      '{{email_implementacao}}': co.rimpEmail || '',
-      '{{telefone_implementacao}}': co.rimpTel || '',
-    }
-    for (const [k, v] of Object.entries(vars)) {
-      template = template.replace(new RegExp(k.replace(/[{}]/g,'\\$&'), 'g'), v)
-    }
-    if (!template.includes('MANIFESTO DE ASSINATURAS')) {
-      template += manifesto
-    }
-    return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">${template}</div>`
+  const vars = {
+    '{{empresa}}': co.empresa || cd.fantasia || cd.nome || '',
+    '{{razao}}': co.razao || cd.nome || '',
+    '{{cnpj}}': fmtDoc(S.doc || ''),
+    '{{contato}}': co.contato || '',
+    '{{email}}': co.email || cd.email || '',
+    '{{telefone}}': co.telefone || cd.telefone || '',
+    '{{endereco}}': endStr,
+    '{{regime}}': co.regime || '',
+    '{{plano}}': planLabel,
+    '{{cnpjs_qty}}': String(S.cnpjs || '0'),
+    '{{total_adesao}}': fmt(tAd),
+    '{{total_mensalidade}}': fmt(tMen),
+    '{{total_mensal}}': fmt(tMen),
+    '{{condicao_pagamento}}': payLabel,
+    '{{vencimento_adesao}}': dateAd || '—',
+    '{{vencimento_mensal}}': dateMen || '—',
+    '{{data_hora}}': now,
+    '{{data_hoje}}': today,
+    '{{consultor_nome}}': user?.nome || '',
+    '{{consultor_tel}}': user?.perfil?.telefone || user?.telefone || '',
+    '{{company}}': cfg.company || '',
+    '{{logo}}': cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain;margin-bottom:10px;display:block">` : '',
+    '{{produtos_tabela}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
+    '{{produtos_lista}}': `<div style="margin:16px 0">${produtosVertical}</div>`,
+    '{{nome_financeiro}}': co.rfinNome || '',
+    '{{email_financeiro}}': co.rfinEmail || '',
+    '{{telefone_financeiro}}': co.rfinTel || '',
+    '{{nome_implementacao}}': co.rimpNome || '',
+    '{{email_implementacao}}': co.rimpEmail || '',
+    '{{telefone_implementacao}}': co.rimpTel || '',
+    '{{cpf_contato}}': co.cpfContato || '',
+    '{{rimp_nome}}': co.rimpNome || '',
+    '{{rimp_email}}': co.rimpEmail || '',
+    '{{rimp_tel}}': co.rimpTel || '',
+    '{{rfin_nome}}': co.rfinNome || '',
+    '{{rfin_email}}': co.rfinEmail || '',
+    '{{rfin_tel}}': co.rfinTel || '',
   }
-
-  return `
-  <div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">
-    <div style="background:linear-gradient(135deg,#0f172a,#1e293b;padding:28px 44px;display:flex;align-items:center;gap:20px">
-      ${cfg.logob64 ? `<img src="${cfg.logob64}" style="height:52px;object-fit:contain">` : '<div style="font-size:22px;font-weight:900;color:#00d4ff;letter-spacing:2px;margin-bottom:10px">' + cfg.company + '</div>'}
-      <div>
-        <h1 style="font-family:Syne,sans-serif;font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">Termo de Pedido e Registro de Software</h1>
-        <p style="font-size:12px;color:#64748b">Seja bem-vindo ao ${cfg.company || 'Vivanexa'}, é um prazer tê-lo como cliente.</p>
-      </div>
-    </div>
-    <div style="padding:28px 44px">
-      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:16px 20px;margin-bottom:20px;border-left:4px solid #00d4ff">
-        <p style="font-size:13px;color:#0c4a6e;margin-bottom:6px">Segue abaixo os termos do pedido registrado com nosso time de vendas.</p>
-        <p style="font-size:13px;color:#0c4a6e">Confira os dados abaixo com atenção e caso esteja tudo correto, basta <strong>ASSINAR</strong> para darmos seguimento ao treinamento e implantação.</p>
-      </div>
-
-      ${sec('1', 'CONTRATADA')}
-      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-        ${row('Nome', cfg.company || 'VIVANEXA')}
-        ${row('E-mail', cfg.emailEmpresa || 'contato@vivanexa.com.br')}
-        ${row('Responsável', user?.nome || '—')}
-      </div>
-
-      ${sec('2', 'CONTRATANTE')}
-      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-        ${row('Razão Social', co.razao || cd.nome || '')}
-        ${row('CNPJ', fmtDoc(S.doc || ''))}
-        ${row('Endereço', endStr || '—')}
-        ${row('E-mail', co.email || cd.email || '—')}
-        ${row('Fone', co.telefone || cd.telefone || '—')}
-        ${row('Contratante', co.contato || '—')}
-        ${row('CPF', co.cpfContato || '—')}
-        ${row('Regime Tributário', co.regime || '—')}
-      </div>
-
-      ${sec('3', 'RESPONSÁVEL PELA IMPLEMENTAÇÃO')}
-      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-        ${row('Nome', co.rimpNome || '—')}
-        ${row('E-mail', co.rimpEmail || '—')}
-        ${row('Telefone', co.rimpTel || '—')}
-      </div>
-
-      ${sec('4', 'RESPONSÁVEL PELO FINANCEIRO')}
-      <div style="background:#f8fafc;border-radius:8px;padding:14px 18px;margin-bottom:8px">
-        ${row('Nome', co.rfinNome || '—')}
-        ${row('E-mail', co.rfinEmail || '—')}
-        ${row('Telefone', co.rfinTel || '—')}
-      </div>
-
-      ${sec('5', 'PLANO CONTRATADO E VALORES')}
-      ${row('Validade', '12 meses')}
-      <div style="margin:16px 0">
-        ${produtosVertical}
-      </div>
-      <div style="background:#f8fafc;border-radius:8px;padding:12px 16px;margin-bottom:16px">
-        ${row('Forma de Pagamento', payLabel)}
-        ${tAd > 0 ? row('Vencimento Adesão', dateAd || '—') : ''}
-        ${row('Vencimento 1ª Mensalidade', dateMen || '—')}
-        <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #e2e8f0;margin-top:8px">
-          <span style="font-weight:600">Total Adesão</span>
-          <span style="font-weight:700">${fmt(tAd)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between">
-          <span style="font-weight:600">Total Mensalidade</span>
-          <span style="font-weight:700;color:#00d4ff">${fmt(tMen)}</span>
-        </div>
-      </div>
-
-      <p style="font-size:12px;color:#475569;margin:8px 0">Nossa equipe entrará em contato <strong>em até 72 horas</strong> após a assinatura. Atendimento: 9h às 18h (Brasília).</p>
-
-      <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:12px;color:#78350f">
-        Dando o aceite, você concorda com os Termos e Condições de Uso e Política de Privacidade em <strong>www.vivanexa.com.br/termos</strong>.
-      </div>
-
-      <div style="border-top:2px solid #e2e8f0;padding-top:24px;margin-top:24px">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px">
-          <div style="text-align:center">
-            <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
-            <div style="font-weight:600;font-size:13px">${cfg.company || 'Vivanexa'}</div>
-            <div style="font-size:11px;color:#64748b">CONTRATADA</div>
-            <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade || cd.municipio || ''} · ${today}</div>
-          </div>
-          <div style="text-align:center">
-            <div style="height:60px;border-bottom:1px solid #0f172a;margin-bottom:8px"></div>
-            <div style="font-weight:600;font-size:13px">${co.razao || cd.nome || 'Cliente'}</div>
-            <div style="font-size:11px;color:#64748b">CONTRATANTE</div>
-            <div style="font-size:10px;color:#94a3b8;margin-top:4px">${co.cidade || cd.municipio || ''} · ${today}</div>
-          </div>
-        </div>
-      </div>
-
-      ${manifesto}
-    </div>
-  </div>`
+  let out = template
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.replace(new RegExp(k.replace(/[{}]/g, '\\$&'), 'g'), v)
+  }
+  if (!out.includes('MANIFESTO DE ASSINATURAS')) out += manifesto
+  return `<div style="background:#fff;font-family:Inter,sans-serif;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px;line-height:1.7">${out}</div>`
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1154,8 +1020,7 @@ export default function Chat(){
         else { console.warn('Migração contrato err:', error) }
       }
 
-      // ── _detectTipo: DEVE ser declarado ANTES de qualquer uso ────
-      // (era declarado depois, causando ReferenceError com const)
+      // ── _detectTipo: declarado ANTES de qualquer uso (const não tem hoisting) ──
       const _detectTipo = (tmpl, hint) => {
         if (hint === 'docx' || _isDocxStr(tmpl)) return 'docx'
         return 'html'
@@ -1668,21 +1533,22 @@ export default function Chat(){
       const tipoTemplate=detectarTipoTemplate(propTemplate)
 
       if(tipoTemplate==='docx'){
-        // ── PROPOSTA VIA DOCX ──────────────────────────────────
+        // ── PROPOSTA VIA DOCX ─────────────────────────────────
+        // html = null → DocumentoPreviewModal mostra tela de confirmação + botão Baixar DOCX
         const isC=S.closingToday===true
         const tAd=isC?S.closingData?.tAd:(S.quoteData?.tAdD||0)
         const tMen=isC?S.closingData?.tMen:(S.quoteData?.tMenD||0)
         const cd=S.clientData||{},co=S.contactData||{}
         const variaveis=buildDocxVars({S,c,userProfile,tAd,tMen,cd,co,wizPay:'',wizAd:'',wizMen:''})
-        // Gerar blob DOCX e mostrar preview em tela (HTML fallback) + botão de download
-        const htmlFallback=buildProposal(S,c,userProfile,propTemplate)
-        const doc=await saveToHistory('proposta',clientName,htmlFallback,{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
-        setSignDoc(doc);setSignEmailInput(cf.email||'')
-        // Armazena blob docx em window para download posterior
+        const nome=nomeArquivo(clientName,'proposta')
+        // Renderiza o blob assincronamente — fica disponível em window._vxDocxBlob
+        window._vxDocxBlob = null  // limpa qualquer blob anterior enquanto gera
         renderDocxBlob(propTemplate, variaveis)
-          .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo(clientName,'proposta')} })
+          .then(blob=>{ window._vxDocxBlob={blob,nome} })
           .catch(e=>{ console.warn('Erro DOCX proposta:',e); window._vxDocxBlob=null })
-        setDocPreview({html:htmlFallback,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo(clientName,'proposta')})
+        const doc=await saveToHistory('proposta',clientName,'',{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
+        setSignDoc(doc);setSignEmailInput(cf.email||'')
+        setDocPreview({html:null,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nome})
       } else {
         // ── PROPOSTA VIA HTML (com preview em tela) ─────────
         const html=buildProposal(S,c,userProfile,propTemplate)
@@ -1733,22 +1599,21 @@ export default function Chat(){
       S.contractValues = null
 
       if(tipoTemplate==='docx'){
-        // ── CONTRATO VIA DOCX ──────────────────────────────────
+        // ── CONTRATO VIA DOCX ─────────────────────────────────
+        // html = null → DocumentoPreviewModal mostra tela de confirmação + botão Baixar DOCX
         const cd=S.clientData||{},co=S.contactData||{}
         const variaveis=buildDocxVars({S,c,userProfile,tAd:wizTAd,tMen:wizTMen,cd,co,wizPay,wizAd,wizMen})
-        // Salva HTML padrão no histórico para link de assinatura
-        const htmlFallback=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined,contratoTemplate)
-        // Armazena blob docx para download no preview
+        window._vxDocxBlob = null  // limpa blob anterior enquanto gera
         renderDocxBlob(contratoTemplate, variaveis)
           .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo} })
           .catch(e=>{ console.warn('Erro DOCX contrato:',e); window._vxDocxBlob=null })
-        saveToHistory('contrato',clientName,htmlFallback,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
+        saveToHistory('contrato',clientName,'',{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
-          setDocPreview({html:htmlFallback,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo})
+          setDocPreview({html:null,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo})
         })
       } else {
-        // ── CONTRATO VIA HTML (com preview em tela) ─────────
-        const html=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined,contratoTemplate)
+        // ── CONTRATO VIA HTML ─────────────────────────────────
+        const html=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined)
         saveToHistory('contrato',clientName,html,{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
           setDocPreview({html,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
