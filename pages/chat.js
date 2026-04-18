@@ -1,11 +1,12 @@
-// pages/chat.js — Assistente Comercial Vivanexa SaaS v6
+// pages/chat.js — Assistente Comercial Vivanexa SaaS v7
 // ============================================================
-// v6 ADICIONA ao v5:
-// • Proposta/Contrato exibidos em tela antes de download (preview modal)
-// • Envio para assinatura com token, IP, manifesto completo (página /sign/[token])
-// • Modal CRM com etapas do funil (estilo whatsapp-inbox) ao gerar doc
-// • Histórico salvo e visível; Assinaturas com status signed/pending
-// • Consultor assina com dados de configurações; cliente assina via link
+// v7 CORRIGE/ADICIONA ao v6:
+// • Preview HTML SEMPRE exibido em tela antes de qualquer download
+// • DOCX: tratamento robusto de erros de template (duplicate tag, etc.)
+// • signToken salvo corretamente com clienteNome/clienteEmail para /sign/[token]
+// • Assinatura consultor pré-preenche dados de configurações (CPF incluído)
+// • Histórico e Assinaturas: exibe todos os documentos gerados
+// • Modal CRM completo com etapas do funil estilo whatsapp-inbox
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react'
@@ -15,7 +16,7 @@ import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 
 // ══════════════════════════════════════════════════════════════
-// COMPONENTE DocumentoPreviewModal — v6 completo
+// COMPONENTE DocumentoPreviewModal — v7
 // ══════════════════════════════════════════════════════════════
 function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {
   const [enviandoAss,    setEnviandoAss]    = useState(false)
@@ -38,7 +39,7 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
   function handleImprimir() {
     if (!html) return
     const win = window.open('', '_blank', 'width=900,height=700')
-    if (!win) { alert('Permita popups.'); return }
+    if (!win) { alert('Permita popups neste site.'); return }
     win.document.write(`<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <title>${isContrato ? 'Contrato' : 'Proposta'}</title>
@@ -88,32 +89,51 @@ ${html}
 
   // ── Enviar para Assinatura (gera link /sign/[token]) ──
   async function handleEnviarAssinatura() {
-    if (!clienteEmail && !clienteTel) { setMsgEnvio('⚠️ Cliente sem e-mail ou telefone cadastrado.'); return }
     setEnviandoAss(true); setMsgEnvio('')
     try {
       const token = signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
-      // Salva dados do doc para a página de assinatura pública
+      // Salva/atualiza dados do doc para a página de assinatura pública
+      // Busca versão atual para não sobrescrever html já salvo
+      const { data: existente } = await supabase.from('vx_storage').select('value').eq('key', `doc:${token}`).maybeSingle()
+      const docAtual = existente?.value ? JSON.parse(existente.value) : {}
+
       await supabase.from('vx_storage').upsert({
         key:   `sign:${token}`,
         value: JSON.stringify({
-          token, empresaId, html: html || '',
-          clienteNome, clienteEmail, clienteTel,
-          status: 'pendente',
-          criadoEm: new Date().toISOString(),
+          ...docAtual,
+          token, empresaId,
+          clienteNome:  clienteNome || docAtual.clientName || '',
+          clienteName:  clienteNome || docAtual.clientName || '',
+          clienteName2: clienteNome || docAtual.clientName || '',
+          clienteEmail: clienteEmail || docAtual.clientEmail || '',
+          clienteTel:   clienteTel  || docAtual.clientTel   || '',
+          tipo,
+          status: docAtual.status || 'pendente',
+          criadoEm: docAtual.criadoEm || new Date().toISOString(),
           expiry,
-          // Dados do consultor para assinatura
-          consultorNome: userProfile?.nome || '',
-          consultorEmail: userProfile?.email || '',
-          consultorCPF: userProfile?.perfil?.cpf || '',
-          // Config para manifesto
+          consultorNome:  userProfile?.nome   || '',
+          consultorEmail: userProfile?.email  || '',
+          consultorCPF:   userProfile?.perfil?.cpf || '',
           companyCfg: cfg?.company || '',
         }),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'key' })
 
-      const baseUrl = cfg.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
+      // Garante que doc:token também tem clienteNome corretamente
+      if (docAtual) {
+        docAtual.clienteNome  = clienteNome  || docAtual.clientName  || ''
+        docAtual.clienteEmail = clienteEmail || docAtual.clientEmail || ''
+        docAtual.clienteTel   = clienteTel   || docAtual.clientTel   || ''
+        await supabase.from('vx_storage').upsert({
+          key: `doc:${token}`,
+          value: JSON.stringify(docAtual),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'key' })
+      }
+
+      const baseUrl = cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
       const signLink = `${baseUrl}/sign/${token}`
       setLinkAssinatura(signLink)
       setShowEnvioOpc(true)
@@ -124,16 +144,20 @@ ${html}
     setEnviandoAss(false)
   }
 
-  // ── Enviar proposta ──
+  // ── Enviar proposta WhatsApp / E-mail ──
   function handleEnviarPropostaWpp() {
-    const msg = encodeURIComponent(`Olá ${clienteNome || 'cliente'}! Segue a proposta comercial da ${cfg.company || ''}.\n\nAcesse o link para visualizar:\n${window.location.origin}/sign/${signToken}`)
+    const base = cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
+    const link = `${base}/sign/${signToken}`
+    const msg = encodeURIComponent(`Olá ${clienteNome || 'cliente'}! Segue a proposta comercial da ${cfg?.company || ''}.\n\nAcesse o link para visualizar:\n${link}`)
     const tel = (clienteTel || '').replace(/\D/g, '')
     window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
     setMsgEnvio('✅ WhatsApp aberto!')
   }
   function handleEnviarPropostaEmail() {
-    const subj = encodeURIComponent(`Proposta Comercial – ${cfg.company || ''}`)
-    const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSegue a proposta comercial.\n\nLink: ${window.location.origin}/sign/${signToken}\n\n${cfg.company || ''}`)
+    const base = cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
+    const link = `${base}/sign/${signToken}`
+    const subj = encodeURIComponent(`Proposta Comercial – ${cfg?.company || ''}`)
+    const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSegue a proposta comercial.\n\nLink: ${link}\n\n${cfg?.company || ''}`)
     window.open(`mailto:${emailEnvio || clienteEmail || ''}?subject=${subj}&body=${body}`, '_blank')
     setMsgEnvio('✅ E-mail aberto!')
   }
@@ -199,11 +223,11 @@ ${html}
               window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
             }} style={acaoBtn('#25d366')}>💬 Enviar via WhatsApp</button>
             <button onClick={() => {
-              const subj = encodeURIComponent(`Contrato para Assinatura – ${cfg.company || ''}`)
-              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg.company || ''}`)
+              const subj = encodeURIComponent(`Contrato para Assinatura – ${cfg?.company || ''}`)
+              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg?.company || ''}`)
               window.open(`mailto:${clienteEmail || ''}?subject=${subj}&body=${body}`, '_blank')
             }} style={acaoBtn('#00d4ff')}>📧 Enviar por E-mail</button>
-            <button onClick={() => window.open(linkAssinatura, '_blank')} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (esta tela)</button>
+            <button onClick={() => window.open(linkAssinatura, '_blank')} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (nova aba)</button>
           </div>
         </div>
       )}
@@ -215,9 +239,10 @@ ${html}
         </div>
       )}
 
-      {/* Preview */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 24, background: isDocxMode ? '#0a0f1e' : '#f0f4f8' }}>
+      {/* Preview do documento */}
+      <div style={{ flex: 1, overflow: 'auto', padding: isDocxMode ? 24 : 0, background: isDocxMode ? '#0a0f1e' : '#f0f4f8' }}>
         {isDocxMode ? (
+          // Modo DOCX: mostra card informativo + botão baixar
           <div style={{ maxWidth: 520, margin: '60px auto', background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16, padding: 40, textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,.4)' }}>
             <div style={{ fontSize: 56, marginBottom: 20 }}>📄</div>
             <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 20, fontWeight: 800, color: '#00d4ff', marginBottom: 8 }}>
@@ -241,10 +266,13 @@ ${html}
             </div>
           </div>
         ) : (
-          <div
-            style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}
-            dangerouslySetInnerHTML={{ __html: html || '' }}
-          />
+          // Modo HTML: exibe documento completo em tela
+          <div style={{ padding: '24px 24px 40px' }}>
+            <div
+              style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}
+              dangerouslySetInnerHTML={{ __html: html || '<div style="padding:40px;text-align:center;color:#64748b">Nenhum conteúdo HTML disponível. Configure um template HTML em Configurações → Documentos.</div>' }}
+            />
+          </div>
         )}
       </div>
     </div>
@@ -426,33 +454,70 @@ async function loadDocxLibs() {
   return { PizZip: window.PizZip, Docxtemplater: window.docxtemplater }
 }
 
+// ── Renderiza DOCX com tratamento robusto de erros de template ──
 async function renderDocxBlob(templateBase64, variaveis) {
   const { PizZip, Docxtemplater } = await loadDocxLibs()
-  if (!PizZip || !Docxtemplater) throw new Error('Libs não carregadas')
+  if (!PizZip || !Docxtemplater) throw new Error('Libs DOCX não carregadas')
+
   const toBytes = (b64) => {
     let b = b64; if (b.includes(',')) b = b.split(',')[1]
     const bin = atob(b); const bytes = new Uint8Array(bin.length)
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
     return bytes
   }
-  const tryRender = (delimiters) => {
+
+  // Sanitiza variáveis: remove undefined, null, objetos complexos
+  const vars = {}
+  for (const [k, v] of Object.entries(variaveis || {})) {
+    if (v === null || v === undefined) { vars[k] = ''; continue }
+    if (typeof v === 'object') { vars[k] = ''; continue }
+    vars[k] = String(v)
+  }
+
+  // Tenta renderizar com opções progressivamente mais permissivas
+  const tryRender = (extraOpts = {}) => {
     const zip = new PizZip(toBytes(templateBase64).buffer)
     const opts = {
-      paragraphLoop: true, linebreaks: true, nullGetter: () => '',
-      parser: (tag) => ({ get: (scope) => {
-        const val = tag.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), scope)
-        return val !== undefined ? val : ''
-      }})
+      paragraphLoop: true,
+      linebreaks: true,
+      nullGetter: () => '',
+      // Não lança erro para tags duplicadas ou inválidas — apenas deixa vazio
+      errorHandler: () => '',
+      ...extraOpts,
+      parser: (tag) => ({
+        get: (scope) => {
+          try {
+            const val = tag.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), scope)
+            return val !== undefined && val !== null ? String(val) : ''
+          } catch { return '' }
+        }
+      })
     }
-    if (delimiters) opts.delimiters = delimiters
     const doc = new Docxtemplater(zip, opts)
-    doc.render(variaveis)
-    return doc.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', compression: 'DEFLATE' })
+    doc.render(vars)
+    return doc.getZip().generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      compression: 'DEFLATE',
+    })
   }
-  try { return tryRender(null) } catch(e1) {
-    try { return tryRender({ start: '{{', end: '}}' }) } catch(e2) {
-      const bytes = toBytes(templateBase64)
-      return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+
+  // Tentativa 1: opções padrão
+  try { return tryRender() } catch(e1) {
+    console.warn('DOCX render tentativa 1 falhou:', e1.message)
+
+    // Tentativa 2: com delimitadores explícitos
+    try { return tryRender({ delimiters: { start: '{{', end: '}}' } }) } catch(e2) {
+      console.warn('DOCX render tentativa 2 falhou:', e2.message)
+
+      // Tentativa 3: modo failSafe — retorna binário original sem substituição
+      try {
+        const bytes = toBytes(templateBase64)
+        console.warn('DOCX: retornando template sem substituição (failSafe)')
+        return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+      } catch(e3) {
+        throw new Error('Não foi possível processar o template DOCX: ' + e1.message)
+      }
     }
   }
 }
@@ -632,7 +697,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
   }).join('')
   const endStr = [co.logradouro || cd.logradouro, co.bairro || cd.bairro, co.cidade || cd.municipio, co.uf || cd.uf].filter(Boolean).join(', ')
   const docId = token || generateToken()
-  // Manifesto de assinatura com IDs para substituição posterior
+  // Manifesto de assinaturas com IDs para atualização posterior
   const manifesto = `<div style="margin-top:40px;border:2px solid #10b981;border-radius:12px;padding:24px;background:#f0fdf4">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
       <div style="font-size:24px">✅</div>
@@ -707,7 +772,7 @@ function buildContract(S, cfg, user, tAd, tMen, dateAd, dateMen, payMethod, toke
 
 
 // ══════════════════════════════════════════════════════════════
-// COMPONENTE PRINCIPAL — Chat v6
+// COMPONENTE PRINCIPAL — Chat v7
 // ══════════════════════════════════════════════════════════════
 export default function Chat(){
   const router   = useRouter()
@@ -764,7 +829,7 @@ export default function Chat(){
   const [docViewLoading, setDocViewLoading] = useState(false)
   const [docViewDoc,     setDocViewDoc]     = useState(null)
 
-  // Modal Salvar CRM (estilo whatsapp-inbox v4)
+  // Modal Salvar CRM (estilo whatsapp-inbox)
   const [showModalCRM,  setShowModalCRM]  = useState(false)
   const [docParaCRM,    setDocParaCRM]    = useState(null)
   const [crmForm,       setCrmForm]       = useState({})
@@ -875,25 +940,42 @@ export default function Chat(){
     setCfgLoaded(true)
   }
 
-  async function saveToHistory(type,clientName,html,extra={}){
+  async function saveToHistory(type, clientName, html, extra={}){
     const id='doc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6)
     const token=extra.token||generateToken()
     const _now=new Date()
+    const co = S?.contactData || {}
+    const cd = S?.clientData  || {}
+    const clienteNomeFull = co.razao || co.empresa || cd.nome || cd.fantasia || clientName || ''
+    const clienteEmailFull = co.email || cd.email || extra.clientEmail || ''
+    const clienteTelFull = co.telefone || cd.telefone || ''
     const entry={
-      id,type,clientName,
-      cliente:extra.clientName||(S?.contactData?.razao||S?.clientData?.nome||clientName||''),
-      date:_now.toLocaleString('pt-BR'),dateISO:_now.toISOString(),criado:_now.toISOString(),
-      status:'draft',signToken:token,signedAt:null,signedBy:null,signCPF:null,signIP:null,
-      consultantSignedAt:null,consultantSignedBy:null,
-      adesao:extra.tAd||0,mensalidade:extra.tMen||0,
-      clientEmail:extra.clientEmail||'',
+      id, type, clientName,
+      cliente: clienteNomeFull,
+      clienteNome: clienteNomeFull,
+      clienteEmail: clienteEmailFull,
+      clienteTel: clienteTelFull,
+      date:_now.toLocaleString('pt-BR'), dateISO:_now.toISOString(), criado:_now.toISOString(),
+      status:'draft', signToken:token, signedAt:null, signedBy:null, signCPF:null, signIP:null,
+      consultantSignedAt:null, consultantSignedBy:null,
+      adesao:extra.tAd||0, mensalidade:extra.tMen||0,
+      clientEmail: clienteEmailFull,
       userId:userProfile?.id||'',
-      consultor:userProfile?.nome||'',consultorEmail:userProfile?.email||'',empresaId:empresaId||'',
+      consultor:userProfile?.nome||'', consultorEmail:userProfile?.email||'',
+      empresaId: empresaId||'',
+      tipo: type,
+      expiry: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       ...extra
     }
     try{
-      await supabase.from('vx_storage').upsert({key:`doc:${token}`,value:JSON.stringify({...entry,html}),updated_at:new Date().toISOString()})
-    }catch(e){console.warn(e)}
+      // Salva o documento completo com html
+      await supabase.from('vx_storage').upsert({
+        key:`doc:${token}`,
+        value: JSON.stringify({...entry, html}),
+        updated_at:new Date().toISOString()
+      }, { onConflict: 'key' })
+    }catch(e){console.warn('saveToHistory doc error:',e)}
+
     const c=cfgRef.current
     try{
       const{data:cfgRow}=await supabase.from('vx_storage').select('value').eq('key',`cfg:${empresaId}`).single()
@@ -921,8 +1003,8 @@ export default function Chat(){
       }
       await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(cfgParaSalvar),updated_at:new Date().toISOString()})
       const mergedCfg = { ...cfgParaSalvar, ...templatesEmMemoria }
-      cfgRef.current=mergedCfg;setCfg(mergedCfg)
-    }catch(e){console.warn(e)}
+      cfgRef.current=mergedCfg; setCfg(mergedCfg)
+    }catch(e){console.warn('saveToHistory cfg error:',e)}
     return{id,token,html,type,clientName,...entry}
   }
 
@@ -992,14 +1074,14 @@ export default function Chat(){
   function abrirSignForm(doc,side){
     setSignFormDoc(doc);setSignFormSide(side)
     if(side==='consultant'){
-      // Pré-preenche com dados do usuário de configurações
-      setSfNome(userProfile?.nome||'')
+      // Pré-preenche com dados do usuário/configurações
+      setSfNome(userProfile?.nome||userProfile?.perfil?.nome||'')
       setSfCpf(userProfile?.perfil?.cpf||'')
-      setSfEmail(userProfile?.email||'')
+      setSfEmail(userProfile?.email||userProfile?.perfil?.email||'')
     } else {
-      setSfNome(doc.clientName||'')
+      setSfNome(doc.clienteName||doc.clienteNome||doc.clientName||'')
       setSfCpf('')
-      setSfEmail(doc.clientEmail||'')
+      setSfEmail(doc.clienteEmail||doc.clientEmail||'')
     }
     setSfAgreed(false);setSfErro('');setShowSignForm(true)
   }
@@ -1065,7 +1147,7 @@ export default function Chat(){
       if(lo.includes('sem voucher')||lo.includes('pular')){S.awaitingVoucher=false;S.quoteData=calcFull(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c);S.stage='full_quoted';return{h:true,c:rFull(S.quoteData)}}
       const code=t.trim().toUpperCase()
       const voucher=(c.vouchers||[]).find(v=>v.codigo===code&&v.ativo!==false)
-      if(!voucher)return{h:false,c:`❌ Voucher **${code}** não encontrado.\n\n"sem voucher" para ver preço cheio:`}
+      if(!voucher)return{h:false,c:`❌ Voucher **${code}** não encontrado.\n\n\"sem voucher\" para ver preço cheio:`}
       S.appliedVoucher=voucher;S.awaitingVoucher=false;S.stage='discounted'
       const discData=calcDisc(S.modules,S.plan,S.ifPlan,S.cnpjs,S.notas,c,{discAdPct:voucher.pctAdesao,discMenPct:voucher.pctMensalidade})
       S.quoteData=discData
@@ -1190,17 +1272,29 @@ export default function Chat(){
         const variaveis=buildDocxVars({S,c,userProfile,tAd,tMen,cd,co,wizPay:'',wizAd:'',wizMen:''})
         const nome=nomeArquivo(clientName,'proposta')
         window._vxDocxBlob = null
-        renderDocxBlob(propTemplate, variaveis).then(blob=>{ window._vxDocxBlob={blob,nome} }).catch(e=>{ console.warn('Erro DOCX proposta:',e); window._vxDocxBlob=null })
+        renderDocxBlob(propTemplate, variaveis)
+          .then(blob=>{ window._vxDocxBlob={blob,nome} })
+          .catch(e=>{ console.warn('Erro DOCX proposta:',e); window._vxDocxBlob=null })
         const doc=await saveToHistory('proposta',clientName,'',{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
-        setDocPreview({html:null,tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nome})
+        setDocPreview({
+          html:null, tipo:'proposta',
+          clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
+          clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id,
+          hasDocx:true, docxNome:nome
+        })
       } else {
         const html=buildProposal(S,c,userProfile)
         const tAd=S.closingToday?S.closingData?.tAd:(S.quoteData?.tAdD||0)
         const tMen=S.closingToday?S.closingData?.tMen:(S.quoteData?.tMenD||0)
         const doc=await saveToHistory('proposta',clientName,html||'',{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
-        setDocPreview({html:html||'<p style="padding:20px">Proposta gerada. Configure um template HTML em Configurações → Documentos para visualização completa.</p>',tipo:'proposta',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
+        setDocPreview({
+          html: html||'<div style="padding:40px;text-align:center;background:#fff;font-family:Inter,sans-serif;color:#64748b"><h2 style="color:#0f172a;margin-bottom:12px">📋 Proposta Gerada!</h2><p>Configure um template HTML em <strong>Configurações → Documentos</strong> para visualizar o conteúdo completo aqui.<br><br>Use os botões acima para enviar ou imprimir.</p></div>',
+          tipo:'proposta',
+          clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
+          clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id
+        })
       }
     }else{
       let tAd, tMen
@@ -1230,16 +1324,28 @@ export default function Chat(){
         const cd=S.clientData||{},co=S.contactData||{}
         const variaveis=buildDocxVars({S,c,userProfile,tAd:wizTAd,tMen:wizTMen,cd,co,wizPay,wizAd,wizMen})
         window._vxDocxBlob = null
-        renderDocxBlob(contratoTemplate, variaveis).then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo} }).catch(e=>{ console.warn('Erro DOCX contrato:',e); window._vxDocxBlob=null })
+        renderDocxBlob(contratoTemplate, variaveis)
+          .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo} })
+          .catch(e=>{ console.warn('Erro DOCX contrato:',e); window._vxDocxBlob=null })
         saveToHistory('contrato',clientName,'',{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
-          setDocPreview({html:null,tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id,hasDocx:true,docxNome:nomeArquivo})
+          setDocPreview({
+            html:null, tipo:'contrato',
+            clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
+            clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id,
+            hasDocx:true, docxNome:nomeArquivo
+          })
         })
       } else {
         const html=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined)
         saveToHistory('contrato',clientName,html||'',{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           setSignDoc(doc);setSignEmailInput(cf.email||'')
-          setDocPreview({html:html||'<p style="padding:20px">Contrato gerado. Configure template HTML em Configurações → Documentos.</p>',tipo:'contrato',clienteEmail:cf.email||'',clienteNome:cf.razao||cf.empresa||clientName,clienteTel:cf.telefone||'',signToken:doc.signToken||doc.id})
+          setDocPreview({
+            html: html||'<div style="padding:40px;text-align:center;background:#fff;font-family:Inter,sans-serif;color:#64748b"><h2 style="color:#0f172a;margin-bottom:12px">📝 Contrato Gerado!</h2><p>Configure um template HTML em <strong>Configurações → Documentos</strong> para visualizar o conteúdo completo aqui.<br><br>Use os botões acima para enviar para assinatura.</p></div>',
+            tipo:'contrato',
+            clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
+            clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id
+          })
         })
       }
     }
@@ -1476,7 +1582,6 @@ export default function Chat(){
               </div>
             </>}
             {crmAba==='cliente'&&<>
-              {/* Busca CNPJ (estilo whatsapp-inbox) */}
               <div className="field">
                 <label>CNPJ (opcional)</label>
                 <div style={{display:'flex',gap:8}}>
@@ -1504,7 +1609,6 @@ export default function Chat(){
             </>}
           </div>
           {crmErro&&<div style={{margin:'0 24px',padding:'8px 12px',background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.3)',borderRadius:8,fontSize:12,color:'var(--danger)'}}>⚠️ {crmErro}</div>}
-          {/* Footer */}
           <div style={{display:'flex',gap:10,padding:'16px 24px',borderTop:'1px solid var(--border)',flexShrink:0}}>
             <button onClick={()=>setShowModalCRM(false)} style={{flex:1,padding:10,background:'none',border:'1px solid var(--border)',color:'var(--muted)',borderRadius:10,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:13}}>Cancelar</button>
             <button onClick={salvarNoCRM} disabled={crmSalvando} style={{flex:2,padding:10,background:'linear-gradient(135deg,var(--accent3),#059669)',border:'none',color:'#fff',borderRadius:10,cursor:crmSalvando?'not-allowed':'pointer',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,opacity:crmSalvando?.7:1}}>
@@ -1544,7 +1648,7 @@ export default function Chat(){
                     <div style={{display:'flex',alignItems:'flex-start',gap:12,marginBottom:10}}>
                       <span style={{fontSize:22,flexShrink:0}}>{h.type==='contrato'?'📝':'📄'}</span>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:700,fontSize:15,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{h.clientName||'Cliente'}</div>
+                        <div style={{fontWeight:700,fontSize:15,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{h.clientName||h.clienteNome||'Cliente'}</div>
                         <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{h.type==='contrato'?'Contrato':'Proposta'} · {h.date} · {h.consultor}{h.modulos?.length>0?` · ${h.modulos.join(', ')}`:''}</div>
                         {h.signedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:2}}>✅ Cliente: {h.signedBy} em {h.signedAt}</div>}
                         {h.consultantSignedBy&&<div style={{fontSize:11,color:'var(--accent3)',marginTop:1}}>✅ Consultor: {h.consultantSignedBy} em {h.consultantSignedAt}</div>}
@@ -1555,7 +1659,7 @@ export default function Chat(){
                     <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                       <button onClick={()=>verDocumento(h)} style={{padding:'7px 14px',borderRadius:8,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>👁 Ver documento</button>
                       {h.type==='contrato'&&h.status!=='signed'&&(
-                        <button onClick={()=>{setSignFormDoc(h);setSignFormSide('client');setSfNome(h.clientName||'');setSfCpf('');setSfEmail(h.clientEmail||'');setSfAgreed(false);setSfErro('');setShowSignForm(true);setPainel(null)}}
+                        <button onClick={()=>{setSignFormDoc(h);setSignFormSide('client');setSfNome(h.clienteName||h.clienteNome||h.clientName||'');setSfCpf('');setSfEmail(h.clienteEmail||h.clientEmail||'');setSfAgreed(false);setSfErro('');setShowSignForm(true);setPainel(null)}}
                           style={{padding:'7px 14px',borderRadius:8,background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',color:'var(--gold)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>✍️ Assinar</button>
                       )}
                     </div>
@@ -1576,7 +1680,7 @@ export default function Chat(){
                     <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
                       <span style={{fontSize:20}}>{h.type==='contrato'?'📝':'📄'}</span>
                       <div style={{flex:1}}>
-                        <div style={{fontWeight:700,fontSize:15}}>{h.clientName||'Cliente'}</div>
+                        <div style={{fontWeight:700,fontSize:15}}>{h.clientName||h.clienteNome||'Cliente'}</div>
                         <div style={{fontSize:12,color:'var(--muted)',marginTop:1}}>{h.date} · {h.consultor}</div>
                         {(h.adesao>0||h.mensalidade>0)&&<div style={{fontSize:11,color:'var(--muted)',marginTop:1}}>💰 {fmt(h.adesao||0)} adesão · {fmt(h.mensalidade||0)}/mês</div>}
                       </div>
@@ -1598,13 +1702,13 @@ export default function Chat(){
                         <div style={{fontSize:10,color:'var(--muted)',letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>CONTRATANTE (Cliente)</div>
                         {clienteAssinou
                           ?<><div style={{fontSize:13,fontWeight:600,color:'var(--accent3)',marginBottom:2}}>✅ {h.signedBy}</div><div style={{fontSize:11,color:'var(--muted)'}}>{h.signedAt}<br/><span style={{color:'var(--muted)'}}>CPF: {h.signCPF||'—'}</span></div></>
-                          :<><div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.clientName||'—'} — aguardando</div>
+                          :<><div style={{fontSize:13,color:'var(--muted)',marginBottom:10}}>{h.clientName||h.clienteNome||'—'} — aguardando</div>
                           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                             <button onClick={()=>abrirSignForm(h,'client')} style={{padding:'8px 14px',borderRadius:8,background:'rgba(16,185,129,.1)',border:'1px solid rgba(16,185,129,.3)',color:'var(--accent3)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>✍️ Assinar nesta tela</button>
-                            <button onClick={()=>{setSignDoc(h);setSignEmailInput(h.clientEmail||'');setPainel(null);
+                            <button onClick={()=>{
                               const url=buildSignUrl(h)
-                              const msg=encodeURIComponent(`📄 Olá ${h.clientName||'cliente'}!\n\nSeu contrato está pronto para assinatura.\n\n${url}\n\n_Válido por 7 dias._`)
-                              const tel=(h.clientTel||'').replace(/\D/g,'')
+                              const msg=encodeURIComponent(`📄 Olá ${h.clientName||h.clienteNome||'cliente'}!\n\nSeu contrato está pronto para assinatura.\n\n${url}\n\n_Válido por 7 dias._`)
+                              const tel=(h.clienteTel||h.clientTel||'').replace(/\D/g,'')
                               window.open(tel?`https://wa.me/${tel}?text=${msg}`:`https://wa.me/?text=${msg}`,'_blank')
                             }} style={{padding:'8px 14px',borderRadius:8,background:'rgba(37,211,102,.1)',border:'1px solid rgba(37,211,102,.3)',color:'#25d366',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>💬 Enviar link</button>
                           </div></>}
@@ -1694,7 +1798,7 @@ export default function Chat(){
       </div>
     </div>
 
-    {/* MODAL PREVIEW DOCUMENTO */}
+    {/* MODAL PREVIEW DOCUMENTO — abre SEMPRE ao gerar proposta/contrato */}
     {docPreview && (
       <DocumentoPreviewModal
         docPreview={docPreview}
