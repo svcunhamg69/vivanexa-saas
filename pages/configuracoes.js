@@ -1262,12 +1262,42 @@ function TabVouchers({ cfg, setCfg, empresaId }) {
 // ABA DOCUMENTOS — variáveis organizadas por seção + suporte DOCX
 // ══════════════════════════════════════════════
 function TabDocumentos({ cfg, setCfg, empresaId }) {
-  const [propostaTemplate, setPropostaTemplate] = React.useState(cfg.docTemplates?.proposta || '')
-  const [contratoTemplate, setContratoTemplate] = React.useState(cfg.docTemplates?.contrato || '')
+  const [propostaTemplate, setPropostaTemplate] = React.useState('')
+  const [contratoTemplate, setContratoTemplate] = React.useState('')
   const [propostaTipo,     setPropostaTipo]     = React.useState(cfg.docTemplates?.propostaTipo || 'html')
   const [contratoTipo,     setContratoTipo]     = React.useState(cfg.docTemplates?.contratoTipo || 'html')
-  const [saving,   setSaving]   = React.useState(false)
-  const [testando, setTestando] = React.useState(false)
+  const [saving,     setSaving]     = React.useState(false)
+  const [testando,   setTestando]   = React.useState(false)
+  const [carregando, setCarregando] = React.useState(true)
+
+  function isDocxTemplate(tmpl) {
+    return !!(tmpl && (
+      tmpl.startsWith('data:application/vnd') ||
+      tmpl.startsWith('data:application/octet') ||
+      tmpl.startsWith('data:application/zip') ||
+      (tmpl.length > 500 && /^[A-Za-z0-9+/=]+$/.test(tmpl.slice(0, 100)))
+    ))
+  }
+
+  // ── Carrega templates das chaves separadas ao montar ─────────
+  // Os templates DOCX ficam em template:proposta:{eid} e template:contrato:{eid}
+  // (nunca dentro do JSON cfg principal, para evitar 406 no Supabase)
+  React.useEffect(() => {
+    if (!empresaId) return
+    setCarregando(true)
+    Promise.all([
+      supabase.from('vx_storage').select('value').eq('key', `template:proposta:${empresaId}`).maybeSingle(),
+      supabase.from('vx_storage').select('value').eq('key', `template:contrato:${empresaId}`).maybeSingle(),
+    ]).then(([rProp, rCont]) => {
+      const tplProp = rProp.data?.value || cfg.docTemplates?.proposta || ''
+      const tplCont = rCont.data?.value || cfg.docTemplates?.contrato || ''
+      setPropostaTemplate(tplProp)
+      setContratoTemplate(tplCont)
+      if (tplProp) setPropostaTipo(isDocxTemplate(tplProp) ? 'docx' : 'html')
+      if (tplCont) setContratoTipo(isDocxTemplate(tplCont) ? 'docx' : 'html')
+      setCarregando(false)
+    }).catch(() => setCarregando(false))
+  }, [empresaId])
 
   function handleFileUpload(tipo, e) {
     const file = e.target.files[0]
@@ -1282,7 +1312,7 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
         const b64 = ev.target.result
         if (tipo === 'proposta') { setPropostaTemplate(b64); setPropostaTipo('docx') }
         else                    { setContratoTemplate(b64);  setContratoTipo('docx') }
-        toast(`✅ DOCX carregado — ${Math.round(file.size / 1024)} KB`)
+        toast(`✅ DOCX carregado — ${Math.round(file.size / 1024)} KB. Clique em Salvar.`)
       }
       reader.readAsDataURL(file)
     } else {
@@ -1295,26 +1325,61 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
     e.target.value = ''
   }
 
-  function isDocxTemplate(tmpl) {
-    return tmpl && (tmpl.startsWith('data:application/vnd') || tmpl.startsWith('data:application/octet') || tmpl.startsWith('data:application/zip'))
+  async function removerTemplate(tipo) {
+    if (!confirm(`Remover o template de ${tipo}? Esta ação não pode ser desfeita.`)) return
+    try {
+      await supabase.from('vx_storage').delete().eq('key', `template:${tipo}:${empresaId}`)
+      if (tipo === 'proposta') { setPropostaTemplate(''); setPropostaTipo('html') }
+      else                    { setContratoTemplate('');  setContratoTipo('html') }
+      const novoCfg = { ...cfg, docTemplates: { ...cfg.docTemplates, [tipo]: '', [`${tipo}Tipo`]: 'html' } }
+      await salvarStorage(empresaId, novoCfg)
+      setCfg(novoCfg)
+      toast(`✅ Template de ${tipo} removido!`)
+    } catch(e) { toast('Erro ao remover: ' + e.message, 'err') }
   }
 
   async function salvar() {
     setSaving(true)
-    const novoCfg = {
-      ...cfg,
-      docTemplates: {
-        proposta: propostaTemplate,
-        contrato: contratoTemplate,
-        propostaTipo,
-        contratoTipo,
+    try {
+      const isDocxProp = isDocxTemplate(propostaTemplate)
+      const isDocxCont = isDocxTemplate(contratoTemplate)
+
+      // Salva DOCX em chaves separadas (evita 406 no cfg principal)
+      if (isDocxProp && propostaTemplate) {
+        const { error } = await supabase.from('vx_storage').upsert(
+          { key: `template:proposta:${empresaId}`, value: propostaTemplate, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+        if (error) { toast('Erro ao salvar proposta: ' + error.message, 'err'); setSaving(false); return }
       }
+      if (isDocxCont && contratoTemplate) {
+        const { error } = await supabase.from('vx_storage').upsert(
+          { key: `template:contrato:${empresaId}`, value: contratoTemplate, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+        if (error) { toast('Erro ao salvar contrato: ' + error.message, 'err'); setSaving(false); return }
+      }
+
+      // No cfg principal: apenas tipos + templates HTML pequenos (nunca DOCX)
+      const novoCfg = {
+        ...cfg,
+        docTemplates: {
+          proposta:    isDocxProp ? '' : propostaTemplate,
+          contrato:    isDocxCont ? '' : contratoTemplate,
+          propostaTipo,
+          contratoTipo,
+        }
+      }
+      const { error } = await salvarStorage(empresaId, novoCfg)
+      if (error) { toast('Erro ao salvar configurações: ' + error.message, 'err'); setSaving(false); return }
+
+      // Em memória: mantém templates completos para uso imediato
+      setCfg({ ...novoCfg, docTemplates: { proposta: propostaTemplate, contrato: contratoTemplate, propostaTipo, contratoTipo } })
+      toast('✅ Templates salvos com sucesso!')
+    } catch(e) {
+      toast('Erro inesperado: ' + e.message, 'err')
     }
-    const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
-    if (error) { toast('Erro ao salvar', 'err'); return }
-    setCfg(novoCfg)
-    toast('✅ Configurações salvas!')
   }
 
   async function testarConexao() {
@@ -1426,18 +1491,22 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
           4. Ao gerar o contrato no chat, o sistema substituirá as variáveis e oferecerá o download do arquivo Word preenchido.
         </div>
 
-        {[['proposta', '📋 Modelo de Proposta', propostaTemplate, setPropostaTemplate, propostaTipo, setPropostaTipo],
+        {carregando ? (
+          <div style={{ textAlign: 'center', padding: 32, color: 'var(--muted)', fontSize: 14 }}>
+            ⏳ Carregando templates...
+          </div>
+        ) : [['proposta', '📋 Modelo de Proposta', propostaTemplate, setPropostaTemplate, propostaTipo, setPropostaTipo],
           ['contrato', '📄 Modelo de Contrato',  contratoTemplate, setContratoTemplate, contratoTipo, setContratoTipo]].map(([tipo, titulo, val, setter, tipoVal, setTipo]) => (
-          <div key={tipo} style={{ marginBottom: 24, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+          <div key={tipo} style={{ marginBottom: 24, background: 'var(--surface2)', border: `1px solid ${val ? 'rgba(16,185,129,.3)' : 'var(--border)'}`, borderRadius: 12, padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
               <div style={{ ...s.secTitle, margin: 0 }}>{titulo}</div>
               <span style={{
                 fontSize: 11, padding: '2px 10px', borderRadius: 20,
-                background: tipoVal === 'docx' ? 'rgba(16,185,129,.15)' : 'rgba(0,212,255,.1)',
-                border: `1px solid ${tipoVal === 'docx' ? 'rgba(16,185,129,.3)' : 'rgba(0,212,255,.2)'}`,
-                color: tipoVal === 'docx' ? 'var(--accent3)' : 'var(--accent)',
+                background: val ? (tipoVal === 'docx' ? 'rgba(16,185,129,.15)' : 'rgba(0,212,255,.1)') : 'rgba(100,116,139,.1)',
+                border: `1px solid ${val ? (tipoVal === 'docx' ? 'rgba(16,185,129,.3)' : 'rgba(0,212,255,.2)') : 'rgba(100,116,139,.2)'}`,
+                color: val ? (tipoVal === 'docx' ? 'var(--accent3)' : 'var(--accent)') : 'var(--muted)',
               }}>
-                {tipoVal === 'docx' ? '📎 Arquivo DOCX carregado' : '📝 Template HTML'}
+                {val ? (tipoVal === 'docx' ? '📎 Arquivo DOCX carregado' : '📝 Template HTML') : '⚠️ Sem template'}
               </span>
             </div>
 
@@ -1451,15 +1520,15 @@ function TabDocumentos({ cfg, setCfg, empresaId }) {
                 <input type="file" accept=".txt,.html,.htm" onChange={e => handleFileUpload(tipo, e)} style={{ display: 'none' }} />
               </label>
               {val && (
-                <button onClick={() => { setter(''); setTipo('html') }} style={{ fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,.08)', padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,.2)', cursor: 'pointer' }}>🗑 Remover</button>
+                <button onClick={() => removerTemplate(tipo)} style={{ fontSize: 12, color: 'var(--danger)', background: 'rgba(239,68,68,.08)', padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,.2)', cursor: 'pointer' }}>🗑 Remover</button>
               )}
             </div>
 
             {isDocxTemplate(val) ? (
               <div style={{ padding: '14px 18px', background: 'rgba(16,185,129,.05)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
-                <strong style={{ color: 'var(--accent3)' }}>✅ Template DOCX carregado com sucesso.</strong><br />
-                Na hora de gerar o contrato/proposta, o sistema substituirá todas as variáveis <code style={{ color: 'var(--accent)' }}>{'{{var}}'}</code> e gerará o download do arquivo Word preenchido.<br />
-                <span style={{ color: '#94a3b8' }}>Tamanho: {val ? Math.round(val.length * 0.75 / 1024) + ' KB (base64)' : '—'}</span>
+                <strong style={{ color: 'var(--accent3)' }}>✅ Template DOCX salvo na nuvem.</strong><br />
+                Ao gerar o documento no chat, o sistema substituirá todas as variáveis <code style={{ color: 'var(--accent)' }}>{'{{var}}'}</code> e gerará o download do arquivo Word preenchido.<br />
+                <span style={{ color: '#94a3b8' }}>Tamanho: ~{val ? Math.round(val.length * 0.75 / 1024) + ' KB' : '—'}</span>
               </div>
             ) : (
               <textarea
