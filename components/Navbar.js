@@ -77,6 +77,8 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   const navRef     = useRef(null)
   const userRef    = useRef(null)
 
+  const [cfgLocal, setCfgLocal] = useState(cfg || {})
+
   useEffect(() => {
     if (perfil) { setUser(perfil); return }
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -86,6 +88,27 @@ export default function Navbar({ cfg = {}, perfil = null }) {
       setUser(p)
     })
   }, [perfil])
+
+  // Busca a logo do Supabase se não veio pela prop cfg
+  useEffect(() => {
+    if (cfg?.logob64) { setCfgLocal(cfg); return }
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) return
+      let eid = null
+      try {
+        const su = sessionStorage.getItem('vx_subuser') || localStorage.getItem('vx_subuser')
+        if (su) { eid = JSON.parse(su).empresaId }
+      } catch {}
+      if (!eid) {
+        const { data: p } = await supabase.from('perfis').select('empresa_id').eq('user_id', session.user.id).maybeSingle()
+        eid = p?.empresa_id || session.user.id
+      }
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).maybeSingle()
+      if (row?.value) {
+        try { setCfgLocal(JSON.parse(row.value)) } catch {}
+      }
+    })
+  }, [cfg])
 
   useEffect(() => {
     const handler = (e) => {
@@ -126,8 +149,8 @@ export default function Navbar({ cfg = {}, perfil = null }) {
     setTimeout(() => { setShowSenhaModal(false); setSenhaMsg('') }, 2000)
   }
 
-  const logoSrc = cfg.logob64
-    ? (cfg.logob64.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`)
+  const logoSrc = cfgLocal.logob64
+    ? (cfgLocal.logob64.startsWith('data:') ? cfgLocal.logob64 : `data:image/png;base64,${cfgLocal.logob64}`)
     : null
 
   return (
