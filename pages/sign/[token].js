@@ -293,7 +293,16 @@ export default function SignPage(){
               📄 DOCUMENTO PARA ASSINATURA
             </div>
             <div className="doc-frame">
-              <div dangerouslySetInnerHTML={{__html:doc.html}}/>
+              <style>{`
+                .doc-frame p{margin:0 0 8px;font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:11pt;line-height:1.6;color:#1e293b}
+                .doc-frame table{width:100%;border-collapse:collapse;margin:12px 0}
+                .doc-frame td,.doc-frame th{border:1px solid #cbd5e1;padding:6px 10px;vertical-align:top;font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:11pt;color:#1e293b}
+                .doc-frame th{background:#f1f5f9;font-weight:700}
+                .doc-frame img{max-width:100%;height:auto;display:block}
+                .doc-frame strong,.doc-frame b{font-weight:700}
+                .doc-frame h1,.doc-frame h2,.doc-frame h3,.doc-frame h4{margin:0 0 8px;line-height:1.3;font-family:Calibri,'Segoe UI',Arial,sans-serif;color:#1e293b}
+              `}</style>
+              <div style={{padding:'40px 52px',background:'#fff'}} dangerouslySetInnerHTML={{__html:doc.html}}/>
             </div>
           </div>
         )}
