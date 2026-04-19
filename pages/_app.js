@@ -1,10 +1,10 @@
 // pages/_app.js — v2 com controle de acesso por módulo (tenant)
+// CORREÇÃO: suporte a sub-usuários autenticados via sessionStorage (vx_subuser)
 import '../styles/globals.css';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabase';
 
-// Mapa de página → id do módulo (conforme cadastrado no Admin)
 const MODULO_DA_PAGINA = {
   '/chat':           'chat',
   '/crm':            'crm',
@@ -25,10 +25,19 @@ function ultimoDiaUtilAnterior() {
   return d.toISOString().slice(0, 10);
 }
 
+// Lê o sub-usuário salvo pelo login customizado
+function getSubUser() {
+  try {
+    const raw = sessionStorage.getItem('vx_subuser');
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
 function MyApp({ Component, pageProps }) {
-  const [session,       setSession]       = useState(null);
-  const [checkingKpi,   setCheckingKpi]   = useState(true);
-  const [semAcesso,     setSemAcesso]     = useState(false);
+  const [session,     setSession]     = useState(null);
+  const [subUser,     setSubUser]     = useState(null);   // sub-usuário de cfg.users
+  const [checkingKpi, setCheckingKpi] = useState(true);
+  const [semAcesso,   setSemAcesso]   = useState(false);
   const router = useRouter();
   const verificacaoFeita = useRef(false);
 
@@ -36,17 +45,37 @@ function MyApp({ Component, pageProps }) {
   const isPublicPage   = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
   const kpiExemptPages = ['/kpi', '/configuracoes', '/dashboard', '/reports', '/admin'];
 
+  // Verifica sub-usuário no sessionStorage ao montar
+  useEffect(() => {
+    const su = getSubUser();
+    if (su) setSubUser(su);
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      if (event === 'SIGNED_OUT') { verificacaoFeita.current = false; router.push('/'); }
-      else if (event === 'SIGNED_IN' && router.pathname === '/') router.push('/dashboard');
+      if (event === 'SIGNED_OUT') {
+        verificacaoFeita.current = false;
+        sessionStorage.removeItem('vx_subuser');
+        setSubUser(null);
+        router.push('/');
+      } else if (event === 'SIGNED_IN' && router.pathname === '/') {
+        router.push('/dashboard');
+      }
     });
     return () => authListener.subscription.unsubscribe();
   }, [router]);
 
+  // Considera autenticado se tiver sessão Supabase OU sub-usuário válido
+  const autenticado = !!(session || subUser);
+
   useEffect(() => {
+    // Sub-usuário sem sessão Supabase: libera sem checar KPI
+    if (subUser && !session) {
+      setCheckingKpi(false);
+      return;
+    }
     if (!session) { setCheckingKpi(false); return; }
     if (isPublicPage) { setCheckingKpi(false); return; }
     if (verificacaoFeita.current) { setCheckingKpi(false); return; }
@@ -72,7 +101,7 @@ function MyApp({ Component, pageProps }) {
           .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single();
         const cfg = row?.value ? JSON.parse(row.value) : {};
 
-        // ── Verificar acesso ao módulo da página atual ──────────
+        // Verificar acesso ao módulo
         const moduloNecessario = MODULO_DA_PAGINA[router.pathname];
         if (moduloNecessario && cfg.modulosAtivos?.length) {
           const temAcesso = cfg.modulosAtivos.includes(moduloNecessario);
@@ -83,9 +112,8 @@ function MyApp({ Component, pageProps }) {
           }
         }
 
-        // ── Verificar tenant status ──────────────────────────────
+        // Verificar tenant status
         if (cfg.tenant_status === 'suspenso' || cfg.tenant_status === 'cancelado') {
-          // Bloquear tudo exceto dashboard
           if (router.pathname !== '/dashboard') {
             router.replace('/dashboard');
             setCheckingKpi(false);
@@ -93,7 +121,7 @@ function MyApp({ Component, pageProps }) {
           }
         }
 
-        // ── Verificar KPI obrigatório ────────────────────────────
+        // Verificar KPI obrigatório
         const kpiTemplates = cfg.kpiTemplates || [];
         if (!cfg.kpiRequired || kpiTemplates.length === 0) {
           setCheckingKpi(false);
@@ -125,13 +153,12 @@ function MyApp({ Component, pageProps }) {
     };
 
     verificar();
-  }, [session, router.pathname]);
+  }, [session, subUser, router.pathname]);
 
-  if (isPublicPage)                          return <Component {...pageProps} />;
-  if (!session)                              return <Component {...pageProps} />;
+  if (isPublicPage)                             return <Component {...pageProps} />;
+  if (!autenticado)                             return <Component {...pageProps} />;
   if (kpiExemptPages.includes(router.pathname)) return <Component {...pageProps} />;
 
-  // Módulo sem acesso
   if (semAcesso) return (
     <div style={{
       background: '#060c1a', color: '#64748b', minHeight: '100vh',
