@@ -566,12 +566,10 @@ export default function CRM() {
                         📞 Ligar
                       </button>
                     )}
-                    {negSel.email&&(
-                      <button onClick={()=>{setEmailDest(negSel.email);setEmailAssunto(`Atendimento — ${negSel.titulo}`);setEmailCorpo('');setShowEmailModal(true)}}
-                        style={{padding:'5px 12px',borderRadius:8,background:'rgba(0,212,255,.12)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace',fontWeight:600}}>
-                        📧 E-mail
-                      </button>
-                    )}
+                    <button onClick={()=>{setEmailDest(negSel.email||'');setEmailAssunto(`Atendimento — ${negSel.titulo}`);setEmailCorpo('');setShowEmailModal(true)}}
+                      style={{padding:'5px 12px',borderRadius:8,background:'rgba(0,212,255,.12)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace',fontWeight:600}}>
+                      📧 E-mail
+                    </button>
                     <button onClick={()=>{setFormNeg({...negSel});setShowFormNeg(true)}} style={S.nb}>✏️ Editar</button>
                   </div>
                 </div>
