@@ -1,4 +1,5 @@
-// pages/crm.js — CRM Vivanexa v4
+// pages/crm.js
+const DIAS_PARADO_ALERTA = 3 — CRM Vivanexa v4
 // Melhorias: Google Agenda em Reunião + Player gravação 3CX + Aba Documentos + Permissões atualizadas
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
@@ -252,7 +253,34 @@ export default function CRM() {
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3500) }
 
   // ── Funis ─────────────────────────────────────────
-  async function salvarFunil(f) {
+  const [showAgente,   setShowAgente]   = useState(false)
+  const [agenteLog,    setAgenteLog]    = useState([])
+  const [agenteRodando,setAgenteRodando]= useState('')
+
+  async function rodarAgente(acao, negocioId) {
+    if (!empresaId) return
+    setAgenteRodando(acao)
+    try {
+      const resp = await fetch('/api/agente-followup', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acao, empresaId, negocioId })
+      })
+      const r = await resp.json()
+      if (r.ok) {
+        showToast(acao === 'briefing_diario' ? '✅ Briefing enviado!' : `✅ Follow-up concluído! ${r.resultados?.length || 0} enviados.`)
+        setAgenteLog(prev => [{ acao, data: new Date().toLocaleString('pt-BR'), ...r }, ...prev.slice(0, 9)])
+        // Recarrega negocios
+        const nc = await getCfgFresh()
+        if (nc?.crm_negocios) setNegocios(nc.crm_negocios)
+      } else showToast('❌ ' + (r.erro || r.error))
+    } catch { showToast('❌ Erro ao chamar agente') }
+    setAgenteRodando('')
+  }
+
+  async function getCfgFresh() {
+    const { data } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+    return data?.value ? JSON.parse(data.value) : null
+  }
     const novo={...f,id:f.id||'funil_'+Date.now()}
     const lista=f.id?funis.map(x=>x.id===f.id?novo:x):[...funis,novo]
     setFunis(lista)
@@ -278,16 +306,37 @@ export default function CRM() {
     save(nc)
   }
 
+  const [emailAnexos,  setEmailAnexos]  = useState([]) // [{filename, content (base64), contentType, size}]
+
+  async function adicionarAnexo(e) {
+    const files = Array.from(e.target.files)
+    for (const file of files) {
+      if (file.size > 10 * 1024 * 1024) { showToast('⚠️ Arquivo maior que 10MB ignorado: ' + file.name); continue }
+      const b64 = await new Promise(res => {
+        const r = new FileReader()
+        r.onload = () => res(r.result.split(',')[1])
+        r.readAsDataURL(file)
+      })
+      setEmailAnexos(prev => [...prev, { filename: file.name, content: b64, contentType: file.type, size: file.size }])
+    }
+    e.target.value = ''
+  }
+
   // ── Email ────────────────────────────────────────
   async function enviarEmail() {
     if(!emailDest||!emailAssunto){showToast('⚠️ Preencha destinatário e assunto.');return}
     setEmailSending(true)
     try{
-      const smtpCfg=cfg.smtpHost?{smtpHost:cfg.smtpHost,smtpPort:cfg.smtpPort||587,smtpUser:cfg.smtpUser,smtpPass:cfg.smtpPass}:null
+      const smtpCfg=cfg.smtpHost?{smtpHost:cfg.smtpHost,smtpPort:cfg.smtpPort||587,smtpUser:cfg.smtpUser,smtpPass:cfg.smtpPass,nomeRemetente:cfg.company||'Vivanexa'}:null
       const resp=await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({to:emailDest,subject:emailAssunto,html:`<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${emailCorpo}</div>`,config:smtpCfg})})
+        body:JSON.stringify({to:emailDest,subject:emailAssunto,html:`<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${emailCorpo.replace(/\n/g,'<br>')}</div>`,config:smtpCfg,attachments:emailAnexos})})
       const r=await resp.json()
-      if(r.success){showToast('✅ Email enviado!');setShowEmailModal(false);setEmailDest('');setEmailAssunto('');setEmailCorpo('')}
+      if(r.success&&!r.fallback){showToast('✅ Email enviado!');setShowEmailModal(false);setEmailDest('');setEmailAssunto('');setEmailCorpo('');setEmailAnexos([])}
+      else if(r.fallback){
+        // Abre cliente de email local como fallback
+        window.location.href=`mailto:${emailDest}?subject=${encodeURIComponent(emailAssunto)}&body=${encodeURIComponent(emailCorpo)}`
+        setShowEmailModal(false)
+      }
       else showToast('❌ Erro: '+r.error)
     }catch(e){showToast('❌ Erro ao enviar email')}
     setEmailSending(false)
@@ -490,8 +539,7 @@ export default function CRM() {
 
         {/* ── Barra de visão ── */}
         <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap',alignItems:'center'}}>
-          {[['funil','🗂️ Funil de Vendas'],['atividades','📅 Atividades'],['clientes','👥 Clientes']].map(([v,l])=>(
-            <button key={v} onClick={()=>{setVisao(v);setNegSel(null);setCliSel(null)}}
+          {[['funil','🗂️ Funil de Vendas'],['atividades','📅 Atividades'],['clientes','👥 Clientes']].map(([v,l])=>(            <button key={v} onClick={()=>{setVisao(v);setNegSel(null);setCliSel(null)}}
               style={{padding:'9px 16px',borderRadius:9,border:`1.5px solid ${visao===v&&!negSel?'var(--accent)':'var(--border)'}`,background:visao===v&&!negSel?'rgba(0,212,255,.12)':'var(--surface2)',color:visao===v&&!negSel?'var(--accent)':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:visao===v&&!negSel?700:400}}>
               {l}
             </button>
@@ -513,7 +561,10 @@ export default function CRM() {
             </div>
           )}
 
-          {negSel&&<span style={{fontSize:13,color:'var(--accent)',padding:'9px 16px',background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.25)',borderRadius:9}}>📋 {negSel.titulo}</span>}
+          <button onClick={()=>setShowAgente(true)}
+            style={{marginLeft:'auto',padding:'9px 16px',borderRadius:9,border:'1.5px solid rgba(16,185,129,.4)',background:'rgba(16,185,129,.08)',color:'#10b981',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:600,display:'flex',alignItems:'center',gap:6}}>
+            🤖 Agente IA
+          </button>
           <div style={{marginLeft:'auto',display:'flex',gap:8}}>
             {visao==='clientes' ? (
               <>
@@ -1045,28 +1096,122 @@ export default function CRM() {
       {/* ════ MODAL EMAIL ════ */}
       {showEmailModal&&(
         <div style={S.ov}>
-          <div style={{...S.md,maxWidth:520}}>
+          <div style={{...S.md,maxWidth:560}}>
             <div style={S.mh}>
               <h3 style={S.mt}>📧 Enviar E-mail</h3>
               <button onClick={()=>setShowEmailModal(false)} style={S.mc}>✕</button>
             </div>
             <div style={S.mb}>
-              {!cfg.smtpHost&&<div style={{background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',borderRadius:8,padding:'10px 14px',fontSize:12,color:'var(--warning)',marginBottom:14}}>⚠️ Configure SMTP em Configurações → Empresa para envio real de e-mails.</div>}
+              {!cfg.smtpHost&&<div style={{background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#f59e0b',marginBottom:14}}>⚠️ SMTP não configurado. Configure em <strong>Config → Empresa</strong> para envio real. O botão abrirá seu cliente de e-mail como alternativa.</div>}
               <F l="Para"><input value={emailDest} onChange={e=>setEmailDest(e.target.value)} style={S.ip} placeholder="email@cliente.com"/></F>
               <F l="Assunto"><input value={emailAssunto} onChange={e=>setEmailAssunto(e.target.value)} style={S.ip}/></F>
               <F l="Mensagem">
-                <textarea value={emailCorpo} onChange={e=>setEmailCorpo(e.target.value)} rows={8} style={{...S.ip,resize:'vertical',lineHeight:1.6}}/>
+                <textarea value={emailCorpo} onChange={e=>setEmailCorpo(e.target.value)} rows={7} style={{...S.ip,resize:'vertical',lineHeight:1.6}}/>
               </F>
+
+              {/* ── Anexos ── */}
+              <div style={{marginTop:8}}>
+                <div style={{fontSize:11,color:'var(--muted)',marginBottom:6,letterSpacing:.5}}>ANEXOS</div>
+                <label style={{display:'inline-flex',alignItems:'center',gap:6,padding:'7px 14px',borderRadius:8,background:'rgba(0,212,255,.08)',border:'1px dashed rgba(0,212,255,.35)',color:'var(--accent)',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>
+                  📎 Adicionar arquivo
+                  <input type="file" multiple style={{display:'none'}} onChange={adicionarAnexo}/>
+                </label>
+                {emailAnexos.length>0&&(
+                  <div style={{marginTop:8,display:'flex',flexWrap:'wrap',gap:6}}>
+                    {emailAnexos.map((a,i)=>(
+                      <div key={i} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 10px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:11,color:'var(--text)'}}>
+                        📄 {a.filename} <span style={{color:'var(--muted)'}}>({(a.size/1024).toFixed(0)}KB)</span>
+                        <button onClick={()=>setEmailAnexos(p=>p.filter((_,j)=>j!==i))} style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',padding:'0 2px',fontSize:13}}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div style={S.mf}>
-              <button onClick={()=>setShowEmailModal(false)} style={S.bc}>Cancelar</button>
+              <button onClick={()=>{setShowEmailModal(false);setEmailAnexos([])}} style={S.bc}>Cancelar</button>
               <button onClick={enviarEmail} disabled={emailSending} style={S.bp}>{emailSending?'⏳ Enviando...':'📤 Enviar'}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ════ MODAL GERENCIAR FUNIS ════ */}
+      {/* ════ MODAL AGENTE IA ════ */}
+      {showAgente&&(
+        <div style={S.ov}>
+          <div style={{...S.md,maxWidth:620}}>
+            <div style={S.mh}>
+              <h3 style={{...S.mt,color:'#10b981'}}>🤖 Agente IA de Follow-up</h3>
+              <button onClick={()=>setShowAgente(false)} style={S.mc}>✕</button>
+            </div>
+            <div style={S.mb}>
+
+              <div style={{background:'rgba(16,185,129,.07)',border:'1px solid rgba(16,185,129,.25)',borderRadius:10,padding:14,marginBottom:20,fontSize:12,color:'#94a3b8',lineHeight:1.7}}>
+                O Agente IA monitora negócios parados, faz follow-up automático via WhatsApp, envia briefing diário aos vendedores e negocia com clientes até detectar interesse de fechamento — quando retorna ao vendedor.<br/>
+                <strong style={{color:'#10b981'}}>Configure Evolution API em Config → Integrações para ativar o WhatsApp.</strong>
+              </div>
+
+              {/* Ações */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20}}>
+                <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:12,padding:16}}>
+                  <div style={{fontSize:22,marginBottom:8}}>📋</div>
+                  <div style={{fontWeight:700,fontSize:13,color:'var(--text)',marginBottom:4}}>Briefing Diário</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginBottom:12,lineHeight:1.5}}>Envia resumo do dia para o vendedor via WhatsApp com atividades, leads quentes e negócios parados.</div>
+                  <button onClick={()=>rodarAgente('briefing_diario')} disabled={!!agenteRodando} style={{...S.bp,width:'100%',justifyContent:'center',background:'rgba(0,212,255,.15)',color:'var(--accent)',border:'1px solid rgba(0,212,255,.3)'}}>
+                    {agenteRodando==='briefing_diario'?'⏳ Enviando...':'📤 Enviar agora'}
+                  </button>
+                </div>
+
+                <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:12,padding:16}}>
+                  <div style={{fontSize:22,marginBottom:8}}>💬</div>
+                  <div style={{fontWeight:700,fontSize:13,color:'var(--text)',marginBottom:4}}>Follow-up Automático</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginBottom:12,lineHeight:1.5}}>Verifica negócios parados há +{DIAS_PARADO_ALERTA} dias e envia mensagem personalizada via WhatsApp para reativar o interesse.</div>
+                  <button onClick={()=>rodarAgente('followup_parado')} disabled={!!agenteRodando} style={{...S.bp,width:'100%',justifyContent:'center',background:'rgba(16,185,129,.15)',color:'#10b981',border:'1px solid rgba(16,185,129,.3)'}}>
+                    {agenteRodando==='followup_parado'?'⏳ Processando...':'🚀 Rodar follow-up'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Negócios parados com ação individual */}
+              {negocios.filter(n=>!['fechamento','perdido'].includes(n.etapa)&&diasDesde(n.updatedAt)>=DIAS_PARADO_ALERTA).length>0&&(
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:11,color:'#f59e0b',letterSpacing:.5,marginBottom:8,fontWeight:700}}>⚠️ NEGÓCIOS PARADOS</div>
+                  {negocios.filter(n=>!['fechamento','perdido'].includes(n.etapa)&&diasDesde(n.updatedAt)>=DIAS_PARADO_ALERTA).slice(0,5).map(neg=>(
+                    <div key={neg.id} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',background:'rgba(251,191,36,.05)',border:'1px solid rgba(251,191,36,.2)',borderRadius:8,marginBottom:6}}>
+                      <div style={{flex:1}}>
+                        <span style={{fontSize:12,fontWeight:600,color:'var(--text)'}}>{neg.titulo}</span>
+                        <span style={{fontSize:11,color:'var(--muted)',marginLeft:8}}>{diasDesde(neg.updatedAt)}d parado</span>
+                        {neg.agenteEmNegociacao&&<span style={{fontSize:10,background:'rgba(16,185,129,.15)',color:'#10b981',padding:'1px 6px',borderRadius:6,marginLeft:6}}>🤖 IA negociando</span>}
+                      </div>
+                      <button onClick={()=>rodarAgente('followup_parado',neg.id)} disabled={!!agenteRodando}
+                        style={{padding:'4px 10px',borderRadius:7,background:'rgba(16,185,129,.12)',border:'1px solid rgba(16,185,129,.3)',color:'#10b981',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>
+                        Follow-up
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Log das últimas ações */}
+              {agenteLog.length>0&&(
+                <div>
+                  <div style={{fontSize:11,color:'var(--muted)',letterSpacing:.5,marginBottom:8,fontWeight:700}}>ÚLTIMAS AÇÕES DO AGENTE</div>
+                  {agenteLog.slice(0,5).map((l,i)=>(
+                    <div key={i} style={{padding:'8px 12px',background:'var(--surface2)',borderRadius:8,marginBottom:6,fontSize:11,color:'var(--muted)'}}>
+                      <span style={{color:'#10b981',fontWeight:600}}>{l.acao}</span> · {l.data}
+                      {l.texto&&<div style={{color:'var(--text)',marginTop:4,fontSize:11,lineHeight:1.4,whiteSpace:'pre-wrap'}}>{l.texto.slice(0,200)}</div>}
+                      {l.resultados&&<div style={{color:'var(--text)',marginTop:4}}>{l.resultados.length} follow-ups enviados</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={S.mf}>
+              <button onClick={()=>setShowAgente(false)} style={S.bp}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showFunisMgr&&(
         <div style={S.ov}>
           <div style={{...S.md,maxWidth:560}}>
