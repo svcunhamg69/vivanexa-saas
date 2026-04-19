@@ -176,6 +176,15 @@ export default function CRM() {
   const [clientes,     setClientes]     = useState([])
   const [documentos,   setDocumentos]   = useState([])
   const [etapas,       setEtapas]       = useState(ETAPAS_PADRAO)
+  const [funis,        setFunis]        = useState([]) // lista de funis {id,nome,etapas}
+  const [funilAtivo,   setFunilAtivo]   = useState(null) // id do funil ativo
+  const [showFunisMgr, setShowFunisMgr] = useState(false) // modal gerenciar funis
+  const [formFunil,    setFormFunil]    = useState({id:'',nome:'',etapas:[]})
+  const [showEmailModal, setShowEmailModal] = useState(false)
+  const [emailDest,    setEmailDest]    = useState('')
+  const [emailAssunto, setEmailAssunto] = useState('')
+  const [emailCorpo,   setEmailCorpo]   = useState('')
+  const [emailSending, setEmailSending] = useState(false)
   const [visao,        setVisao]        = useState('funil')
   const [cfg3cx,       setCfg3cx]       = useState({})
   const [negSel,       setNegSel]       = useState(null)
@@ -220,6 +229,17 @@ export default function CRM() {
         setClientes(c.clients||[]); setDocumentos(c.crm_documentos||[])
         if(c.crm_etapas?.length)setEtapas(c.crm_etapas)
         if(c.tel3cx)setCfg3cx(c.tel3cx)
+        // Carrega funis — se não tiver, cria o funil padrão
+        if(c.crm_funis?.length){
+          setFunis(c.crm_funis)
+          setFunilAtivo(c.crm_funilAtivo||c.crm_funis[0]?.id||null)
+          const fa=c.crm_funis.find(f=>f.id===(c.crm_funilAtivo||c.crm_funis[0]?.id))
+          if(fa?.etapas?.length)setEtapas(fa.etapas)
+        }else{
+          // Cria funil padrão a partir das etapas existentes
+          const funilPadrao={id:'funil_1',nome:'Funil Principal',etapas:c.crm_etapas||ETAPAS_PADRAO}
+          setFunis([funilPadrao]);setFunilAtivo('funil_1')
+        }
       }
       setLoading(false)
     }
@@ -230,6 +250,48 @@ export default function CRM() {
     await supabase.from('vx_storage').upsert({key:`cfg:${empresaId}`,value:JSON.stringify(nc),updated_at:new Date().toISOString()},{onConflict:'key'})
   }
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3500) }
+
+  // ── Funis ─────────────────────────────────────────
+  async function salvarFunil(f) {
+    const novo={...f,id:f.id||'funil_'+Date.now()}
+    const lista=f.id?funis.map(x=>x.id===f.id?novo:x):[...funis,novo]
+    setFunis(lista)
+    const nc={...cfg,crm_funis:lista,crm_funilAtivo:funilAtivo||novo.id}
+    await save(nc);setCfg(nc);showToast('✅ Funil salvo!')
+  }
+
+  async function excluirFunil(id) {
+    if(funis.length<=1){showToast('⚠️ Precisa ter ao menos 1 funil.');return}
+    if(!confirm('Excluir este funil?'))return
+    const lista=funis.filter(f=>f.id!==id)
+    setFunis(lista)
+    const novoAtivo=lista[0]?.id||null;setFunilAtivo(novoAtivo)
+    if(lista[0]?.etapas?.length)setEtapas(lista[0].etapas)
+    const nc={...cfg,crm_funis:lista,crm_funilAtivo:novoAtivo};await save(nc);setCfg(nc);showToast('🗑 Funil removido!')
+  }
+
+  function trocarFunil(id) {
+    setFunilAtivo(id)
+    const f=funis.find(x=>x.id===id)
+    if(f?.etapas?.length)setEtapas(f.etapas)
+    const nc={...cfg,crm_funilAtivo:id};setCfg(nc)
+    save(nc)
+  }
+
+  // ── Email ────────────────────────────────────────
+  async function enviarEmail() {
+    if(!emailDest||!emailAssunto){showToast('⚠️ Preencha destinatário e assunto.');return}
+    setEmailSending(true)
+    try{
+      const smtpCfg=cfg.smtpHost?{smtpHost:cfg.smtpHost,smtpPort:cfg.smtpPort||587,smtpUser:cfg.smtpUser,smtpPass:cfg.smtpPass}:null
+      const resp=await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({to:emailDest,subject:emailAssunto,html:`<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${emailCorpo}</div>`,config:smtpCfg})})
+      const r=await resp.json()
+      if(r.success){showToast('✅ Email enviado!');setShowEmailModal(false);setEmailDest('');setEmailAssunto('');setEmailCorpo('')}
+      else showToast('❌ Erro: '+r.error)
+    }catch(e){showToast('❌ Erro ao enviar email')}
+    setEmailSending(false)
+  }
 
   // ── Negócios ─────────────────────────────────────
   async function salvarNeg() {
@@ -434,6 +496,23 @@ export default function CRM() {
               {l}
             </button>
           ))}
+
+          {/* Seletor de Funis */}
+          {visao==='funil'&&!negSel&&funis.length>0&&(
+            <div style={{display:'flex',gap:6,alignItems:'center',marginLeft:8,paddingLeft:8,borderLeft:'1px solid var(--border)'}}>
+              {funis.map(f=>(
+                <button key={f.id} onClick={()=>trocarFunil(f.id)}
+                  style={{padding:'6px 13px',borderRadius:8,border:`1.5px solid ${funilAtivo===f.id?'var(--accent2)':'var(--border)'}`,background:funilAtivo===f.id?'rgba(124,58,237,.15)':'var(--surface2)',color:funilAtivo===f.id?'#a78bfa':'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',fontWeight:funilAtivo===f.id?700:400}}>
+                  {f.nome}
+                </button>
+              ))}
+              <button onClick={()=>{setFormFunil({id:'',nome:'',etapas:etapas});setShowFunisMgr(true)}}
+                style={{padding:'6px 11px',borderRadius:8,border:'1.5px dashed var(--border)',background:'transparent',color:'var(--muted)',fontFamily:'DM Mono,monospace',fontSize:11,cursor:'pointer'}}>
+                ⚙️ Funis
+              </button>
+            </div>
+          )}
+
           {negSel&&<span style={{fontSize:13,color:'var(--accent)',padding:'9px 16px',background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.25)',borderRadius:9}}>📋 {negSel.titulo}</span>}
           <div style={{marginLeft:'auto',display:'flex',gap:8}}>
             {visao==='clientes' ? (
@@ -485,6 +564,12 @@ export default function CRM() {
                       <button onClick={()=>click2call(negSel.telefone,cfg3cx)}
                         style={{padding:'5px 12px',borderRadius:8,background:'rgba(16,185,129,.12)',border:'1px solid rgba(16,185,129,.3)',color:'var(--accent3)',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace',fontWeight:600}}>
                         📞 Ligar
+                      </button>
+                    )}
+                    {negSel.email&&(
+                      <button onClick={()=>{setEmailDest(negSel.email);setEmailAssunto(`Atendimento — ${negSel.titulo}`);setEmailCorpo('');setShowEmailModal(true)}}
+                        style={{padding:'5px 12px',borderRadius:8,background:'rgba(0,212,255,.12)',border:'1px solid rgba(0,212,255,.3)',color:'var(--accent)',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace',fontWeight:600}}>
+                        📧 E-mail
                       </button>
                     )}
                     <button onClick={()=>{setFormNeg({...negSel});setShowFormNeg(true)}} style={S.nb}>✏️ Editar</button>
@@ -954,6 +1039,89 @@ export default function CRM() {
             <div style={S.mf}>
               <button onClick={()=>setShowFormCli(false)} style={S.bc}>Cancelar</button>
               <button onClick={salvarCliente} disabled={saving} style={S.bp}>{saving?'⏳ Salvando...':'✅ Salvar Cliente'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ MODAL EMAIL ════ */}
+      {showEmailModal&&(
+        <div style={S.ov}>
+          <div style={{...S.md,maxWidth:520}}>
+            <div style={S.mh}>
+              <h3 style={S.mt}>📧 Enviar E-mail</h3>
+              <button onClick={()=>setShowEmailModal(false)} style={S.mc}>✕</button>
+            </div>
+            <div style={S.mb}>
+              {!cfg.smtpHost&&<div style={{background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',borderRadius:8,padding:'10px 14px',fontSize:12,color:'var(--warning)',marginBottom:14}}>⚠️ Configure SMTP em Configurações → Empresa para envio real de e-mails.</div>}
+              <F l="Para"><input value={emailDest} onChange={e=>setEmailDest(e.target.value)} style={S.ip} placeholder="email@cliente.com"/></F>
+              <F l="Assunto"><input value={emailAssunto} onChange={e=>setEmailAssunto(e.target.value)} style={S.ip}/></F>
+              <F l="Mensagem">
+                <textarea value={emailCorpo} onChange={e=>setEmailCorpo(e.target.value)} rows={8} style={{...S.ip,resize:'vertical',lineHeight:1.6}}/>
+              </F>
+            </div>
+            <div style={S.mf}>
+              <button onClick={()=>setShowEmailModal(false)} style={S.bc}>Cancelar</button>
+              <button onClick={enviarEmail} disabled={emailSending} style={S.bp}>{emailSending?'⏳ Enviando...':'📤 Enviar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ MODAL GERENCIAR FUNIS ════ */}
+      {showFunisMgr&&(
+        <div style={S.ov}>
+          <div style={{...S.md,maxWidth:560}}>
+            <div style={S.mh}>
+              <h3 style={S.mt}>⚙️ Gerenciar Funis de Vendas</h3>
+              <button onClick={()=>setShowFunisMgr(false)} style={S.mc}>✕</button>
+            </div>
+            <div style={S.mb}>
+              {/* Lista de funis existentes */}
+              <div style={{marginBottom:20}}>
+                {funis.map(f=>(
+                  <div key={f.id} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',background:'var(--surface2)',border:`1.5px solid ${funilAtivo===f.id?'var(--accent2)':'var(--border)'}`,borderRadius:10,marginBottom:8}}>
+                    <span style={{flex:1,fontWeight:600,fontSize:13,color:funilAtivo===f.id?'#a78bfa':'var(--text)'}}>{f.nome}</span>
+                    <span style={{fontSize:11,color:'var(--muted)'}}>{f.etapas?.length||0} etapas</span>
+                    <button onClick={()=>{trocarFunil(f.id);setShowFunisMgr(false)}} style={{...S.nb,color:funilAtivo===f.id?'var(--accent2)':'var(--muted)'}}>
+                      {funilAtivo===f.id?'✅ Ativo':'Ativar'}
+                    </button>
+                    <button onClick={()=>setFormFunil({...f,etapasStr:f.etapas?.map(e=>e.label).join(', ')||''})}
+                      style={{...S.nb}}>✏️</button>
+                    <button onClick={()=>excluirFunil(f.id)} style={{...S.nb,color:'var(--danger)'}}>🗑</button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Formulário criar/editar funil */}
+              <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:16}}>
+                <div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'var(--accent)',marginBottom:12}}>
+                  {formFunil.id?'✏️ Editar Funil':'➕ Novo Funil'}
+                </div>
+                <F l="Nome do Funil">
+                  <input value={formFunil.nome} onChange={e=>setFormFunil(f=>({...f,nome:e.target.value}))} style={S.ip} placeholder="Ex: Funil Contabilidade"/>
+                </F>
+                <F l="Etapas (separadas por vírgula)">
+                  <input value={formFunil.etapasStr||''} onChange={e=>setFormFunil(f=>({...f,etapasStr:e.target.value}))}
+                    style={S.ip} placeholder="Lead, Qualificado, Proposta, Fechamento, Perdido"/>
+                </F>
+                <div style={{fontSize:11,color:'var(--muted)',marginBottom:12}}>As cores serão atribuídas automaticamente por ordem.</div>
+                <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+                  <button onClick={()=>setFormFunil({id:'',nome:'',etapasStr:''})} style={S.bc}>Limpar</button>
+                  <button onClick={async()=>{
+                    if(!formFunil.nome.trim()){showToast('⚠️ Informe o nome do funil.');return}
+                    const cores=['#64748b','#7c3aed','#00d4ff','#10b981','#f59e0b','#8b5cf6','#059669','#ef4444']
+                    const etapasGeradas=(formFunil.etapasStr||'').split(',').map((l,i)=>({id:'e_'+Date.now()+'_'+i,label:l.trim(),cor:cores[i%cores.length]})).filter(e=>e.label)
+                    const novoFunil={...formFunil,etapas:etapasGeradas.length?etapasGeradas:ETAPAS_PADRAO}
+                    await salvarFunil(novoFunil)
+                    if(!funilAtivo||formFunil.id===funilAtivo){setEtapas(novoFunil.etapas)}
+                    setFormFunil({id:'',nome:'',etapasStr:''})
+                  }} style={S.bp}>✅ {formFunil.id?'Atualizar':'Criar'} Funil</button>
+                </div>
+              </div>
+            </div>
+            <div style={S.mf}>
+              <button onClick={()=>setShowFunisMgr(false)} style={S.bp}>Fechar</button>
             </div>
           </div>
         </div>
