@@ -1,12 +1,13 @@
-// components/Navbar.js — Vivanexa SaaS v8
-// Config: clique direto abre /configuracoes?tab=empresa (sem dropdown)
+// components/Navbar.js — Vivanexa SaaS v9
+// Novidades v9:
+// • Clique no avatar/nome do usuário abre dropdown com "Editar Senha"
+// • Modal de troca de senha inline (sem sair da página)
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 
 const MENU = [
-  // ─── COMERCIAL ──────────────────────────────────────────────────────
   {
     id: 'comercial', label: 'Comercial', icon: '💼', color: '#00d4ff',
     subs: [
@@ -20,7 +21,6 @@ const MENU = [
       { label: 'Script / Playbook',  icon: '📋', href: '/prospeccao?aba=script' },
     ],
   },
-  // ─── MARKETING ──────────────────────────────────────────────────────
   {
     id: 'marketing', label: 'Marketing', icon: '📣', color: '#7c3aed',
     subs: [
@@ -29,7 +29,6 @@ const MENU = [
       { label: 'Geração de Conteúdo',  icon: '✨', href: '/marketing?aba=imagens' },
     ],
   },
-  // ─── FINANCEIRO ─────────────────────────────────────────────────────
   {
     id: 'financeiro', label: 'Financeiro', icon: '💰', color: '#10b981',
     subs: [
@@ -40,7 +39,6 @@ const MENU = [
       { label: 'Comissões',        icon: '🏆', href: '/financeiro?aba=comissoes' },
     ],
   },
-  // ─── RELATÓRIOS ─────────────────────────────────────────────────────
   {
     id: 'relatorios', label: 'Relatórios', icon: '📈', color: '#ec4899',
     subs: [
@@ -56,12 +54,10 @@ const MENU = [
       { label: 'Gerador de Relatório', icon: '🛠', href: '/reports?aba=gerador',        grupo: 'Ferramentas' },
     ],
   },
-  // ─── CONFIGURAÇÕES — sem subs, clique direto ─────────────────────────
-  // (tratado especialmente no render — não usa dropdown)
   {
     id: 'configuracoes', label: 'Config', icon: '⚙️', color: '#94a3b8',
-    directHref: '/configuracoes?tab=empresa', // ← clique direto
-    subs: [], // deixado vazio — dropdown não abre
+    directHref: '/configuracoes?tab=empresa',
+    subs: [],
   },
 ]
 
@@ -69,72 +65,32 @@ export { MENU }
 
 export default function Navbar({ cfg = {}, perfil = null }) {
   const router = useRouter()
-  const [open,       setOpen]       = useState(null)
-  const [mobileOpen, setMobileOpen] = useState(false)
-  const [user,       setUser]       = useState(perfil)
-  const [logoUrl,    setLogoUrl]    = useState(
-    cfg.logob64
-      ? (cfg.logob64.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`)
-      : null
-  )
-  const navRef = useRef(null)
+  const [open,          setOpen]          = useState(null)
+  const [mobileOpen,    setMobileOpen]    = useState(false)
+  const [user,          setUser]          = useState(perfil)
+  const [userMenuOpen,  setUserMenuOpen]  = useState(false)
+  const [showSenhaModal,setShowSenhaModal]= useState(false)
+  const [novaSenha,     setNovaSenha]     = useState('')
+  const [confirmSenha,  setConfirmSenha]  = useState('')
+  const [senhaMsg,      setSenhaMsg]      = useState('')
+  const [senhaSaving,   setSenhaSaving]   = useState(false)
+  const navRef     = useRef(null)
+  const userRef    = useRef(null)
 
   useEffect(() => {
-    // Carrega logo da chave separada no Supabase
-    async function carregarLogo(empresaId) {
-      if (!empresaId) return
-      // Tenta primeiro o cfg passado por prop (pode já ter a logo injetada)
-      if (cfg.logob64) {
-        const src = cfg.logob64.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`
-        setLogoUrl(src)
-        return
-      }
-      // Busca da chave separada logo:EMPRESA_ID
-      try {
-        const { data } = await supabase
-          .from('vx_storage').select('value').eq('key', `logo:${empresaId}`).maybeSingle()
-        if (data?.value) {
-          const b64 = data.value
-          setLogoUrl(b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`)
-        }
-      } catch {}
-    }
-
-    async function init() {
-      // Sub-usuário no sessionStorage/localStorage
-      try {
-        const raw = sessionStorage.getItem('vx_subuser') || localStorage.getItem('vx_subuser')
-        if (raw) {
-          const su = JSON.parse(raw)
-          if (!perfil) setUser({ nome: su.nome, email: su.email, tipo: su.tipo, perfil: su.tipo })
-          await carregarLogo(su.empresaId)
-          return
-        }
-      } catch {}
-
-      // Admin/dono: sessão Supabase
-      const { data: { session } } = await supabase.auth.getSession()
+    if (perfil) { setUser(perfil); return }
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) return
-
-      let p = perfil
-      if (!p) {
-        const { data } = await supabase
-          .from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
-        p = data
-        if (p) setUser(p)
-      }
-
-      const empresaId = p?.empresa_id || session.user.id
-      await carregarLogo(empresaId)
-    }
-
-    init()
-  }, [perfil, cfg.logob64])
+      const { data: p } = await supabase
+        .from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
+      setUser(p)
+    })
+  }, [perfil])
 
   useEffect(() => {
     const handler = (e) => {
       if (navRef.current && !navRef.current.contains(e.target)) {
-        setOpen(null); setMobileOpen(false)
+        setOpen(null); setMobileOpen(false); setUserMenuOpen(false)
       }
     }
     document.addEventListener('mousedown', handler)
@@ -142,27 +98,37 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   }, [])
 
   useEffect(() => {
-    setOpen(null); setMobileOpen(false)
+    setOpen(null); setMobileOpen(false); setUserMenuOpen(false)
   }, [router.pathname, router.query])
 
   function navigate(href) { setOpen(null); setMobileOpen(false); router.push(href) }
 
   function isActive(menu) {
-    if (menu.directHref) {
-      return router.pathname === menu.directHref.split('?')[0]
-    }
+    if (menu.directHref) return router.pathname === menu.directHref.split('?')[0]
     return menu.subs.some(s => router.pathname === s.href.split('?')[0])
   }
 
   async function handleLogout() {
-    // Limpa sub-usuário e sessão Supabase
-    try { sessionStorage.removeItem('vx_subuser'); localStorage.removeItem('vx_subuser') } catch {}
     await supabase.auth.signOut()
     router.replace('/')
   }
 
-  // logoUrl é carregado pelo useEffect acima (da chave logo:EMPRESA_ID)
-  const logoSrc = logoUrl
+  async function handleTrocarSenha() {
+    setSenhaMsg('')
+    if (!novaSenha || novaSenha.length < 6) { setSenhaMsg('❌ A senha deve ter ao menos 6 caracteres.'); return }
+    if (novaSenha !== confirmSenha) { setSenhaMsg('❌ As senhas não coincidem.'); return }
+    setSenhaSaving(true)
+    const { error } = await supabase.auth.updateUser({ password: novaSenha })
+    setSenhaSaving(false)
+    if (error) { setSenhaMsg('❌ Erro: ' + error.message); return }
+    setSenhaMsg('✅ Senha alterada com sucesso!')
+    setNovaSenha(''); setConfirmSenha('')
+    setTimeout(() => { setShowSenhaModal(false); setSenhaMsg('') }, 2000)
+  }
+
+  const logoSrc = cfg.logob64
+    ? (cfg.logob64.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`)
+    : null
 
   return (
     <>
@@ -186,7 +152,6 @@ export default function Navbar({ cfg = {}, perfil = null }) {
             const ativo  = isActive(menu)
             const aberto = open === menu.id
 
-            // ── Config: botão direto sem dropdown ──
             if (menu.directHref) {
               return (
                 <div key={menu.id} className="nav-wrap">
@@ -202,18 +167,13 @@ export default function Navbar({ cfg = {}, perfil = null }) {
               )
             }
 
-            // ── Menus com dropdown ──
-            const grupos = []
-            let grupoAtual = { titulo: null, items: [] }
-            menu.subs.forEach((sub) => {
-              const g = sub.grupo || null
-              if (g !== grupoAtual.titulo) {
-                if (grupoAtual.items.length > 0) grupos.push(grupoAtual)
-                grupoAtual = { titulo: g, items: [] }
-              }
-              grupoAtual.items.push(sub)
-            })
-            if (grupoAtual.items.length > 0) grupos.push(grupoAtual)
+            const grupos = menu.subs.reduce((acc, sub) => {
+              const g = sub.grupo || ''
+              let grp = acc.find(x => x.titulo === g)
+              if (!grp) { grp = { titulo: g, items: [] }; acc.push(grp) }
+              grp.items.push(sub)
+              return acc
+            }, [])
 
             return (
               <div key={menu.id} className="nav-wrap">
@@ -267,18 +227,47 @@ export default function Navbar({ cfg = {}, perfil = null }) {
           })}
         </div>
 
-        {/* ── Direita ── */}
+        {/* ── Direita — Avatar clicável ── */}
         <div className="nav-right">
           {user && (
-            <div className="nav-user">
-              <div className="nav-av">{(user.nome || user.email || 'U')[0].toUpperCase()}</div>
-              <div>
-                <div className="nav-uname">{(user.nome || user.email || '').split(' ')[0]}</div>
-                <div style={{ fontSize: 9, color: '#475569', lineHeight: 1 }}>{user.perfil || user.tipo || 'usuário'}</div>
-              </div>
+            <div className="nav-user-wrap" ref={userRef} style={{ position: 'relative' }}>
+              <button
+                className="nav-user"
+                onClick={(e) => { e.stopPropagation(); setUserMenuOpen(v => !v) }}
+                title="Clique para opções de conta"
+              >
+                <div className="nav-av">{(user.nome || user.email || 'U')[0].toUpperCase()}</div>
+                <div>
+                  <div className="nav-uname">{(user.nome || user.email || '').split(' ')[0]}</div>
+                  <div style={{ fontSize: 9, color: '#475569', lineHeight: 1 }}>{user.perfil || user.tipo || 'usuário'}</div>
+                </div>
+                <span style={{ fontSize: 9, color: '#475569', marginLeft: 2 }}>▾</span>
+              </button>
+
+              {userMenuOpen && (
+                <div className="user-dd" onClick={e => e.stopPropagation()}>
+                  <div className="user-dd-header">
+                    <div className="user-dd-av">{(user.nome || user.email || 'U')[0].toUpperCase()}</div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{user.nome || 'Usuário'}</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>{user.email || ''}</div>
+                    </div>
+                  </div>
+                  <div className="user-dd-sep" />
+                  <button className="user-dd-btn" onClick={() => { setUserMenuOpen(false); setShowSenhaModal(true) }}>
+                    🔑 Alterar Senha
+                  </button>
+                  <div className="user-dd-sep" />
+                  <button className="user-dd-btn user-dd-sair" onClick={handleLogout}>
+                    🚪 Sair
+                  </button>
+                </div>
+              )}
             </div>
           )}
-          <button className="nav-sair" onClick={handleLogout}>Sair</button>
+          {!user && (
+            <button className="nav-sair" onClick={handleLogout}>Sair</button>
+          )}
         </div>
 
         <button className="nav-mob-btn" onClick={() => setMobileOpen(!mobileOpen)}>
@@ -313,7 +302,74 @@ export default function Navbar({ cfg = {}, perfil = null }) {
           ))}
           <div className="mob-rodape">
             <span style={{ color: '#64748b', fontSize: 12 }}>👤 {user?.nome || user?.email}</span>
+            <button className="mob-btn-senha" onClick={() => { setMobileOpen(false); setShowSenhaModal(true) }}>🔑 Alterar Senha</button>
             <button className="nav-sair" onClick={handleLogout}>Sair</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Alterar Senha ── */}
+      {showSenhaModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 99999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }} onClick={() => setShowSenhaModal(false)}>
+          <div style={{
+            background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16,
+            padding: 32, width: '100%', maxWidth: 400, boxShadow: '0 24px 64px rgba(0,0,0,.8)'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, fontWeight: 800, color: '#00d4ff', marginBottom: 6 }}>🔑 Alterar Senha</div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 24 }}>
+              Usuário: <strong style={{ color: '#e2e8f0' }}>{user?.email}</strong>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 5, letterSpacing: '.8px', textTransform: 'uppercase' }}>Nova Senha</label>
+              <input
+                type="password"
+                value={novaSenha}
+                onChange={e => setNovaSenha(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+                style={{ width: '100%', background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 10, padding: '11px 14px', fontFamily: 'DM Mono, monospace', fontSize: 14, color: '#e2e8f0', outline: 'none', boxSizing: 'border-box' }}
+                onFocus={e => e.target.style.borderColor = '#00d4ff'}
+                onBlur={e => e.target.style.borderColor = '#1e2d4a'}
+              />
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 5, letterSpacing: '.8px', textTransform: 'uppercase' }}>Confirmar Nova Senha</label>
+              <input
+                type="password"
+                value={confirmSenha}
+                onChange={e => setConfirmSenha(e.target.value)}
+                placeholder="Repita a nova senha"
+                style={{ width: '100%', background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 10, padding: '11px 14px', fontFamily: 'DM Mono, monospace', fontSize: 14, color: '#e2e8f0', outline: 'none', boxSizing: 'border-box' }}
+                onFocus={e => e.target.style.borderColor = '#00d4ff'}
+                onBlur={e => e.target.style.borderColor = '#1e2d4a'}
+                onKeyDown={e => e.key === 'Enter' && handleTrocarSenha()}
+              />
+            </div>
+
+            {senhaMsg && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16,
+                background: senhaMsg.startsWith('✅') ? 'rgba(16,185,129,.12)' : 'rgba(239,68,68,.12)',
+                border: `1px solid ${senhaMsg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`,
+                color: senhaMsg.startsWith('✅') ? '#10b981' : '#ef4444'
+              }}>{senhaMsg}</div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => { setShowSenhaModal(false); setSenhaMsg(''); setNovaSenha(''); setConfirmSenha('') }}
+                style={{ flex: 1, padding: '12px', borderRadius: 10, background: 'rgba(100,116,139,.12)', border: '1px solid #1e2d4a', color: '#64748b', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' }}
+              >Cancelar</button>
+              <button
+                onClick={handleTrocarSenha}
+                disabled={senhaSaving}
+                style={{ flex: 2, padding: '12px', borderRadius: 10, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: senhaSaving ? 'not-allowed' : 'pointer', opacity: senhaSaving ? .7 : 1 }}
+              >{senhaSaving ? '⏳ Salvando...' : '✅ Salvar Nova Senha'}</button>
+            </div>
           </div>
         </div>
       )}
@@ -348,10 +404,23 @@ const CSS = `
   .nav-dd-icon{font-size:14px;width:18px;text-align:center;flex-shrink:0}
   .nav-dd-lbl{flex:1}
   .nav-dd-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+
+  /* ── User dropdown ── */
   .nav-right{display:flex;align-items:center;gap:10px;flex-shrink:0;margin-left:6px}
-  .nav-user{display:flex;align-items:center;gap:8px}
+  .nav-user-wrap{position:relative}
+  .nav-user{display:flex;align-items:center;gap:8px;background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:8px;transition:background .15s}
+  .nav-user:hover{background:rgba(255,255,255,.05)}
   .nav-av{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#00d4ff,#0088aa);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
   .nav-uname{font-size:11px;color:#6e8099;white-space:nowrap;line-height:1.2}
+  .user-dd{position:absolute;top:calc(100% + 8px);right:0;min-width:220px;background:#08101e;border:1px solid #18243a;border-top:2px solid #00d4ff;border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.85);z-index:99999;animation:ddIn .13s ease}
+  .user-dd-header{display:flex;align-items:center;gap:10px;padding:14px;background:rgba(0,212,255,.04);border-bottom:1px solid #18243a}
+  .user-dd-av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#00d4ff,#0088aa);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0}
+  .user-dd-sep{height:1px;background:#18243a;margin:4px 0}
+  .user-dd-btn{display:flex;align-items:center;gap:9px;width:100%;padding:10px 14px;background:none;border:none;color:#94a3b8;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;text-align:left;transition:all .12s}
+  .user-dd-btn:hover{background:rgba(255,255,255,.05);color:#e2e8f0}
+  .user-dd-sair{color:#ef4444!important}
+  .user-dd-sair:hover{background:rgba(239,68,68,.08)!important}
+
   .nav-sair{padding:4px 11px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.22);border-radius:7px;color:#ef4444;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;transition:all .14s;white-space:nowrap}
   .nav-sair:hover{background:rgba(239,68,68,.2)}
   .nav-mob-btn{display:none;background:none;border:1px solid #18243a;color:#6e8099;padding:6px 11px;border-radius:7px;cursor:pointer;font-size:16px;margin-left:auto}
@@ -362,7 +431,8 @@ const CSS = `
   .mob-itens{padding:4px}
   .mob-btn{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;background:none;border:none;border-radius:8px;color:#6e8099;font-family:'DM Mono',monospace;font-size:13px;cursor:pointer;text-align:left;transition:all .12s}
   .mob-btn:hover{background:rgba(255,255,255,.05);color:#e2e8f0}
+  .mob-btn-senha{display:flex;align-items:center;gap:8px;padding:8px 14px;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.2);border-radius:8px;color:#00d4ff;font-family:'DM Mono',monospace;font-size:12px;cursor:pointer}
   .mob-ic{font-size:15px;width:20px;text-align:center;flex-shrink:0}
-  .mob-rodape{display:flex;align-items:center;justify-content:space-between;padding:14px 4px 4px;margin-top:8px;border-top:1px solid #18243a}
+  .mob-rodape{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:14px 4px 4px;margin-top:8px;border-top:1px solid #18243a}
   @media(max-width:768px){.nav-menus{display:none}.nav-right{display:none}.nav-mob-btn{display:block}}
 `
