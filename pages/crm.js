@@ -339,7 +339,7 @@ export default function CRM() {
         smtpPort:cfg.smtpPort||587,
         smtpUser:cfg.smtpUser,
         smtpPass:cfg.smtpPass,
-        apiKey:cfg.apiKey||cfg.brevoApiKey||'',
+        apiKey:cfg.apiKey||cfg.brevoApiKey||cfg.api_key||cfg.smtpPass||'',
         emailRemetente:cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||'',
         nomeRemetente:cfg.company||'Vivanexa'
       }:null
