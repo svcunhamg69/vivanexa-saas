@@ -72,17 +72,64 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   const [open,       setOpen]       = useState(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [user,       setUser]       = useState(perfil)
+  const [logoUrl,    setLogoUrl]    = useState(
+    cfg.logob64
+      ? (cfg.logob64.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`)
+      : null
+  )
   const navRef = useRef(null)
 
   useEffect(() => {
-    if (perfil) { setUser(perfil); return }
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // Carrega logo da chave separada no Supabase
+    async function carregarLogo(empresaId) {
+      if (!empresaId) return
+      // Tenta primeiro o cfg passado por prop (pode já ter a logo injetada)
+      if (cfg.logob64) {
+        const src = cfg.logob64.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`
+        setLogoUrl(src)
+        return
+      }
+      // Busca da chave separada logo:EMPRESA_ID
+      try {
+        const { data } = await supabase
+          .from('vx_storage').select('value').eq('key', `logo:${empresaId}`).maybeSingle()
+        if (data?.value) {
+          const b64 = data.value
+          setLogoUrl(b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`)
+        }
+      } catch {}
+    }
+
+    async function init() {
+      // Sub-usuário no sessionStorage/localStorage
+      try {
+        const raw = sessionStorage.getItem('vx_subuser') || localStorage.getItem('vx_subuser')
+        if (raw) {
+          const su = JSON.parse(raw)
+          if (!perfil) setUser({ nome: su.nome, email: su.email, tipo: su.tipo, perfil: su.tipo })
+          await carregarLogo(su.empresaId)
+          return
+        }
+      } catch {}
+
+      // Admin/dono: sessão Supabase
+      const { data: { session } } = await supabase.auth.getSession()
       if (!session) return
-      const { data: p } = await supabase
-        .from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
-      setUser(p)
-    })
-  }, [perfil])
+
+      let p = perfil
+      if (!p) {
+        const { data } = await supabase
+          .from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
+        p = data
+        if (p) setUser(p)
+      }
+
+      const empresaId = p?.empresa_id || session.user.id
+      await carregarLogo(empresaId)
+    }
+
+    init()
+  }, [perfil, cfg.logob64])
 
   useEffect(() => {
     const handler = (e) => {
@@ -108,13 +155,14 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   }
 
   async function handleLogout() {
+    // Limpa sub-usuário e sessão Supabase
+    try { sessionStorage.removeItem('vx_subuser'); localStorage.removeItem('vx_subuser') } catch {}
     await supabase.auth.signOut()
     router.replace('/')
   }
 
-  const logoSrc = cfg.logob64
-    ? (cfg.logob64.startsWith('data:') ? cfg.logob64 : `data:image/png;base64,${cfg.logob64}`)
-    : null
+  // logoUrl é carregado pelo useEffect acima (da chave logo:EMPRESA_ID)
+  const logoSrc = logoUrl
 
   return (
     <>
