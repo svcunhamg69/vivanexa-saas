@@ -84,43 +84,34 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
   async function renderDocxEmTela(blob) {
     setDocxCarregando(true)
     try {
-      // Carrega a lib docx-preview se ainda não carregou
-      if (!window.docxPreview) {
+      // Carrega mammoth via CDN se ainda não carregou
+      if (!window.mammoth) {
         await new Promise((res, rej) => {
           const s = document.createElement('script')
-          s.src = 'https://cdn.jsdelivr.net/npm/docx-preview@0.3.2/dist/docx-preview.min.js'
+          s.src = 'https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js'
           s.onload = res; s.onerror = rej
           document.head.appendChild(s)
         })
-        // Aguarda até a lib estar disponível no window
         await new Promise(res => {
-          const chk = setInterval(() => { if (window.docxPreview) { clearInterval(chk); res() } }, 50)
+          const chk = setInterval(() => { if (window.mammoth) { clearInterval(chk); res() } }, 50)
           setTimeout(() => { clearInterval(chk); res() }, 5000)
         })
       }
 
-      if (!window.docxPreview?.renderAsync) {
-        throw new Error('docx-preview não carregou corretamente')
-      }
+      if (!window.mammoth) throw new Error('mammoth não carregou')
 
-      // Converte Blob → ArrayBuffer para garantir compatibilidade
+      // Converte Blob → ArrayBuffer
       const arrayBuffer = await blob.arrayBuffer()
 
-      const container = document.createElement('div')
-      await window.docxPreview.renderAsync(arrayBuffer, container, null, {
-        className: 'docx-render',
-        inWrapper: false,
-        ignoreWidth: false,
-        ignoreHeight: false,
-        breakPages: true,
-        useBase64URL: true,
-        renderHeaders: true,
-        renderFooters: true,
-      })
-      setDocxRenderHtml(container.innerHTML)
+      // Converte DOCX → HTML usando mammoth
+      const result = await window.mammoth.convertToHtml({ arrayBuffer })
+      if (result.value) {
+        setDocxRenderHtml(result.value)
+      } else {
+        throw new Error('mammoth retornou HTML vazio')
+      }
     } catch (e) {
-      console.warn('docx-preview falhou:', e.message)
-      // Fallback: mostra o HTML de preview se tiver
+      console.warn('mammoth falhou:', e.message)
       setDocxRenderHtml('')
     }
     setDocxCarregando(false)
@@ -410,11 +401,20 @@ ${conteudo}
           </div>
         )}
 
-        {/* DOCX renderizado via docx-preview (documento real) */}
+        {/* DOCX renderizado via mammoth */}
         {docxRenderHtml && (
-          <div style={{ padding: '24px 16px 60px', background: '#e2e8f0' }}>
-            <style>{`.docx-render section.docx { margin: 0 auto; box-shadow: 0 4px 32px rgba(0,0,0,.2); } .docx-render { max-width: 900px; margin: 0 auto; }`}</style>
-            <div className="docx-render" dangerouslySetInnerHTML={{ __html: docxRenderHtml }} />
+          <div style={{ padding: '32px 16px 60px', background: '#e2e8f0', minHeight: '100%' }}>
+            <style>{`
+              .docx-mammoth { max-width: 820px; margin: 0 auto; background: #fff; border-radius: 4px; box-shadow: 0 4px 32px rgba(0,0,0,.18); padding: 60px 72px; font-family: 'Calibri', 'Segoe UI', Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #1e293b; }
+              .docx-mammoth p { margin: 0 0 8px; }
+              .docx-mammoth table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+              .docx-mammoth td, .docx-mammoth th { border: 1px solid #cbd5e1; padding: 6px 10px; vertical-align: top; }
+              .docx-mammoth th { background: #f1f5f9; font-weight: 700; }
+              .docx-mammoth img { max-width: 100%; height: auto; }
+              .docx-mammoth strong, .docx-mammoth b { font-weight: 700; }
+              @media print { .docx-mammoth { box-shadow: none; padding: 0; } }
+            `}</style>
+            <div className="docx-mammoth" dangerouslySetInnerHTML={{ __html: docxRenderHtml }} />
           </div>
         )}
 
