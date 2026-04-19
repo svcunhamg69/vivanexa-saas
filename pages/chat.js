@@ -15,29 +15,43 @@ import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 
-// ══════════════════════════════════════════════════════════════
-// COMPONENTE DocumentoPreviewModal — v8
-// ══════════════════════════════════════════════════════════════
-// • Botão "← Voltar ao Chat" sempre visível
-// • DOCX real renderizado em tela via docx-preview
-// • Mesmo arquivo que vai para download/envio
-// ══════════════════════════════════════════════════════════════
-function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {
-  const [enviandoAss,    setEnviandoAss]    = useState(false)
-  const [linkAssinatura, setLinkAssinatura]  = useState('')
-  const [msgEnvio,       setMsgEnvio]        = useState('')
-  const [showEnvioOpc,   setShowEnvioOpc]    = useState(false)
-  const [emailEnvio,     setEmailEnvio]      = useState('')
-  const [salvandoCRM,    setSalvandoCRM]     = useState(false)
-  const [docxBaixado,    setDocxBaixado]     = useState(false)
-  const [docxRenderHtml, setDocxRenderHtml]  = useState('')
-  const [docxCarregando, setDocxCarregando]  = useState(false)
+// ============================================================
+// PATCH: pages/chat.js — DocumentoPreviewModal (v9)
+// 
+// MUDANÇAS:
+// 1. Botão "Enviar para Cliente" agora mostra SEMPRE: copiar link, WhatsApp, email, imprimir, baixar, assinar em tela
+// 2. Proposta e Contrato — mesma grade de ações unificada
+// 3. Link copiável disponível ANTES de gerar assinatura
+// 4. Garante que template DOCX salvo em Configurações → Documentos seja usado
+//
+// SUBSTITUA a função DocumentoPreviewModal inteira pelo código abaixo:
+// ============================================================
 
-  // ── Renderiza o DOCX real em tela via docx-preview ──
-  // IMPORTANTE: useEffect ANTES do return condicional (regra de hooks)
-  const _hasDocx = docPreview?.hasDocx
+function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {
+  const [enviandoAss,    setEnviandoAss]    = React.useState(false)
+  const [linkAssinatura, setLinkAssinatura]  = React.useState('')
+  const [msgEnvio,       setMsgEnvio]        = React.useState('')
+  const [showEnvioOpc,   setShowEnvioOpc]    = React.useState(false)
+  const [emailEnvio,     setEmailEnvio]      = React.useState('')
+  const [salvandoCRM,    setSalvandoCRM]     = React.useState(false)
+  const [docxBaixado,    setDocxBaixado]     = React.useState(false)
+  const [docxRenderHtml, setDocxRenderHtml]  = React.useState('')
+  const [docxCarregando, setDocxCarregando]  = React.useState(false)
+  const [signToken,      setSignToken]       = React.useState('')
+
+  const _hasDocx   = docPreview?.hasDocx
   const _signToken = docPreview?.signToken
-  useEffect(() => {
+
+  // ── Gera token de assinatura ao montar (para ter link copiável imediatamente) ──
+  React.useEffect(() => {
+    if (!docPreview) return
+    const tok = docPreview.signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    setSignToken(tok)
+    setEmailEnvio(docPreview.clienteEmail || '')
+  }, [docPreview?.signToken])
+
+  // ── Renderiza DOCX em tela via docx-preview ──
+  React.useEffect(() => {
     if (!_hasDocx) { setDocxRenderHtml(''); return }
     const blob = window._vxDocxBlob?.blob
     if (!blob) {
@@ -81,15 +95,25 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
 
   if (!docPreview) return null
 
-  const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken, hasDocx, docxNome } = docPreview
+  const { html, tipo, clienteEmail, clienteNome, clienteTel, hasDocx, docxNome } = docPreview
   const isContrato = tipo === 'contrato'
+  const conteudoPreview = docxRenderHtml || html
 
-  if (!emailEnvio && clienteEmail) setEmailEnvio(clienteEmail)
+  // ── URL base e link de assinatura ──
+  const baseUrl = cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
+  const linkSign = signToken ? `${baseUrl}/sign/${signToken}` : ''
 
-  // ── Imprimir — usa DOCX renderizado ou HTML ──
+  // ── Copiar link ──
+  function handleCopiarLink() {
+    if (!linkSign) { setMsgEnvio('⏳ Gerando link...'); return }
+    navigator.clipboard?.writeText(linkSign)
+    setMsgEnvio('✅ Link copiado! Cole onde quiser.')
+  }
+
+  // ── Imprimir ──
   function handleImprimir() {
     const conteudo = docxRenderHtml || html
-    if (!conteudo) return
+    if (!conteudo) { setMsgEnvio('⚠️ Nenhum conteúdo para imprimir.'); return }
     const win = window.open('', '_blank', 'width=900,height=700')
     if (!win) { alert('Permita popups neste site.'); return }
     win.document.write(`<!DOCTYPE html>
@@ -118,8 +142,7 @@ ${conteudo}
       const a = document.createElement('a')
       a.href = url
       a.download = window._vxDocxBlob.nome || docxNome || (isContrato ? 'contrato.docx' : 'proposta.docx')
-      document.body.appendChild(a)
-      a.click()
+      document.body.appendChild(a); a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       setDocxBaixado(true)
@@ -132,76 +155,49 @@ ${conteudo}
   // ── Salvar no CRM ──
   async function handleSalvarCRM() {
     setSalvandoCRM(true)
-    try {
-      if (onSalvarCRM) await onSalvarCRM(docPreview)
-    } catch (err) {
-      setMsgEnvio('❌ Erro ao salvar no CRM: ' + err.message)
-    }
+    try { if (onSalvarCRM) await onSalvarCRM(docPreview) }
+    catch (err) { setMsgEnvio('❌ Erro ao salvar no CRM: ' + err.message) }
     setSalvandoCRM(false)
   }
 
-  // ── Enviar para Assinatura (gera link /sign/[token]) ──
+  // ── Enviar para Assinatura — salva no Supabase e exibe link ──
   async function handleEnviarAssinatura() {
     setEnviandoAss(true); setMsgEnvio('')
     try {
-      const token = signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-      const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() // 30 dias
+      const tok = signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      if (!signToken) setSignToken(tok)
+      const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 
-      // Busca doc existente para não sobrescrever dados já salvos
-      const { data: existente } = await supabase.from('vx_storage').select('value').eq('key', `doc:${token}`).maybeSingle()
+      const { data: existente } = await supabase.from('vx_storage').select('value').eq('key', `doc:${tok}`).maybeSingle()
       const docAtual = existente?.value ? JSON.parse(existente.value) : {}
 
-      // Salva dados completos do documento para a página /sign/[token]
       const signPayload = {
-        ...docAtual,
-        token, empresaId,
-        // HTML do documento para renderizar na página pública de assinatura
+        ...docAtual, token: tok, empresaId,
         html: html || docAtual.html || '',
-        tipo,
-        status: docAtual.status || 'pendente',
-        criadoEm: docAtual.criadoEm || new Date().toISOString(),
-        expiry,
-        // Dados do cliente
-        clienteNome:  clienteNome  || docAtual.clientName  || '',
-        clienteName:  clienteNome  || docAtual.clientName  || '',
-        clienteName2: clienteNome  || docAtual.clientName  || '',
-        clienteEmail: clienteEmail || docAtual.clientEmail || '',
-        clienteTel:   clienteTel   || docAtual.clientTel   || '',
-        // Dados do consultor — pré-preenchidos de userProfile para assinatura
-        consultorNome:  userProfile?.nome   || userProfile?.name  || '',
-        consultorEmail: userProfile?.email  || '',
-        consultorCPF:   userProfile?.perfil?.cpf || userProfile?.cpf || '',
-        consultorTel:   userProfile?.perfil?.telefone || userProfile?.telefone || '',
-        // Config da empresa
-        companyCfg:     cfg?.company || '',
-        companyLogo:    cfg?.logob64 || '',
-        signConfigUrl:  cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : ''),
+        tipo, status: docAtual.status || 'pendente',
+        criadoEm: docAtual.criadoEm || new Date().toISOString(), expiry,
+        clienteNome: clienteNome || docAtual.clientName || '',
+        clienteName: clienteNome || '', clienteEmail: clienteEmail || '',
+        clienteTel: clienteTel || '',
+        consultorNome: userProfile?.nome || '',
+        consultorEmail: userProfile?.email || '',
+        companyCfg: cfg?.company || '',
+        companyLogo: cfg?.logob64 || '',
+        signConfigUrl: cfg?.signConfig?.url || baseUrl,
       }
 
-      // Salva na chave sign: (usada pela página pública)
       await supabase.from('vx_storage').upsert({
-        key:   `sign:${token}`,
-        value: JSON.stringify(signPayload),
+        key: `sign:${tok}`, value: JSON.stringify(signPayload),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'key' })
 
-      // Atualiza também doc: garantindo HTML salvo
       await supabase.from('vx_storage').upsert({
-        key: `doc:${token}`,
-        value: JSON.stringify({
-          ...signPayload,
-          signToken: token,
-          id: docAtual.id || token,
-          type: tipo,
-          clientName: clienteNome || '',
-          clientEmail: clienteEmail || '',
-        }),
+        key: `doc:${tok}`,
+        value: JSON.stringify({ ...signPayload, signToken: tok, id: docAtual.id || tok, type: tipo, clientName: clienteNome || '', clientEmail: clienteEmail || '' }),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'key' })
 
-      const baseUrl = cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
-      const signLink = `${baseUrl}/sign/${token}`
-      setLinkAssinatura(signLink)
+      setLinkAssinatura(`${baseUrl}/sign/${tok}`)
       setShowEnvioOpc(true)
       setMsgEnvio('✅ Link de assinatura gerado! Válido por 30 dias.')
     } catch (err) {
@@ -210,152 +206,191 @@ ${conteudo}
     setEnviandoAss(false)
   }
 
-  // ── Enviar proposta WhatsApp / E-mail ──
-  function handleEnviarPropostaWpp() {
-    const base = cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
-    const link = `${base}/sign/${signToken}`
-    const msg = encodeURIComponent(`Olá ${clienteNome || 'cliente'}! Segue a proposta comercial da ${cfg?.company || ''}.\n\nAcesse o link para visualizar:\n${link}`)
+  // ── Enviar por WhatsApp ──
+  function handleWhatsapp() {
+    const link = linkSign || linkAssinatura
+    const textoBase = isContrato
+      ? `📄 Olá ${clienteNome || 'cliente'}!\n\nSeu contrato está pronto para assinatura eletrônica.\n\n${link}\n\n_Válido por 30 dias._`
+      : `Olá ${clienteNome || 'cliente'}! Segue a proposta comercial da ${cfg?.company || ''}.\n\nAcesse o link:\n${link}`
+    const msg = encodeURIComponent(textoBase)
     const tel = (clienteTel || '').replace(/\D/g, '')
     window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
     setMsgEnvio('✅ WhatsApp aberto!')
   }
-  function handleEnviarPropostaEmail() {
-    const base = cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
-    const link = `${base}/sign/${signToken}`
-    const subj = encodeURIComponent(`Proposta Comercial – ${cfg?.company || ''}`)
-    const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSegue a proposta comercial.\n\nLink: ${link}\n\n${cfg?.company || ''}`)
+
+  // ── Enviar por E-mail ──
+  function handleEmail() {
+    const link = linkSign || linkAssinatura
+    const subj = encodeURIComponent(isContrato
+      ? `Contrato para Assinatura – ${cfg?.company || ''}`
+      : `Proposta Comercial – ${cfg?.company || ''}`)
+    const body = encodeURIComponent(isContrato
+      ? `Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto.\n\nLink: ${link}\n\nVálido por 30 dias.\n\n${cfg?.company || ''}`
+      : `Olá ${clienteNome || 'cliente'},\n\nSegue a proposta comercial.\n\nLink: ${link}\n\n${cfg?.company || ''}`)
     window.open(`mailto:${emailEnvio || clienteEmail || ''}?subject=${subj}&body=${body}`, '_blank')
     setMsgEnvio('✅ E-mail aberto!')
   }
 
-  const acaoBtn = (cor, disabled = false) => ({
-    padding: '8px 16px', borderRadius: 8, fontFamily: 'DM Mono, monospace', fontSize: 13,
-    fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
-    background: cor + '18', border: `1px solid ${cor}44`, color: cor,
+  // ── Assinar em tela ──
+  function handleAssinarTela() {
+    const link = linkSign || linkAssinatura
+    if (link) window.open(link, '_blank')
+    else setMsgEnvio('⏳ Gerando link de assinatura... Clique em "Enviar p/ Assinatura" primeiro.')
+  }
+
+  const btnStyle = (cor, disabled = false) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    padding: '10px 14px', borderRadius: 9, fontFamily: 'DM Mono, monospace',
+    fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
+    whiteSpace: 'nowrap', flex: '1 1 auto',
+    background: cor + '20', border: `1.5px solid ${cor}55`, color: cor,
     opacity: disabled ? 0.6 : 1, transition: 'all .15s',
   })
 
-  const btnAcao = (cor, disabled = false, extra = {}) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-    padding: '10px 14px', borderRadius: 9, fontFamily: 'DM Mono, monospace',
-    fontSize: 13, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer',
-    background: cor + '1a', border: `1.5px solid ${cor}50`, color: cor,
-    opacity: disabled ? 0.55 : 1, transition: 'all .15s', whiteSpace: 'nowrap',
-    flex: '1 1 140px', minWidth: 120, ...extra,
-  })
-
-  // Conteúdo a exibir no preview: DOCX renderizado tem prioridade, depois HTML interno
-  const conteudoPreview = docxRenderHtml || html
-
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#07111f' }}>
-
-      {/* ══ BARRA TOPO: título + VOLTAR ══ */}
-      <div style={{ background: '#070c1a', borderBottom: '2px solid #1e2d4a', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', flexShrink: 0, gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <span style={{ fontSize: 22, flexShrink: 0 }}>{isContrato ? '📝' : '📋'}</span>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, color: '#00d4ff', fontSize: 15, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {isContrato ? 'Contrato' : 'Proposta'} — {clienteNome || 'Cliente'}
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 999,
+      background: '#060c1a', display: 'flex', flexDirection: 'column',
+      fontFamily: 'DM Mono, monospace',
+    }}>
+      {/* ── CABEÇALHO ── */}
+      <div style={{
+        background: '#080d1a', borderBottom: '1px solid #1e2d4a',
+        padding: '12px 16px', display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', flexShrink: 0, gap: 12, flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 20 }}>{isContrato ? '📝' : '📄'}</div>
+          <div>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 800, color: '#e2e8f0', lineHeight: 1 }}>
+              {isContrato ? 'Contrato' : 'Proposta'} Comercial
             </div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
-              {hasDocx ? `${docxNome || 'arquivo.docx'} · visualizando DOCX real` : 'template HTML'}
-            </div>
+            {clienteNome && (
+              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                Cliente: <span style={{ color: '#94a3b8' }}>{clienteNome}</span>
+              </div>
+            )}
           </div>
         </div>
-        {/* BOTÃO VOLTAR — sempre visível */}
         <button
           onClick={onClose}
-          style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 10, background: 'rgba(0,212,255,.15)', border: '2px solid rgba(0,212,255,.4)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          style={{
+            flexShrink: 0, display: 'flex', alignItems: 'center', gap: 7,
+            padding: '10px 18px', borderRadius: 10,
+            background: 'rgba(0,212,255,.15)', border: '2px solid rgba(0,212,255,.4)',
+            color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13,
+            fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap',
+          }}
         >
           ← Voltar ao Chat
         </button>
       </div>
 
-      {/* ══ GRADE DE AÇÕES ══ */}
+      {/* ── GRADE DE AÇÕES ── */}
       <div style={{ background: '#0a1020', borderBottom: '1px solid #1e2d4a', padding: '10px 14px', flexShrink: 0 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {/* Imprimir — funciona com DOCX renderizado OU html */}
+
+          {/* Copiar Link — sempre disponível */}
+          {linkSign && (
+            <button onClick={handleCopiarLink} style={btnStyle('#94a3b8')}>
+              📋 Copiar Link
+            </button>
+          )}
+
+          {/* WhatsApp */}
+          <button onClick={handleWhatsapp} style={btnStyle('#25d366')}>
+            💬 WhatsApp
+          </button>
+
+          {/* E-mail */}
+          <button onClick={handleEmail} style={btnStyle('#00d4ff')}>
+            📧 E-mail
+          </button>
+
+          {/* Assinar em Tela */}
+          <button onClick={handleAssinarTela} style={btnStyle('#f59e0b')}>
+            ✍️ Assinar em Tela
+          </button>
+
+          {/* Gerar Link de Assinatura (persiste no Supabase) */}
+          <button onClick={handleEnviarAssinatura} disabled={enviandoAss} style={btnStyle('#a78bfa', enviandoAss)}>
+            {enviandoAss ? '⏳ Gerando...' : '🔗 Gerar Link Assinatura'}
+          </button>
+
+          {/* Imprimir */}
           {conteudoPreview && (
-            <button onClick={handleImprimir} style={btnAcao('#00d4ff')}>
+            <button onClick={handleImprimir} style={btnStyle('#ec4899')}>
               🖨 Imprimir / PDF
             </button>
           )}
-          {/* Baixar DOCX — arquivo original com variáveis preenchidas */}
+
+          {/* Baixar DOCX */}
           {hasDocx && (
-            <button onClick={handleBaixarDocx} style={btnAcao('#7c3aed')}>
+            <button onClick={handleBaixarDocx} style={btnStyle('#7c3aed')}>
               {docxBaixado ? '✅ DOCX Baixado' : '💾 Baixar DOCX'}
             </button>
           )}
-          {/* Enviar para Assinatura (contrato) ou Enviar para Cliente (proposta) */}
-          {isContrato ? (
-            <button onClick={handleEnviarAssinatura} disabled={enviandoAss} style={btnAcao('#f59e0b', enviandoAss)}>
-              {enviandoAss ? '⏳ Gerando link...' : '✍️ Enviar p/ Assinatura'}
-            </button>
-          ) : (
-            <button onClick={() => setShowEnvioOpc(v => !v)} style={btnAcao('#25d366', false, { background: showEnvioOpc ? '#25d36628' : '#25d36618', border: `1.5px solid ${showEnvioOpc ? '#25d366' : '#25d36650'}` })}>
-              📤 Enviar para Cliente
-            </button>
-          )}
+
           {/* Salvar no CRM */}
-          <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={btnAcao('#10b981', salvandoCRM)}>
+          <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={btnStyle('#10b981', salvandoCRM)}>
             {salvandoCRM ? '⏳ Salvando...' : '💼 Salvar no CRM'}
           </button>
         </div>
+
+        {/* Campo e-mail para envio */}
+        <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            value={emailEnvio}
+            onChange={e => setEmailEnvio(e.target.value)}
+            placeholder="E-mail do cliente para envio..."
+            style={{
+              flex: 1, background: '#111827', border: '1px solid #1e2d4a',
+              borderRadius: 8, padding: '7px 12px', color: '#94a3b8',
+              fontFamily: 'DM Mono, monospace', fontSize: 12, outline: 'none',
+              maxWidth: 320,
+            }}
+          />
+          {linkSign && (
+            <code style={{ fontSize: 10, color: '#334155', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              🔗 {linkSign}
+            </code>
+          )}
+        </div>
       </div>
 
-      {/* ══ STATUS ══ */}
+      {/* ── STATUS ── */}
       {msgEnvio && (
-        <div style={{ padding: '8px 16px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444', flexShrink: 0 }}>
+        <div style={{
+          padding: '8px 16px', flexShrink: 0, fontSize: 13,
+          background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)',
+          borderBottom: '1px solid rgba(16,185,129,.15)',
+          color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444',
+        }}>
           {msgEnvio}
         </div>
       )}
-      {/* Painel envio proposta */}
-      {!isContrato && showEnvioOpc && (
-        <div style={{ background: '#0d1526', borderBottom: '1px solid #1e2d4a', padding: '12px 16px' }}>
-          <div style={{ fontSize: 11, color: '#64748b', letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 8 }}>Enviar proposta para cliente</div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <input value={emailEnvio} onChange={e => setEmailEnvio(e.target.value)} placeholder="email do cliente"
-              style={{ flex: 1, background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 8, padding: '8px 12px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, outline: 'none', minWidth: 0 }} />
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={handleEnviarPropostaWpp} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#25d36620', border: '1.5px solid #25d36655', color: '#25d366', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>💬 WhatsApp</button>
-            <button onClick={handleEnviarPropostaEmail} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#00d4ff18', border: '1.5px solid #00d4ff44', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📧 E-mail</button>
+
+      {/* Link gerado via "Gerar Link Assinatura" */}
+      {showEnvioOpc && linkAssinatura && (
+        <div style={{ background: '#0d1526', borderBottom: '1px solid #1e2d4a', padding: '10px 16px', flexShrink: 0 }}>
+          <div style={{ fontSize: 11, color: '#64748b', letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 6 }}>Link de assinatura salvo — válido 30 dias</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <code style={{ fontSize: 11, color: '#00d4ff', wordBreak: 'break-all', flex: 1, lineHeight: 1.5, background: '#111827', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px' }}>
+              {linkAssinatura}
+            </code>
+            <button
+              onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio('✅ Link copiado!') }}
+              style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 7, background: '#00d4ff15', border: '1px solid #00d4ff40', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+            >
+              📋 Copiar
+            </button>
           </div>
         </div>
       )}
 
-      {/* Painel assinatura contrato */}
-      {isContrato && showEnvioOpc && linkAssinatura && (
-        <div style={{ background: '#0d1526', borderBottom: '1px solid #1e2d4a', padding: '12px 16px' }}>
-          <div style={{ fontSize: 11, color: '#64748b', letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 8 }}>Link de assinatura gerado</div>
-          {/* Link copiável */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, background: '#111827', border: '1px solid #1e2d4a', borderRadius: 8, padding: '8px 12px' }}>
-            <code style={{ fontSize: 11, color: '#00d4ff', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{linkAssinatura}</code>
-            <button onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio('✅ Link copiado!') }}
-              style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 7, background: '#00d4ff15', border: '1px solid #00d4ff40', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>📋 Copiar</button>
-          </div>
-          {/* Botões de envio */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => {
-              const msg = encodeURIComponent(`📄 Olá ${clienteNome || 'cliente'}!\n\nSeu contrato está pronto para assinatura eletrônica.\n\n${linkAssinatura}\n\n_Válido por 30 dias._`)
-              const tel = (clienteTel || '').replace(/\D/g, '')
-              window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
-            }} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#25d36620', border: '1.5px solid #25d36655', color: '#25d366', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>💬 WhatsApp</button>
-            <button onClick={() => {
-              const subj = encodeURIComponent(`Contrato para Assinatura – ${cfg?.company || ''}`)
-              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 30 dias.\n\n${cfg?.company || ''}`)
-              window.open(`mailto:${clienteEmail || ''}?subject=${subj}&body=${body}`, '_blank')
-            }} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#00d4ff18', border: '1.5px solid #00d4ff44', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📧 E-mail</button>
-            <button onClick={() => window.open(linkAssinatura, '_blank')} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#f59e0b18', border: '1.5px solid #f59e0b44', color: '#f59e0b', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>🖊 Assinar agora</button>
-          </div>
-        </div>
-      )}
-
-      {/* ══ ÁREA DE PREVIEW ══ */}
+      {/* ── ÁREA DE PREVIEW ── */}
       <div style={{ flex: 1, overflow: 'auto', background: '#f0f4f8', position: 'relative' }}>
 
-        {/* Carregando DOCX */}
         {docxCarregando && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(7,17,31,.85)', zIndex: 10 }}>
             <div style={{ textAlign: 'center' }}>
@@ -366,18 +401,15 @@ ${conteudo}
           </div>
         )}
 
-        {/* DOCX renderizado (documento real com variáveis preenchidas) */}
+        {/* DOCX renderizado */}
         {docxRenderHtml && !docxCarregando && (
           <div style={{ padding: '24px 16px 60px', background: '#e2e8f0' }}>
             <style>{`.docx-render section.docx { margin: 0 auto; box-shadow: 0 4px 32px rgba(0,0,0,.2); } .docx-render { max-width: 900px; margin: 0 auto; }`}</style>
-            <div
-              className="docx-render"
-              dangerouslySetInnerHTML={{ __html: docxRenderHtml }}
-            />
+            <div className="docx-render" dangerouslySetInnerHTML={{ __html: docxRenderHtml }} />
           </div>
         )}
 
-        {/* HTML interno (quando template é HTML puro, não DOCX) */}
+        {/* HTML interno */}
         {!hasDocx && html && !docxCarregando && (
           <div style={{ padding: '24px 16px 60px' }}>
             <div
@@ -387,7 +419,7 @@ ${conteudo}
           </div>
         )}
 
-        {/* Sem documento — orienta usuário */}
+        {/* Sem documento */}
         {!docxRenderHtml && !html && !docxCarregando && (
           <div style={{ maxWidth: 500, margin: '80px auto', background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16, padding: 40, textAlign: 'center' }}>
             <div style={{ fontSize: 56, marginBottom: 16 }}>📄</div>
@@ -410,6 +442,20 @@ ${conteudo}
     </div>
   )
 }
+
+// =====================================================================
+// INSTRUÇÕES DE APLICAÇÃO
+// =====================================================================
+// 
+// 1. No arquivo pages/chat.js, localize a linha:
+//    "function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {"
+//
+// 2. Selecione TODA a função até o fechamento "})" da função (antes de "// Config padrão")
+//
+// 3. Substitua pela função acima (remova o comentário de instrução no topo)
+//
+// NOTA: O import do supabase já existe no chat.js — não adicione de novo.
+// =====================================================================
 
 
 // ══════════════════════════════════════════════════════════════
