@@ -1,10 +1,15 @@
 // pages/crm.js — CRM Vivanexa v4
 // Melhorias: Google Agenda em Reunião + Player gravação 3CX + Aba Documentos + Permissões atualizadas
-const DIAS_PARADO_ALERTA = 3
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
+
+const DIAS_PARADO_ALERTA = 3
+const diasDesde = (dataStr) => {
+  if (!dataStr) return 999
+  return Math.floor((Date.now() - new Date(dataStr).getTime()) / 86400000)
+}
 
 const ETAPAS_PADRAO = [
   { id: 'lead',             label: 'Lead',                  cor: '#64748b' },
@@ -329,7 +334,14 @@ export default function CRM() {
     if(!emailDest||!emailAssunto){showToast('⚠️ Preencha destinatário e assunto.');return}
     setEmailSending(true)
     try{
-      const smtpCfg=cfg.smtpHost?{smtpHost:cfg.smtpHost,smtpPort:cfg.smtpPort||587,smtpUser:cfg.smtpUser,smtpPass:cfg.smtpPass,nomeRemetente:cfg.company||'Vivanexa'}:null
+      const smtpCfg=cfg.smtpHost?{
+        smtpHost:cfg.smtpHost,
+        smtpPort:cfg.smtpPort||587,
+        smtpUser:cfg.smtpUser,
+        smtpPass:cfg.smtpPass,
+        apiKey:cfg.apiKey||cfg.brevoApiKey||'',  // fallback para Brevo/SendGrid
+        nomeRemetente:cfg.company||'Vivanexa'
+      }:null
       const resp=await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({to:emailDest,subject:emailAssunto,html:`<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${emailCorpo.replace(/\n/g,'<br>')}</div>`,config:smtpCfg,attachments:emailAnexos})})
       const r=await resp.json()
