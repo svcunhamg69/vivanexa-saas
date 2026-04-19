@@ -95,11 +95,27 @@ function toast(msg, type = 'ok') {
 }
 
 async function salvarStorage(empresaId, novoCfg) {
+  // Salva a logo em chave separada para evitar JSON gigante que some silenciosamente
+  if (novoCfg.logob64) {
+    await supabase.from('vx_storage').upsert({
+      key: `logo:${empresaId}`,
+      value: novoCfg.logob64,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'key' })
+  }
+  // Remove a logo do cfg principal antes de salvar (evita truncamento)
+  const cfgSemLogo = { ...novoCfg }
+  delete cfgSemLogo.logob64
   return supabase.from('vx_storage').upsert({
     key: `cfg:${empresaId}`,
-    value: JSON.stringify(novoCfg),
+    value: JSON.stringify(cfgSemLogo),
     updated_at: new Date().toISOString()
   }, { onConflict: 'key' })
+}
+
+async function carregarLogo(empresaId) {
+  const { data } = await supabase.from('vx_storage').select('value').eq('key', `logo:${empresaId}`).maybeSingle()
+  return data?.value || ''
 }
 
 function diasUteisNoMes(yearMonth) {
@@ -143,10 +159,15 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [saving,       setSaving]       = useState(false)
 
 
+  // Carrega logo da chave separada ao montar/mudar empresaId
+  useEffect(() => {
+    if (!empresaId) return
+    carregarLogo(empresaId).then(logo => setLogoB64(logo))
+  }, [empresaId])
+
   useEffect(() => {
     setCompany(cfg.company || '')
     setSlogan(cfg.slogan || '')
-    setLogoB64(cfg.logob64 || '')
     setClosingHour(cfg.closingHour ?? 18)
     setClosingText(cfg.closingText || 'Oferta válida até as 18h de hoje!')
     setEmailProvider(cfg.emailProvider || '')
@@ -182,13 +203,14 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setSaving(true)
     const novoCfg = {
       ...cfg,
-      company, slogan, logob64: logoB64,
+      company, slogan, logob64: logoB64,   // mantido para compatibilidade de leitura (ex: docxTemplate)
       closingHour: Number(closingHour), closingText,
       emailProvider, smtpHost, smtpPort, smtpUser, smtpPass, emailApiKey,
       geminiApiKey, groqApiKey, openaiApiKey,
       razaoSocial, cnpjEmpresa, telefoneEmp, emailEmp, responsavel, enderecoEmp,
       signConfig: { email: signEmail, wpp: signWpp, url: signUrl },
     }
+    // salvarStorage já separa a logo automaticamente
     const { error } = await salvarStorage(empresaId, novoCfg)
     setSaving(false)
     if (error) { toast('Erro ao salvar: ' + error.message, 'err'); return }
@@ -3171,11 +3193,15 @@ export default function Configuracoes() {
       setEmpresaId(eid)
 
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
+      let parsedCfg = {}
       if (row?.value) {
-        try { setCfg(JSON.parse(row.value)) } catch {}
+        try { parsedCfg = JSON.parse(row.value) } catch {}
       }
-      const saved = row?.value ? JSON.parse(row.value) : {}
-      document.documentElement.setAttribute('data-theme', saved.theme || 'dark')
+      // Carrega a logo da chave separada e injeta no cfg em memória
+      const { data: logoRow } = await supabase.from('vx_storage').select('value').eq('key', `logo:${eid}`).maybeSingle()
+      if (logoRow?.value) parsedCfg.logob64 = logoRow.value
+      setCfg(parsedCfg)
+      document.documentElement.setAttribute('data-theme', parsedCfg.theme || 'dark')
       setLoading(false)
     }
     init()
