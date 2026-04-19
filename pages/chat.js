@@ -294,9 +294,9 @@ ${conteudo}
             ✍️ Assinar em Tela
           </button>
 
-          {/* Gerar/Salvar Link de Assinatura no Supabase */}
+          {/* Enviar para Assinatura / Gerar Link */}
           <button onClick={handleEnviarAssinatura} disabled={enviandoAss} style={btnAcao('#a78bfa', enviandoAss)}>
-            {enviandoAss ? '⏳ Gerando...' : linkGerado ? '✅ Link Salvo' : '🔗 Gerar Link'}
+            {enviandoAss ? '⏳ Gerando...' : linkGerado ? '✅ Link Salvo' : '🔗 Enviar para Assinatura'}
           </button>
 
           {/* Imprimir */}
@@ -355,9 +355,7 @@ ${conteudo}
               style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 7, background: '#00d4ff15', border: '1px solid #00d4ff40', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>📋 Copiar</button>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            <button onClick={handleWhatsapp} style={{ flex: '1 1 120px', padding: '9px 14px', borderRadius: 9, background: '#25d36620', border: '1.5px solid #25d36655', color: '#25d366', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>💬 WhatsApp</button>
-            <button onClick={handleEmail} style={{ flex: '1 1 120px', padding: '9px 14px', borderRadius: 9, background: '#00d4ff18', border: '1.5px solid #00d4ff44', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>📧 E-mail</button>
-            <button onClick={() => window.open(linkAssinatura, '_blank')} style={{ flex: '1 1 120px', padding: '9px 14px', borderRadius: 9, background: '#f59e0b18', border: '1.5px solid #f59e0b44', color: '#f59e0b', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🖊 Assinar agora</button>
+            <button onClick={() => window.open(linkAssinatura, '_blank')} style={{ flex: '1 1 120px', padding: '9px 14px', borderRadius: 9, background: '#f59e0b18', border: '1.5px solid #f59e0b44', color: '#f59e0b', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🖊 Abrir link de assinatura</button>
           </div>
         </div>
       )}
