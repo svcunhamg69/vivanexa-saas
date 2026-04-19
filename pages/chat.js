@@ -1910,7 +1910,7 @@ export default function Chat(){
     }
 
     return(
-      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.82)',zIndex:3500,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>setShowModalCRM(false)}>
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.82)',zIndex:199999,display:'flex',alignItems:'center',justifyContent:'center',padding:16}} onClick={()=>setShowModalCRM(false)}>
         <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,width:'100%',maxWidth:560,maxHeight:'92vh',overflowY:'auto',display:'flex',flexDirection:'column'}} onClick={e=>e.stopPropagation()}>
           {/* Header */}
           <div style={{padding:'20px 24px 0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
