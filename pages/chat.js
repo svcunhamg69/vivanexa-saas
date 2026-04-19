@@ -49,31 +49,42 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
   }, [docPreview?.clienteEmail])
 
   // ── Renderiza o DOCX em tela via docx-preview ──
+  const jaRenderizou = useRef(false)
+
   useEffect(() => {
+    jaRenderizou.current = false
     if (!_hasDocx) { setDocxRenderHtml(''); return }
-    const blob = window._vxDocxBlob?.blob
-    if (!blob) {
-      setDocxCarregando(true)
-      let tentativas = 0
-      const intervalo = setInterval(() => {
-        tentativas++
-        const b = window._vxDocxBlob?.blob
-        if (b) { clearInterval(intervalo); renderDocxEmTela(b) }
-        else if (tentativas > 150) { clearInterval(intervalo); setDocxCarregando(false) }
-      }, 200)
-      const onReady = () => {
-        const b = window._vxDocxBlob?.blob
-        if (b) { clearInterval(intervalo); renderDocxEmTela(b) }
-      }
-      window.addEventListener('vx_docx_ready', onReady)
-      return () => { clearInterval(intervalo); window.removeEventListener('vx_docx_ready', onReady) }
+
+    function tentar() {
+      if (jaRenderizou.current) return
+      const b = window._vxDocxBlob?.blob
+      if (b) { jaRenderizou.current = true; renderDocxEmTela(b); return true }
+      return false
     }
-    renderDocxEmTela(blob)
+
+    // Tenta imediatamente (blob pode já estar pronto)
+    if (tentar()) return
+
+    // Senão, mostra loading e fica esperando
+    setDocxCarregando(true)
+    let tentativas = 0
+    const intervalo = setInterval(() => {
+      tentativas++
+      if (tentar()) { clearInterval(intervalo); return }
+      if (tentativas > 150) { clearInterval(intervalo); setDocxCarregando(false) }
+    }, 200)
+
+    // Evento disparado pelo gerador quando o blob fica pronto
+    const onReady = () => { if (tentar()) clearInterval(intervalo) }
+    window.addEventListener('vx_docx_ready', onReady)
+
+    return () => { clearInterval(intervalo); window.removeEventListener('vx_docx_ready', onReady) }
   }, [_hasDocx, _signToken])
 
   async function renderDocxEmTela(blob) {
     setDocxCarregando(true)
     try {
+      // Carrega a lib docx-preview se ainda não carregou
       if (!window.docxPreview) {
         await new Promise((res, rej) => {
           const s = document.createElement('script')
@@ -81,17 +92,35 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
           s.onload = res; s.onerror = rej
           document.head.appendChild(s)
         })
+        // Aguarda até a lib estar disponível no window
+        await new Promise(res => {
+          const chk = setInterval(() => { if (window.docxPreview) { clearInterval(chk); res() } }, 50)
+          setTimeout(() => { clearInterval(chk); res() }, 5000)
+        })
       }
+
+      if (!window.docxPreview?.renderAsync) {
+        throw new Error('docx-preview não carregou corretamente')
+      }
+
+      // Converte Blob → ArrayBuffer para garantir compatibilidade
+      const arrayBuffer = await blob.arrayBuffer()
+
       const container = document.createElement('div')
-      await window.docxPreview.renderAsync(blob, container, null, {
-        className: 'docx-render', inWrapper: false,
-        ignoreWidth: false, ignoreHeight: false,
-        breakPages: true, useBase64URL: true,
-        renderHeaders: true, renderFooters: true,
+      await window.docxPreview.renderAsync(arrayBuffer, container, null, {
+        className: 'docx-render',
+        inWrapper: false,
+        ignoreWidth: false,
+        ignoreHeight: false,
+        breakPages: true,
+        useBase64URL: true,
+        renderHeaders: true,
+        renderFooters: true,
       })
       setDocxRenderHtml(container.innerHTML)
     } catch (e) {
       console.warn('docx-preview falhou:', e.message)
+      // Fallback: mostra o HTML de preview se tiver
       setDocxRenderHtml('')
     }
     setDocxCarregando(false)
@@ -369,27 +398,28 @@ ${conteudo}
       {/* ══ ÁREA DE PREVIEW ══ */}
       <div style={{ flex: 1, overflow: 'auto', background: '#f0f4f8', position: 'relative' }}>
 
-        {/* Carregando DOCX */}
-        {docxCarregando && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(7,17,31,.85)', zIndex: 10 }}>
+        {/* Carregando DOCX — overlay só enquanto não tem nada para mostrar */}
+        {docxCarregando && !docxRenderHtml && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(7,17,31,.92)', zIndex: 10 }}>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
               <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, color: '#00d4ff', marginBottom: 8 }}>Renderizando documento...</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>Carregando o {isContrato ? 'contrato' : 'proposta'} real</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Aguarde enquanto o {isContrato ? 'contrato' : 'proposta'} é processado</div>
+              <div style={{ marginTop: 16, width: 40, height: 40, border: '3px solid #1e2d4a', borderTopColor: '#00d4ff', borderRadius: '50%', animation: 'spin .7s linear infinite', margin: '16px auto 0' }} />
             </div>
           </div>
         )}
 
-        {/* DOCX renderizado (documento real com variáveis preenchidas) */}
-        {docxRenderHtml && !docxCarregando && (
+        {/* DOCX renderizado via docx-preview (documento real) */}
+        {docxRenderHtml && (
           <div style={{ padding: '24px 16px 60px', background: '#e2e8f0' }}>
             <style>{`.docx-render section.docx { margin: 0 auto; box-shadow: 0 4px 32px rgba(0,0,0,.2); } .docx-render { max-width: 900px; margin: 0 auto; }`}</style>
             <div className="docx-render" dangerouslySetInnerHTML={{ __html: docxRenderHtml }} />
           </div>
         )}
 
-        {/* HTML interno (quando template é HTML puro, não DOCX) */}
-        {!hasDocx && html && !docxCarregando && (
+        {/* HTML de preview — exibido quando não há DOCX renderizado (template HTML puro OU fallback DOCX) */}
+        {!docxRenderHtml && html && !docxCarregando && (
           <div style={{ padding: '24px 16px 60px' }}>
             <div
               style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}
@@ -398,7 +428,7 @@ ${conteudo}
           </div>
         )}
 
-        {/* Sem documento — orienta usuário */}
+        {/* Nenhum conteúdo disponível */}
         {!docxRenderHtml && !html && !docxCarregando && (
           <div style={{ maxWidth: 500, margin: '80px auto', background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16, padding: 40, textAlign: 'center' }}>
             <div style={{ fontSize: 56, marginBottom: 16 }}>📄</div>
@@ -407,7 +437,7 @@ ${conteudo}
             </div>
             <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.7, marginBottom: 24 }}>
               {hasDocx
-                ? 'O DOCX está sendo processado. Use o botão 💾 Baixar DOCX para obter o arquivo, ou aguarde a renderização em tela.'
+                ? 'O DOCX está sendo processado. Use o botão 💾 Baixar DOCX para obter o arquivo.'
                 : 'Configure um template em Configurações → Documentos para visualizar o documento aqui.'}
             </div>
             {hasDocx && (
