@@ -618,6 +618,48 @@ function wrapMammothHtml(innerHtml) {
   return `<div style="background:#fff;padding:60px 72px;font-family:Calibri,Segoe UI,Arial,sans-serif;font-size:11pt;line-height:1.6;color:#1e293b;max-width:820px;margin:0 auto"><style>${MAMMOTH_CSS}</style>${innerHtml}</div>`
 }
 
+function buildManifestHtml(doc) {
+  const clientBlock = doc.signedAt ? `
+    <div style="background:#f0fdf4;border:2px solid #10b981;border-radius:12px;padding:16px 20px;font-family:Inter,sans-serif;font-size:12px;color:#1e293b;margin-bottom:12px">
+      <div style="font-weight:700;font-size:13px;color:#065f46;margin-bottom:10px">✅ ASSINATURA DO CONTRATANTE (CLIENTE)</div>
+      <table style="width:100%;border-collapse:collapse">
+        <tr><td style="padding:4px 0;color:#64748b;width:150px">Assinado por:</td><td style="font-weight:600">${doc.signedBy||'—'}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">CPF:</td><td>${doc.signCPF||'—'}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">E-mail:</td><td>${doc.signEmail||doc.clientEmail||'—'}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Data/Hora:</td><td>${doc.signedAt}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">IP:</td><td>${doc.signIP||'—'}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Token:</td><td style="font-size:10px;word-break:break-all">${doc.signToken||doc.id||'—'}</td></tr>
+      </table>
+    </div>` : `<div style="background:#f8fafc;border:2px dashed #cbd5e1;border-radius:12px;padding:16px;font-family:Inter,sans-serif;font-size:12px;color:#94a3b8;margin-bottom:12px;text-align:center">⏳ Aguardando assinatura do Contratante</div>`
+
+  const consultBlock = doc.consultantSignedAt ? `
+    <div style="background:#eff6ff;border:2px solid #3b82f6;border-radius:12px;padding:16px 20px;font-family:Inter,sans-serif;font-size:12px;color:#1e293b;margin-bottom:12px">
+      <div style="font-weight:700;font-size:13px;color:#1e40af;margin-bottom:10px">✅ ASSINATURA DA CONTRATADA (CONSULTOR)</div>
+      <table style="width:100%;border-collapse:collapse">
+        <tr><td style="padding:4px 0;color:#64748b;width:150px">Assinado por:</td><td style="font-weight:600">${doc.consultantSignedBy||'—'}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">E-mail:</td><td>${doc.consultantEmail||'—'}</td></tr>
+        <tr><td style="padding:4px 0;color:#64748b">Data/Hora:</td><td>${doc.consultantSignedAt}</td></tr>
+      </table>
+    </div>` : `<div style="background:#f8fafc;border:2px dashed #cbd5e1;border-radius:12px;padding:16px;font-family:Inter,sans-serif;font-size:12px;color:#94a3b8;margin-bottom:12px;text-align:center">⏳ Aguardando assinatura da Contratada</div>`
+
+  const both = !!(doc.signedAt && doc.consultantSignedAt)
+  return `<!-- SIGN-MANIFEST-START -->
+  <div style="margin-top:32px;padding:20px 24px;border:2px solid ${both?'#10b981':'#e2e8f0'};border-radius:16px;background:${both?'#f0fdf4':'#f8fafc'};font-family:Inter,sans-serif">
+    <div style="font-weight:800;font-size:15px;color:${both?'#065f46':'#475569'};margin-bottom:16px;display:flex;align-items:center;gap:8px">
+      ${both?'✅':'📋'} MANIFESTO DE ASSINATURAS ELETRÔNICAS
+      ${both?'<span style="font-size:11px;background:#10b981;color:#fff;padding:2px 8px;border-radius:10px;font-weight:600">DOCUMENTO VÁLIDO</span>':''}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      ${clientBlock}${consultBlock}
+    </div>
+    <div style="margin-top:12px;padding:10px 14px;background:rgba(100,116,139,.08);border-radius:8px;font-size:11px;color:#475569;line-height:1.6">
+      Assinaturas eletrônicas simples conforme Lei nº 14.063/2020 e MP 2.200-2/2001.<br>
+      Documento: <strong>${doc.id||doc.signToken||'—'}</strong> · Verificação: <a href="https://assinaturadigital.iti.gov.br" style="color:#0099bb">assinaturadigital.iti.gov.br</a>
+    </div>
+  </div>
+  <!-- SIGN-MANIFEST-END -->`
+}
+
 function detectarTipoTemplate(template) {
   if (!template) return 'html'
   if (template.startsWith('data:application/vnd') || template.startsWith('data:application/octet') || template.startsWith('data:application/zip')) return 'docx'
@@ -1497,7 +1539,38 @@ export default function Chat(){
       setShowSignForm(false)
       if(painel==='assinaturas'||painel==='historico')await carregarHistorico()
       if(bothSigned){
-        addBot(`✅ Contrato totalmente assinado por ambas as partes!`)
+        // Reconstrói o manifesto completo no HTML do documento
+        const manifestHtml = buildManifestHtml(docData)
+        const htmlComManifest = (docData.html||'').replace(/<!-- SIGN-MANIFEST-START -->[\s\S]*<!-- SIGN-MANIFEST-END -->/,'') + manifestHtml
+        docData.html = htmlComManifest
+        await supabase.from('vx_storage').upsert({key:`doc:${signFormDoc.signToken}`,value:JSON.stringify(docData),updated_at:now.toISOString()})
+
+        // Envia email para cliente e consultor com o documento assinado
+        try {
+          const c = cfgRef.current
+          const smtpCfg = c.smtpHost ? { smtpHost:c.smtpHost, smtpPort:c.smtpPort||587, smtpUser:c.smtpUser, smtpPass:c.smtpPass } : null
+          const linkDoc = `${window.location.origin}/sign/${signFormDoc.signToken}`
+          const emailHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+            <h2 style="color:#10b981">✅ Documento Totalmente Assinado</h2>
+            <p>Olá! O ${docData.tipo==='contrato'?'contrato':'proposta'} com <strong>${docData.clientName||docData.clienteNome||'—'}</strong> foi assinado por ambas as partes.</p>
+            <div style="background:#f0fdf4;border:1px solid #10b981;border-radius:8px;padding:16px;margin:16px 0">
+              <strong>📋 Detalhes da Assinatura</strong><br/>
+              Cliente: ${docData.signedBy||'—'} (${docData.signedAt||'—'})<br/>
+              Consultor: ${docData.consultantSignedBy||'—'} (${docData.consultantSignedAt||'—'})<br/>
+              Token: ${signFormDoc.signToken}
+            </div>
+            <a href="${linkDoc}" style="display:inline-block;padding:12px 24px;background:#10b981;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">Ver documento assinado</a>
+          </div>`
+          const destinatarios = [docData.clientEmail||docData.signEmail, docData.consultantEmail||userProfile?.email].filter(Boolean)
+          for(const dest of destinatarios){
+            await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+              to:dest, subject:`✅ Documento assinado — ${docData.clientName||docData.clienteNome||'—'}`,
+              html:emailHtml, config:smtpCfg
+            })})
+          }
+        } catch(eEmail){console.warn('Erro ao enviar email pós-assinatura:',eEmail)}
+
+        addBot(`✅ Documento completamente assinado por ambas as partes! Email enviado para cliente e consultor.`)
       }else{
         addBot(signFormSide==='consultant'?`✅ Assinatura do consultor registrada!`:`✅ Assinatura do cliente registrada!`)
       }
@@ -2030,7 +2103,7 @@ export default function Chat(){
     return(
       <div style={{position:'fixed',inset:0,background:'var(--bg)',zIndex:200,display:'flex',flexDirection:'column',overflow:'hidden'}}>
         <div style={{background:'rgba(10,15,30,.9)',backdropFilter:'blur(12px)',borderBottom:'1px solid var(--border)',padding:'12px 20px',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
-          <button onClick={()=>setPainel(null)} style={{background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:20,padding:'4px 8px',borderRadius:8}}>✕</button>
+          <button onClick={()=>setPainel(null)} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 14px',borderRadius:9,background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,fontWeight:600}}>← Voltar ao Chat</button>
           <h2 style={{fontFamily:'Syne,sans-serif',fontSize:16,fontWeight:700,color:'var(--accent)'}}>
             {painel==='historico'?'🗂️ Histórico':painel==='assinaturas'?'✍️ Assinaturas':'📄 Documentos'}
           </h2>
