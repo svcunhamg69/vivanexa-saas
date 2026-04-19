@@ -15,12 +15,21 @@ export default async function handler(req, res) {
 
   const isBrevo = cfg.smtpHost.includes('brevo.com') || cfg.smtpHost.includes('sendinblue') || cfg.smtpUser === 'apikey'
 
+  // Debug — aparece nos logs do Vercel
+  console.log('[send-email] isBrevo:', isBrevo, '| campos cfg:', Object.keys(cfg), '| apiKey len:', (cfg.apiKey||cfg.smtpPass||'').length)
+
   // ── Brevo: usa API HTTP (mais confiável que SMTP no Vercel) ──
   if (isBrevo) {
-    const apiKey = cfg.smtpPass || cfg.apiKey || ''
+    // Tenta todos os campos possíveis onde a API key pode estar salva
+    const apiKey = cfg.apiKey || cfg.brevoApiKey || cfg.smtpPass || cfg.api_key || ''
+
+    if (!apiKey) {
+      return res.status(500).json({ error: 'API Key do Brevo não encontrada. Preencha o campo "API Key (para Brevo/SendGrid)" em Configurações → Empresa.' })
+    }
     try {
+      const senderEmail = cfg.emailRemetente || cfg.smtpFrom || cfg.emailEmpresa || cfg.smtpUser !== 'apikey' ? (cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||'noreply@vivanexa.com.br') : 'noreply@vivanexa.com.br'
       const body = {
-        sender: { name: cfg.nomeRemetente || cfg.company || 'Vivanexa', email: cfg.emailRemetente || cfg.smtpFrom || to },
+        sender: { name: cfg.nomeRemetente || cfg.company || 'Vivanexa', email: senderEmail },
         to: [{ email: to }],
         subject,
         htmlContent: html || `<p>${text || ''}</p>`,
