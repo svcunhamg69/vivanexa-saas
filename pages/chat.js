@@ -1624,19 +1624,31 @@ export default function Chat(){
         const variaveis=buildDocxVars({S,c,userProfile,tAd,tMen,cd,co,wizPay:'',wizAd:'',wizMen:''})
         const nome=nomeArquivo(clientName,'proposta')
         window._vxDocxBlob = null
+        const doc=await saveToHistory('proposta',clientName,'',{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
         renderDocxBlob(propTemplate, variaveis)
-          .then(blob=>{ window._vxDocxBlob={blob,nome}; window.dispatchEvent(new Event('vx_docx_ready')) })
+          .then(async blob=>{
+            window._vxDocxBlob={blob,nome}
+            window.dispatchEvent(new Event('vx_docx_ready'))
+            // Converte o DOCX para HTML e salva no token — garante que Assinar em Tela mostre o mesmo doc
+            try {
+              if (!window.mammoth) {
+                await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js';s.onload=res;s.onerror=rej;document.head.appendChild(s)})
+              }
+              const ab = await blob.arrayBuffer()
+              const {value: htmlDocx} = await window.mammoth.convertToHtml({arrayBuffer:ab})
+              if (htmlDocx && doc.signToken) {
+                await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify({...doc,html:htmlDocx,tipo:'proposta',type:'proposta'}),updated_at:new Date().toISOString()},{onConflict:'key'})
+              }
+            } catch(e){console.warn('Erro ao salvar HTML mammoth proposta:',e)}
+          })
           .catch(e=>{ console.warn('Erro DOCX proposta:',e); window._vxDocxBlob=null })
-        // Gera HTML de preview mesmo em modo DOCX para mostrar documento em tela
-        const htmlPreview = buildProposal(S,c,userProfile) || buildFallbackPropostaHtml(S,c,userProfile,tAd,tMen,clientName)
-        const doc=await saveToHistory('proposta',clientName,htmlPreview||'',{tAd,tMen,clientEmail:cf.email,modulos:S.modules})
         setSignDoc(doc);setSignEmailInput(cf.email||'')
         setDocPreview({
-          html: htmlPreview,
+          html: '',
           tipo:'proposta',
           clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
           clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id,
-          hasDocx:true, docxNome:nome
+          hasDocx:true, docxNome:nome, tAd, tMen
         })
       } else {
         const html=buildProposal(S,c,userProfile)
@@ -1648,7 +1660,7 @@ export default function Chat(){
           html: html||'<div style="padding:40px;text-align:center;background:#fff;font-family:Inter,sans-serif;color:#64748b"><h2 style="color:#0f172a;margin-bottom:12px">📋 Proposta Gerada!</h2><p>Configure um template HTML em <strong>Configurações → Documentos</strong> para visualizar o conteúdo completo aqui.<br><br>Use os botões acima para enviar ou imprimir.</p></div>',
           tipo:'proposta',
           clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
-          clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id
+          clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id, tAd, tMen
         })
       }
     }else{
@@ -1679,20 +1691,32 @@ export default function Chat(){
         const cd=S.clientData||{},co=S.contactData||{}
         const variaveis=buildDocxVars({S,c,userProfile,tAd:wizTAd,tMen:wizTMen,cd,co,wizPay,wizAd,wizMen})
         window._vxDocxBlob = null
-        renderDocxBlob(contratoTemplate, variaveis)
-          .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo}; window.dispatchEvent(new Event('vx_docx_ready')) })
-          .catch(e=>{ console.warn('Erro DOCX contrato:',e); window._vxDocxBlob=null })
         saveToHistory('contrato',clientName,'',{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
-          // Gera HTML de preview mesmo em modo DOCX
-          const htmlPreview = buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined) || buildFallbackContratoHtml(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,clientName)
           setSignDoc(doc);setSignEmailInput(cf.email||'')
           setDocPreview({
-            html: htmlPreview,
+            html: '',
             tipo:'contrato',
             clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
             clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id,
-            hasDocx:true, docxNome:nomeArquivo
+            hasDocx:true, docxNome:nomeArquivo, tAd:wizTAd, tMen:wizTMen
           })
+          renderDocxBlob(contratoTemplate, variaveis)
+            .then(async blob=>{
+              window._vxDocxBlob={blob,nome:nomeArquivo}
+              window.dispatchEvent(new Event('vx_docx_ready'))
+              // Salva o HTML do DOCX real no token — garante que Assinar em Tela mostre o mesmo doc
+              try {
+                if (!window.mammoth) {
+                  await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js';s.onload=res;s.onerror=rej;document.head.appendChild(s)})
+                }
+                const ab = await blob.arrayBuffer()
+                const {value: htmlDocx} = await window.mammoth.convertToHtml({arrayBuffer:ab})
+                if (htmlDocx && doc.signToken) {
+                  await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify({...doc,html:htmlDocx,tipo:'contrato',type:'contrato'}),updated_at:new Date().toISOString()},{onConflict:'key'})
+                }
+              } catch(e){console.warn('Erro ao salvar HTML mammoth contrato:',e)}
+            })
+            .catch(e=>{ console.warn('Erro DOCX contrato:',e); window._vxDocxBlob=null })
         })
       } else {
         const html=buildContract(S,c,userProfile,wizTAd,wizTMen,wizAd,wizMen,wizPay,token,undefined)
@@ -1702,7 +1726,7 @@ export default function Chat(){
             html: html||'<div style="padding:40px;text-align:center;background:#fff;font-family:Inter,sans-serif;color:#64748b"><h2 style="color:#0f172a;margin-bottom:12px">📝 Contrato Gerado!</h2><p>Configure um template HTML em <strong>Configurações → Documentos</strong> para visualizar o conteúdo completo aqui.<br><br>Use os botões acima para enviar para assinatura.</p></div>',
             tipo:'contrato',
             clienteEmail:cf.email||'', clienteNome:cf.razao||cf.empresa||clientName,
-            clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id
+            clienteTel:cf.telefone||'', signToken:doc.signToken||doc.id, tAd:wizTAd, tMen:wizTMen
           })
         })
       }
@@ -2190,8 +2214,8 @@ export default function Chat(){
             cidade: co.cidade || cd.municipio || '',
             uf: co.uf || cd.uf || '',
             salvarCliente: true,
-            tAd: doc.tAd || 0,
-            tMen: doc.tMen || 0,
+            tAd: doc.tAd || S.quoteData?.tAdD || S.quoteData?.tAd || 0,
+            tMen: doc.tMen || S.quoteData?.tMenD || S.quoteData?.tMen || 0,
             signToken: doc.signToken || '',
             docTipo: doc.tipo || 'proposta',
             etapas,
