@@ -16,7 +16,11 @@ import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 
 // ══════════════════════════════════════════════════════════════
-// COMPONENTE DocumentoPreviewModal — v7
+// COMPONENTE DocumentoPreviewModal — v8
+// ══════════════════════════════════════════════════════════════
+// • Botão "← Voltar ao Chat" sempre visível
+// • DOCX real renderizado em tela via docx-preview
+// • Mesmo arquivo que vai para download/envio
 // ══════════════════════════════════════════════════════════════
 function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {
   const [enviandoAss,    setEnviandoAss]    = useState(false)
@@ -26,18 +30,66 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
   const [emailEnvio,     setEmailEnvio]      = useState('')
   const [salvandoCRM,    setSalvandoCRM]     = useState(false)
   const [docxBaixado,    setDocxBaixado]     = useState(false)
+  const [docxRenderHtml, setDocxRenderHtml]  = useState('')
+  const [docxCarregando, setDocxCarregando]  = useState(false)
+
+  // ── Renderiza o DOCX real em tela via docx-preview ──
+  // IMPORTANTE: useEffect ANTES do return condicional (regra de hooks)
+  const _hasDocx = docPreview?.hasDocx
+  const _signToken = docPreview?.signToken
+  useEffect(() => {
+    if (!_hasDocx) { setDocxRenderHtml(''); return }
+    const blob = window._vxDocxBlob?.blob
+    if (!blob) {
+      let tentativas = 0
+      const intervalo = setInterval(() => {
+        tentativas++
+        const b = window._vxDocxBlob?.blob
+        if (b) { clearInterval(intervalo); renderDocxEmTela(b) }
+        else if (tentativas > 40) { clearInterval(intervalo) }
+      }, 200)
+      return () => clearInterval(intervalo)
+    }
+    renderDocxEmTela(blob)
+  }, [_hasDocx, _signToken])
+
+  async function renderDocxEmTela(blob) {
+    setDocxCarregando(true)
+    try {
+      if (!window.docxPreview) {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script')
+          s.src = 'https://cdn.jsdelivr.net/npm/docx-preview@0.3.2/dist/docx-preview.min.js'
+          s.onload = res; s.onerror = rej
+          document.head.appendChild(s)
+        })
+      }
+      const container = document.createElement('div')
+      await window.docxPreview.renderAsync(blob, container, null, {
+        className: 'docx-render', inWrapper: false,
+        ignoreWidth: false, ignoreHeight: false,
+        breakPages: true, useBase64URL: true,
+        renderHeaders: true, renderFooters: true,
+      })
+      setDocxRenderHtml(container.innerHTML)
+    } catch (e) {
+      console.warn('docx-preview falhou:', e.message)
+      setDocxRenderHtml('')
+    }
+    setDocxCarregando(false)
+  }
 
   if (!docPreview) return null
 
   const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken, hasDocx, docxNome } = docPreview
   const isContrato = tipo === 'contrato'
-  const isDocxMode = hasDocx && !html
 
   if (!emailEnvio && clienteEmail) setEmailEnvio(clienteEmail)
 
-  // ── Imprimir ──
+  // ── Imprimir — usa DOCX renderizado ou HTML ──
   function handleImprimir() {
-    if (!html) return
+    const conteudo = docxRenderHtml || html
+    if (!conteudo) return
     const win = window.open('', '_blank', 'width=900,height=700')
     if (!win) { alert('Permita popups neste site.'); return }
     win.document.write(`<!DOCTYPE html>
@@ -45,13 +97,14 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
 <title>${isContrato ? 'Contrato' : 'Proposta'}</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
 <style>
-  body{font-family:Inter,sans-serif;background:#fff;color:#1e293b;margin:0;padding:24px}
-  @media print{body{padding:0} .print-btn{display:none!important}}
+  body{font-family:Inter,sans-serif;background:#fff;color:#1e293b;margin:0;padding:0}
+  @media print{.print-btn{display:none!important}}
   .print-btn{position:fixed;top:16px;right:16px;padding:10px 20px;background:#0f172a;border:none;border-radius:8px;color:#fff;font-weight:700;cursor:pointer;font-size:14px;z-index:999}
+  .docx-render section.docx{margin:0 auto;box-shadow:0 0 20px rgba(0,0,0,.1)}
 </style>
 </head><body>
 <button class="print-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
-${html}
+${conteudo}
 </body></html>`)
     win.document.close()
     win.focus()
@@ -182,47 +235,53 @@ ${html}
     opacity: disabled ? 0.6 : 1, transition: 'all .15s',
   })
 
-  // ── Estilo de botão de ação responsivo ──
   const btnAcao = (cor, disabled = false, extra = {}) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-    padding: '11px 16px', borderRadius: 10, fontFamily: 'DM Mono, monospace',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    padding: '10px 14px', borderRadius: 9, fontFamily: 'DM Mono, monospace',
     fontSize: 13, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer',
-    background: cor + '20', border: `1.5px solid ${cor}55`, color: cor,
+    background: cor + '1a', border: `1.5px solid ${cor}50`, color: cor,
     opacity: disabled ? 0.55 : 1, transition: 'all .15s', whiteSpace: 'nowrap',
-    flex: '1 1 140px', minWidth: 130, ...extra,
+    flex: '1 1 140px', minWidth: 120, ...extra,
   })
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.92)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+  // Conteúdo a exibir no preview: DOCX renderizado tem prioridade, depois HTML interno
+  const conteudoPreview = docxRenderHtml || html
 
-      {/* ── Cabeçalho com título e botão voltar ── */}
-      <div style={{ background: '#070c1a', borderBottom: '1px solid #1e2d4a', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 20 }}>{isContrato ? '📝' : '📋'}</span>
-          <div>
-            <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, color: '#00d4ff', fontSize: 15, lineHeight: 1.2 }}>
-              {isContrato ? 'Contrato' : 'Proposta'} gerado
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#07111f' }}>
+
+      {/* ══ BARRA TOPO: título + VOLTAR ══ */}
+      <div style={{ background: '#070c1a', borderBottom: '2px solid #1e2d4a', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', flexShrink: 0, gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <span style={{ fontSize: 22, flexShrink: 0 }}>{isContrato ? '📝' : '📋'}</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, color: '#00d4ff', fontSize: 15, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {isContrato ? 'Contrato' : 'Proposta'} — {clienteNome || 'Cliente'}
             </div>
             <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
-              {clienteNome || 'Cliente'} {hasDocx ? '· DOCX disponível' : ''}
+              {hasDocx ? `${docxNome || 'arquivo.docx'} · visualizando DOCX real` : 'template HTML'}
             </div>
           </div>
         </div>
-        <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'rgba(0,212,255,.12)', border: '1.5px solid rgba(0,212,255,.3)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-          ← Voltar
+        {/* BOTÃO VOLTAR — sempre visível */}
+        <button
+          onClick={onClose}
+          style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 10, background: 'rgba(0,212,255,.15)', border: '2px solid rgba(0,212,255,.4)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+        >
+          ← Voltar ao Chat
         </button>
       </div>
 
-      {/* ── Grade de botões de ação — sempre visível, responsiva ── */}
-      <div style={{ background: '#0d1526', borderBottom: '1px solid #1e2d4a', padding: '12px 16px', flexShrink: 0 }}>
+      {/* ══ GRADE DE AÇÕES ══ */}
+      <div style={{ background: '#0a1020', borderBottom: '1px solid #1e2d4a', padding: '10px 14px', flexShrink: 0 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {/* Imprimir / PDF */}
-          {html && (
+          {/* Imprimir — funciona com DOCX renderizado OU html */}
+          {conteudoPreview && (
             <button onClick={handleImprimir} style={btnAcao('#00d4ff')}>
               🖨 Imprimir / PDF
             </button>
           )}
-          {/* Baixar DOCX */}
+          {/* Baixar DOCX — arquivo original com variáveis preenchidas */}
           {hasDocx && (
             <button onClick={handleBaixarDocx} style={btnAcao('#7c3aed')}>
               {docxBaixado ? '✅ DOCX Baixado' : '💾 Baixar DOCX'}
@@ -234,7 +293,7 @@ ${html}
               {enviandoAss ? '⏳ Gerando link...' : '✍️ Enviar p/ Assinatura'}
             </button>
           ) : (
-            <button onClick={() => setShowEnvioOpc(v => !v)} style={btnAcao('#25d366', false, { background: showEnvioOpc ? '#25d36630' : '#25d36620', border: showEnvioOpc ? '1.5px solid #25d366' : '1.5px solid #25d36655' })}>
+            <button onClick={() => setShowEnvioOpc(v => !v)} style={btnAcao('#25d366', false, { background: showEnvioOpc ? '#25d36628' : '#25d36618', border: `1.5px solid ${showEnvioOpc ? '#25d366' : '#25d36650'}` })}>
               📤 Enviar para Cliente
             </button>
           )}
@@ -245,6 +304,12 @@ ${html}
         </div>
       </div>
 
+      {/* ══ STATUS ══ */}
+      {msgEnvio && (
+        <div style={{ padding: '8px 16px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444', flexShrink: 0 }}>
+          {msgEnvio}
+        </div>
+      )}
       {/* Painel envio proposta */}
       {!isContrato && showEnvioOpc && (
         <div style={{ background: '#0d1526', borderBottom: '1px solid #1e2d4a', padding: '12px 16px' }}>
@@ -287,56 +352,58 @@ ${html}
         </div>
       )}
 
-      {/* Status */}
-      {msgEnvio && (
-        <div style={{ padding: '10px 20px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444' }}>
-          {msgEnvio}
-        </div>
-      )}
+      {/* ══ ÁREA DE PREVIEW ══ */}
+      <div style={{ flex: 1, overflow: 'auto', background: '#f0f4f8', position: 'relative' }}>
 
-      {/* Preview do documento */}
-      <div style={{ flex: 1, overflow: 'auto', background: '#f0f4f8' }}>
-        {/* Quando tem HTML (seja template HTML ou fallback gerado para DOCX), mostra o documento */}
-        {html ? (
-          <div style={{ padding: '24px 24px 40px' }}>
-            {/* Banner DOCX quando template é DOCX */}
-            {hasDocx && (
-              <div style={{ maxWidth: 860, margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: 10, padding: '12px 18px', gap: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>📄</span>
-                  <div>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{docxNome || (isContrato ? 'contrato.docx' : 'proposta.docx')}</div>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Arquivo DOCX gerado com variáveis preenchidas</div>
-                  </div>
-                </div>
-                <button onClick={handleBaixarDocx} style={{ padding: '8px 18px', borderRadius: 8, background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                  {docxBaixado ? '✅ Baixado!' : '💾 Baixar DOCX'}
-                </button>
-              </div>
-            )}
-            {/* Documento renderizado em tela */}
+        {/* Carregando DOCX */}
+        {docxCarregando && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(7,17,31,.85)', zIndex: 10 }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>📄</div>
+              <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 16, fontWeight: 700, color: '#00d4ff', marginBottom: 8 }}>Renderizando documento...</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Carregando o {isContrato ? 'contrato' : 'proposta'} real</div>
+            </div>
+          </div>
+        )}
+
+        {/* DOCX renderizado (documento real com variáveis preenchidas) */}
+        {docxRenderHtml && !docxCarregando && (
+          <div style={{ padding: '24px 16px 60px', background: '#e2e8f0' }}>
+            <style>{`.docx-render section.docx { margin: 0 auto; box-shadow: 0 4px 32px rgba(0,0,0,.2); } .docx-render { max-width: 900px; margin: 0 auto; }`}</style>
+            <div
+              className="docx-render"
+              dangerouslySetInnerHTML={{ __html: docxRenderHtml }}
+            />
+          </div>
+        )}
+
+        {/* HTML interno (quando template é HTML puro, não DOCX) */}
+        {!hasDocx && html && !docxCarregando && (
+          <div style={{ padding: '24px 16px 60px' }}>
             <div
               style={{ maxWidth: 860, margin: '0 auto', background: '#fff', borderRadius: 12, boxShadow: '0 8px 40px rgba(0,0,0,.2)', overflow: 'hidden' }}
               dangerouslySetInnerHTML={{ __html: html }}
             />
           </div>
-        ) : (
-          // Sem HTML e sem template configurado
-          <div style={{ maxWidth: 520, margin: '60px auto', background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16, padding: 40, textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,.4)' }}>
-            <div style={{ fontSize: 56, marginBottom: 20 }}>📄</div>
-            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 20, fontWeight: 800, color: '#00d4ff', marginBottom: 8 }}>
-              {isContrato ? 'Contrato' : 'Proposta'} gerado com sucesso!
+        )}
+
+        {/* Sem documento — orienta usuário */}
+        {!docxRenderHtml && !html && !docxCarregando && (
+          <div style={{ maxWidth: 500, margin: '80px auto', background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16, padding: 40, textAlign: 'center' }}>
+            <div style={{ fontSize: 56, marginBottom: 16 }}>📄</div>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 18, fontWeight: 800, color: '#00d4ff', marginBottom: 8 }}>
+              {isContrato ? 'Contrato' : 'Proposta'} gerado!
             </div>
-            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 28, lineHeight: 1.7 }}>
-              Configure um template em <strong style={{ color: '#94a3b8' }}>Configurações → Documentos</strong> para visualizar o documento aqui.<br /><br />
-              Use os botões acima para imprimir, assinar e enviar.
+            <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.7, marginBottom: 24 }}>
+              {hasDocx
+                ? 'O DOCX está sendo processado. Use o botão 💾 Baixar DOCX para obter o arquivo, ou aguarde a renderização em tela.'
+                : 'Configure um template em Configurações → Documentos para visualizar o documento aqui.'}
             </div>
             {hasDocx && (
-              <button onClick={handleBaixarDocx} style={{ padding: '14px 32px', borderRadius: 12, background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 15, fontWeight: 700, cursor: 'pointer', display: 'block', width: '100%' }}>
+              <button onClick={handleBaixarDocx} style={{ padding: '12px 28px', borderRadius: 10, background: 'linear-gradient(135deg,#7c3aed,#5b21b6)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 14, fontWeight: 700, cursor: 'pointer', width: '100%' }}>
                 💾 Baixar DOCX
               </button>
             )}
-            {docxBaixado && <div style={{ fontSize: 12, color: '#10b981', marginTop: 12 }}>✅ Arquivo baixado!</div>}
           </div>
         )}
       </div>
