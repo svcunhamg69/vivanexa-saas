@@ -182,65 +182,107 @@ ${html}
     opacity: disabled ? 0.6 : 1, transition: 'all .15s',
   })
 
+  // ── Estilo de botão de ação responsivo ──
+  const btnAcao = (cor, disabled = false, extra = {}) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+    padding: '11px 16px', borderRadius: 10, fontFamily: 'DM Mono, monospace',
+    fontSize: 13, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer',
+    background: cor + '20', border: `1.5px solid ${cor}55`, color: cor,
+    opacity: disabled ? 0.55 : 1, transition: 'all .15s', whiteSpace: 'nowrap',
+    flex: '1 1 140px', minWidth: 130, ...extra,
+  })
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Barra de ações */}
-      <div style={{ background: '#0a0f1e', borderBottom: '1px solid #1e2d4a', display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', flexShrink: 0, flexWrap: 'wrap' }}>
-        <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, color: '#00d4ff', fontSize: 15, marginRight: 8 }}>
-          {isContrato ? '📄 Contrato' : '📋 Proposta'} gerado
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.92)', zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+      {/* ── Cabeçalho com título e botão voltar ── */}
+      <div style={{ background: '#070c1a', borderBottom: '1px solid #1e2d4a', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 20 }}>{isContrato ? '📝' : '📋'}</span>
+          <div>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, color: '#00d4ff', fontSize: 15, lineHeight: 1.2 }}>
+              {isContrato ? 'Contrato' : 'Proposta'} gerado
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
+              {clienteNome || 'Cliente'} {hasDocx ? '· DOCX disponível' : ''}
+            </div>
+          </div>
         </div>
-        {html && <button onClick={handleImprimir} style={acaoBtn('#00d4ff')}>🖨 Imprimir / PDF</button>}
-        {hasDocx && <button onClick={handleBaixarDocx} style={acaoBtn('#7c3aed')}>💾 Baixar DOCX</button>}
-        <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={acaoBtn('#10b981', salvandoCRM)}>
-          {salvandoCRM ? '⏳...' : '💼 Salvar no CRM'}
+        <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'rgba(0,212,255,.12)', border: '1.5px solid rgba(0,212,255,.3)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+          ← Voltar
         </button>
-        {isContrato ? (
-          <button onClick={handleEnviarAssinatura} disabled={enviandoAss} style={acaoBtn('#f59e0b', enviandoAss)}>
-            {enviandoAss ? '⏳ Gerando...' : '✍️ Enviar para Assinatura'}
+      </div>
+
+      {/* ── Grade de botões de ação — sempre visível, responsiva ── */}
+      <div style={{ background: '#0d1526', borderBottom: '1px solid #1e2d4a', padding: '12px 16px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {/* Imprimir / PDF */}
+          {html && (
+            <button onClick={handleImprimir} style={btnAcao('#00d4ff')}>
+              🖨 Imprimir / PDF
+            </button>
+          )}
+          {/* Baixar DOCX */}
+          {hasDocx && (
+            <button onClick={handleBaixarDocx} style={btnAcao('#7c3aed')}>
+              {docxBaixado ? '✅ DOCX Baixado' : '💾 Baixar DOCX'}
+            </button>
+          )}
+          {/* Enviar para Assinatura (contrato) ou Enviar para Cliente (proposta) */}
+          {isContrato ? (
+            <button onClick={handleEnviarAssinatura} disabled={enviandoAss} style={btnAcao('#f59e0b', enviandoAss)}>
+              {enviandoAss ? '⏳ Gerando link...' : '✍️ Enviar p/ Assinatura'}
+            </button>
+          ) : (
+            <button onClick={() => setShowEnvioOpc(v => !v)} style={btnAcao('#25d366', false, { background: showEnvioOpc ? '#25d36630' : '#25d36620', border: showEnvioOpc ? '1.5px solid #25d366' : '1.5px solid #25d36655' })}>
+              📤 Enviar para Cliente
+            </button>
+          )}
+          {/* Salvar no CRM */}
+          <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={btnAcao('#10b981', salvandoCRM)}>
+            {salvandoCRM ? '⏳ Salvando...' : '💼 Salvar no CRM'}
           </button>
-        ) : (
-          <button onClick={() => setShowEnvioOpc(v => !v)} style={acaoBtn('#10b981')}>
-            📤 Enviar para Cliente
-          </button>
-        )}
-        <div style={{ flex: 1 }} />
-        <button onClick={onClose} style={{ padding: '8px 18px', borderRadius: 8, background: 'rgba(0,212,255,.15)', border: '1px solid rgba(0,212,255,.35)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          ← Voltar ao Chat
-        </button>
+        </div>
       </div>
 
       {/* Painel envio proposta */}
       {!isContrato && showEnvioOpc && (
-        <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: '#64748b' }}>Enviar para:</span>
-          <input value={emailEnvio} onChange={e => setEmailEnvio(e.target.value)} placeholder="email do cliente"
-            style={{ background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, width: 220 }} />
-          <button onClick={handleEnviarPropostaWpp} style={acaoBtn('#25d366')}>💬 WhatsApp</button>
-          <button onClick={handleEnviarPropostaEmail} style={acaoBtn('#00d4ff')}>📧 E-mail</button>
+        <div style={{ background: '#0d1526', borderBottom: '1px solid #1e2d4a', padding: '12px 16px' }}>
+          <div style={{ fontSize: 11, color: '#64748b', letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 8 }}>Enviar proposta para cliente</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <input value={emailEnvio} onChange={e => setEmailEnvio(e.target.value)} placeholder="email do cliente"
+              style={{ flex: 1, background: '#1a2540', border: '1px solid #1e2d4a', borderRadius: 8, padding: '8px 12px', color: '#e2e8f0', fontFamily: 'DM Mono, monospace', fontSize: 12, outline: 'none', minWidth: 0 }} />
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={handleEnviarPropostaWpp} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#25d36620', border: '1.5px solid #25d36655', color: '#25d366', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>💬 WhatsApp</button>
+            <button onClick={handleEnviarPropostaEmail} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#00d4ff18', border: '1.5px solid #00d4ff44', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📧 E-mail</button>
+          </div>
         </div>
       )}
 
       {/* Painel assinatura contrato */}
       {isContrato && showEnvioOpc && linkAssinatura && (
-        <div style={{ background: '#111827', borderBottom: '1px solid #1e2d4a', padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: '#64748b' }}>Link de assinatura:</span>
-            <code style={{ fontSize: 11, color: '#00d4ff', wordBreak: 'break-all', flex: 1 }}>{linkAssinatura}</code>
+        <div style={{ background: '#0d1526', borderBottom: '1px solid #1e2d4a', padding: '12px 16px' }}>
+          <div style={{ fontSize: 11, color: '#64748b', letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 8 }}>Link de assinatura gerado</div>
+          {/* Link copiável */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, background: '#111827', border: '1px solid #1e2d4a', borderRadius: 8, padding: '8px 12px' }}>
+            <code style={{ fontSize: 11, color: '#00d4ff', wordBreak: 'break-all', flex: 1, lineHeight: 1.5 }}>{linkAssinatura}</code>
             <button onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio('✅ Link copiado!') }}
-              style={{ ...acaoBtn('#00d4ff'), padding: '4px 10px', fontSize: 11 }}>📋 Copiar</button>
+              style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 7, background: '#00d4ff15', border: '1px solid #00d4ff40', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>📋 Copiar</button>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {/* Botões de envio */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={() => {
-              const msg = encodeURIComponent(`📄 Olá ${clienteNome || 'cliente'}!\n\nSeu contrato está pronto para assinatura.\n\n${linkAssinatura}\n\n_Válido por 7 dias._`)
+              const msg = encodeURIComponent(`📄 Olá ${clienteNome || 'cliente'}!\n\nSeu contrato está pronto para assinatura eletrônica.\n\n${linkAssinatura}\n\n_Válido por 30 dias._`)
               const tel = (clienteTel || '').replace(/\D/g, '')
               window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
-            }} style={acaoBtn('#25d366')}>💬 Enviar via WhatsApp</button>
+            }} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#25d36620', border: '1.5px solid #25d36655', color: '#25d366', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>💬 WhatsApp</button>
             <button onClick={() => {
               const subj = encodeURIComponent(`Contrato para Assinatura – ${cfg?.company || ''}`)
-              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 7 dias.\n\n${cfg?.company || ''}`)
+              const body = encodeURIComponent(`Olá ${clienteNome || 'cliente'},\n\nSeu contrato está pronto para assinatura eletrônica.\n\nLink: ${linkAssinatura}\n\nVálido por 30 dias.\n\n${cfg?.company || ''}`)
               window.open(`mailto:${clienteEmail || ''}?subject=${subj}&body=${body}`, '_blank')
-            }} style={acaoBtn('#00d4ff')}>📧 Enviar por E-mail</button>
-            <button onClick={() => window.open(linkAssinatura, '_blank')} style={acaoBtn('#f59e0b')}>🖊 Assinar agora (nova aba)</button>
+            }} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#00d4ff18', border: '1.5px solid #00d4ff44', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>📧 E-mail</button>
+            <button onClick={() => window.open(linkAssinatura, '_blank')} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: 9, background: '#f59e0b18', border: '1.5px solid #f59e0b44', color: '#f59e0b', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>🖊 Assinar agora</button>
           </div>
         </div>
       )}
