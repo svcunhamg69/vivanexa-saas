@@ -53,14 +53,20 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
     if (!_hasDocx) { setDocxRenderHtml(''); return }
     const blob = window._vxDocxBlob?.blob
     if (!blob) {
+      setDocxCarregando(true)
       let tentativas = 0
       const intervalo = setInterval(() => {
         tentativas++
         const b = window._vxDocxBlob?.blob
         if (b) { clearInterval(intervalo); renderDocxEmTela(b) }
-        else if (tentativas > 40) { clearInterval(intervalo) }
+        else if (tentativas > 150) { clearInterval(intervalo); setDocxCarregando(false) }
       }, 200)
-      return () => clearInterval(intervalo)
+      const onReady = () => {
+        const b = window._vxDocxBlob?.blob
+        if (b) { clearInterval(intervalo); renderDocxEmTela(b) }
+      }
+      window.addEventListener('vx_docx_ready', onReady)
+      return () => { clearInterval(intervalo); window.removeEventListener('vx_docx_ready', onReady) }
     }
     renderDocxEmTela(blob)
   }, [_hasDocx, _signToken])
@@ -245,7 +251,7 @@ ${conteudo}
   })
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#07111f' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 99999, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#07111f' }}>
 
       {/* ══ BARRA TOPO: título + VOLTAR ══ */}
       <div style={{ background: '#070c1a', borderBottom: '2px solid #1e2d4a', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', flexShrink: 0, gap: 12 }}>
@@ -1589,7 +1595,7 @@ export default function Chat(){
         const nome=nomeArquivo(clientName,'proposta')
         window._vxDocxBlob = null
         renderDocxBlob(propTemplate, variaveis)
-          .then(blob=>{ window._vxDocxBlob={blob,nome} })
+          .then(blob=>{ window._vxDocxBlob={blob,nome}; window.dispatchEvent(new Event('vx_docx_ready')) })
           .catch(e=>{ console.warn('Erro DOCX proposta:',e); window._vxDocxBlob=null })
         // Gera HTML de preview mesmo em modo DOCX para mostrar documento em tela
         const htmlPreview = buildProposal(S,c,userProfile) || buildFallbackPropostaHtml(S,c,userProfile,tAd,tMen,clientName)
@@ -1644,7 +1650,7 @@ export default function Chat(){
         const variaveis=buildDocxVars({S,c,userProfile,tAd:wizTAd,tMen:wizTMen,cd,co,wizPay,wizAd,wizMen})
         window._vxDocxBlob = null
         renderDocxBlob(contratoTemplate, variaveis)
-          .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo} })
+          .then(blob=>{ window._vxDocxBlob={blob,nome:nomeArquivo}; window.dispatchEvent(new Event('vx_docx_ready')) })
           .catch(e=>{ console.warn('Erro DOCX contrato:',e); window._vxDocxBlob=null })
         saveToHistory('contrato',clientName,'',{tAd:wizTAd,tMen:wizTMen,clientEmail:cf.email,modulos:S.modules,pagamento:wizPay,vencAdesao:wizAd,vencMensal:wizMen,token}).then(doc=>{
           // Gera HTML de preview mesmo em modo DOCX
