@@ -1,6 +1,6 @@
-// pages/crm.js
-const DIAS_PARADO_ALERTA = 3 — CRM Vivanexa v4
+// pages/crm.js — CRM Vivanexa v4
 // Melhorias: Google Agenda em Reunião + Player gravação 3CX + Aba Documentos + Permissões atualizadas
+const DIAS_PARADO_ALERTA = 3
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../lib/supabase'
@@ -281,6 +281,8 @@ export default function CRM() {
     const { data } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
     return data?.value ? JSON.parse(data.value) : null
   }
+
+  async function salvarFunil(f) {
     const novo={...f,id:f.id||'funil_'+Date.now()}
     const lista=f.id?funis.map(x=>x.id===f.id?novo:x):[...funis,novo]
     setFunis(lista)
