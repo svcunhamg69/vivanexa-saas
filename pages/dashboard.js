@@ -32,23 +32,51 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { router.replace('/'); return }
-
-      let { data: perfil } = await supabase
-        .from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
-
-      if (!perfil) {
-        const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário'
-        const { data: np } = await supabase
-          .from('perfis')
-          .insert({ user_id: session.user.id, nome, email: session.user.email, empresa_id: session.user.id, perfil: 'admin' })
-          .select().single()
-        perfil = np
+      // ── Suporte a sub-usuários cadastrados em cfg.users ──────
+      function getSubUser() {
+        try {
+          const raw = sessionStorage.getItem('vx_subuser') || localStorage.getItem('vx_subuser')
+          return raw ? JSON.parse(raw) : null
+        } catch { return null }
       }
-      setUser(perfil)
 
-      const eid = perfil?.empresa_id || session.user.id
+      const { data: { session } } = await supabase.auth.getSession()
+      const subUser = getSubUser()
+
+      // Sem sessão Supabase e sem sub-usuário → vai para login
+      if (!session && !subUser) { router.replace('/'); return }
+
+      let perfil = null
+      let eid = null
+
+      if (session) {
+        // ── Admin/dono: carrega perfil do Supabase ──────────────
+        let { data: p } = await supabase
+          .from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
+
+        if (!p) {
+          const nome = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário'
+          const { data: np } = await supabase
+            .from('perfis')
+            .insert({ user_id: session.user.id, nome, email: session.user.email, empresa_id: session.user.id, perfil: 'admin' })
+            .select().single()
+          p = np
+        }
+        perfil = p
+        eid = perfil?.empresa_id || session.user.id
+      } else {
+        // ── Sub-usuário: monta perfil a partir do storage ───────
+        perfil = {
+          nome:       subUser.nome,
+          email:      subUser.email,
+          tipo:       subUser.tipo,
+          permissoes: subUser.permissoes,
+          empresa_id: subUser.empresaId,
+        }
+        eid = subUser.empresaId
+      }
+
+      setUser(perfil)
       setEmpresaId(eid)
 
       const { data: row } = await supabase
@@ -65,12 +93,13 @@ export default function Dashboard() {
       const negocios  = c.crm_negocios || []
       const leads     = negocios.filter(n => n.etapa !== 'fechamento' && n.etapa !== 'perdido').length
 
+      const userId = session?.user?.id || subUser?.id || ''
       const hoje     = new Date().toISOString().slice(0, 10)
-      const kpiLog   = (c.kpiLog || []).filter(l => l.userId === session.user.id && l.date === hoje)
+      const kpiLog   = (c.kpiLog || []).filter(l => l.userId === userId && l.date === hoje)
       const kpiTpls  = c.kpiTemplates || []
       let kpiPct = 0
       if (kpiTpls.length && kpiLog.length) {
-        const metas    = c.kpiDailyGoals?.[session.user.id] || {}
+        const metas    = c.kpiDailyGoals?.[userId] || {}
         let tMeta = 0, tReal = 0
         kpiTpls.forEach(k => {
           const meta = Number(metas[k.id] || 0)
