@@ -19,21 +19,25 @@ export default async function handler(req, res) {
   }
 
   try {
-    const isBrevo   = cfg.smtpHost.includes('brevo.com') || cfg.smtpHost.includes('sendinblue')
+    const isBrevo    = cfg.smtpHost.includes('brevo.com') || cfg.smtpHost.includes('sendinblue')
     const isSendGrid = cfg.smtpHost.includes('sendgrid')
-    const port      = Number(cfg.smtpPort) || 587
-    const secure    = port === 465
+    const port       = Number(cfg.smtpPort) || 587
+    const secure     = port === 465
+
+    // Brevo smtp-relay: user=apikey, pass=<API_KEY>
+    // Se o usuário salvou a API key no campo "Senha SMTP" mas deixou user como "apikey",
+    // tentamos também com a apiKey do campo dedicado
+    const smtpUser = cfg.smtpUser || 'apikey'
+    const smtpPass = cfg.smtpPass || cfg.apiKey || ''
 
     const transporter = nodemailer.createTransport({
       host: cfg.smtpHost,
       port,
       secure,
-      auth: {
-        user: cfg.smtpUser,
-        pass: cfg.smtpPass,
-      },
-      // Brevo e SendGrid precisam de TLS explícito na porta 587
-      ...(!secure && { tls: { ciphers: 'SSLv3', rejectUnauthorized: false } }),
+      auth: { user: smtpUser, pass: smtpPass },
+      tls: { rejectUnauthorized: false },
+      // Brevo e SendGrid exigem STARTTLS explícito na 587
+      requireTLS: !secure,
     })
 
     // Monta anexos a partir de base64
