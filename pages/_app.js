@@ -1,5 +1,5 @@
 // pages/_app.js — v2 com controle de acesso por módulo (tenant)
-// CORREÇÃO: suporte a sub-usuários autenticados via sessionStorage (vx_subuser)
+// CORREÇÃO: suporte a sub-usuários autenticados via sessionStorage/localStorage (vx_subuser)
 import '../styles/globals.css';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
@@ -25,17 +25,29 @@ function ultimoDiaUtilAnterior() {
   return d.toISOString().slice(0, 10);
 }
 
-// Lê o sub-usuário salvo pelo login customizado
+// Lê o sub-usuário — tenta sessionStorage primeiro, depois localStorage como fallback
 function getSubUser() {
   try {
-    const raw = sessionStorage.getItem('vx_subuser');
-    return raw ? JSON.parse(raw) : null;
+    const raw = sessionStorage.getItem('vx_subuser') || localStorage.getItem('vx_subuser');
+    if (!raw) return null;
+    const su = JSON.parse(raw);
+    // Garante que os dois storages estão sincronizados
+    sessionStorage.setItem('vx_subuser', raw);
+    localStorage.setItem('vx_subuser', raw);
+    return su;
   } catch { return null; }
+}
+
+function limparSubUser() {
+  try {
+    sessionStorage.removeItem('vx_subuser');
+    localStorage.removeItem('vx_subuser');
+  } catch {}
 }
 
 function MyApp({ Component, pageProps }) {
   const [session,     setSession]     = useState(null);
-  const [subUser,     setSubUser]     = useState(null);   // sub-usuário de cfg.users
+  const [subUser,     setSubUser]     = useState(null);
   const [checkingKpi, setCheckingKpi] = useState(true);
   const [semAcesso,   setSemAcesso]   = useState(false);
   const router = useRouter();
@@ -45,7 +57,12 @@ function MyApp({ Component, pageProps }) {
   const isPublicPage   = publicPages.some(p => router.pathname === p || router.pathname.startsWith('/sign/'));
   const kpiExemptPages = ['/kpi', '/configuracoes', '/dashboard', '/reports', '/admin'];
 
-  // Verifica sub-usuário no sessionStorage ao montar
+  // Lê sub-usuário imediatamente ao montar (síncrono antes do primeiro render)
+  const [subUserInicial] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    return getSubUser();
+  });
+
   useEffect(() => {
     const su = getSubUser();
     if (su) setSubUser(su);
@@ -57,7 +74,7 @@ function MyApp({ Component, pageProps }) {
       setSession(session);
       if (event === 'SIGNED_OUT') {
         verificacaoFeita.current = false;
-        sessionStorage.removeItem('vx_subuser');
+        limparSubUser();
         setSubUser(null);
         router.push('/');
       } else if (event === 'SIGNED_IN' && router.pathname === '/') {
@@ -67,12 +84,14 @@ function MyApp({ Component, pageProps }) {
     return () => authListener.subscription.unsubscribe();
   }, [router]);
 
-  // Considera autenticado se tiver sessão Supabase OU sub-usuário válido
-  const autenticado = !!(session || subUser);
+  // Autenticado = sessão Supabase OU sub-usuário (lido do estado ou do estado inicial)
+  const autenticado = !!(session || subUser || subUserInicial);
 
   useEffect(() => {
+    const su = subUser || subUserInicial;
+
     // Sub-usuário sem sessão Supabase: libera sem checar KPI
-    if (subUser && !session) {
+    if (su && !session) {
       setCheckingKpi(false);
       return;
     }
@@ -101,7 +120,6 @@ function MyApp({ Component, pageProps }) {
           .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single();
         const cfg = row?.value ? JSON.parse(row.value) : {};
 
-        // Verificar acesso ao módulo
         const moduloNecessario = MODULO_DA_PAGINA[router.pathname];
         if (moduloNecessario && cfg.modulosAtivos?.length) {
           const temAcesso = cfg.modulosAtivos.includes(moduloNecessario);
@@ -112,7 +130,6 @@ function MyApp({ Component, pageProps }) {
           }
         }
 
-        // Verificar tenant status
         if (cfg.tenant_status === 'suspenso' || cfg.tenant_status === 'cancelado') {
           if (router.pathname !== '/dashboard') {
             router.replace('/dashboard');
@@ -121,7 +138,6 @@ function MyApp({ Component, pageProps }) {
           }
         }
 
-        // Verificar KPI obrigatório
         const kpiTemplates = cfg.kpiTemplates || [];
         if (!cfg.kpiRequired || kpiTemplates.length === 0) {
           setCheckingKpi(false);
