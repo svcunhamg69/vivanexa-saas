@@ -601,6 +601,23 @@ function openPrint(html,title){
 }
 
 // ── Detecção template DOCX ─────────────────────────────────
+// CSS que formata o HTML gerado pelo mammoth — igual ao da tela do chat
+// Embutido no HTML salvo no Supabase para que /sign/[token] renderize igual
+const MAMMOTH_CSS = `
+  body,div{font-family:'Calibri','Segoe UI',Arial,sans-serif;font-size:11pt;line-height:1.6;color:#1e293b}
+  p{margin:0 0 8px}
+  table{width:100%;border-collapse:collapse;margin:12px 0}
+  td,th{border:1px solid #cbd5e1;padding:6px 10px;vertical-align:top}
+  th{background:#f1f5f9;font-weight:700}
+  img{max-width:100%;height:auto}
+  strong,b{font-weight:700}
+  h1,h2,h3,h4{margin:0 0 8px;line-height:1.3}
+`
+
+function wrapMammothHtml(innerHtml) {
+  return `<div style="background:#fff;padding:60px 72px;font-family:Calibri,Segoe UI,Arial,sans-serif;font-size:11pt;line-height:1.6;color:#1e293b;max-width:820px;margin:0 auto"><style>${MAMMOTH_CSS}</style>${innerHtml}</div>`
+}
+
 function detectarTipoTemplate(template) {
   if (!template) return 'html'
   if (template.startsWith('data:application/vnd') || template.startsWith('data:application/octet') || template.startsWith('data:application/zip')) return 'docx'
@@ -1637,7 +1654,8 @@ export default function Chat(){
               const ab = await blob.arrayBuffer()
               const {value: htmlDocx} = await window.mammoth.convertToHtml({arrayBuffer:ab})
               if (htmlDocx && doc.signToken) {
-                await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify({...doc,html:htmlDocx,tipo:'proposta',type:'proposta'}),updated_at:new Date().toISOString()},{onConflict:'key'})
+                const htmlComCss = wrapMammothHtml(htmlDocx)
+                await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify({...doc,html:htmlComCss,tipo:'proposta',type:'proposta'}),updated_at:new Date().toISOString()},{onConflict:'key'})
               }
             } catch(e){console.warn('Erro ao salvar HTML mammoth proposta:',e)}
           })
@@ -1712,7 +1730,8 @@ export default function Chat(){
                 const ab = await blob.arrayBuffer()
                 const {value: htmlDocx} = await window.mammoth.convertToHtml({arrayBuffer:ab})
                 if (htmlDocx && doc.signToken) {
-                  await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify({...doc,html:htmlDocx,tipo:'contrato',type:'contrato'}),updated_at:new Date().toISOString()},{onConflict:'key'})
+                  const htmlComCss = wrapMammothHtml(htmlDocx)
+                  await supabase.from('vx_storage').upsert({key:`doc:${doc.signToken}`,value:JSON.stringify({...doc,html:htmlComCss,tipo:'contrato',type:'contrato'}),updated_at:new Date().toISOString()},{onConflict:'key'})
                 }
               } catch(e){console.warn('Erro ao salvar HTML mammoth contrato:',e)}
             })
