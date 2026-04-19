@@ -10,13 +10,19 @@ const LOGO_B64 = '/logo.png'
 
 export default function Login() {
   const router = useRouter()
-  const [login,    setLogin]    = useState('')   // aceita email OU username
+  const [login,    setLogin]    = useState('')
   const [password, setPassword] = useState('')
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
+    // Se já tem sub-usuário salvo, redireciona direto
+    try {
+      const su = sessionStorage.getItem('vx_subuser')
+      if (su) { router.replace('/dashboard'); return }
+    } catch {}
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         router.replace('/dashboard')
@@ -31,17 +37,8 @@ export default function Login() {
     return () => listener.subscription.unsubscribe()
   }, [router])
 
-  // ─── Tenta autenticar via Supabase Auth (admin/dono da empresa) ─────────
-  async function tentarAuthSupabase(email, senha) {
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password: senha })
-    return !err
-  }
-
-  // ─── Tenta autenticar via cfg.users (sub-usuário cadastrado no painel) ──
-  // Percorre todos os registros vx_storage procurando o usuário pelo username ou email
   async function tentarAuthSubUser(loginDigitado, senhaDigitada) {
     try {
-      // Busca todos os cfg de todas as empresas
       const { data: rows, error } = await supabase
         .from('vx_storage')
         .select('key, value')
@@ -62,9 +59,8 @@ export default function Login() {
         )
 
         if (encontrado) {
-          // Extrai empresaId da key "cfg:EMPRESA_ID"
           const empresaId = row.key.replace('cfg:', '')
-          return { user: encontrado, empresaId, cfg }
+          return { user: encontrado, empresaId }
         }
       }
       return null
@@ -80,49 +76,32 @@ export default function Login() {
     setError('')
 
     const loginTrim = login.trim()
-
-    // 1️⃣ Tenta primeiro pelo Supabase Auth (admin/dono — usa e-mail)
     const isEmail = loginTrim.includes('@')
+
+    // 1️⃣ Tenta Supabase Auth (admin/dono da conta)
     if (isEmail) {
-      const ok = await tentarAuthSupabase(loginTrim, password)
-      if (ok) return // _app.js vai pegar a sessão e redirecionar
+      const { error: err } = await supabase.auth.signInWithPassword({ email: loginTrim, password })
+      if (!err) return // onAuthStateChange vai redirecionar
     }
 
-    // 2️⃣ Se falhou ou não é email, tenta como sub-usuário em cfg.users
+    // 2️⃣ Tenta como sub-usuário (cfg.users)
     const subUser = await tentarAuthSubUser(loginTrim, password)
 
     if (subUser) {
-      // Sub-usuário autenticado: salva os dados na sessão do browser
-      // e redireciona para o dashboard
-      sessionStorage.setItem('vx_subuser', JSON.stringify({
-        id:        subUser.user.id,
-        nome:      subUser.user.nome,
-        email:     subUser.user.email,
-        username:  subUser.user.username,
-        tipo:      subUser.user.tipo || 'vendedor',
+      // Salva nos dois storages para garantir persistência entre navegações
+      const dados = JSON.stringify({
+        id:         subUser.user.id,
+        nome:       subUser.user.nome,
+        email:      subUser.user.email,
+        username:   subUser.user.username,
+        tipo:       subUser.user.tipo || 'vendedor',
         permissoes: subUser.user.permissoes || [],
-        empresaId: subUser.empresaId,
-      }))
+        empresaId:  subUser.empresaId,
+      })
+      sessionStorage.setItem('vx_subuser', dados)
+      localStorage.setItem('vx_subuser', dados)   // backup — persiste entre abas
       router.replace('/dashboard')
       return
-    }
-
-    // 3️⃣ Se era email e não achou no Supabase Auth, tenta também como sub-usuário
-    if (isEmail) {
-      const subUserByEmail = await tentarAuthSubUser(loginTrim, password)
-      if (subUserByEmail) {
-        sessionStorage.setItem('vx_subuser', JSON.stringify({
-          id:        subUserByEmail.user.id,
-          nome:      subUserByEmail.user.nome,
-          email:     subUserByEmail.user.email,
-          username:  subUserByEmail.user.username,
-          tipo:      subUserByEmail.user.tipo || 'vendedor',
-          permissoes: subUserByEmail.user.permissoes || [],
-          empresaId: subUserByEmail.empresaId,
-        }))
-        router.replace('/dashboard')
-        return
-      }
     }
 
     setError('Usuário ou senha incorretos.')
