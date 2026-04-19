@@ -15,43 +15,41 @@ import Head from 'next/head'
 import { supabase } from '../lib/supabase'
 import Navbar from '../components/Navbar'
 
-// ============================================================
-// PATCH: pages/chat.js — DocumentoPreviewModal (v9)
-// 
-// MUDANÇAS:
-// 1. Botão "Enviar para Cliente" agora mostra SEMPRE: copiar link, WhatsApp, email, imprimir, baixar, assinar em tela
-// 2. Proposta e Contrato — mesma grade de ações unificada
-// 3. Link copiável disponível ANTES de gerar assinatura
-// 4. Garante que template DOCX salvo em Configurações → Documentos seja usado
-//
-// SUBSTITUA a função DocumentoPreviewModal inteira pelo código abaixo:
-// ============================================================
 
+// ══════════════════════════════════════════════════════════════
+// COMPONENTE DocumentoPreviewModal — v9
+// • Todos os botões de ação visíveis de uma vez
+// • Copiar Link, WhatsApp, E-mail, Assinar em Tela, Imprimir, Baixar DOCX, CRM
+// • Botão "← Voltar ao Chat" sempre visível
+// • DOCX real renderizado em tela via docx-preview
+// ══════════════════════════════════════════════════════════════
 function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {
-  const [enviandoAss,    setEnviandoAss]    = React.useState(false)
-  const [linkAssinatura, setLinkAssinatura]  = React.useState('')
-  const [msgEnvio,       setMsgEnvio]        = React.useState('')
-  const [showEnvioOpc,   setShowEnvioOpc]    = React.useState(false)
-  const [emailEnvio,     setEmailEnvio]      = React.useState('')
-  const [salvandoCRM,    setSalvandoCRM]     = React.useState(false)
-  const [docxBaixado,    setDocxBaixado]     = React.useState(false)
-  const [docxRenderHtml, setDocxRenderHtml]  = React.useState('')
-  const [docxCarregando, setDocxCarregando]  = React.useState(false)
-  const [signToken,      setSignToken]       = React.useState('')
+  const [enviandoAss,    setEnviandoAss]    = useState(false)
+  const [linkAssinatura, setLinkAssinatura]  = useState('')
+  const [msgEnvio,       setMsgEnvio]        = useState('')
+  const [emailEnvio,     setEmailEnvio]      = useState('')
+  const [salvandoCRM,    setSalvandoCRM]     = useState(false)
+  const [docxBaixado,    setDocxBaixado]     = useState(false)
+  const [docxRenderHtml, setDocxRenderHtml]  = useState('')
+  const [docxCarregando, setDocxCarregando]  = useState(false)
+  const [linkGerado,     setLinkGerado]      = useState(false)
 
+  // IMPORTANTE: todos os hooks ANTES de qualquer return condicional
   const _hasDocx   = docPreview?.hasDocx
   const _signToken = docPreview?.signToken
 
-  // ── Gera token de assinatura ao montar (para ter link copiável imediatamente) ──
-  React.useEffect(() => {
-    if (!docPreview) return
-    const tok = docPreview.signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    setSignToken(tok)
-    setEmailEnvio(docPreview.clienteEmail || '')
-  }, [docPreview?.signToken])
+  // Gera URL base e link de assinatura a partir do token já existente no docPreview
+  const baseUrl  = (typeof window !== 'undefined')
+    ? (cfg?.signConfig?.url || window.location.origin)
+    : 'https://vivanexa-saas.vercel.app'
+  const linkSign = _signToken ? `${baseUrl}/sign/${_signToken}` : ''
 
-  // ── Renderiza DOCX em tela via docx-preview ──
-  React.useEffect(() => {
+  useEffect(() => {
+    if (docPreview?.clienteEmail && !emailEnvio) setEmailEnvio(docPreview.clienteEmail)
+  }, [docPreview?.clienteEmail])
+
+  // ── Renderiza o DOCX em tela via docx-preview ──
+  useEffect(() => {
     if (!_hasDocx) { setDocxRenderHtml(''); return }
     const blob = window._vxDocxBlob?.blob
     if (!blob) {
@@ -95,19 +93,20 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
 
   if (!docPreview) return null
 
-  const { html, tipo, clienteEmail, clienteNome, clienteTel, hasDocx, docxNome } = docPreview
+  const { html, tipo, clienteEmail, clienteNome, clienteTel, signToken, hasDocx, docxNome } = docPreview
   const isContrato = tipo === 'contrato'
   const conteudoPreview = docxRenderHtml || html
 
-  // ── URL base e link de assinatura ──
-  const baseUrl = cfg?.signConfig?.url || (typeof window !== 'undefined' ? window.location.origin : '')
-  const linkSign = signToken ? `${baseUrl}/sign/${signToken}` : ''
-
-  // ── Copiar link ──
+  // ── Copiar Link ──
   function handleCopiarLink() {
-    if (!linkSign) { setMsgEnvio('⏳ Gerando link...'); return }
-    navigator.clipboard?.writeText(linkSign)
-    setMsgEnvio('✅ Link copiado! Cole onde quiser.')
+    if (!linkSign) { setMsgEnvio('⏳ Link ainda sendo gerado...'); return }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(linkSign).then(() => setMsgEnvio('✅ Link copiado! Cole onde quiser.'))
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = linkSign; document.body.appendChild(ta); ta.select(); document.execCommand('copy')
+      document.body.removeChild(ta); setMsgEnvio('✅ Link copiado!')
+    }
   }
 
   // ── Imprimir ──
@@ -130,8 +129,7 @@ function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfil
 <button class="print-btn" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
 ${conteudo}
 </body></html>`)
-    win.document.close()
-    win.focus()
+    win.document.close(); win.focus()
     setTimeout(() => win.print(), 800)
   }
 
@@ -142,8 +140,7 @@ ${conteudo}
       const a = document.createElement('a')
       a.href = url
       a.download = window._vxDocxBlob.nome || docxNome || (isContrato ? 'contrato.docx' : 'proposta.docx')
-      document.body.appendChild(a); a.click()
-      document.body.removeChild(a)
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
       URL.revokeObjectURL(url)
       setDocxBaixado(true)
       setMsgEnvio('✅ DOCX baixado com sucesso!')
@@ -160,12 +157,11 @@ ${conteudo}
     setSalvandoCRM(false)
   }
 
-  // ── Enviar para Assinatura — salva no Supabase e exibe link ──
+  // ── Gerar e Salvar Link de Assinatura no Supabase ──
   async function handleEnviarAssinatura() {
     setEnviandoAss(true); setMsgEnvio('')
     try {
       const tok = signToken || `${empresaId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-      if (!signToken) setSignToken(tok)
       const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
 
       const { data: existente } = await supabase.from('vx_storage').select('value').eq('key', `doc:${tok}`).maybeSingle()
@@ -177,7 +173,8 @@ ${conteudo}
         tipo, status: docAtual.status || 'pendente',
         criadoEm: docAtual.criadoEm || new Date().toISOString(), expiry,
         clienteNome: clienteNome || docAtual.clientName || '',
-        clienteName: clienteNome || '', clienteEmail: clienteEmail || '',
+        clienteName: clienteNome || '',
+        clienteEmail: clienteEmail || '',
         clienteTel: clienteTel || '',
         consultorNome: userProfile?.nome || '',
         consultorEmail: userProfile?.email || '',
@@ -197,28 +194,29 @@ ${conteudo}
         updated_at: new Date().toISOString(),
       }, { onConflict: 'key' })
 
-      setLinkAssinatura(`${baseUrl}/sign/${tok}`)
-      setShowEnvioOpc(true)
-      setMsgEnvio('✅ Link de assinatura gerado! Válido por 30 dias.')
+      const link = `${baseUrl}/sign/${tok}`
+      setLinkAssinatura(link)
+      setLinkGerado(true)
+      setMsgEnvio('✅ Link de assinatura salvo! Válido por 30 dias.')
     } catch (err) {
       setMsgEnvio(`❌ Erro ao gerar link: ${err.message}`)
     }
     setEnviandoAss(false)
   }
 
-  // ── Enviar por WhatsApp ──
+  // ── WhatsApp ──
   function handleWhatsapp() {
     const link = linkSign || linkAssinatura
-    const textoBase = isContrato
+    const texto = isContrato
       ? `📄 Olá ${clienteNome || 'cliente'}!\n\nSeu contrato está pronto para assinatura eletrônica.\n\n${link}\n\n_Válido por 30 dias._`
       : `Olá ${clienteNome || 'cliente'}! Segue a proposta comercial da ${cfg?.company || ''}.\n\nAcesse o link:\n${link}`
-    const msg = encodeURIComponent(textoBase)
+    const msg = encodeURIComponent(texto)
     const tel = (clienteTel || '').replace(/\D/g, '')
     window.open(tel ? `https://wa.me/${tel}?text=${msg}` : `https://wa.me/?text=${msg}`, '_blank')
     setMsgEnvio('✅ WhatsApp aberto!')
   }
 
-  // ── Enviar por E-mail ──
+  // ── E-mail ──
   function handleEmail() {
     const link = linkSign || linkAssinatura
     const subj = encodeURIComponent(isContrato
@@ -231,166 +229,143 @@ ${conteudo}
     setMsgEnvio('✅ E-mail aberto!')
   }
 
-  // ── Assinar em tela ──
+  // ── Assinar em Tela ──
   function handleAssinarTela() {
     const link = linkSign || linkAssinatura
     if (link) window.open(link, '_blank')
-    else setMsgEnvio('⏳ Gerando link de assinatura... Clique em "Enviar p/ Assinatura" primeiro.')
+    else setMsgEnvio('⏳ Clique em "🔗 Gerar Link" primeiro para criar o link de assinatura.')
   }
 
-  const btnStyle = (cor, disabled = false) => ({
+  const btnAcao = (cor, disabled = false) => ({
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-    padding: '10px 14px', borderRadius: 9, fontFamily: 'DM Mono, monospace',
-    fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
-    whiteSpace: 'nowrap', flex: '1 1 auto',
-    background: cor + '20', border: `1.5px solid ${cor}55`, color: cor,
-    opacity: disabled ? 0.6 : 1, transition: 'all .15s',
+    padding: '9px 13px', borderRadius: 9, fontFamily: 'DM Mono, monospace',
+    fontSize: 12, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer',
+    whiteSpace: 'nowrap', background: cor + '1a', border: `1.5px solid ${cor}50`,
+    color: cor, opacity: disabled ? 0.55 : 1, transition: 'all .15s',
   })
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 999,
-      background: '#060c1a', display: 'flex', flexDirection: 'column',
-      fontFamily: 'DM Mono, monospace',
-    }}>
-      {/* ── CABEÇALHO ── */}
-      <div style={{
-        background: '#080d1a', borderBottom: '1px solid #1e2d4a',
-        padding: '12px 16px', display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', flexShrink: 0, gap: 12, flexWrap: 'wrap',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 20 }}>{isContrato ? '📝' : '📄'}</div>
-          <div>
-            <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 800, color: '#e2e8f0', lineHeight: 1 }}>
-              {isContrato ? 'Contrato' : 'Proposta'} Comercial
+    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#07111f' }}>
+
+      {/* ══ BARRA TOPO: título + VOLTAR ══ */}
+      <div style={{ background: '#070c1a', borderBottom: '2px solid #1e2d4a', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', flexShrink: 0, gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <span style={{ fontSize: 22, flexShrink: 0 }}>{isContrato ? '📝' : '📋'}</span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, color: '#00d4ff', fontSize: 15, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {isContrato ? 'Contrato' : 'Proposta'} — {clienteNome || 'Cliente'}
             </div>
-            {clienteNome && (
-              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                Cliente: <span style={{ color: '#94a3b8' }}>{clienteNome}</span>
-              </div>
-            )}
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
+              {hasDocx ? `${docxNome || 'arquivo.docx'} · DOCX do template de Configurações` : 'template HTML'}
+            </div>
           </div>
         </div>
         <button
           onClick={onClose}
-          style={{
-            flexShrink: 0, display: 'flex', alignItems: 'center', gap: 7,
-            padding: '10px 18px', borderRadius: 10,
-            background: 'rgba(0,212,255,.15)', border: '2px solid rgba(0,212,255,.4)',
-            color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13,
-            fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap',
-          }}
+          style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', borderRadius: 10, background: 'rgba(0,212,255,.15)', border: '2px solid rgba(0,212,255,.4)', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
         >
           ← Voltar ao Chat
         </button>
       </div>
 
-      {/* ── GRADE DE AÇÕES ── */}
+      {/* ══ GRADE DE AÇÕES ══ */}
       <div style={{ background: '#0a1020', borderBottom: '1px solid #1e2d4a', padding: '10px 14px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 8 }}>
 
-          {/* Copiar Link — sempre disponível */}
+          {/* Copiar Link */}
           {linkSign && (
-            <button onClick={handleCopiarLink} style={btnStyle('#94a3b8')}>
+            <button onClick={handleCopiarLink} style={btnAcao('#94a3b8')}>
               📋 Copiar Link
             </button>
           )}
 
           {/* WhatsApp */}
-          <button onClick={handleWhatsapp} style={btnStyle('#25d366')}>
+          <button onClick={handleWhatsapp} style={btnAcao('#25d366')}>
             💬 WhatsApp
           </button>
 
           {/* E-mail */}
-          <button onClick={handleEmail} style={btnStyle('#00d4ff')}>
+          <button onClick={handleEmail} style={btnAcao('#00d4ff')}>
             📧 E-mail
           </button>
 
           {/* Assinar em Tela */}
-          <button onClick={handleAssinarTela} style={btnStyle('#f59e0b')}>
+          <button onClick={handleAssinarTela} style={btnAcao('#f59e0b')}>
             ✍️ Assinar em Tela
           </button>
 
-          {/* Gerar Link de Assinatura (persiste no Supabase) */}
-          <button onClick={handleEnviarAssinatura} disabled={enviandoAss} style={btnStyle('#a78bfa', enviandoAss)}>
-            {enviandoAss ? '⏳ Gerando...' : '🔗 Gerar Link Assinatura'}
+          {/* Gerar/Salvar Link de Assinatura no Supabase */}
+          <button onClick={handleEnviarAssinatura} disabled={enviandoAss} style={btnAcao('#a78bfa', enviandoAss)}>
+            {enviandoAss ? '⏳ Gerando...' : linkGerado ? '✅ Link Salvo' : '🔗 Gerar Link'}
           </button>
 
           {/* Imprimir */}
           {conteudoPreview && (
-            <button onClick={handleImprimir} style={btnStyle('#ec4899')}>
+            <button onClick={handleImprimir} style={btnAcao('#ec4899')}>
               🖨 Imprimir / PDF
             </button>
           )}
 
           {/* Baixar DOCX */}
           {hasDocx && (
-            <button onClick={handleBaixarDocx} style={btnStyle('#7c3aed')}>
+            <button onClick={handleBaixarDocx} style={btnAcao('#7c3aed')}>
               {docxBaixado ? '✅ DOCX Baixado' : '💾 Baixar DOCX'}
             </button>
           )}
 
           {/* Salvar no CRM */}
-          <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={btnStyle('#10b981', salvandoCRM)}>
+          <button onClick={handleSalvarCRM} disabled={salvandoCRM} style={btnAcao('#10b981', salvandoCRM)}>
             {salvandoCRM ? '⏳ Salvando...' : '💼 Salvar no CRM'}
           </button>
         </div>
 
-        {/* Campo e-mail para envio */}
-        <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
+        {/* Campo e-mail + link visível */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             value={emailEnvio}
             onChange={e => setEmailEnvio(e.target.value)}
-            placeholder="E-mail do cliente para envio..."
-            style={{
-              flex: 1, background: '#111827', border: '1px solid #1e2d4a',
-              borderRadius: 8, padding: '7px 12px', color: '#94a3b8',
-              fontFamily: 'DM Mono, monospace', fontSize: 12, outline: 'none',
-              maxWidth: 320,
-            }}
+            placeholder="E-mail do cliente..."
+            style={{ background: '#111827', border: '1px solid #1e2d4a', borderRadius: 7, padding: '6px 11px', color: '#94a3b8', fontFamily: 'DM Mono, monospace', fontSize: 11, outline: 'none', width: 240 }}
           />
           {linkSign && (
-            <code style={{ fontSize: 10, color: '#334155', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              🔗 {linkSign}
-            </code>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#111827', border: '1px solid #1e2d4a', borderRadius: 7, padding: '5px 10px', flex: 1, minWidth: 0 }}>
+              <code style={{ fontSize: 10, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>🔗 {linkSign}</code>
+              <button onClick={handleCopiarLink} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, padding: '2px 4px' }}>📋</button>
+            </div>
           )}
         </div>
       </div>
 
-      {/* ── STATUS ── */}
+      {/* ══ STATUS ══ */}
       {msgEnvio && (
-        <div style={{
-          padding: '8px 16px', flexShrink: 0, fontSize: 13,
-          background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)',
-          borderBottom: '1px solid rgba(16,185,129,.15)',
-          color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444',
-        }}>
+        <div style={{ padding: '8px 16px', background: msgEnvio.startsWith('✅') ? 'rgba(16,185,129,.12)' : msgEnvio.startsWith('⏳') ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.12)', borderBottom: '1px solid rgba(16,185,129,.2)', fontSize: 13, color: msgEnvio.startsWith('✅') ? '#10b981' : msgEnvio.startsWith('⏳') ? '#f59e0b' : '#ef4444', flexShrink: 0 }}>
           {msgEnvio}
         </div>
       )}
 
-      {/* Link gerado via "Gerar Link Assinatura" */}
-      {showEnvioOpc && linkAssinatura && (
+      {/* Link de assinatura gerado/salvo */}
+      {linkGerado && linkAssinatura && (
         <div style={{ background: '#0d1526', borderBottom: '1px solid #1e2d4a', padding: '10px 16px', flexShrink: 0 }}>
           <div style={{ fontSize: 11, color: '#64748b', letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 6 }}>Link de assinatura salvo — válido 30 dias</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <code style={{ fontSize: 11, color: '#00d4ff', wordBreak: 'break-all', flex: 1, lineHeight: 1.5, background: '#111827', border: '1px solid #1e2d4a', borderRadius: 6, padding: '6px 10px' }}>
               {linkAssinatura}
             </code>
-            <button
-              onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio('✅ Link copiado!') }}
-              style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 7, background: '#00d4ff15', border: '1px solid #00d4ff40', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-            >
-              📋 Copiar
-            </button>
+            <button onClick={() => { navigator.clipboard?.writeText(linkAssinatura); setMsgEnvio('✅ Link copiado!') }}
+              style={{ flexShrink: 0, padding: '6px 12px', borderRadius: 7, background: '#00d4ff15', border: '1px solid #00d4ff40', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>📋 Copiar</button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <button onClick={handleWhatsapp} style={{ flex: '1 1 120px', padding: '9px 14px', borderRadius: 9, background: '#25d36620', border: '1.5px solid #25d36655', color: '#25d366', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>💬 WhatsApp</button>
+            <button onClick={handleEmail} style={{ flex: '1 1 120px', padding: '9px 14px', borderRadius: 9, background: '#00d4ff18', border: '1.5px solid #00d4ff44', color: '#00d4ff', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>📧 E-mail</button>
+            <button onClick={() => window.open(linkAssinatura, '_blank')} style={{ flex: '1 1 120px', padding: '9px 14px', borderRadius: 9, background: '#f59e0b18', border: '1.5px solid #f59e0b44', color: '#f59e0b', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🖊 Assinar agora</button>
           </div>
         </div>
       )}
 
-      {/* ── ÁREA DE PREVIEW ── */}
+      {/* ══ ÁREA DE PREVIEW ══ */}
       <div style={{ flex: 1, overflow: 'auto', background: '#f0f4f8', position: 'relative' }}>
 
+        {/* Carregando DOCX */}
         {docxCarregando && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(7,17,31,.85)', zIndex: 10 }}>
             <div style={{ textAlign: 'center' }}>
@@ -401,7 +376,7 @@ ${conteudo}
           </div>
         )}
 
-        {/* DOCX renderizado */}
+        {/* DOCX renderizado (documento real com variáveis preenchidas) */}
         {docxRenderHtml && !docxCarregando && (
           <div style={{ padding: '24px 16px 60px', background: '#e2e8f0' }}>
             <style>{`.docx-render section.docx { margin: 0 auto; box-shadow: 0 4px 32px rgba(0,0,0,.2); } .docx-render { max-width: 900px; margin: 0 auto; }`}</style>
@@ -409,7 +384,7 @@ ${conteudo}
           </div>
         )}
 
-        {/* HTML interno */}
+        {/* HTML interno (quando template é HTML puro, não DOCX) */}
         {!hasDocx && html && !docxCarregando && (
           <div style={{ padding: '24px 16px 60px' }}>
             <div
@@ -419,7 +394,7 @@ ${conteudo}
           </div>
         )}
 
-        {/* Sem documento */}
+        {/* Sem documento — orienta usuário */}
         {!docxRenderHtml && !html && !docxCarregando && (
           <div style={{ maxWidth: 500, margin: '80px auto', background: '#111827', border: '1px solid #1e2d4a', borderRadius: 16, padding: 40, textAlign: 'center' }}>
             <div style={{ fontSize: 56, marginBottom: 16 }}>📄</div>
@@ -443,22 +418,7 @@ ${conteudo}
   )
 }
 
-// =====================================================================
-// INSTRUÇÕES DE APLICAÇÃO
-// =====================================================================
-// 
-// 1. No arquivo pages/chat.js, localize a linha:
-//    "function DocumentoPreviewModal({ docPreview, onClose, cfg, empresaId, userProfile, onSalvarCRM }) {"
-//
-// 2. Selecione TODA a função até o fechamento "})" da função (antes de "// Config padrão")
-//
-// 3. Substitua pela função acima (remova o comentário de instrução no topo)
-//
-// NOTA: O import do supabase já existe no chat.js — não adicione de novo.
-// =====================================================================
 
-
-// ══════════════════════════════════════════════════════════════
 // Config padrão
 // ══════════════════════════════════════════════════════════════
 const DEFAULT_CFG = {
