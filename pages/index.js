@@ -1,5 +1,6 @@
 // pages/index.js — Login Vivanexa SaaS
 // Após login bem-sucedido redireciona para /dashboard
+// CORREÇÃO: suporte a sub-usuários cadastrados em cfg.users (login por username/email + senha)
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
@@ -9,7 +10,7 @@ const LOGO_B64 = '/logo.png'
 
 export default function Login() {
   const router = useRouter()
-  const [email,    setEmail]    = useState('')
+  const [login,    setLogin]    = useState('')   // aceita email OU username
   const [password, setPassword] = useState('')
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
@@ -18,35 +19,117 @@ export default function Login() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        router.replace('/dashboard') // ← Redireciona para o dashboard
+        router.replace('/dashboard')
       } else {
         setChecking(false)
       }
     })
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) router.replace('/dashboard') // ← Redireciona para o dashboard
+      if (session) router.replace('/dashboard')
     })
     return () => listener.subscription.unsubscribe()
   }, [router])
 
-  async function handleLogin(e) {
-    e.preventDefault()
-    if (!email || !password) { setError('Preencha e-mail e senha.'); return }
-    setLoading(true)
-    setError('')
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password })
-    if (err) {
-      setError(
-        err.message === 'Invalid login credentials'
-          ? 'Usuário ou senha incorretos.'
-          : err.message
-      )
-      setLoading(false)
+  // ─── Tenta autenticar via Supabase Auth (admin/dono da empresa) ─────────
+  async function tentarAuthSupabase(email, senha) {
+    const { error: err } = await supabase.auth.signInWithPassword({ email, password: senha })
+    return !err
+  }
+
+  // ─── Tenta autenticar via cfg.users (sub-usuário cadastrado no painel) ──
+  // Percorre todos os registros vx_storage procurando o usuário pelo username ou email
+  async function tentarAuthSubUser(loginDigitado, senhaDigitada) {
+    try {
+      // Busca todos os cfg de todas as empresas
+      const { data: rows, error } = await supabase
+        .from('vx_storage')
+        .select('key, value')
+        .like('key', 'cfg:%')
+
+      if (error || !rows) return null
+
+      for (const row of rows) {
+        let cfg
+        try { cfg = JSON.parse(row.value) } catch { continue }
+
+        const users = cfg.users || []
+        const encontrado = users.find(u =>
+          u && (
+            (u.username && u.username.toLowerCase() === loginDigitado.toLowerCase()) ||
+            (u.email    && u.email.toLowerCase()    === loginDigitado.toLowerCase())
+          ) && u.password === senhaDigitada
+        )
+
+        if (encontrado) {
+          // Extrai empresaId da key "cfg:EMPRESA_ID"
+          const empresaId = row.key.replace('cfg:', '')
+          return { user: encontrado, empresaId, cfg }
+        }
+      }
+      return null
+    } catch {
+      return null
     }
   }
 
-  function handleKeyEmail(e) { if (e.key === 'Enter') document.getElementById('lp').focus() }
+  async function handleLogin(e) {
+    e.preventDefault()
+    if (!login || !password) { setError('Preencha login e senha.'); return }
+    setLoading(true)
+    setError('')
+
+    const loginTrim = login.trim()
+
+    // 1️⃣ Tenta primeiro pelo Supabase Auth (admin/dono — usa e-mail)
+    const isEmail = loginTrim.includes('@')
+    if (isEmail) {
+      const ok = await tentarAuthSupabase(loginTrim, password)
+      if (ok) return // _app.js vai pegar a sessão e redirecionar
+    }
+
+    // 2️⃣ Se falhou ou não é email, tenta como sub-usuário em cfg.users
+    const subUser = await tentarAuthSubUser(loginTrim, password)
+
+    if (subUser) {
+      // Sub-usuário autenticado: salva os dados na sessão do browser
+      // e redireciona para o dashboard
+      sessionStorage.setItem('vx_subuser', JSON.stringify({
+        id:        subUser.user.id,
+        nome:      subUser.user.nome,
+        email:     subUser.user.email,
+        username:  subUser.user.username,
+        tipo:      subUser.user.tipo || 'vendedor',
+        permissoes: subUser.user.permissoes || [],
+        empresaId: subUser.empresaId,
+      }))
+      router.replace('/dashboard')
+      return
+    }
+
+    // 3️⃣ Se era email e não achou no Supabase Auth, tenta também como sub-usuário
+    if (isEmail) {
+      const subUserByEmail = await tentarAuthSubUser(loginTrim, password)
+      if (subUserByEmail) {
+        sessionStorage.setItem('vx_subuser', JSON.stringify({
+          id:        subUserByEmail.user.id,
+          nome:      subUserByEmail.user.nome,
+          email:     subUserByEmail.user.email,
+          username:  subUserByEmail.user.username,
+          tipo:      subUserByEmail.user.tipo || 'vendedor',
+          permissoes: subUserByEmail.user.permissoes || [],
+          empresaId: subUserByEmail.empresaId,
+        }))
+        router.replace('/dashboard')
+        return
+      }
+    }
+
+    setError('Usuário ou senha incorretos.')
+    setLoading(false)
+  }
+
+  function handleKeyLogin(e) { if (e.key === 'Enter') document.getElementById('lp').focus() }
   function handleKeyPass(e)  { if (e.key === 'Enter') handleLogin(e) }
 
   if (checking) {
@@ -86,9 +169,10 @@ export default function Login() {
 
           <form onSubmit={handleLogin} noValidate>
             <div className="login-field">
-              <label htmlFor="le">E-MAIL</label>
-              <input id="le" type="email" placeholder="seu@email.com" autoComplete="email"
-                value={email} onChange={e => setEmail(e.target.value)} onKeyDown={handleKeyEmail} />
+              <label htmlFor="le">E-MAIL OU USUÁRIO</label>
+              <input id="le" type="text" placeholder="seu@email.com ou username"
+                autoComplete="username"
+                value={login} onChange={e => setLogin(e.target.value)} onKeyDown={handleKeyLogin} />
             </div>
 
             <div className="login-field">
@@ -106,9 +190,9 @@ export default function Login() {
 
           <div style={{ textAlign: 'center', marginTop: '14px' }}>
             <button className="forgot-link" onClick={async () => {
-              if (!email) { setError('Digite seu e-mail antes de continuar.'); return }
+              if (!login.includes('@')) { setError('Para redefinir senha, informe seu e-mail.'); return }
               setError('')
-              const { error: err } = await supabase.auth.resetPasswordForEmail(email)
+              const { error: err } = await supabase.auth.resetPasswordForEmail(login.trim())
               if (err) setError(err.message)
               else setError('✅ Link de redefinição enviado para seu e-mail!')
             }}>
