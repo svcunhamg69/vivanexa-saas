@@ -339,7 +339,8 @@ export default function CRM() {
         smtpPort:cfg.smtpPort||587,
         smtpUser:cfg.smtpUser,
         smtpPass:cfg.smtpPass,
-        apiKey:cfg.apiKey||cfg.brevoApiKey||'',  // fallback para Brevo/SendGrid
+        apiKey:cfg.apiKey||cfg.brevoApiKey||'',
+        emailRemetente:cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||'',
         nomeRemetente:cfg.company||'Vivanexa'
       }:null
       const resp=await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
