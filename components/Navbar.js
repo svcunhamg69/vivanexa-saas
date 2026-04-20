@@ -90,8 +90,10 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   }, [perfil])
 
   // Busca a logo do Supabase se não veio pela prop cfg
+  // ✅ FIX v10: A logo é salva em chave separada (logo:${eid}) pelo salvarStorage().
+  // O cfg principal NÃO contém logob64 (foi removido para evitar JSON gigante).
+  // Por isso buscamos sempre a chave logo: independentemente do cfg recebido.
   useEffect(() => {
-    if (cfg?.logob64) { setCfgLocal(cfg); return }
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) return
       let eid = null
@@ -103,10 +105,18 @@ export default function Navbar({ cfg = {}, perfil = null }) {
         const { data: p } = await supabase.from('perfis').select('empresa_id').eq('user_id', session.user.id).maybeSingle()
         eid = p?.empresa_id || session.user.id
       }
+      // Carrega cfg principal
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).maybeSingle()
+      let cfgCarregado = cfg || {}
       if (row?.value) {
-        try { setCfgLocal(JSON.parse(row.value)) } catch {}
+        try { cfgCarregado = JSON.parse(row.value) } catch {}
       }
+      // ✅ Busca logo da chave separada (salvarStorage sempre separa a logo)
+      if (!cfgCarregado.logob64) {
+        const { data: logoRow } = await supabase.from('vx_storage').select('value').eq('key', `logo:${eid}`).maybeSingle()
+        if (logoRow?.value) cfgCarregado = { ...cfgCarregado, logob64: logoRow.value }
+      }
+      setCfgLocal(cfgCarregado)
     })
   }, [cfg])
 
