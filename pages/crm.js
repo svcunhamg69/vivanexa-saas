@@ -334,13 +334,15 @@ export default function CRM() {
     if(!emailDest||!emailAssunto){showToast('⚠️ Preencha destinatário e assunto.');return}
     setEmailSending(true)
     try{
+      // ✅ FIX: campo correto é emailApiKey (salvo em Configurações → Empresa → API Key)
+      // Mantém fallbacks para retrocompatibilidade com instalações antigas
       const smtpCfg=cfg.smtpHost?{
         smtpHost:cfg.smtpHost,
         smtpPort:cfg.smtpPort||587,
         smtpUser:cfg.smtpUser,
         smtpPass:cfg.smtpPass,
-        apiKey:cfg.apiKey||cfg.brevoApiKey||cfg.api_key||cfg.smtpPass||'',
-        emailRemetente:cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||'',
+        apiKey:cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.api_key||cfg.smtpPass||'',
+        emailRemetente:cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||cfg.emailEmp||'',
         nomeRemetente:cfg.company||'Vivanexa'
       }:null
       const resp=await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
