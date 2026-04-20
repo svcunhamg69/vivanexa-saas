@@ -2400,79 +2400,159 @@ function GoogleAgendaForm({ cfg, setCfg, empresaId, s, setMsg }) {
   )
 }
 
-// ABA WHATSAPP
+// ABA WHATSAPP — v2 Multi-Instâncias
+// ══════════════════════════════════════════════
+// Suporta múltiplos números WhatsApp (Evolution API).
+// Estrutura salva em cfg.wppInbox:
+// {
+//   provider: 'evolution' | 'meta',
+//   evolutionUrl: string,        ← URL global (compartilhada)
+//   evolutionKey: string,        ← API Key global (compartilhada)
+//   instancias: [                ← array de números conectados
+//     { id, nome, instance, ativo, status }
+//   ],
+//   instanciaAtiva: string,      ← id da instância padrão do Inbox
+// }
 // ══════════════════════════════════════════════
 function TabWhatsapp({ cfg, setCfg, empresaId }) {
-  const [provider,  setProvider]  = React.useState(cfg.wppInbox?.provider  || 'evolution')
-  const [evoUrl,    setEvoUrl]    = React.useState(cfg.wppInbox?.evolutionUrl || '')
-  const [evoKey,    setEvoKey]    = React.useState(cfg.wppInbox?.evolutionKey || '')
-  const [evoInst,   setEvoInst]   = React.useState(cfg.wppInbox?.evolutionInstance || '')
-  const [evoStatus, setEvoStatus] = React.useState(null)
-  const [qrCode,    setQrCode]    = React.useState(null)
-  const [wppTags,   setWppTags]   = React.useState(cfg.wppTags || [
+  const wppInbox = cfg.wppInbox || {}
+
+  const [provider,       setProvider]       = React.useState(wppInbox.provider || 'evolution')
+  const [evoUrl,         setEvoUrl]         = React.useState(wppInbox.evolutionUrl || '')
+  const [evoKey,         setEvoKey]         = React.useState(wppInbox.evolutionKey || '')
+  const [instancias,     setInstancias]     = React.useState(() => {
+    // Migração: se tinha configuração antiga de instância única, converte para array
+    if (wppInbox.instancias?.length) return wppInbox.instancias
+    if (wppInbox.evolutionInstance) {
+      return [{ id: 'inst_1', nome: 'Principal', instance: wppInbox.evolutionInstance, ativo: true, status: null }]
+    }
+    return []
+  })
+  const [instanciaAtiva, setInstanciaAtiva] = React.useState(wppInbox.instanciaAtiva || '')
+  const [wppTags,        setWppTags]        = React.useState(cfg.wppTags || [
     { id: 'lead_frio',    label: 'Lead Frio',    cor: '#64748b' },
     { id: 'lead_quente',  label: 'Lead Quente',  cor: '#ef4444' },
     { id: 'dor_demora',   label: 'Dor: Demora',  cor: '#f59e0b' },
     { id: 'dor_controle', label: 'Dor: Controle',cor: '#7c3aed' },
   ])
-  const [novaTagLabel, setNovaTagLabel] = React.useState('')
-  const [novaTagCor,   setNovaTagCor]   = React.useState('#10b981')
-  const [saving,    setSaving]    = React.useState(false)
-  const [checking,  setChecking]  = React.useState(false)
-  const [msg,       setMsg]       = React.useState('')
+
+  // Formulário para nova/edição de instância
+  const [formInst,      setFormInst]      = React.useState(null) // null = fechado
+  const [editInstIdx,   setEditInstIdx]   = React.useState(null)
+  const [qrCodes,       setQrCodes]       = React.useState({})   // { [instId]: qrBase64 }
+  const [statusMap,     setStatusMap]     = React.useState({})   // { [instId]: 'open'|'close'|'connecting' }
+  const [loadingInst,   setLoadingInst]   = React.useState({})   // { [instId]: bool }
+
+  const [novaTagLabel,  setNovaTagLabel]  = React.useState('')
+  const [novaTagCor,    setNovaTagCor]    = React.useState('#10b981')
+  const [saving,        setSaving]        = React.useState(false)
+  const [msg,           setMsg]           = React.useState('')
 
   const st = {
-    card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px', marginBottom: 16 },
-    label: { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
-    input: { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
-    btn:   { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
-    btnSec:{ padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
-    h:     { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 },
-    sec:   { fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 12 },
+    card:    { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px', marginBottom: 16 },
+    cardInst:{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', marginBottom: 10 },
+    label:   { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
+    input:   { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
+    btn:     { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+    btnSec:  { padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
+    btnDanger:{ padding: '7px 12px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' },
+    btnGreen:{ padding: '7px 12px', borderRadius: 8, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.2)', color: '#10b981', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' },
+    h:       { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 },
+    sec:     { fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 12 },
   }
 
+  // ── Salvar tudo ──────────────────────────────
   async function salvar() {
     setSaving(true); setMsg('')
     try {
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
       const atual = row?.value ? JSON.parse(row.value) : {}
-      const novo  = { ...atual, wppTags, wppInbox: { provider, evolutionUrl: evoUrl, evolutionKey: evoKey, evolutionInstance: evoInst } }
+      const novoWppInbox = {
+        provider,
+        evolutionUrl: evoUrl,
+        evolutionKey: evoKey,
+        instancias,
+        instanciaAtiva: instanciaAtiva || instancias[0]?.id || '',
+        // retrocompatibilidade — mantém evolutionInstance apontando para a ativa
+        evolutionInstance: instancias.find(i => i.id === instanciaAtiva)?.instance || instancias[0]?.instance || '',
+      }
+      const novo = { ...atual, wppTags, wppInbox: novoWppInbox }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
-      setCfg(novo); setMsg('✅ Configurações salvas!')
+      setCfg(novo)
+      setMsg('✅ Configurações salvas!')
     } catch (e) { setMsg('❌ Erro: ' + e.message) }
     setSaving(false)
   }
 
-  async function verificarConexao() {
-    if (!evoUrl || !evoKey || !evoInst) { setMsg('⚠️ Preencha URL, Key e Instance primeiro'); return }
-    setChecking(true); setMsg('')
+  // ── Gerenciar instâncias ──────────────────────
+  function abrirFormNova() {
+    setFormInst({ nome: '', instance: '' })
+    setEditInstIdx('novo')
+  }
+
+  function abrirFormEditar(i) {
+    setFormInst({ ...instancias[i] })
+    setEditInstIdx(i)
+  }
+
+  function salvarInstancia() {
+    if (!formInst.nome.trim() || !formInst.instance.trim()) {
+      setMsg('⚠️ Preencha o nome e o nome da instância'); return
+    }
+    if (editInstIdx === 'novo') {
+      const novaInst = { id: 'inst_' + Date.now(), nome: formInst.nome.trim(), instance: formInst.instance.trim(), ativo: true, status: null }
+      const novas = [...instancias, novaInst]
+      setInstancias(novas)
+      if (!instanciaAtiva) setInstanciaAtiva(novaInst.id)
+    } else {
+      setInstancias(prev => prev.map((inst, i) => i === editInstIdx ? { ...inst, nome: formInst.nome.trim(), instance: formInst.instance.trim() } : inst))
+    }
+    setFormInst(null); setEditInstIdx(null); setMsg('')
+  }
+
+  function removerInstancia(i) {
+    if (!confirm('Remover esta instância?')) return
+    const removida = instancias[i]
+    const novas = instancias.filter((_, j) => j !== i)
+    setInstancias(novas)
+    if (instanciaAtiva === removida.id) setInstanciaAtiva(novas[0]?.id || '')
+  }
+
+  // ── Verificar status de uma instância ────────
+  async function verificarStatus(inst) {
+    if (!evoUrl || !evoKey) { setMsg('⚠️ Preencha URL e API Key primeiro e salve'); return }
+    setLoadingInst(prev => ({ ...prev, [inst.id]: 'checking' }))
     try {
-      const r = await fetch(`${evoUrl}/instance/connectionState/${evoInst}`, { headers: { 'apikey': evoKey } })
+      const r = await fetch(`${evoUrl}/instance/connectionState/${inst.instance}`, { headers: { 'apikey': evoKey } })
       const d = await r.json()
       const estado = d?.instance?.state || d?.state || 'unknown'
-      setEvoStatus(estado)
-      setMsg(estado === 'open' ? '✅ WhatsApp conectado!' : `⚠️ Status: ${estado}`)
-    } catch (e) { setMsg('❌ Erro: ' + e.message) }
-    setChecking(false)
+      setStatusMap(prev => ({ ...prev, [inst.id]: estado }))
+      setMsg(estado === 'open' ? `✅ ${inst.nome}: Conectado!` : `⚠️ ${inst.nome}: ${estado}`)
+    } catch (e) { setMsg('❌ Erro ao verificar: ' + e.message) }
+    setLoadingInst(prev => ({ ...prev, [inst.id]: null }))
   }
 
-  async function buscarQR() {
-    if (!evoUrl || !evoKey || !evoInst) { setMsg('⚠️ Preencha URL, Key e Instance primeiro'); return }
-    setChecking(true); setMsg(''); setQrCode(null)
+  // ── Gerar QR Code de uma instância ───────────
+  async function gerarQR(inst) {
+    if (!evoUrl || !evoKey) { setMsg('⚠️ Preencha URL e API Key primeiro e salve'); return }
+    setLoadingInst(prev => ({ ...prev, [inst.id]: 'qr' }))
+    setQrCodes(prev => ({ ...prev, [inst.id]: null }))
     try {
+      // Tenta criar a instância (ignora erro se já existe)
       await fetch(`${evoUrl}/instance/create`, {
         method: 'POST', headers: { 'apikey': evoKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instanceName: evoInst, qrcode: true })
+        body: JSON.stringify({ instanceName: inst.instance, qrcode: true })
       }).catch(() => {})
-      const r = await fetch(`${evoUrl}/instance/connect/${evoInst}`, { headers: { 'apikey': evoKey } })
+      const r = await fetch(`${evoUrl}/instance/connect/${inst.instance}`, { headers: { 'apikey': evoKey } })
       const d = await r.json()
       const qr = d?.base64 || d?.qrcode?.base64 || d?.qr
-      if (qr) setQrCode(qr)
-      else setMsg('⚠️ QR Code não disponível. A instância pode já estar conectada.')
-    } catch (e) { setMsg('❌ Erro: ' + e.message) }
-    setChecking(false)
+      if (qr) setQrCodes(prev => ({ ...prev, [inst.id]: qr }))
+      else setMsg(`⚠️ ${inst.nome}: QR não disponível — talvez já esteja conectada.`)
+    } catch (e) { setMsg('❌ Erro ao gerar QR: ' + e.message) }
+    setLoadingInst(prev => ({ ...prev, [inst.id]: null }))
   }
 
+  // ── Tags ─────────────────────────────────────
   function adicionarTag() {
     if (!novaTagLabel.trim()) return
     const id = novaTagLabel.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
@@ -2484,15 +2564,19 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
     ? window.location.origin + '/api/wpp/webhook'
     : 'https://seu-dominio.vercel.app/api/wpp/webhook'
 
+  const statusColor = s => s === 'open' ? '#10b981' : s === 'connecting' ? '#f59e0b' : '#64748b'
+  const statusLabel = s => s === 'open' ? '● Conectado' : s === 'connecting' ? '◌ Conectando' : s ? `○ ${s}` : '○ Não verificado'
+
   return (
     <div style={{ padding: 24 }}>
       <div style={st.h}>💬 WhatsApp Inbox</div>
 
+      {/* ── Tipo de Conexão ── */}
       <div style={st.card}>
         <div style={st.sec}>📡 Tipo de Conexão</div>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 0 }}>
           {[
-            { id: 'evolution', label: '📱 QR Code (Evolution API)', desc: 'Conecta qualquer número via QR Code. Ideal para uso interno da equipe.' },
+            { id: 'evolution', label: '📱 QR Code (Evolution API)', desc: 'Conecta qualquer número via QR Code. Suporta múltiplos números.' },
             { id: 'meta',      label: '✅ WhatsApp Oficial (Meta)',  desc: 'WhatsApp Business API oficial. Configure na aba Integrações.' },
           ].map(p => (
             <div key={p.id} onClick={() => setProvider(p.id)} style={{ flex: 1, padding: '14px 16px', borderRadius: 12, cursor: 'pointer', border: `2px solid ${provider === p.id ? 'var(--accent)' : 'var(--border)'}`, background: provider === p.id ? 'rgba(0,212,255,.06)' : 'var(--surface)' }}>
@@ -2503,52 +2587,142 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
         </div>
       </div>
 
+      {/* ── Evolution API — Config Global ── */}
       {provider === 'evolution' && (
-        <div style={st.card}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <div style={st.sec}>⚙️ Evolution API (QR Code)</div>
-            {evoStatus && (
-              <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: evoStatus === 'open' ? 'rgba(16,185,129,.15)' : 'rgba(245,158,11,.15)', color: evoStatus === 'open' ? '#10b981' : '#f59e0b', border: `1px solid ${evoStatus === 'open' ? 'rgba(16,185,129,.3)' : 'rgba(245,158,11,.3)'}` }}>
-                {evoStatus === 'open' ? '● Conectado' : `○ ${evoStatus}`}
-              </span>
+        <>
+          <div style={st.card}>
+            <div style={st.sec}>🔑 Credenciais Globais (Evolution API)</div>
+            <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 16 }}>
+              URL e API Key são compartilhadas entre todos os números. Cada número tem sua própria <strong style={{ color: 'var(--text)' }}>Instance Name</strong>.{' '}
+              <a href="https://github.com/EvolutionAPI/evolution-api" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Deploy gratuito no Railway →</a>
+            </div>
+
+            <label style={st.label}>URL da Evolution API</label>
+            <input style={st.input} value={evoUrl} onChange={e => setEvoUrl(e.target.value)} placeholder="https://sua-evolution-api.railway.app" />
+
+            <label style={st.label}>API Key Global</label>
+            <input style={{ ...st.input, fontFamily: 'monospace' }} type="password" value={evoKey} onChange={e => setEvoKey(e.target.value)} placeholder="sua-api-key-global" />
+
+            {/* Webhook URL */}
+            <div style={{ padding: '12px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                URL do Webhook — configure em cada instância da Evolution API → Eventos: MESSAGES_UPSERT
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ flex: 1, fontFamily: 'monospace', fontSize: 11, color: '#10b981', wordBreak: 'break-all' }}>{webhookUrl}</div>
+                <button onClick={() => { navigator.clipboard?.writeText(webhookUrl); setMsg('✅ URL copiada!') }} style={{ ...st.btnSec, padding: '5px 10px', fontSize: 11 }}>Copiar</button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Lista de Instâncias (Números) ── */}
+          <div style={st.card}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div style={st.sec}>📱 Números Conectados ({instancias.length})</div>
+              <button onClick={abrirFormNova} style={{ ...st.btnSec, fontSize: 12, padding: '7px 14px' }}>+ Adicionar Número</button>
+            </div>
+
+            {instancias.length === 0 && (
+              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--border)', borderRadius: 10 }}>
+                Nenhum número configurado. Clique em "+ Adicionar Número" para começar.
+              </div>
+            )}
+
+            {instancias.map((inst, i) => {
+              const status = statusMap[inst.id] || inst.status
+              const isLoading = loadingInst[inst.id]
+              const qr = qrCodes[inst.id]
+              const isAtiva = instanciaAtiva === inst.id
+
+              return (
+                <div key={inst.id} style={{ ...st.cardInst, borderColor: isAtiva ? 'rgba(0,212,255,.4)' : 'var(--border)', background: isAtiva ? 'rgba(0,212,255,.03)' : 'var(--surface)' }}>
+                  {/* Cabeçalho da instância */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 700, fontSize: 14, color: isAtiva ? 'var(--accent)' : 'var(--text)' }}>{inst.nome}</span>
+                        {isAtiva && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(0,212,255,.15)', color: 'var(--accent)', fontWeight: 700 }}>PADRÃO DO INBOX</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, fontFamily: 'monospace' }}>
+                        instance: <span style={{ color: 'var(--text)' }}>{inst.instance}</span>
+                        {status && <span style={{ marginLeft: 10, color: statusColor(status) }}>{statusLabel(status)}</span>}
+                      </div>
+                    </div>
+
+                    {/* Ações */}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {!isAtiva && (
+                        <button onClick={() => setInstanciaAtiva(inst.id)} style={st.btnGreen} title="Definir como padrão do Inbox">⭐ Padrão</button>
+                      )}
+                      <button onClick={() => verificarStatus(inst)} disabled={!!isLoading} style={{ ...st.btnSec, padding: '7px 11px', fontSize: 12 }}>
+                        {isLoading === 'checking' ? '⏳' : '🔌 Status'}
+                      </button>
+                      <button onClick={() => gerarQR(inst)} disabled={!!isLoading} style={{ ...st.btnSec, padding: '7px 11px', fontSize: 12 }}>
+                        {isLoading === 'qr' ? '⏳' : '📱 QR'}
+                      </button>
+                      <button onClick={() => abrirFormEditar(i)} style={{ ...st.btnSec, padding: '7px 10px', fontSize: 12 }}>✏️</button>
+                      <button onClick={() => removerInstancia(i)} style={{ ...st.btnDanger, padding: '7px 10px', fontSize: 12 }}>🗑</button>
+                    </div>
+                  </div>
+
+                  {/* QR Code inline */}
+                  {qr && (
+                    <div style={{ textAlign: 'center', padding: '12px 0', borderTop: '1px solid var(--border)', marginTop: 4 }}>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>WhatsApp → Dispositivos Conectados → Conectar → Escanear QR</div>
+                      <img src={qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`} alt="QR Code" style={{ width: 200, height: 200, borderRadius: 10, border: '3px solid var(--accent)', background: '#fff', padding: 6 }} />
+                      <button onClick={() => setQrCodes(prev => ({ ...prev, [inst.id]: null }))} style={{ display: 'block', margin: '8px auto 0', fontSize: 11, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}>✕ Fechar QR</button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Formulário inline para nova/edição de instância */}
+            {formInst !== null && (
+              <div style={{ marginTop: 8, padding: '18px 20px', background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.3)', borderRadius: 12 }}>
+                <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>
+                  {editInstIdx === 'novo' ? '➕ Adicionar Número' : '✏️ Editar Número'}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={st.label}>Nome do Número / Departamento</label>
+                    <input style={{ ...st.input, marginBottom: 0 }} value={formInst.nome} onChange={e => setFormInst(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Vendas, Suporte, Marketing" />
+                  </div>
+                  <div>
+                    <label style={st.label}>Nome da Instance (Evolution API)</label>
+                    <input style={{ ...st.input, marginBottom: 0 }} value={formInst.instance} onChange={e => setFormInst(f => ({ ...f, instance: e.target.value }))} placeholder="Ex: vivanexa-vendas" />
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', margin: '8px 0 14px', lineHeight: 1.6 }}>
+                  O <strong>Nome da Instance</strong> deve bater exatamente com o que foi criado na Evolution API. Cada número precisa de uma instance diferente.
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={salvarInstancia} style={st.btn}>💾 Salvar</button>
+                  <button onClick={() => { setFormInst(null); setEditInstIdx(null) }} style={st.btnSec}>Cancelar</button>
+                </div>
+              </div>
             )}
           </div>
 
-          <div style={{ padding: '12px 16px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 16 }}>
-            A <strong style={{ color: 'var(--text)' }}>Evolution API</strong> é um servidor open-source para conectar WhatsApp via QR Code.
-            Deploy gratuito no Railway ou Render:{' '}
-            <a href="https://github.com/EvolutionAPI/evolution-api" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>github.com/EvolutionAPI</a>
-          </div>
-
-          <label style={st.label}>URL da Evolution API</label>
-          <input style={st.input} value={evoUrl} onChange={e => setEvoUrl(e.target.value)} placeholder="https://sua-evolution-api.railway.app" />
-
-          <label style={st.label}>API Key Global</label>
-          <input style={{ ...st.input, fontFamily: 'monospace' }} type="password" value={evoKey} onChange={e => setEvoKey(e.target.value)} placeholder="sua-api-key-global" />
-
-          <label style={st.label}>Nome da Instance</label>
-          <input style={st.input} value={evoInst} onChange={e => setEvoInst(e.target.value)} placeholder="Ex: vivanexa-empresa" />
-
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-            <button onClick={verificarConexao} disabled={checking} style={st.btnSec}>{checking ? '⏳...' : '🔌 Verificar status'}</button>
-            <button onClick={buscarQR} disabled={checking} style={st.btnSec}>{checking ? '⏳...' : '📱 Gerar QR Code'}</button>
-          </div>
-
-          {qrCode && (
-            <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>WhatsApp → Dispositivos Conectados → Conectar → Escanear QR</div>
-              <img src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} alt="QR Code" style={{ width: 220, height: 220, borderRadius: 12, border: '3px solid var(--accent)', background: '#fff', padding: 8 }} />
+          {/* Instância padrão do Inbox */}
+          {instancias.length > 1 && (
+            <div style={st.card}>
+              <div style={st.sec}>⭐ Número Padrão do Inbox</div>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
+                Quando uma nova conversa chegar sem instância definida, o Inbox usará este número para enviar respostas.
+              </p>
+              <select
+                style={{ ...st.input, marginBottom: 0 }}
+                value={instanciaAtiva}
+                onChange={e => setInstanciaAtiva(e.target.value)}
+              >
+                {instancias.map(inst => (
+                  <option key={inst.id} value={inst.id}>{inst.nome} ({inst.instance})</option>
+                ))}
+              </select>
             </div>
           )}
-
-          <div style={{ padding: '12px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>URL do Webhook (configure na Evolution API → Eventos: MESSAGES_UPSERT)</div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <div style={{ flex: 1, fontFamily: 'monospace', fontSize: 11, color: '#10b981', wordBreak: 'break-all' }}>{webhookUrl}</div>
-              <button onClick={() => { navigator.clipboard?.writeText(webhookUrl); setMsg('✅ URL copiada!') }} style={{ ...st.btnSec, padding: '5px 10px', fontSize: 11 }}>Copiar</button>
-            </div>
-          </div>
-        </div>
+        </>
       )}
 
       {provider === 'meta' && (
@@ -2557,6 +2731,7 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
         </div>
       )}
 
+      {/* ── Tags de Conversa ── */}
       <div style={st.card}>
         <div style={st.sec}>🏷️ Tags de Conversa</div>
         <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>Tags para segmentar leads e clientes no Inbox WhatsApp.</p>
@@ -2579,7 +2754,7 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
       <button onClick={salvar} disabled={saving} style={st.btn}>{saving ? '⏳ Salvando...' : '💾 Salvar configurações WhatsApp'}</button>
 
       {msg && (
-        <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>
+        <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : msg.startsWith('⚠️') ? 'rgba(245,158,11,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : msg.startsWith('⚠️') ? 'rgba(245,158,11,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : msg.startsWith('⚠️') ? '#f59e0b' : '#ef4444', fontSize: 13 }}>
           {msg}
         </div>
       )}
