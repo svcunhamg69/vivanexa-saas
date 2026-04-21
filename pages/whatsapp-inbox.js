@@ -750,6 +750,19 @@ export default function WhatsappInbox() {
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key',`wpp_conv:${eid}:${numero}`).maybeSingle()
       if (row?.value) {
         const c = JSON.parse(row.value)
+
+        // ✅ FIX 1: Se conversa estava finalizada e chegou nova mensagem → volta para automação
+        if (c.status === 'finalizado' && c.naoLidas > 0) {
+          c.status = 'automacao'
+          c.botPausado = false
+          c.protocolo = null
+          c.finalizadoEm = null
+          // Limpa no índice também
+          const novoIdx = { ...idxRef.current, [numero]: { ...(idxRef.current[numero]||{}), status: 'automacao', naoLidas: 0, updatedAt: new Date().toISOString() } }
+          idxRef.current = novoIdx; setIdx(novoIdx)
+          await supabase.from('vx_storage').upsert({ key:`wpp_idx:${eid}`, value:JSON.stringify(novoIdx), updated_at:new Date().toISOString() }, { onConflict:'key' })
+        }
+
         setConv(c)
         if (c.protocolo) setProtocolo(c.protocolo)
         if (c.naoLidas > 0) {
@@ -984,7 +997,10 @@ export default function WhatsappInbox() {
                     <div className="conv-hora">{fmtHora(c.updatedAt)}</div>
                   </div>
                   <div className="conv-preview">{c.ultimaMensagem||'...'}</div>
-                  {c.departamentoNome && <div style={{fontSize:10,color:'#7c3aed',marginTop:2}}>🏢 {c.departamentoNome}</div>}
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:2}}>
+                    {c.departamentoNome && <span style={{fontSize:10,color:'#7c3aed'}}>🏢 {c.departamentoNome}</span>}
+                    {c.instanciaId && (()=>{ const inst=(cfg.wppInbox?.instancias||[]).find(i=>i.id===c.instanciaId||i.instance===c.instanciaId); return inst?<span style={{fontSize:10,color:'#f59e0b'}}>📱 {inst.nome}</span>:null })()} 
+                  </div>
                   {(c.tags||[]).length>0 && (
                     <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>
                       {(c.tags||[]).slice(0,2).map(tid=>{ const t=tagsDisp.find(x=>x.id===tid); return t?<span key={tid} className="tag-chip" style={{borderColor:t.cor+'55',color:t.cor,background:t.cor+'15'}}>{t.label}</span>:null })}
@@ -1020,6 +1036,8 @@ export default function WhatsappInbox() {
                   <div style={{fontWeight:700,fontSize:14,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{conv.nome||conv.numero}</div>
                   <div style={{fontSize:11,color:'var(--muted)',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                     <span>{conv.numero}</span>
+                    {/* Número/instância de origem */}
+                    {(()=>{ const insts=cfg.wppInbox?.instancias||[]; const instObj=conv.instanciaId?insts.find(i=>i.id===conv.instanciaId||i.instance===conv.instanciaId):null; return instObj?<span style={{color:'#f59e0b',fontWeight:700,fontSize:10,padding:'1px 6px',borderRadius:8,background:'rgba(245,158,11,.12)',border:'1px solid rgba(245,158,11,.3)'}}>📱 {instObj.nome}{instObj.numero?` · ${instObj.numero}`:''}</span>:null })()}
                     {conv.agenteNome&&<span style={{color:'#00d4ff'}}>· {conv.agenteNome}</span>}
                     {deptoAtual&&<span style={{color:'#7c3aed'}}>· 🏢 {deptoAtual.nome}</span>}
                     {conv.protocolo&&<span style={{color:'#10b981'}}>· 📋 {conv.protocolo}</span>}
@@ -1049,23 +1067,61 @@ export default function WhatsappInbox() {
               {deptoAtual&&<div style={{padding:'5px 16px',background:'rgba(124,58,237,.05)',borderBottom:'1px solid rgba(124,58,237,.15)',fontSize:11,color:'#64748b'}}>🏢 Departamento: <span style={{color:'#7c3aed'}}>{deptoAtual.nome}</span>{conv.departamentoIA&&<span style={{marginLeft:8,color:'#00d4ff'}}>· Agente IA ativo</span>}</div>}
 
               <div className="mensagens" ref={mensagensRef}>
-                {(conv.mensagens||[]).map(m=>(
+                {(conv.mensagens||[]).map(m=>{
+                  // ✅ FIX 3: Resolve URL da mídia — suporta base64, URL direta e proxy Evolution
+                  const resolverMidia = (msg) => {
+                    if (msg.mediaBase64) {
+                      const mime = msg.tipo==='image' ? (msg.mimetype||'image/jpeg')
+                                 : msg.tipo==='audio' ? (msg.mimetype||'audio/ogg')
+                                 : (msg.mimetype||'video/mp4')
+                      return `data:${mime};base64,${msg.mediaBase64}`
+                    }
+                    if (msg.mediaUrl) return msg.mediaUrl
+                    // Tenta buscar via Evolution API proxy
+                    if (msg.mediaId && cfg.wppInbox?.evolutionUrl && cfg.wppInbox?.evolutionKey) {
+                      const inst = conv.instanciaId || cfg.wppInbox?.evolutionInstance || ''
+                      return `${cfg.wppInbox.evolutionUrl}/chat/getBase64FromMediaMessage/${inst}`
+                    }
+                    return null
+                  }
+                  const mediaResolvida = resolverMidia(m)
+
+                  return (
                   <div key={m.id} className={`msg-wrap ${m.de==='empresa'?'enviada':'recebida'}`}>
                     <div className={`msg-bubble ${m.de==='empresa'?'enviada':'recebida'}`}>
-                      {m.tipo==='image'&&m.mediaUrl&&<img src={m.mediaUrl} alt="img" style={{maxWidth:220,borderRadius:8,display:'block',marginBottom:4}}/>}
-                      {m.tipo==='audio'&&m.mediaUrl&&<audio controls style={{width:'100%',marginBottom:4}}><source src={m.mediaUrl}/></audio>}
-                      {m.tipo==='video'&&m.mediaUrl&&<video controls style={{maxWidth:220,borderRadius:8,display:'block',marginBottom:4}}><source src={m.mediaUrl}/></video>}
-                      {/* Indicador de mídia sem URL — ainda processando */}
-                      {(m.tipo==='image'||m.tipo==='audio'||m.tipo==='video')&&!m.mediaUrl&&(
-                        <div style={{padding:'6px 10px',background:'rgba(0,0,0,.2)',borderRadius:6,marginBottom:4,fontSize:11,color:'#64748b'}}>
-                          {m.tipo==='image'?'🖼️ Imagem':m.tipo==='audio'?'🎵 Áudio':'🎬 Vídeo'} recebido
+                      {m.tipo==='image'&&mediaResolvida&&<img src={mediaResolvida} alt="img" style={{maxWidth:220,borderRadius:8,display:'block',marginBottom:4}} onError={e=>{e.target.style.display='none'}}/>}
+                      {m.tipo==='audio'&&mediaResolvida&&(
+                        <audio controls style={{width:'100%',marginBottom:4,maxWidth:260}}>
+                          <source src={mediaResolvida} type={m.mimetype||'audio/ogg'}/> 
+                          <source src={mediaResolvida}/>
+                        </audio>
+                      )}
+                      {m.tipo==='video'&&mediaResolvida&&(
+                        <video controls style={{maxWidth:220,borderRadius:8,display:'block',marginBottom:4}}>
+                          <source src={mediaResolvida} type={m.mimetype||'video/mp4'}/>
+                          <source src={mediaResolvida}/>
+                        </video>
+                      )}
+                      {/* Indicador quando não há mídia resolvida */}
+                      {(m.tipo==='image'||m.tipo==='audio'||m.tipo==='video')&&!mediaResolvida&&(
+                        <div style={{padding:'8px 12px',background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.2)',borderRadius:8,marginBottom:4,fontSize:12,color:'#00d4ff',display:'flex',alignItems:'center',gap:6}}>
+                          <span style={{fontSize:18}}>{m.tipo==='image'?'🖼️':m.tipo==='audio'?'🎵':'🎬'}</span>
+                          <span>{m.tipo==='image'?'Imagem':m.tipo==='audio'?'Áudio':'Vídeo'} recebido — sem prévia disponível</span>
+                        </div>
+                      )}
+                      {m.tipo==='document'&&(
+                        <div style={{padding:'8px 12px',background:'rgba(124,58,237,.08)',border:'1px solid rgba(124,58,237,.2)',borderRadius:8,marginBottom:4,fontSize:12,color:'#a78bfa',display:'flex',alignItems:'center',gap:6}}>
+                          <span>📎</span>
+                          <span>{m.nomeArquivo||m.fileName||'Documento'}</span>
+                          {mediaResolvida&&<a href={mediaResolvida} download={m.nomeArquivo||'arquivo'} style={{color:'#7c3aed',marginLeft:4}}>⬇️</a>}
                         </div>
                       )}
                       <div style={{fontSize:13,lineHeight:1.55,whiteSpace:'pre-wrap',wordBreak:'break-word'}}>{m.texto}</div>
                       <div className="msg-hora">{fmtHora(m.at)}</div>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
                 <div ref={msgEndRef}/>
               </div>
 
