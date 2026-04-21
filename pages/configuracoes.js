@@ -2510,12 +2510,21 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
     setFormInst(null); setEditInstIdx(null); setMsg('')
   }
 
-  function removerInstancia(i) {
-    if (!confirm('Remover esta instância?')) return
-    const removida = instancias[i]
+  async function removerInstancia(i) {
+    const inst = instancias[i]
+    if (!confirm(`Remover "${inst.nome}"? Isso também tentará excluir a instância na Evolution API.`)) return
+    // Tenta deletar na Evolution API
+    if (evoUrl && evoKey && inst.instance) {
+      try {
+        await fetch(`${evoUrl}/instance/delete/${inst.instance}`, {
+          method: 'DELETE', headers: { 'apikey': evoKey }
+        })
+      } catch {}
+    }
     const novas = instancias.filter((_, j) => j !== i)
     setInstancias(novas)
-    if (instanciaAtiva === removida.id) setInstanciaAtiva(novas[0]?.id || '')
+    if (instanciaAtiva === inst.id) setInstanciaAtiva(novas[0]?.id || '')
+    setMsg(`🗑 Instância "${inst.nome}" removida.`)
   }
 
   // ── Verificar status de uma instância ────────
@@ -2685,7 +2694,7 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
-                    <label style={st.label}>Nome do Número / Departamento</label>
+                    <label style={st.label}>Nome do Número</label>
                     <input style={{ ...st.input, marginBottom: 0 }} value={formInst.nome} onChange={e => setFormInst(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Vendas, Suporte, Marketing" />
                   </div>
                   <div>
@@ -2693,8 +2702,21 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
                     <input style={{ ...st.input, marginBottom: 0 }} value={formInst.instance} onChange={e => setFormInst(f => ({ ...f, instance: e.target.value }))} placeholder="Ex: vivanexa-vendas" />
                   </div>
                 </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10 }}>
+                  <div>
+                    <label style={st.label}>Número WhatsApp (com DDI)</label>
+                    <input style={{ ...st.input, marginBottom: 0 }} value={formInst.numero || ''} onChange={e => setFormInst(f => ({ ...f, numero: e.target.value }))} placeholder="Ex: 5511999999999" />
+                  </div>
+                  <div>
+                    <label style={st.label}>Departamento padrão desta linha</label>
+                    <select style={{ ...st.input, marginBottom: 0, cursor: 'pointer' }} value={formInst.departamentoId || ''} onChange={e => setFormInst(f => ({ ...f, departamentoId: e.target.value }))}>
+                      <option value="">— Nenhum (inbox geral) —</option>
+                      {(cfg.wppDeps || []).map(d => <option key={d.id} value={d.id}>{d.nome}</option>)}
+                    </select>
+                  </div>
+                </div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', margin: '8px 0 14px', lineHeight: 1.6 }}>
-                  O <strong>Nome da Instance</strong> deve bater exatamente com o que foi criado na Evolution API. Cada número precisa de uma instance diferente.
+                  O <strong>Nome da Instance</strong> deve bater exatamente com o que foi criado na Evolution API. O <strong>Número WhatsApp</strong> aparecerá no cabeçalho das conversas para identificação.
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button onClick={salvarInstancia} style={st.btn}>💾 Salvar</button>
@@ -2794,7 +2816,13 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
     conhecimento: [],
     siteUrl: '',
     siteConteudo: '',
+    departamentos: [],
+    gcalEnabled: false,
+    reconheceMidia: true,
   }
+
+  // Departamentos cadastrados
+  const wppDeps = cfg.wppDeps || []
 
   function novoAgente() {
     setForm({ ...AGENTE_VAZIO, id: 'agente_' + Date.now() })
@@ -3208,6 +3236,46 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
             )}
           </div>
 
+          {/* ── Departamentos vinculados ── */}
+          {wppDeps.length > 0 && (
+            <div style={{ padding: '16px 18px', background: 'rgba(124,58,237,.05)', border: '1px solid rgba(124,58,237,.2)', borderRadius: 10, marginTop: 14 }}>
+              <div style={{ ...st.label, color: '#a78bfa', marginBottom: 10 }}>🏢 Departamentos que usam este agente</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {wppDeps.map(d => {
+                  const selecionado = (form.departamentos || []).includes(d.id)
+                  return (
+                    <button key={d.id} type="button"
+                      onClick={() => setForm(f => ({ ...f, departamentos: selecionado ? (f.departamentos||[]).filter(x => x !== d.id) : [...(f.departamentos||[]), d.id] }))}
+                      style={{ padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${selecionado ? d.cor : d.cor+'44'}`, background: selecionado ? d.cor+'22' : 'transparent', color: selecionado ? d.cor : d.cor+'88', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer', fontWeight: selecionado ? 700 : 400 }}>
+                      {d.nome}
+                    </button>
+                  )
+                })}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                Selecione os departamentos. Quando uma conversa for transferida para estes departamentos, este agente responderá automaticamente.
+              </div>
+            </div>
+          )}
+
+          {/* ── Configurações de mídia e agenda ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'rgba(16,185,129,.05)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.reconheceMidia !== false} onChange={e => setForm(f => ({ ...f, reconheceMidia: e.target.checked }))} style={{ width: 15, height: 15, accentColor: '#10b981' }} />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981' }}>🖼️ Reconhecer Mídia</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Interpreta imagens, áudios e vídeos (requer Gemini)</div>
+              </div>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.2)', borderRadius: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.gcalEnabled === true} onChange={e => setForm(f => ({ ...f, gcalEnabled: e.target.checked }))} style={{ width: 15, height: 15, accentColor: '#00d4ff' }} />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#00d4ff' }}>📅 Propor Agendamentos</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Consulta agenda Google e oferece horários ao cliente</div>
+              </div>
+            </label>
+          </div>
+
           {/* Botões */}
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
             <button onClick={salvarAgente} disabled={saving} style={st.btn}>{saving ? '⏳...' : '💾 Salvar Agente'}</button>
@@ -3235,14 +3303,21 @@ function TabDepartamentos({ cfg, setCfg, empresaId }) {
   const [form,    setForm]    = React.useState(null)
   const [saving,  setSaving]  = React.useState(false)
   const [msg,     setMsg]     = React.useState('')
+  const [gcalStatus, setGcalStatus] = React.useState({}) // { [depId]: 'ok'|'err' }
+
+  // Agentes de IA cadastrados
+  const agentesIA = cfg.wppAgentes || []
+  // Instâncias WhatsApp cadastradas
+  const instancias = cfg.wppInbox?.instancias || []
 
   const st = {
-    card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 14 },
+    card:  { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px', marginBottom: 10 },
     label: { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
     input: { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
     btn:   { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
     btnSec:{ padding: '9px 18px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.3)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 13, cursor: 'pointer' },
     h:     { fontFamily: 'Syne, sans-serif', fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 },
+    info:  { padding: '10px 14px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 },
   }
 
   async function salvarNoBanco(novosDeps) {
@@ -3266,24 +3341,70 @@ function TabDepartamentos({ cfg, setCfg, empresaId }) {
     salvarNoBanco(novos)
   }
 
+  // Vincula uma agenda Google a um departamento via popup OAuth
+  function conectarAgendaDepto(depId) {
+    const clientId = cfg.gcal?.clientId || cfg.googleClientId || ''
+    if (!clientId) { setMsg('⚠️ Configure o Google Client ID em Integrações → Google Agenda primeiro.'); return }
+    const redirectUri = window.location.origin + '/api/auth/google/callback'
+    const scope = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly'
+    const state = `${empresaId}__dep:${depId}`
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`
+    const popup = window.open(url, '_blank', 'width=500,height=620,scrollbars=yes')
+    const handler = (e) => {
+      if (e.data?.type === 'GCAL_TOKEN') {
+        // Salva token específico do depto
+        supabase.from('vx_storage').upsert({
+          key: `gcal_token:${empresaId}:dep:${depId}`,
+          value: JSON.stringify({ ...e.data.token, obtained_at: Date.now() }),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'key' }).then(() => {
+          setGcalStatus(prev => ({ ...prev, [depId]: 'ok' }))
+          setMsg(`✅ Google Agenda conectada ao departamento!`)
+        })
+        window.removeEventListener('message', handler)
+      }
+    }
+    window.addEventListener('message', handler)
+  }
+
+  async function verificarAgendaDepto(depId) {
+    const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `gcal_token:${empresaId}:dep:${depId}`).maybeSingle()
+    if (row?.value) {
+      setGcalStatus(prev => ({ ...prev, [depId]: 'ok' }))
+      setMsg('✅ Agenda do departamento: autorizada.')
+    } else {
+      setGcalStatus(prev => ({ ...prev, [depId]: 'none' }))
+      setMsg('⚠️ Nenhuma agenda vinculada a este departamento.')
+    }
+  }
+
   return (
     <div style={{ padding: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={st.h}>🏢 Departamentos / Filas de Atendimento</div>
-        <button onClick={() => { setForm({ id: '', nome: '', cor: '#10b981', ordem: deps.length + 1 }); setEditIdx('novo') }} style={st.btn}>+ Novo Departamento</button>
+        <button onClick={() => { setForm({ id: '', nome: '', cor: '#10b981', ordem: deps.length + 1, agenteIAId: '', instanciaId: '', gcalEnabled: false }); setEditIdx('novo') }} style={st.btn}>+ Novo Departamento</button>
       </div>
 
-      <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.7 }}>
-        Filas de atendimento do Inbox WhatsApp. As conversas podem ser transferidas entre departamentos e Agentes de IA podem ser vinculados a filas específicas.
-      </p>
+      <div style={{ ...st.info, marginBottom: 20 }}>
+        Filas de atendimento do Inbox WhatsApp. Cada departamento pode ter um <strong style={{ color: '#7c3aed' }}>Agente de IA</strong> vinculado que responde automaticamente, um <strong style={{ color: '#10b981' }}>número WhatsApp</strong> exclusivo e uma <strong style={{ color: '#00d4ff' }}>agenda Google</strong> para que o agente proponha agendamentos.
+      </div>
 
       {deps.sort((a, b) => a.ordem - b.ordem).map((d, i) => editIdx === i ? null : (
-        <div key={d.id} style={st.card}>
+        <div key={d.id} style={{ ...st.card, display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ width: 36, height: 36, borderRadius: 10, background: d.cor + '25', border: `2px solid ${d.cor}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>🏢</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>{d.nome}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>ID: {d.id} · Ordem: {d.ordem}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>{d.nome}</span>
+              {d.agenteIAId && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(124,58,237,.15)', color: '#7c3aed', border: '1px solid rgba(124,58,237,.3)' }}>🤖 {agentesIA.find(a => a.id === d.agenteIAId)?.nome || 'IA vinculada'}</span>}
+              {gcalStatus[d.id] === 'ok' && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(16,185,129,.15)', color: '#10b981', border: '1px solid rgba(16,185,129,.3)' }}>📅 Agenda OK</span>}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              ID: {d.id} · Ordem: {d.ordem}
+              {d.instanciaId && <span style={{ marginLeft: 8 }}>· 📱 {instancias.find(i => i.id === d.instanciaId)?.nome || d.instanciaId}</span>}
+            </div>
           </div>
+          {/* Botão rápido de agenda */}
+          <button onClick={() => verificarAgendaDepto(d.id)} title="Verificar agenda" style={{ ...st.btnSec, padding: '6px 10px', fontSize: 12 }}>📅</button>
           <button onClick={() => { setForm({ ...d }); setEditIdx(i) }} style={{ ...st.btnSec, padding: '6px 12px', fontSize: 12 }}>✏️</button>
           <button onClick={() => salvarNoBanco(deps.filter((_, j) => j !== i))} style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>🗑</button>
         </div>
@@ -3294,6 +3415,8 @@ function TabDepartamentos({ cfg, setCfg, empresaId }) {
           <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>
             {editIdx === 'novo' ? '➕ Novo Departamento' : '✏️ Editar Departamento'}
           </div>
+
+          {/* Nome, Ordem, Cor */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 60px', gap: 12 }}>
             <div>
               <label style={st.label}>Nome do Departamento</label>
@@ -3305,9 +3428,59 @@ function TabDepartamentos({ cfg, setCfg, empresaId }) {
             </div>
             <div>
               <label style={st.label}>Cor</label>
-              <input type="color" value={form.cor} onChange={e => setForm(f => ({ ...f, cor: e.target.value }))} style={{ width: '100%', height: 42, border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', background: 'none' }} />
+              <input type="color" value={form.cor || '#10b981'} onChange={e => setForm(f => ({ ...f, cor: e.target.value }))} style={{ width: '100%', height: 42, border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', background: 'none' }} />
             </div>
           </div>
+
+          {/* Agente IA vinculado */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={st.label}>🤖 Agente de IA (responde automaticamente neste departamento)</label>
+            <select style={{ ...st.input, cursor: 'pointer', marginBottom: 0 }} value={form.agenteIAId || ''} onChange={e => setForm(f => ({ ...f, agenteIAId: e.target.value }))}>
+              <option value="">— Sem agente IA (humano apenas) —</option>
+              {agentesIA.map(a => (
+                <option key={a.id} value={a.id}>{a.nome} ({a.provider || 'IA'})</option>
+              ))}
+            </select>
+            {agentesIA.length === 0 && (
+              <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 6 }}>
+                ⚠️ Nenhum agente cadastrado. Acesse a aba <strong>🤖 Agente IA</strong> para criar um.
+              </div>
+            )}
+          </div>
+
+          {/* Instância WhatsApp */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={st.label}>📱 Número WhatsApp (instância exclusiva deste departamento)</label>
+            <select style={{ ...st.input, cursor: 'pointer', marginBottom: 0 }} value={form.instanciaId || ''} onChange={e => setForm(f => ({ ...f, instanciaId: e.target.value }))}>
+              <option value="">— Usar número padrão do Inbox —</option>
+              {instancias.map(i => (
+                <option key={i.id} value={i.id}>{i.nome} ({i.instance})</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Google Agenda */}
+          <div style={{ padding: '14px 16px', background: 'rgba(16,185,129,.05)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <label style={{ ...st.label, marginBottom: 0, color: '#10b981' }}>📅 Google Agenda vinculada a este departamento</label>
+              {gcalStatus[form.id] === 'ok' && <span style={{ fontSize: 11, color: '#10b981' }}>✅ Conectada</span>}
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
+              O Agente de IA deste departamento consultará esta agenda para verificar disponibilidade e propor horários ao cliente automaticamente.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" onClick={() => form.id && conectarAgendaDepto(form.id)} style={{ ...st.btnSec, fontSize: 12, borderColor: 'rgba(16,185,129,.4)', color: '#10b981', background: 'rgba(16,185,129,.08)' }}>
+                🔗 Conectar conta Google
+              </button>
+              {form.id && (
+                <button type="button" onClick={() => verificarAgendaDepto(form.id)} style={{ ...st.btnSec, fontSize: 12 }}>
+                  🔍 Verificar
+                </button>
+              )}
+            </div>
+            {!form.id && <p style={{ fontSize: 11, color: '#f59e0b', marginTop: 8 }}>💡 Salve o departamento primeiro para vincular a agenda.</p>}
+          </div>
+
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={salvarForm} disabled={saving} style={st.btn}>{saving ? '⏳...' : '💾 Salvar'}</button>
             <button onClick={() => { setEditIdx(null); setForm(null) }} style={st.btnSec}>Cancelar</button>
