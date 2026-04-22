@@ -2476,7 +2476,8 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
         // retrocompatibilidade — mantém evolutionInstance apontando para a ativa
         evolutionInstance: instancias.find(i => i.id === instanciaAtiva)?.instance || instancias[0]?.instance || '',
       }
-      const novo = { ...atual, wppTags, wppInbox: novoWppInbox }
+      // ✅ FIX: preserva cnpjApiToken e demais campos ao salvar Evolution API
+      const novo = { ...atual, wppTags, wppInbox: novoWppInbox, cnpjApiToken: atual.cnpjApiToken || '' }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
       setCfg(novo)
       setMsg('✅ Configurações salvas!')
@@ -3000,12 +3001,16 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
                 {a.provider === 'openai' ? 'OpenAI' : a.provider === 'groq' ? 'Groq' : 'Gemini'} · {a.model} · {a.maxTokens} tokens
                 {(a.conhecimento || []).length > 0 && <span style={{ marginLeft: 8, color: '#10b981' }}>· 📚 {a.conhecimento.length} base(s)</span>}
                 {a.siteUrl && <span style={{ marginLeft: 8, color: '#7c3aed' }}>· 🌐 Site</span>}
-                {a.usarParaFollowup && <span style={{ marginLeft: 8, color: '#10b981', fontWeight: 700 }}>· 🤖 Follow-up CRM</span>}
               </div>
             </div>
             <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: a.ativo ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.15)', color: a.ativo ? '#10b981' : '#64748b', border: `1px solid ${a.ativo ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)'}` }}>
               {a.ativo ? '● Ativo' : '○ Inativo'}
             </span>
+            {a.usarParaFollowup && (
+              <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: 'rgba(16,185,129,.1)', color: '#10b981', border: '1px solid rgba(16,185,129,.3)' }}>
+                🤖 Follow-up CRM
+              </span>
+            )}
             <button onClick={() => editarAgente(i)} style={st.btnSec}>✏️ Editar</button>
             <button onClick={() => removerAgente(i)} style={{ ...st.btnSec, color: '#ef4444', borderColor: 'rgba(239,68,68,.3)', background: 'rgba(239,68,68,.08)' }}>🗑</button>
           </div>
@@ -3029,7 +3034,7 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
                 <input type="checkbox" checked={form.ativo} onChange={e => setForm(f => ({ ...f, ativo: e.target.checked }))} style={{ width: 16, height: 16 }} />
                 Agente ativo
               </label>
-              <label style={{ fontSize: 13, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <label style={{ fontSize: 13, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} title="Este agente será usado nos follow-ups e briefings automáticos do CRM">
                 <input type="checkbox" checked={!!form.usarParaFollowup} onChange={e => setForm(f => ({ ...f, usarParaFollowup: e.target.checked }))} style={{ width: 16, height: 16 }} />
                 🤖 Usar para Follow-up CRM
               </label>
