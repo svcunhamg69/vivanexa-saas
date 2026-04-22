@@ -39,8 +39,6 @@ export default async function handler(req, res) {
       const sufixo = telBusca.slice(-8)
 
       // Buscar nos negócios do CRM (dentro do JSON do vx_storage)
-      // Como os dados ficam em vx_storage como JSON, buscamos por todas as empresas
-      // e filtramos no JS. Para volume alto considere migrar para tabela dedicada.
       const { data: storageRows } = await supabase
         .from('vx_storage')
         .select('key, value')
@@ -59,8 +57,19 @@ export default async function handler(req, res) {
             if (neg) {
               negocioId = neg.id
               empresaId = row.key.replace('cfg:', '')
-              break
             }
+
+            // ✅ Identifica o usuário pelo ramal 3CX (agenteRamal)
+            if (empresaId && agenteRamal) {
+              const usuarios = cfg.users || []
+              const userMatch = usuarios.find(u => u.tcxRamal && String(u.tcxRamal).trim() === String(agenteRamal).trim())
+              if (userMatch) {
+                // Será usado no registro da atividade
+                cfg._userMatch = { nome: userMatch.nome, id: userMatch.id, ramal: userMatch.tcxRamal }
+              }
+            }
+
+            if (neg) break
           } catch {}
         }
       }
@@ -86,17 +95,27 @@ export default async function handler(req, res) {
 
       if (cfgRow?.value) {
         const cfg = JSON.parse(cfgRow.value)
+        // Identifica usuário pelo ramal
+        let agenteNomeResolvido = agenteNome
+        let agenteIdResolvido = null
+        if (agenteRamal) {
+          const usersAtual = (cfg.users || [])
+          const uu = usersAtual.find(u => u.tcxRamal && String(u.tcxRamal).trim() === String(agenteRamal).trim())
+          if (uu) { agenteNomeResolvido = uu.nome || agenteNome; agenteIdResolvido = uu.id }
+        }
+
         const novaAtiv = {
           id:           'atv_3cx_' + Date.now(),
           negocioId:    negocioId || '',
           tipo:         'Ligação',
-          descricao,
+          descricao:    descricao + (agenteNomeResolvido !== agenteNome ? ` · Identificado: ${agenteNomeResolvido}` : ''),
           prazo:        callStart,
           concluida:    true,
           criadoEm:     new Date().toISOString(),
           duracao_seg:  duracao,
           gravacao_url: gravacaoUrl,
-          agente_nome:  agenteNome,
+          agente_nome:  agenteNomeResolvido,
+          agente_id:    agenteIdResolvido,
           agente_ramal: agenteRamal,
           call_id:      callId,
           telefone_ext: from,
