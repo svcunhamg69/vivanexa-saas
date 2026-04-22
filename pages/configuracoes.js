@@ -3000,6 +3000,7 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
                 {a.provider === 'openai' ? 'OpenAI' : a.provider === 'groq' ? 'Groq' : 'Gemini'} · {a.model} · {a.maxTokens} tokens
                 {(a.conhecimento || []).length > 0 && <span style={{ marginLeft: 8, color: '#10b981' }}>· 📚 {a.conhecimento.length} base(s)</span>}
                 {a.siteUrl && <span style={{ marginLeft: 8, color: '#7c3aed' }}>· 🌐 Site</span>}
+                {a.usarParaFollowup && <span style={{ marginLeft: 8, color: '#10b981', fontWeight: 700 }}>· 🤖 Follow-up CRM</span>}
               </div>
             </div>
             <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: a.ativo ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.15)', color: a.ativo ? '#10b981' : '#64748b', border: `1px solid ${a.ativo ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)'}` }}>
@@ -3023,10 +3024,14 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
               <label style={st.label}>Nome do Agente</label>
               <input style={st.input} value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Vendas Bot" />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', paddingTop: 18 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 18 }}>
               <label style={{ fontSize: 13, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input type="checkbox" checked={form.ativo} onChange={e => setForm(f => ({ ...f, ativo: e.target.checked }))} style={{ width: 16, height: 16 }} />
                 Agente ativo
+              </label>
+              <label style={{ fontSize: 13, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!form.usarParaFollowup} onChange={e => setForm(f => ({ ...f, usarParaFollowup: e.target.checked }))} style={{ width: 16, height: 16 }} />
+                🤖 Usar para Follow-up CRM
               </label>
             </div>
           </div>
