@@ -380,11 +380,11 @@ export default function CRM() {
         smtpHost:cfg.smtpHost,
         smtpPort:cfg.smtpPort||587,
         smtpUser:cfg.smtpUser,
-        smtpPass:cfg.smtpPass,
-        // ✅ Passa apiKey em todos os campos possíveis (Brevo aceita apiKey ou brevoApiKey)
-        apiKey:     cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.api_key||cfg.smtpPass||'',
-        brevoApiKey:cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||'',
-        emailApiKey:cfg.emailApiKey||'',
+        smtpPass:cfg.smtpPass||'',
+        // ✅ FIX: passa emailApiKey em todos os campos — send-email.js testa cada um deles
+        emailApiKey:cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.smtpPass||'',
+        apiKey:     cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.smtpPass||'',
+        brevoApiKey:cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.smtpPass||'',
         emailRemetente:cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||cfg.emailEmp||'',
         nomeRemetente:cfg.company||'Vivanexa'
       }:null
@@ -629,11 +629,12 @@ export default function CRM() {
             </div>
           )}
 
-          <button onClick={()=>setShowAgente(true)}
-            style={{marginLeft:'auto',padding:'9px 16px',borderRadius:9,border:'1.5px solid rgba(16,185,129,.4)',background:'rgba(16,185,129,.08)',color:'#10b981',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:600,display:'flex',alignItems:'center',gap:6}}>
-            🤖 Agente IA
-          </button>
-          <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+          {/* ✅ FIX: único container com marginLeft:auto para Agente IA + busca + botão */}
+          <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            <button onClick={()=>setShowAgente(true)}
+              style={{padding:'9px 16px',borderRadius:9,border:'1.5px solid rgba(16,185,129,.4)',background:'rgba(16,185,129,.08)',color:'#10b981',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer',fontWeight:600,display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
+              🤖 Agente IA
+            </button>
             {visao==='clientes' ? (
               <>
                 <input value={buscaCli} onChange={e=>setBuscaCli(e.target.value)} placeholder="🔍 Buscar cliente..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:200}}/>
@@ -642,7 +643,7 @@ export default function CRM() {
               </>
             ) : (
               <>
-                <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar negócio, contato, tel, e-mail..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:280}}/>
+                <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar negócio, contato, tel..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:260}}/>
                 <button onClick={()=>{setFormNeg({...EMPTY_NEG});setShowFormNeg(true)}}
                   style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>+ Novo Negócio</button>
               </>
