@@ -776,7 +776,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
             <div key={u.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14 }}>{u.nome}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · {u.tipo || 'vendedor'}{u.telefone ? ` · ${u.telefone}` : ''}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · {u.tipo || 'vendedor'}{u.telefone ? ` · ${u.telefone}` : ''}{u.tcxRamal ? ` · 📞 Ramal ${u.tcxRamal}` : ''}</div>
                 {u.comissao && (u.comissao.adesao?.valor > 0 || u.comissao.mensalidade?.valor > 0) && (
                   <div style={{ fontSize: 11, color: 'var(--accent3)', marginTop: 3 }}>💰 Comissão: {fmtComissao(u)}</div>
                 )}
@@ -800,7 +800,11 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
           </div>
           <div style={s.row2}>
             <div style={s.field}><label style={s.label}>Telefone / WhatsApp</label><input style={s.input} value={form.telefone || ''} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" /></div>
-            <div style={s.field}></div>
+            <div style={s.field}>
+              <label style={s.label}>Ramal 3CX (Extensão)</label>
+              <input style={s.input} value={form.tcxRamal || ''} onChange={e => setForm(f => ({ ...f, tcxRamal: e.target.value }))} placeholder="Ex: 1001" />
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: -8 }}>Ramal do usuário no 3CX para identificar ligações automaticamente</div>
+            </div>
           </div>
           <div style={s.field}>
             <label style={s.label}>Perfil de Acesso</label>
@@ -1980,6 +1984,14 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   const [cnpjApiToken, setCnpjApiToken] = React.useState(cfg.cnpjApiToken || '')
   const [testingApi,   setTestingApi]   = React.useState(false)
   const [msg,          setMsg]          = React.useState('')
+
+  // ✅ Carrega token CNPJ da chave dedicada se não estiver no cfg principal
+  React.useEffect(() => {
+    if (!empresaId || cnpjApiToken) return
+    supabase.from('vx_storage').select('value').eq('key', `cnpj_token:${empresaId}`).maybeSingle()
+      .then(({ data }) => { if (data?.value) setCnpjApiToken(data.value) })
+      .catch(() => {})
+  }, [empresaId])
   // 3CX
   const [tcxUrl,          setTcxUrl]          = React.useState(cfg.tcx?.url          || '')
   const [tcxClientId,     setTcxClientId]     = React.useState(cfg.tcx?.clientId     || '')
@@ -2006,6 +2018,10 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
       const atual = row?.value ? JSON.parse(row.value) : {}
       const novo  = { ...atual, wpp: { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo }, cnpjApiToken: cnpjApiToken.trim() }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      // ✅ Salva token CNPJ em chave dedicada para não se perder
+      if (cnpjApiToken.trim()) {
+        await supabase.from('vx_storage').upsert({ key: `cnpj_token:${empresaId}`, value: cnpjApiToken.trim(), updated_at: new Date().toISOString() }, { onConflict: 'key' })
+      }
       setCfg(novo)
       setMsg('✅ Configurações salvas!')
     } catch (e) {
@@ -2477,7 +2493,13 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
         evolutionInstance: instancias.find(i => i.id === instanciaAtiva)?.instance || instancias[0]?.instance || '',
       }
       // ✅ FIX: preserva cnpjApiToken e demais campos ao salvar Evolution API
-      const novo = { ...atual, wppTags, wppInbox: novoWppInbox, cnpjApiToken: atual.cnpjApiToken || '' }
+      // Busca token na chave dedicada para não perder
+      let cnpjTokenAtual = atual.cnpjApiToken || ''
+      if (!cnpjTokenAtual) {
+        const { data: tkRow } = await supabase.from('vx_storage').select('value').eq('key', `cnpj_token:${empresaId}`).maybeSingle().catch(() => ({ data: null }))
+        cnpjTokenAtual = tkRow?.value || ''
+      }
+      const novo = { ...atual, wppTags, wppInbox: novoWppInbox, cnpjApiToken: cnpjTokenAtual }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
       setCfg(novo)
       setMsg('✅ Configurações salvas!')
@@ -2547,17 +2569,84 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
     if (!evoUrl || !evoKey) { setMsg('⚠️ Preencha URL e API Key primeiro e salve'); return }
     setLoadingInst(prev => ({ ...prev, [inst.id]: 'qr' }))
     setQrCodes(prev => ({ ...prev, [inst.id]: null }))
+    setMsg(`⏳ Gerando QR para ${inst.nome}...`)
+
     try {
-      // Tenta criar a instância (ignora erro se já existe)
-      await fetch(`${evoUrl}/instance/create`, {
-        method: 'POST', headers: { 'apikey': evoKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instanceName: inst.instance, qrcode: true })
-      }).catch(() => {})
-      const r = await fetch(`${evoUrl}/instance/connect/${inst.instance}`, { headers: { 'apikey': evoKey } })
-      const d = await r.json()
-      const qr = d?.base64 || d?.qrcode?.base64 || d?.qr
-      if (qr) setQrCodes(prev => ({ ...prev, [inst.id]: qr }))
-      else setMsg(`⚠️ ${inst.nome}: QR não disponível — talvez já esteja conectada.`)
+      // 1. Verifica se a instância já existe
+      const stateRes = await fetch(`${evoUrl}/instance/connectionState/${inst.instance}`, {
+        headers: { apikey: evoKey }
+      }).catch(() => null)
+      const stateData = stateRes?.ok ? await stateRes.json().catch(() => ({})) : {}
+      const stateAtual = stateData?.instance?.state || stateData?.state || ''
+
+      if (stateAtual === 'open') {
+        // Já conectada — atualiza status e encerra
+        setStatusMap(prev => ({ ...prev, [inst.id]: 'open' }))
+        setMsg(`✅ ${inst.nome}: Já está conectada!`)
+        setLoadingInst(prev => ({ ...prev, [inst.id]: null }))
+        return
+      }
+
+      // 2. Instância não existe (404/erro) → cria
+      if (!stateRes?.ok || !stateAtual) {
+        const createRes = await fetch(`${evoUrl}/instance/create`, {
+          method: 'POST',
+          headers: { apikey: evoKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instanceName: inst.instance, qrcode: true, integration: 'WHATSAPP-BAILEYS' })
+        }).catch(() => null)
+        if (createRes && !createRes.ok) {
+          const errData = await createRes.json().catch(() => ({}))
+          // 403 = instância já existe com outro owner, 409 = duplicate — tenta conectar mesmo assim
+          if (createRes.status !== 403 && createRes.status !== 409) {
+            setMsg(`⚠️ Erro ao criar instância: ${errData?.message || createRes.status}`)
+          }
+        }
+        // Aguarda 1s para a instância inicializar
+        await new Promise(r => setTimeout(r, 1000))
+      }
+
+      // 3. Solicita o QR
+      const r = await fetch(`${evoUrl}/instance/connect/${inst.instance}`, {
+        headers: { apikey: evoKey }
+      })
+      const d = await r.json().catch(() => ({}))
+      const qr = d?.base64 || d?.qrcode?.base64 || d?.code || d?.qr
+
+      if (qr) {
+        setQrCodes(prev => ({ ...prev, [inst.id]: qr }))
+        setMsg(`📱 ${inst.nome}: Escaneie o QR code no WhatsApp → Dispositivos Conectados`)
+        // Polling para detectar conexão (a cada 5s por 2 min)
+        let tentativas = 0
+        const poll = setInterval(async () => {
+          tentativas++
+          if (tentativas > 24) { clearInterval(poll); return }
+          try {
+            const sr = await fetch(`${evoUrl}/instance/connectionState/${inst.instance}`, { headers: { apikey: evoKey } })
+            const sd = await sr.json().catch(() => ({}))
+            const s2 = sd?.instance?.state || sd?.state || ''
+            if (s2 === 'open') {
+              setStatusMap(prev => ({ ...prev, [inst.id]: 'open' }))
+              setQrCodes(prev => ({ ...prev, [inst.id]: null }))
+              setMsg(`✅ ${inst.nome}: Conectado com sucesso!`)
+              clearInterval(poll)
+            }
+          } catch {}
+        }, 5000)
+      } else {
+        // Tenta ler o QR do estado atual (Evolution v2 retorna em /instance/fetchInstances)
+        const fetchRes = await fetch(`${evoUrl}/instance/fetchInstances?instanceName=${inst.instance}`, {
+          headers: { apikey: evoKey }
+        }).catch(() => null)
+        const fetchData = fetchRes?.ok ? await fetchRes.json().catch(() => []) : []
+        const instData = Array.isArray(fetchData) ? fetchData[0] : fetchData
+        const qr2 = instData?.qrcode?.base64 || instData?.connectionStatus?.qrcode
+        if (qr2) {
+          setQrCodes(prev => ({ ...prev, [inst.id]: qr2 }))
+          setMsg(`📱 ${inst.nome}: Escaneie o QR code`)
+        } else {
+          setMsg(`⚠️ ${inst.nome}: QR não disponível. Se a instância já estiver conectada, clique em Status para verificar.`)
+        }
+      }
     } catch (e) { setMsg('❌ Erro ao gerar QR: ' + e.message) }
     setLoadingInst(prev => ({ ...prev, [inst.id]: null }))
   }
@@ -2574,8 +2663,27 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
     ? window.location.origin + '/api/wpp/webhook'
     : 'https://seu-dominio.vercel.app/api/wpp/webhook'
 
-  const statusColor = s => s === 'open' ? '#10b981' : s === 'connecting' ? '#f59e0b' : '#64748b'
-  const statusLabel = s => s === 'open' ? '● Conectado' : s === 'connecting' ? '◌ Conectando' : s ? `○ ${s}` : '○ Não verificado'
+  const statusColor = s => s === 'open' ? '#10b981' : s === 'connecting' ? '#f59e0b' : s === 'close' ? '#ef4444' : '#64748b'
+  const statusLabel = s => s === 'open' ? '● Conectado' : s === 'connecting' ? '◌ Conectando...' : s === 'close' ? '✕ Desconectado' : s ? `○ ${s}` : '○ Clique Status para verificar'
+
+  // Auto-verifica status de todas instâncias ao montar (sem criar QR)
+  React.useEffect(() => {
+    if (!evoUrl || !evoKey || instancias.length === 0) return
+    const verificarTodas = async () => {
+      for (const inst of instancias) {
+        try {
+          const r = await fetch(`${evoUrl}/instance/connectionState/${inst.instance}`, { headers: { apikey: evoKey } })
+          if (r.ok) {
+            const d = await r.json().catch(() => ({}))
+            const estado = d?.instance?.state || d?.state || 'unknown'
+            setStatusMap(prev => ({ ...prev, [inst.id]: estado }))
+          }
+        } catch {}
+        await new Promise(r => setTimeout(r, 300)) // pequeno delay entre requests
+      }
+    }
+    verificarTodas()
+  }, [evoUrl, evoKey]) // eslint-disable-line
 
   return (
     <div style={{ padding: 24 }}>
@@ -2653,9 +2761,16 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
                         <span style={{ fontWeight: 700, fontSize: 14, color: isAtiva ? 'var(--accent)' : 'var(--text)' }}>{inst.nome}</span>
                         {isAtiva && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(0,212,255,.15)', color: 'var(--accent)', fontWeight: 700 }}>PADRÃO DO INBOX</span>}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, fontFamily: 'monospace' }}>
-                        instance: <span style={{ color: 'var(--text)' }}>{inst.instance}</span>
-                        {status && <span style={{ marginLeft: 10, color: statusColor(status) }}>{statusLabel(status)}</span>}
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span>instance: <span style={{ color: 'var(--text)' }}>{inst.instance}</span></span>
+                        {inst.numero && <span style={{ color: '#f59e0b' }}>📱 {inst.numero}</span>}
+                        <span style={{ padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700,
+                          background: status === 'open' ? 'rgba(16,185,129,.15)' : status === 'close' ? 'rgba(239,68,68,.15)' : status === 'connecting' ? 'rgba(245,158,11,.15)' : 'rgba(100,116,139,.1)',
+                          color: statusColor(status || ''),
+                          border: `1px solid ${statusColor(status || '')}44`
+                        }}>
+                          {statusLabel(status || '')}
+                        </span>
                       </div>
                     </div>
 
