@@ -2002,12 +2002,28 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   async function salvar() {
     setSaving(true); setMsg('')
     try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
       const atual = row?.value ? JSON.parse(row.value) : {}
       const novo  = { ...atual, wpp: { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo }, cnpjApiToken: cnpjApiToken.trim() }
-      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() }, { onConflict: 'key' })
       setCfg(novo)
       setMsg('✅ Configurações salvas!')
+    } catch (e) {
+      setMsg('❌ Erro ao salvar: ' + e.message)
+    }
+    setSaving(false)
+  }
+
+  async function salvarCnpj() {
+    if (!cnpjApiToken.trim()) { setMsg('⚠️ Cole o token antes de salvar'); return }
+    setSaving(true); setMsg('')
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo  = { ...atual, cnpjApiToken: cnpjApiToken.trim() }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() }, { onConflict: 'key' })
+      setCfg(novo)
+      setMsg('✅ Token CNPJ API salvo!')
     } catch (e) {
       setMsg('❌ Erro ao salvar: ' + e.message)
     }
@@ -2017,10 +2033,10 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   async function salvarTcx() {
     setSaving(true); setMsg('')
     try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
       const atual = row?.value ? JSON.parse(row.value) : {}
       const novo = { ...atual, tcx: { url: tcxUrl.trim(), clientId: tcxClientId.trim(), clientSecret: tcxClientSecret.trim() } }
-      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() }, { onConflict: 'key' })
       setCfg(novo)
       setMsg('✅ Integração 3CX salva!')
     } catch(e) { setMsg('❌ Erro: ' + e.message) }
@@ -2030,10 +2046,10 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   async function salvarCloudflare() {
     setSaving(true); setMsg('')
     try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
       const atual = row?.value ? JSON.parse(row.value) : {}
       const novo = { ...atual, cloudflareImageWorkerUrl: cfWorkerUrl.trim(), cloudflareWorkerSecret: cfWorkerSecret.trim() }
-      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() }, { onConflict: 'key' })
       setCfg(novo)
       setMsg('✅ Cloudflare Worker salvo! O módulo Marketing já pode gerar imagens IA.')
     } catch(e) { setMsg('❌ Erro: ' + e.message) }
@@ -2098,6 +2114,9 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
           placeholder="Cole seu token aqui..."
         />
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+          <button onClick={salvarCnpj} disabled={saving} style={s.btn}>
+            {saving ? '⏳ Salvando...' : '💾 Salvar token'}
+          </button>
           <button onClick={async () => {
             if (!cnpjApiToken.trim()) { setMsg('⚠️ Informe o token antes de testar'); return }
             setTestingApi(true); setMsg('')
@@ -2418,6 +2437,7 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
   const wppInbox = cfg.wppInbox || {}
 
   const [provider,       setProvider]       = React.useState(wppInbox.provider || 'evolution')
+  const [showCreds,      setShowCreds]      = React.useState(false)
   const [evoUrl,         setEvoUrl]         = React.useState(wppInbox.evolutionUrl || '')
   const [evoKey,         setEvoKey]         = React.useState(wppInbox.evolutionKey || '')
   const [instancias,     setInstancias]     = React.useState(() => {
@@ -2598,32 +2618,61 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
       {/* ── Evolution API — Config Global ── */}
       {provider === 'evolution' && (
         <>
+          {/* ── WIZARD: Credenciais (recolhível após configurado) ── */}
           <div style={st.card}>
-            <div style={st.sec}>🔑 Credenciais Globais (Evolution API)</div>
-            <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 16 }}>
-              URL e API Key são compartilhadas entre todos os números. Cada número tem sua própria <strong style={{ color: 'var(--text)' }}>Instance Name</strong>.{' '}
-              <a href="https://github.com/EvolutionAPI/evolution-api" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Deploy gratuito no Railway →</a>
-            </div>
-
-            <label style={st.label}>URL da Evolution API</label>
-            <input style={st.input} value={evoUrl} onChange={e => setEvoUrl(e.target.value)} placeholder="https://sua-evolution-api.railway.app" />
-
-            <label style={st.label}>API Key Global</label>
-            <input style={{ ...st.input, fontFamily: 'monospace' }} type="password" value={evoKey} onChange={e => setEvoKey(e.target.value)} placeholder="sua-api-key-global" />
-
-            {/* Webhook URL */}
-            <div style={{ padding: '12px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-                URL do Webhook — configure em cada instância da Evolution API → Eventos: MESSAGES_UPSERT
+            {evoUrl && evoKey ? (
+              /* Credenciais já configuradas — mostra resumo recolhido */
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(16,185,129,.15)', border: '2px solid rgba(16,185,129,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>✅</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: '#10b981' }}>Servidor WhatsApp conectado</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, fontFamily: 'monospace' }}>{evoUrl}</div>
+                </div>
+                <button onClick={() => setShowCreds(v => !v)} style={{ ...st.btnSec, fontSize: 11, padding: '5px 10px' }}>
+                  {showCreds ? '▲ Ocultar' : '⚙️ Editar'}
+                </button>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <div style={{ flex: 1, fontFamily: 'monospace', fontSize: 11, color: '#10b981', wordBreak: 'break-all' }}>{webhookUrl}</div>
-                <button onClick={() => { navigator.clipboard?.writeText(webhookUrl); setMsg('✅ URL copiada!') }} style={{ ...st.btnSec, padding: '5px 10px', fontSize: 11 }}>Copiar</button>
+            ) : (
+              /* Primeira vez — mostra aviso */
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 16 }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(245,158,11,.15)', border: '2px solid rgba(245,158,11,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>⚙️</div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: '#f59e0b', marginBottom: 4 }}>Configure o servidor WhatsApp uma única vez</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                    Você precisa de uma Evolution API rodando. <a href="https://railway.app/template/evolution-api" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Clique aqui para criar grátis no Railway →</a>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+
+            {(!evoUrl || !evoKey || showCreds) && (
+              <div style={{ marginTop: evoUrl ? 16 : 0, paddingTop: evoUrl ? 16 : 0, borderTop: evoUrl ? '1px solid var(--border)' : 'none' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={st.label}>URL do servidor Evolution API</label>
+                    <input style={st.input} value={evoUrl} onChange={e => setEvoUrl(e.target.value)}
+                      placeholder="https://sua-evolution.up.railway.app" />
+                  </div>
+                  <div>
+                    <label style={st.label}>API Key Global</label>
+                    <input style={{ ...st.input, fontFamily: 'monospace' }} type="password" value={evoKey}
+                      onChange={e => setEvoKey(e.target.value)} placeholder="sua-api-key" />
+                  </div>
+                </div>
+                <div style={{ padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                    URL do Webhook — copie e configure na Evolution API → Events → Webhook
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ flex: 1, fontFamily: 'monospace', fontSize: 11, color: '#10b981', wordBreak: 'break-all' }}>{webhookUrl}</div>
+                    <button onClick={() => { navigator.clipboard?.writeText(webhookUrl); setMsg('✅ URL copiada!') }} style={{ ...st.btnSec, padding: '5px 10px', fontSize: 11 }}>Copiar</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* ── Lista de Instâncias (Números) ── */}
+          {/* ── Lista de Números Conectados ── */}
           <div style={st.card}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <div style={st.sec}>📱 Números Conectados ({instancias.length})</div>
@@ -2631,8 +2680,10 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
             </div>
 
             {instancias.length === 0 && (
-              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--border)', borderRadius: 10 }}>
-                Nenhum número configurado. Clique em "+ Adicionar Número" para começar.
+              <div style={{ padding: '30px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13, border: '2px dashed var(--border)', borderRadius: 12 }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>📱</div>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Nenhum número conectado ainda</div>
+                <div style={{ fontSize: 12 }}>Clique em "+ Adicionar Número" para conectar seu primeiro WhatsApp</div>
               </div>
             )}
 
@@ -2641,83 +2692,113 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
               const isLoading = loadingInst[inst.id]
               const qr = qrCodes[inst.id]
               const isAtiva = instanciaAtiva === inst.id
+              const isConectado = status === 'open' || status === 'connected'
 
               return (
-                <div key={inst.id} style={{ ...st.cardInst, borderColor: isAtiva ? 'rgba(0,212,255,.4)' : 'var(--border)', background: isAtiva ? 'rgba(0,212,255,.03)' : 'var(--surface)' }}>
-                  {/* Cabeçalho da instância */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 700, fontSize: 14, color: isAtiva ? 'var(--accent)' : 'var(--text)' }}>{inst.nome}</span>
-                        {isAtiva && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(0,212,255,.15)', color: 'var(--accent)', fontWeight: 700 }}>PADRÃO DO INBOX</span>}
+                <div key={inst.id} style={{ ...st.cardInst, borderColor: isConectado ? 'rgba(16,185,129,.4)' : isAtiva ? 'rgba(0,212,255,.4)' : 'var(--border)', background: isConectado ? 'rgba(16,185,129,.03)' : isAtiva ? 'rgba(0,212,255,.03)' : 'var(--surface)', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {/* Ícone de status */}
+                    <div style={{ width: 42, height: 42, borderRadius: '50%', background: isConectado ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.1)', border: `2px solid ${isConectado ? 'rgba(16,185,129,.5)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+                      {isConectado ? '✅' : '📱'}
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>{inst.nome}</span>
+                        {isAtiva && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(0,212,255,.15)', color: 'var(--accent)', fontWeight: 700 }}>PADRÃO</span>}
+                        {isConectado && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(16,185,129,.15)', color: '#10b981', fontWeight: 700 }}>🟢 Conectado</span>}
+                        {status && !isConectado && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: 'rgba(245,158,11,.1)', color: '#f59e0b', fontWeight: 700 }}>⚠️ {statusLabel(status)}</span>}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, fontFamily: 'monospace' }}>
-                        instance: <span style={{ color: 'var(--text)' }}>{inst.instance}</span>
-                        {status && <span style={{ marginLeft: 10, color: statusColor(status) }}>{statusLabel(status)}</span>}
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
+                        {inst.numero && <span style={{ marginRight: 10 }}>📞 {inst.numero}</span>}
+                        <span style={{ fontFamily: 'monospace', fontSize: 10 }}>{inst.instance}</span>
                       </div>
                     </div>
 
                     {/* Ações */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       {!isAtiva && (
-                        <button onClick={() => setInstanciaAtiva(inst.id)} style={st.btnGreen} title="Definir como padrão do Inbox">⭐ Padrão</button>
+                        <button onClick={() => setInstanciaAtiva(inst.id)} style={{ ...st.btnGreen, fontSize: 11, padding: '6px 10px' }} title="Definir como padrão">⭐</button>
                       )}
-                      <button onClick={() => verificarStatus(inst)} disabled={!!isLoading} style={{ ...st.btnSec, padding: '7px 11px', fontSize: 12 }}>
-                        {isLoading === 'checking' ? '⏳' : '🔌 Status'}
+                      <button onClick={() => verificarStatus(inst)} disabled={!!isLoading}
+                        style={{ ...st.btnSec, padding: '7px 11px', fontSize: 12 }} title="Verificar conexão">
+                        {isLoading === 'checking' ? '⏳' : '🔌'}
                       </button>
-                      <button onClick={() => gerarQR(inst)} disabled={!!isLoading} style={{ ...st.btnSec, padding: '7px 11px', fontSize: 12 }}>
-                        {isLoading === 'qr' ? '⏳' : '📱 QR'}
+                      <button onClick={() => gerarQR(inst)} disabled={!!isLoading}
+                        style={{ ...st.btnSec, padding: '7px 11px', fontSize: 12, background: qr ? 'rgba(245,158,11,.1)' : undefined }} title="Gerar QR Code para conectar">
+                        {isLoading === 'qr' ? '⏳ Gerando...' : qr ? '🔄 Novo QR' : '📷 Conectar'}
                       </button>
-                      <button onClick={() => abrirFormEditar(i)} style={{ ...st.btnSec, padding: '7px 10px', fontSize: 12 }}>✏️</button>
-                      <button onClick={() => removerInstancia(i)} style={{ ...st.btnDanger, padding: '7px 10px', fontSize: 12 }}>🗑</button>
+                      <button onClick={() => abrirFormEditar(i)} style={{ ...st.btnSec, padding: '7px 10px', fontSize: 12 }} title="Editar">✏️</button>
+                      <button onClick={() => removerInstancia(i)} style={{ ...st.btnDanger, padding: '7px 10px', fontSize: 12 }} title="Remover">🗑</button>
                     </div>
                   </div>
 
-                  {/* QR Code inline */}
+                  {/* QR Code inline — aparece aqui mesmo, sem sair do sistema */}
                   {qr && (
-                    <div style={{ textAlign: 'center', padding: '12px 0', borderTop: '1px solid var(--border)', marginTop: 4 }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>WhatsApp → Dispositivos Conectados → Conectar → Escanear QR</div>
-                      <img src={qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`} alt="QR Code" style={{ width: 200, height: 200, borderRadius: 10, border: '3px solid var(--accent)', background: '#fff', padding: 6 }} />
-                      <button onClick={() => setQrCodes(prev => ({ ...prev, [inst.id]: null }))} style={{ display: 'block', margin: '8px auto 0', fontSize: 11, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}>✕ Fechar QR</button>
+                    <div style={{ marginTop: 16, padding: '20px', background: 'rgba(0,0,0,.3)', borderRadius: 12, border: '2px solid rgba(0,212,255,.3)', textAlign: 'center' }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>📱 Escaneie com o WhatsApp</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+                        Abra o WhatsApp no celular → toque nos <strong>3 pontinhos</strong> → <strong>Dispositivos Conectados</strong> → <strong>Conectar dispositivo</strong> → aponte a câmera para o QR abaixo
+                      </div>
+                      <img
+                        src={qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`}
+                        alt="QR Code WhatsApp"
+                        style={{ width: 220, height: 220, borderRadius: 12, border: '4px solid #fff', background: '#fff', padding: 4, display: 'block', margin: '0 auto' }}
+                      />
+                      <div style={{ marginTop: 12, fontSize: 11, color: 'var(--muted)' }}>O QR expira em ~45 segundos. Se expirar, clique em "📷 Conectar" novamente.</div>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
+                        <button onClick={() => gerarQR(inst)} style={{ ...st.btnSec, fontSize: 12 }}>🔄 Gerar novo QR</button>
+                        <button onClick={() => { verificarStatus(inst); setQrCodes(prev => ({ ...prev, [inst.id]: null })) }} style={{ ...st.btn, fontSize: 12 }}>✅ Já escanei — verificar</button>
+                        <button onClick={() => setQrCodes(prev => ({ ...prev, [inst.id]: null }))} style={{ fontSize: 11, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer' }}>✕ Fechar</button>
+                      </div>
                     </div>
                   )}
                 </div>
               )
             })}
 
-            {/* Formulário inline para nova/edição de instância */}
+            {/* Formulário inline para nova/edição */}
             {formInst !== null && (
-              <div style={{ marginTop: 8, padding: '18px 20px', background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.3)', borderRadius: 12 }}>
+              <div style={{ marginTop: 12, padding: '18px 20px', background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.3)', borderRadius: 12 }}>
                 <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>
                   {editInstIdx === 'novo' ? '➕ Adicionar Número' : '✏️ Editar Número'}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
-                    <label style={st.label}>Nome do Número</label>
-                    <input style={{ ...st.input, marginBottom: 0 }} value={formInst.nome} onChange={e => setFormInst(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Vendas, Suporte, Marketing" />
+                    <label style={st.label}>Nome do número</label>
+                    <input style={{ ...st.input, marginBottom: 0 }} value={formInst.nome}
+                      onChange={e => setFormInst(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Vendas, Suporte, Marketing" />
                   </div>
                   <div>
-                    <label style={st.label}>Nome da Instance (Evolution API)</label>
-                    <input style={{ ...st.input, marginBottom: 0 }} value={formInst.instance} onChange={e => setFormInst(f => ({ ...f, instance: e.target.value }))} placeholder="Ex: vivanexa-vendas" />
+                    <label style={st.label}>Nome da instância <span style={{ color: 'var(--muted)', fontSize: 10 }}>(crie na Evolution API)</span></label>
+                    <input style={{ ...st.input, marginBottom: 0, fontFamily: 'monospace' }} value={formInst.instance}
+                      onChange={e => setFormInst(f => ({ ...f, instance: e.target.value }))} placeholder="Ex: vivanexa-vendas" />
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10 }}>
                   <div>
                     <label style={st.label}>Número WhatsApp (com DDI)</label>
-                    <input style={{ ...st.input, marginBottom: 0 }} value={formInst.numero || ''} onChange={e => setFormInst(f => ({ ...f, numero: e.target.value }))} placeholder="Ex: 5511999999999" />
+                    <input style={{ ...st.input, marginBottom: 0 }} value={formInst.numero || ''}
+                      onChange={e => setFormInst(f => ({ ...f, numero: e.target.value }))} placeholder="Ex: 5531999990000" />
                   </div>
                   <div>
-                    <label style={st.label}>Departamento padrão desta linha</label>
-                    <select style={{ ...st.input, marginBottom: 0, cursor: 'pointer' }} value={formInst.departamentoId || ''} onChange={e => setFormInst(f => ({ ...f, departamentoId: e.target.value }))}>
+                    <label style={st.label}>Departamento padrão</label>
+                    <select style={{ ...st.input, marginBottom: 0, cursor: 'pointer' }} value={formInst.departamentoId || ''}
+                      onChange={e => setFormInst(f => ({ ...f, departamentoId: e.target.value }))}>
                       <option value="">— Nenhum (inbox geral) —</option>
                       {(cfg.wppDeps || []).map(d => <option key={d.id} value={d.id}>{d.nome}</option>)}
                     </select>
                   </div>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', margin: '8px 0 14px', lineHeight: 1.6 }}>
-                  O <strong>Nome da Instance</strong> deve bater exatamente com o que foi criado na Evolution API. O <strong>Número WhatsApp</strong> aparecerá no cabeçalho das conversas para identificação.
-                </div>
-                <div style={{ display: 'flex', gap: 10 }}>
+
+                {/* Atalho: cria instância na Evolution e gera QR automaticamente */}
+                {editInstIdx === 'novo' && evoUrl && evoKey && (
+                  <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(16,185,129,.06)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                    💡 Após salvar, clique em <strong style={{ color: '#10b981' }}>📷 Conectar</strong> no número para gerar o QR Code e vincular o WhatsApp diretamente aqui.
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
                   <button onClick={salvarInstancia} style={st.btn}>💾 Salvar</button>
                   <button onClick={() => { setFormInst(null); setEditInstIdx(null) }} style={st.btnSec}>Cancelar</button>
                 </div>
@@ -2725,21 +2806,15 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
             )}
           </div>
 
-          {/* Instância padrão do Inbox */}
+          {/* Número padrão do Inbox */}
           {instancias.length > 1 && (
             <div style={st.card}>
               <div style={st.sec}>⭐ Número Padrão do Inbox</div>
               <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.6 }}>
                 Quando uma nova conversa chegar sem instância definida, o Inbox usará este número para enviar respostas.
               </p>
-              <select
-                style={{ ...st.input, marginBottom: 0 }}
-                value={instanciaAtiva}
-                onChange={e => setInstanciaAtiva(e.target.value)}
-              >
-                {instancias.map(inst => (
-                  <option key={inst.id} value={inst.id}>{inst.nome} ({inst.instance})</option>
-                ))}
+              <select style={{ ...st.input, marginBottom: 0 }} value={instanciaAtiva} onChange={e => setInstanciaAtiva(e.target.value)}>
+                {instancias.map(inst => <option key={inst.id} value={inst.id}>{inst.nome} ({inst.instance})</option>)}
               </select>
             </div>
           )}
@@ -2835,7 +2910,7 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
     setSaving(true); setMsg('')
     const novos = editIdx === 'novo' ? [...agentes, form] : agentes.map((a, i) => i === editIdx ? form : a)
     try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
       const atual = row?.value ? JSON.parse(row.value) : {}
       const novo  = { ...atual, wppAgentes: novos }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
@@ -2847,7 +2922,7 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
   async function removerAgente(i) {
     if (!confirm('Remover este agente?')) return
     const novos = agentes.filter((_, j) => j !== i)
-    const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+    const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
     const atual = row?.value ? JSON.parse(row.value) : {}
     await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify({ ...atual, wppAgentes: novos }), updated_at: new Date().toISOString() })
     setCfg({ ...cfg, wppAgentes: novos }); setAgentes(novos)
@@ -3331,7 +3406,7 @@ function TabDepartamentos({ cfg, setCfg, empresaId }) {
   async function salvarNoBanco(novosDeps) {
     setSaving(true); setMsg('')
     try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
       const atual = row?.value ? JSON.parse(row.value) : {}
       const novo  = { ...atual, wppDeps: novosDeps }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
@@ -3459,12 +3534,23 @@ function TabDepartamentos({ cfg, setCfg, empresaId }) {
           {/* Instância WhatsApp */}
           <div style={{ marginBottom: 14 }}>
             <label style={st.label}>📱 Número WhatsApp (instância exclusiva deste departamento)</label>
-            <select style={{ ...st.input, cursor: 'pointer', marginBottom: 0 }} value={form.instanciaId || ''} onChange={e => setForm(f => ({ ...f, instanciaId: e.target.value }))}>
-              <option value="">— Usar número padrão do Inbox —</option>
-              {instancias.map(i => (
-                <option key={i.id} value={i.id}>{i.nome} ({i.instance})</option>
-              ))}
-            </select>
+            {instancias.length === 0 ? (
+              <div style={{ padding: '9px 12px', background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.2)', borderRadius: 8, fontSize: 12, color: '#f59e0b' }}>
+                ⚠️ Nenhum número conectado. Configure em <strong>Config → WhatsApp</strong> primeiro.
+              </div>
+            ) : instancias.length === 1 ? (
+              <div style={{ padding: '9px 12px', background: 'rgba(16,185,129,.06)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 8, fontSize: 12, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8 }}>
+                ✅ Usando automaticamente: <strong>{instancias[0].nome}</strong>
+                {instancias[0].numero && <span style={{ color: 'var(--muted)' }}>· {instancias[0].numero}</span>}
+              </div>
+            ) : (
+              <select style={{ ...st.input, cursor: 'pointer', marginBottom: 0 }} value={form.instanciaId || ''} onChange={e => setForm(f => ({ ...f, instanciaId: e.target.value }))}>
+                <option value="">— Usar número padrão do Inbox —</option>
+                {instancias.map(i => (
+                  <option key={i.id} value={i.id}>📱 {i.nome}{i.numero ? ` · ${i.numero}` : ''} ({i.instance})</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Google Agenda */}
@@ -3548,7 +3634,7 @@ export default function Configuracoes() {
       const eid = perf?.empresa_id || session.user.id
       setEmpresaId(eid)
 
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).maybeSingle()
       let parsedCfg = {}
       if (row?.value) {
         try { parsedCfg = JSON.parse(row.value) } catch {}
