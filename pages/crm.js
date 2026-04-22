@@ -233,6 +233,7 @@ export default function CRM() {
         const c=JSON.parse(row.value)
         setCfg(c); setNegocios(c.crm_negocios||[]); setAtividades(c.crm_atividades||[])
         setClientes(c.clients||[]); setDocumentos(c.crm_documentos||[])
+        setAutomacoes(c.crm_automacoes||[])
         if(c.crm_etapas?.length)setEtapas(c.crm_etapas)
         if(c.tel3cx)setCfg3cx(c.tel3cx)
         // Carrega funis — se não tiver, cria o funil padrão
@@ -258,9 +259,13 @@ export default function CRM() {
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3500) }
 
   // ── Funis ─────────────────────────────────────────
-  const [showAgente,   setShowAgente]   = useState(false)
-  const [agenteLog,    setAgenteLog]    = useState([])
-  const [agenteRodando,setAgenteRodando]= useState('')
+  const [showAgente,      setShowAgente]      = useState(false)
+  const [agenteLog,       setAgenteLog]       = useState([])
+  const [agenteRodando,   setAgenteRodando]   = useState('')
+  const [showAutoModal,   setShowAutoModal]   = useState(false)
+  const [autoEtapaId,     setAutoEtapaId]     = useState(null)
+  const [automacoes,      setAutomacoes]      = useState([])
+  const [formAuto,        setFormAuto]        = useState(null)
 
   async function rodarAgente(acao, negocioId) {
     if (!empresaId) return
@@ -285,6 +290,41 @@ export default function CRM() {
   async function getCfgFresh() {
     const { data } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
     return data?.value ? JSON.parse(data.value) : null
+  }
+
+  // ── Automações de etapa ───────────────────────────
+  const EMPTY_AUTO = { id:'', etapaId:'', tipo:'email', ativo:true, emailAssunto:'', emailCorpo:'', mensagem:'', usarIA:false }
+
+  async function salvarAutomacao(auto) {
+    const nova = {...auto, id: auto.id || 'auto_'+Date.now()}
+    const lista = auto.id ? automacoes.map(a=>a.id===auto.id?nova:a) : [...automacoes, nova]
+    setAutomacoes(lista)
+    const nc = {...cfg, crm_automacoes: lista}
+    await save(nc); setCfg(nc)
+    showToast('✅ Automação salva!')
+    return lista
+  }
+
+  async function excluirAutomacao(id) {
+    if(!confirm('Excluir esta automação?')) return
+    const lista = automacoes.filter(a=>a.id!==id)
+    setAutomacoes(lista)
+    const nc = {...cfg, crm_automacoes: lista}
+    await save(nc); setCfg(nc)
+    showToast('🗑 Automação removida!')
+  }
+
+  // Executa automações ao mover etapa
+  async function moverEtapaComAutomacao(negId, novaEtapa) {
+    await moverEtapa(negId, novaEtapa)
+    // Dispara automações em background
+    const negAtual = negocios.find(n=>n.id===negId)
+    if(negAtual && empresaId) {
+      fetch('/api/agente-followup', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ acao:'automacao_etapa', empresaId, negocioId: negId, etapaId: novaEtapa })
+      }).catch(()=>{})
+    }
   }
 
   async function salvarFunil(f) {
@@ -341,7 +381,10 @@ export default function CRM() {
         smtpPort:cfg.smtpPort||587,
         smtpUser:cfg.smtpUser,
         smtpPass:cfg.smtpPass,
-        apiKey:cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.api_key||cfg.smtpPass||'',
+        // ✅ Passa apiKey em todos os campos possíveis (Brevo aceita apiKey ou brevoApiKey)
+        apiKey:     cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.api_key||cfg.smtpPass||'',
+        brevoApiKey:cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||'',
+        emailApiKey:cfg.emailApiKey||'',
         emailRemetente:cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||cfg.emailEmp||'',
         nomeRemetente:cfg.company||'Vivanexa'
       }:null
@@ -482,11 +525,19 @@ export default function CRM() {
   function onDragStart(e,neg){ setDragging(neg.id); dragNode.current=e.target; setTimeout(()=>{ if(dragNode.current)dragNode.current.style.opacity='0.4' },0) }
   function onDragEnd(){ if(dragNode.current)dragNode.current.style.opacity='1'; setDragging(null); setDragOver(null) }
   function onDragOver(e,id){ e.preventDefault(); setDragOver(id) }
-  function onDrop(e,id){ e.preventDefault(); if(dragging)moverEtapa(dragging,id); setDragging(null); setDragOver(null) }
+  function onDrop(e,id){ e.preventDefault(); if(dragging)moverEtapaComAutomacao(dragging,id); setDragging(null); setDragOver(null) }
 
   // ── Filtros ───────────────────────────────────────
   const negFiltrados = negocios.filter(n=>{
-    const ob=!busca.trim()||n.titulo?.toLowerCase().includes(busca.toLowerCase())||n.nome?.toLowerCase().includes(busca.toLowerCase())||n.cnpj?.includes(busca)||n.email?.includes(busca)
+    const q=busca.toLowerCase().trim()
+    const ob=!q||
+      n.titulo?.toLowerCase().includes(q)||
+      n.nome?.toLowerCase().includes(q)||
+      n.fantasia?.toLowerCase().includes(q)||
+      n.cnpj?.replace(/\D/g,'').includes(q.replace(/\D/g,''))||
+      n.cpf?.replace(/\D/g,'').includes(q.replace(/\D/g,''))||
+      n.email?.toLowerCase().includes(q)||
+      n.telefone?.replace(/\D/g,'').includes(q.replace(/\D/g,''))
     const oe=filtroEtapa==='todas'||n.etapa===filtroEtapa
     return ob&&oe
   })
@@ -591,7 +642,7 @@ export default function CRM() {
               </>
             ) : (
               <>
-                <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:180}}/>
+                <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar negócio, contato, tel, e-mail..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:280}}/>
                 <button onClick={()=>{setFormNeg({...EMPTY_NEG});setShowFormNeg(true)}}
                   style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>+ Novo Negócio</button>
               </>
@@ -651,7 +702,7 @@ export default function CRM() {
                   <div style={{fontSize:11,color:'var(--muted)',marginBottom:8,letterSpacing:1,textTransform:'uppercase'}}>Etapa do Funil</div>
                   <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
                     {etapas.map(e=>(
-                      <button key={e.id} onClick={()=>moverEtapa(negSel.id,e.id)}
+                      <button key={e.id} onClick={()=>moverEtapaComAutomacao(negSel.id,e.id)}
                         style={{padding:'5px 10px',borderRadius:7,border:`1.5px solid ${negSel.etapa===e.id?e.cor:'var(--border)'}`,background:negSel.etapa===e.id?`${e.cor}22`:'var(--surface2)',color:negSel.etapa===e.id?e.cor:'var(--muted)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace',fontWeight:negSel.etapa===e.id?700:400}}>
                         {e.label}
                       </button>
@@ -777,6 +828,11 @@ export default function CRM() {
                         <div style={{width:8,height:8,borderRadius:'50%',background:etapa.cor,flexShrink:0}}/>
                         <span style={{fontSize:11,fontWeight:700,color:etapa.cor,letterSpacing:.5}}>{etapa.label}</span>
                         <span style={{marginLeft:'auto',fontSize:10,color:'var(--muted)',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'1px 7px'}}>{cols.length}</span>
+                        <button
+                          title="Configurar automação desta etapa"
+                          onClick={()=>{setAutoEtapaId(etapa.id);setFormAuto({...EMPTY_AUTO,etapaId:etapa.id});setShowAutoModal(true)}}
+                          style={{padding:'2px 6px',borderRadius:6,border:`1px solid ${automacoes.some(a=>a.etapaId===etapa.id&&a.ativo)?'rgba(124,58,237,.5)':'var(--border)'}`,background:automacoes.some(a=>a.etapaId===etapa.id&&a.ativo)?'rgba(124,58,237,.12)':'transparent',color:automacoes.some(a=>a.etapaId===etapa.id&&a.ativo)?'#a78bfa':'var(--muted)',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}
+                        >⚡{automacoes.filter(a=>a.etapaId===etapa.id&&a.ativo).length>0?` ${automacoes.filter(a=>a.etapaId===etapa.id&&a.ativo).length}`:''}</button>
                       </div>
                       <div style={{fontSize:10,color:'var(--muted)'}}>R$ {cols.reduce((a,n)=>a+(Number(n.adesao)||0),0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
                     </div>
@@ -1187,17 +1243,26 @@ export default function CRM() {
                     {agenteRodando==='followup_parado'?'⏳ Processando...':'🚀 Rodar follow-up'}
                   </button>
                 </div>
+
+                <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:12,padding:16,gridColumn:'1 / -1'}}>
+                  <div style={{fontSize:22,marginBottom:8}}>📅</div>
+                  <div style={{fontWeight:700,fontSize:13,color:'var(--text)',marginBottom:4}}>Follow-up de Tarefas</div>
+                  <div style={{fontSize:11,color:'var(--muted)',marginBottom:12,lineHeight:1.5}}>Verifica atividades atrasadas e tarefas do dia. Envia alerta inteligente via WhatsApp com sugestão de priorização.</div>
+                  <button onClick={()=>rodarAgente('followup_tarefas')} disabled={!!agenteRodando} style={{...S.bp,width:'100%',justifyContent:'center',background:'rgba(124,58,237,.15)',color:'#a78bfa',border:'1px solid rgba(124,58,237,.3)'}}>
+                    {agenteRodando==='followup_tarefas'?'⏳ Verificando...':'📋 Verificar tarefas'}
+                  </button>
+                </div>
               </div>
 
               {/* Negócios parados com ação individual */}
-              {negocios.filter(n=>!['fechamento','perdido'].includes(n.etapa)&&diasDesde(n.updatedAt)>=DIAS_PARADO_ALERTA).length>0&&(
+              {negocios.filter(n=>!['fechamento','perdido'].includes(n.etapa)&&diasDesde(n.atualizadoEm||n.updatedAt)>=DIAS_PARADO_ALERTA).length>0&&(
                 <div style={{marginBottom:20}}>
                   <div style={{fontSize:11,color:'#f59e0b',letterSpacing:.5,marginBottom:8,fontWeight:700}}>⚠️ NEGÓCIOS PARADOS</div>
-                  {negocios.filter(n=>!['fechamento','perdido'].includes(n.etapa)&&diasDesde(n.updatedAt)>=DIAS_PARADO_ALERTA).slice(0,5).map(neg=>(
+                  {negocios.filter(n=>!['fechamento','perdido'].includes(n.etapa)&&diasDesde(n.atualizadoEm||n.updatedAt)>=DIAS_PARADO_ALERTA).slice(0,5).map(neg=>(
                     <div key={neg.id} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',background:'rgba(251,191,36,.05)',border:'1px solid rgba(251,191,36,.2)',borderRadius:8,marginBottom:6}}>
                       <div style={{flex:1}}>
                         <span style={{fontSize:12,fontWeight:600,color:'var(--text)'}}>{neg.titulo}</span>
-                        <span style={{fontSize:11,color:'var(--muted)',marginLeft:8}}>{diasDesde(neg.updatedAt)}d parado</span>
+                        <span style={{fontSize:11,color:'var(--muted)',marginLeft:8}}>{diasDesde(neg.atualizadoEm||neg.updatedAt)}d parado</span>
                         {neg.agenteEmNegociacao&&<span style={{fontSize:10,background:'rgba(16,185,129,.15)',color:'#10b981',padding:'1px 6px',borderRadius:6,marginLeft:6}}>🤖 IA negociando</span>}
                       </div>
                       <button onClick={()=>rodarAgente('followup_parado',neg.id)} disabled={!!agenteRodando}
@@ -1282,6 +1347,112 @@ export default function CRM() {
             </div>
             <div style={S.mf}>
               <button onClick={()=>setShowFunisMgr(false)} style={S.bp}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ MODAL AUTOMAÇÃO DE ETAPA ════ */}
+      {showAutoModal&&autoEtapaId&&(
+        <div style={S.ov}>
+          <div style={{...S.md,maxWidth:580}}>
+            <div style={S.mh}>
+              <h3 style={{...S.mt,color:'#a78bfa'}}>⚡ Automações da Etapa: {etapas.find(e=>e.id===autoEtapaId)?.label||autoEtapaId}</h3>
+              <button onClick={()=>{setShowAutoModal(false);setFormAuto(null)}} style={S.mc}>✕</button>
+            </div>
+            <div style={S.mb}>
+              <div style={{background:'rgba(124,58,237,.07)',border:'1px solid rgba(124,58,237,.2)',borderRadius:10,padding:'10px 14px',marginBottom:16,fontSize:12,color:'#94a3b8',lineHeight:1.6}}>
+                As automações são disparadas automaticamente quando um negócio entra nesta etapa.<br/>
+                Use <code style={{background:'rgba(255,255,255,.08)',padding:'1px 5px',borderRadius:4}}>{'{nome}'}</code>, <code style={{background:'rgba(255,255,255,.08)',padding:'1px 5px',borderRadius:4}}>{'{titulo}'}</code>, <code style={{background:'rgba(255,255,255,.08)',padding:'1px 5px',borderRadius:4}}>{'{empresa}'}</code>, <code style={{background:'rgba(255,255,255,.08)',padding:'1px 5px',borderRadius:4}}>{'{adesao}'}</code>, <code style={{background:'rgba(255,255,255,.08)',padding:'1px 5px',borderRadius:4}}>{'{mensalidade}'}</code> como variáveis.
+              </div>
+
+              {/* Lista de automações existentes para esta etapa */}
+              {automacoes.filter(a=>a.etapaId===autoEtapaId).length>0&&(
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:11,color:'var(--muted)',fontWeight:700,letterSpacing:.5,marginBottom:8}}>AUTOMAÇÕES CONFIGURADAS</div>
+                  {automacoes.filter(a=>a.etapaId===autoEtapaId).map(auto=>(
+                    <div key={auto.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:auto.ativo?'rgba(124,58,237,.08)':'rgba(100,116,139,.05)',border:`1px solid ${auto.ativo?'rgba(124,58,237,.3)':'var(--border)'}`,borderRadius:9,marginBottom:6}}>
+                      <span style={{fontSize:16}}>{auto.tipo==='email'?'📧':'💬'}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,color:'var(--text)'}}>{auto.tipo==='email'?`Email: ${(auto.emailAssunto||'').slice(0,40)}`:`WhatsApp: ${(auto.mensagem||'').slice(0,40)}`}</div>
+                        <div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>{auto.usarIA?'✨ Com melhoria por IA':''} {auto.ativo?'🟢 Ativo':'🔴 Inativo'}</div>
+                      </div>
+                      <button onClick={()=>setFormAuto({...auto})} style={{...S.nb,fontSize:10}}>✏️</button>
+                      <button onClick={async()=>{
+                        const nova={...auto,ativo:!auto.ativo}
+                        await salvarAutomacao(nova)
+                        setAutomacoes(p=>p.map(a=>a.id===nova.id?nova:a))
+                      }} style={{...S.nb,fontSize:10,color:auto.ativo?'var(--danger)':'var(--accent3)'}}>{auto.ativo?'Pausar':'Ativar'}</button>
+                      <button onClick={()=>excluirAutomacao(auto.id)} style={{...S.nb,color:'var(--danger)',fontSize:10}}>🗑</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Formulário de nova automação */}
+              {formAuto&&(
+                <div style={{background:'var(--surface2)',border:'1px solid rgba(124,58,237,.25)',borderRadius:12,padding:16}}>
+                  <div style={{fontFamily:'Syne,sans-serif',fontSize:13,fontWeight:700,color:'#a78bfa',marginBottom:12}}>
+                    {formAuto.id&&automacoes.find(a=>a.id===formAuto.id)?'✏️ Editar Automação':'➕ Nova Automação'}
+                  </div>
+                  <div style={S.g2}>
+                    <F l="Tipo de Ação">
+                      <select value={formAuto.tipo} onChange={e=>setFormAuto(f=>({...f,tipo:e.target.value}))} style={{...S.ip,cursor:'pointer'}}>
+                        <option value="email">📧 Enviar E-mail</option>
+                        <option value="whatsapp">💬 Enviar WhatsApp</option>
+                      </select>
+                    </F>
+                    <F l="Status">
+                      <select value={formAuto.ativo?'sim':'nao'} onChange={e=>setFormAuto(f=>({...f,ativo:e.target.value==='sim'}))} style={{...S.ip,cursor:'pointer'}}>
+                        <option value="sim">🟢 Ativo</option>
+                        <option value="nao">🔴 Pausado</option>
+                      </select>
+                    </F>
+                  </div>
+
+                  {formAuto.tipo==='email'&&(
+                    <>
+                      <F l="Assunto do E-mail">
+                        <input value={formAuto.emailAssunto||''} onChange={e=>setFormAuto(f=>({...f,emailAssunto:e.target.value}))} style={S.ip} placeholder="Ex: Sua proposta está pronta, {nome}!"/>
+                      </F>
+                      <F l="Corpo do E-mail">
+                        <textarea value={formAuto.emailCorpo||''} onChange={e=>setFormAuto(f=>({...f,emailCorpo:e.target.value}))} rows={5} style={{...S.ip,resize:'vertical',lineHeight:1.6}} placeholder={`Olá {nome},\n\nSegue em anexo sua proposta comercial...\n\nAtenciosamente,\nEquipe {empresa}`}/>
+                      </F>
+                    </>
+                  )}
+
+                  {formAuto.tipo==='whatsapp'&&(
+                    <>
+                      <F l="Mensagem WhatsApp">
+                        <textarea value={formAuto.mensagem||''} onChange={e=>setFormAuto(f=>({...f,mensagem:e.target.value}))} rows={4} style={{...S.ip,resize:'vertical',lineHeight:1.6}} placeholder={`Olá {nome}! Temos novidades sobre sua proposta. Podemos conversar?`}/>
+                      </F>
+                      <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',fontSize:12,color:'var(--muted)',marginTop:4,padding:'8px 12px',background:'rgba(124,58,237,.06)',border:'1px solid rgba(124,58,237,.2)',borderRadius:8}}>
+                        <input type="checkbox" checked={!!formAuto.usarIA} onChange={e=>setFormAuto(f=>({...f,usarIA:e.target.checked}))}/>
+                        ✨ Melhorar mensagem com IA antes de enviar
+                      </label>
+                    </>
+                  )}
+
+                  <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:14}}>
+                    <button onClick={()=>setFormAuto({...EMPTY_AUTO,etapaId:autoEtapaId})} style={S.bc}>Limpar</button>
+                    <button onClick={async()=>{
+                      const lista = await salvarAutomacao({...formAuto,etapaId:autoEtapaId})
+                      setAutomacoes(lista)
+                      setFormAuto({...EMPTY_AUTO,etapaId:autoEtapaId})
+                    }} style={S.bp}>✅ Salvar Automação</button>
+                  </div>
+                </div>
+              )}
+
+              {!formAuto&&(
+                <button onClick={()=>setFormAuto({...EMPTY_AUTO,etapaId:autoEtapaId})}
+                  style={{...S.bp,width:'100%',justifyContent:'center',background:'rgba(124,58,237,.15)',color:'#a78bfa',border:'1px solid rgba(124,58,237,.3)',marginTop:8}}>
+                  ➕ Nova Automação para esta Etapa
+                </button>
+              )}
+            </div>
+            <div style={S.mf}>
+              <button onClick={()=>{setShowAutoModal(false);setFormAuto(null)}} style={S.bp}>Fechar</button>
             </div>
           </div>
         </div>
