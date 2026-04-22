@@ -9,29 +9,29 @@ export default async function handler(req, res) {
   const { to, subject, html, text, from, config: cfg, attachments = [] } = req.body
   if (!to || !subject) return res.status(400).json({ error: 'Destinatário e assunto são obrigatórios' })
 
-  if (!cfg?.smtpHost || !cfg?.smtpUser || !cfg?.smtpPass) {
+  // ✅ FIX: não bloqueia se smtpPass vazio — Brevo usa emailApiKey, não smtpPass
+  if (!cfg?.smtpHost || !cfg?.smtpUser) {
     return res.status(200).json({ success: true, fallback: true })
   }
 
   const isBrevo = cfg.smtpHost.includes('brevo.com') || cfg.smtpHost.includes('sendinblue') || cfg.smtpUser === 'apikey'
 
-  console.log('[send-email] isBrevo:', isBrevo, '| campos cfg:', Object.keys(cfg), '| smtpHost:', cfg.smtpHost)
+  console.log('[send-email] isBrevo:', isBrevo, '| smtpHost:', cfg.smtpHost, '| smtpUser:', cfg.smtpUser)
 
-  // ── Brevo: usa API HTTP ──
   if (isBrevo) {
-    // Busca a API key em TODOS os campos possíveis
-    const apiKey = cfg.apiKey || cfg.brevoApiKey || cfg.emailApiKey || cfg.api_key || cfg.brevo_api_key || ''
+    // ✅ FIX: tenta todos os campos onde a key pode estar, incluindo smtpPass como fallback final
+    const apiKey = cfg.emailApiKey || cfg.apiKey || cfg.brevoApiKey || cfg.api_key || cfg.brevo_api_key || cfg.smtpPass || ''
 
-    console.log('[send-email] Brevo apiKey found:', !!apiKey, '| len:', apiKey.length)
+    console.log('[send-email] Brevo apiKey found:', !!apiKey, '| len:', apiKey.length, '| campos:', Object.keys(cfg).join(','))
 
-    if (!apiKey) {
+    if (!apiKey || apiKey.length < 10) {
       return res.status(500).json({
-        error: 'API Key do Brevo não encontrada. Acesse Configurações → Empresa → campo "API Key (Brevo/SendGrid)" e salve sua chave.'
+        error: 'API Key do Brevo não encontrada. Acesse Configurações → Empresa → "API Key (Brevo/SendGrid)" e salve sua chave xsmtpib-...'
       })
     }
 
     try {
-      const senderEmail = cfg.emailRemetente || cfg.smtpFrom || cfg.emailEmpresa || cfg.emailEmp || 'noreply@vivanexa.com.br'
+      const senderEmail = cfg.emailRemetente || cfg.smtpFrom || cfg.emailEmpresa || cfg.emailEmp || cfg.smtpUser || 'noreply@vivanexa.com.br'
       const senderName  = cfg.nomeRemetente || cfg.company || 'Vivanexa'
 
       const body = {
@@ -47,6 +47,8 @@ export default async function handler(req, res) {
           .map(a => ({ name: a.filename, content: a.content }))
       }
 
+      console.log('[send-email] Brevo sending to:', to, '| from:', senderEmail)
+
       const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -61,11 +63,16 @@ export default async function handler(req, res) {
       const msg = result.message || JSON.stringify(result)
       return res.status(500).json({ error: `Brevo API: ${msg}` })
     } catch (err) {
+      console.error('[send-email] Brevo exception:', err.message)
       return res.status(500).json({ error: 'Erro ao chamar API Brevo: ' + err.message })
     }
   }
 
-  // ── SMTP genérico (Gmail, outros) ──
+  // ── SMTP genérico (Gmail, Outlook, etc) ──
+  if (!cfg.smtpPass) {
+    return res.status(200).json({ success: true, fallback: true })
+  }
+
   try {
     const port   = Number(cfg.smtpPort) || 587
     const secure = port === 465
