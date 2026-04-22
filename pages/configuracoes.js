@@ -2547,37 +2547,177 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
   }
 
   // ── Verificar status de uma instância ────────
+  // ── Verificar status de conexão ──────────────
   async function verificarStatus(inst) {
     if (!evoUrl || !evoKey) { setMsg('⚠️ Preencha URL e API Key primeiro e salve'); return }
     setLoadingInst(prev => ({ ...prev, [inst.id]: 'checking' }))
     try {
-      const r = await fetch(`${evoUrl}/instance/connectionState/${inst.instance}`, { headers: { 'apikey': evoKey } })
+      const r = await fetch(`${evoUrl}/instance/connectionState/${inst.instance}`, { headers: { apikey: evoKey } })
       const d = await r.json()
       const estado = d?.instance?.state || d?.state || 'unknown'
       setStatusMap(prev => ({ ...prev, [inst.id]: estado }))
-      setMsg(estado === 'open' ? `✅ ${inst.nome}: Conectado!` : `⚠️ ${inst.nome}: ${estado}`)
+
+      // Se conectado, tenta buscar o número automaticamente
+      if (estado === 'open') {
+        setMsg(`✅ ${inst.nome}: Conectado!`)
+        await buscarNumeroDaInstancia(inst)
+      } else {
+        setMsg(`⚠️ ${inst.nome}: ${estado}`)
+      }
     } catch (e) { setMsg('❌ Erro ao verificar: ' + e.message) }
     setLoadingInst(prev => ({ ...prev, [inst.id]: null }))
   }
 
-  // ── Gerar QR Code de uma instância ───────────
+  // ── Busca o número real conectado na instância ──
+  async function buscarNumeroDaInstancia(inst) {
+    try {
+      const r = await fetch(`${evoUrl}/instance/fetchInstances?instanceName=${inst.instance}`, {
+        headers: { apikey: evoKey }
+      })
+      const d = await r.json()
+      // Evolution v2 retorna array
+      const info = Array.isArray(d) ? d.find(i => i.instance?.instanceName === inst.instance || i.name === inst.instance) : d
+      const numero = info?.instance?.owner || info?.owner || info?.number || info?.profilePicUrl ? null : null
+      // Tenta endpoint alternativo para pegar o número
+      const r2 = await fetch(`${evoUrl}/chat/whatsappNumbers/${inst.instance}`, { headers: { apikey: evoKey } })
+      if (r2.ok) {
+        const d2 = await r2.json()
+        const num = d2?.numbers?.[0] || d2?.[0]
+        if (num) {
+          const numeroLimpo = (num.jid || num.number || '').replace('@s.whatsapp.net', '').replace(/\D/g, '')
+          if (numeroLimpo) {
+            setInstancias(prev => prev.map(i => i.id === inst.id ? { ...i, numero: numeroLimpo } : i))
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // ── Configura webhook na instância Evolution ──
+  async function configurarWebhook(instName) {
+    if (!evoUrl || !evoKey) return
+    const wUrl = typeof window !== 'undefined' ? window.location.origin + '/api/wpp/webhook' : ''
+    if (!wUrl) return
+    try {
+      await fetch(`${evoUrl}/webhook/set/${instName}`, {
+        method: 'POST',
+        headers: { apikey: evoKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: wUrl,
+          webhook_by_events: false,
+          webhook_base64: true,
+          events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE', 'QRCODE_UPDATED']
+        })
+      })
+    } catch {}
+  }
+
+  // ── Gerar QR Code com polling automático ─────
   async function gerarQR(inst) {
     if (!evoUrl || !evoKey) { setMsg('⚠️ Preencha URL e API Key primeiro e salve'); return }
     setLoadingInst(prev => ({ ...prev, [inst.id]: 'qr' }))
     setQrCodes(prev => ({ ...prev, [inst.id]: null }))
+
     try {
-      // Tenta criar a instância (ignora erro se já existe)
-      await fetch(`${evoUrl}/instance/create`, {
-        method: 'POST', headers: { 'apikey': evoKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instanceName: inst.instance, qrcode: true })
-      }).catch(() => {})
-      const r = await fetch(`${evoUrl}/instance/connect/${inst.instance}`, { headers: { 'apikey': evoKey } })
+      // 1. Garante que a instância existe na Evolution
+      const criarResp = await fetch(`${evoUrl}/instance/create`, {
+        method: 'POST',
+        headers: { apikey: evoKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instanceName: inst.instance,
+          qrcode: true,
+          integration: 'WHATSAPP-BAILEYS'
+        })
+      })
+      const criarData = await criarResp.json()
+
+      // 2. Configura o webhook automaticamente
+      await configurarWebhook(inst.instance)
+
+      // 3. Pega o QR Code
+      const r = await fetch(`${evoUrl}/instance/connect/${inst.instance}`, {
+        headers: { apikey: evoKey }
+      })
       const d = await r.json()
-      const qr = d?.base64 || d?.qrcode?.base64 || d?.qr
-      if (qr) setQrCodes(prev => ({ ...prev, [inst.id]: qr }))
-      else setMsg(`⚠️ ${inst.nome}: QR não disponível — talvez já esteja conectada.`)
-    } catch (e) { setMsg('❌ Erro ao gerar QR: ' + e.message) }
+      const qr = d?.base64 || d?.qrcode?.base64 || d?.code
+
+      if (qr) {
+        const qrFinal = qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`
+        setQrCodes(prev => ({ ...prev, [inst.id]: qrFinal }))
+        setMsg(`📱 ${inst.nome}: Escaneie o QR Code com o WhatsApp`)
+
+        // 4. Polling automático — verifica conexão a cada 3s por até 2 minutos
+        let tentativas = 0
+        const maxTentativas = 40
+        const poll = setInterval(async () => {
+          tentativas++
+          try {
+            const sr = await fetch(`${evoUrl}/instance/connectionState/${inst.instance}`, {
+              headers: { apikey: evoKey }
+            })
+            const sd = await sr.json()
+            const estado = sd?.instance?.state || sd?.state || ''
+
+            if (estado === 'open') {
+              // ✅ Conectado!
+              clearInterval(poll)
+              setQrCodes(prev => ({ ...prev, [inst.id]: null }))
+              setStatusMap(prev => ({ ...prev, [inst.id]: 'open' }))
+              setMsg(`✅ ${inst.nome}: WhatsApp conectado com sucesso!`)
+              setLoadingInst(prev => ({ ...prev, [inst.id]: null }))
+
+              // Busca o número automaticamente
+              await buscarNumeroDaInstancia(inst)
+
+              // Salva automaticamente
+              await salvarComInstanciasAtuais()
+            } else if (estado === 'qr' || estado === 'connecting') {
+              // Ainda aguardando — atualiza QR se expirou (a cada 20s tenta novo QR)
+              if (tentativas % 7 === 0) {
+                const rq = await fetch(`${evoUrl}/instance/connect/${inst.instance}`, {
+                  headers: { apikey: evoKey }
+                })
+                const dq = await rq.json()
+                const novoQr = dq?.base64 || dq?.qrcode?.base64 || dq?.code
+                if (novoQr) {
+                  const qrFmt = novoQr.startsWith('data:') ? novoQr : `data:image/png;base64,${novoQr}`
+                  setQrCodes(prev => ({ ...prev, [inst.id]: qrFmt }))
+                }
+              }
+            }
+          } catch {}
+
+          if (tentativas >= maxTentativas) {
+            clearInterval(poll)
+            setLoadingInst(prev => ({ ...prev, [inst.id]: null }))
+            setMsg(`⏰ ${inst.nome}: QR Code expirou. Clique em Conectar novamente.`)
+          }
+        }, 3000)
+
+      } else if (criarData?.instance?.state === 'open' || d?.state === 'open') {
+        // Já está conectado
+        setStatusMap(prev => ({ ...prev, [inst.id]: 'open' }))
+        setMsg(`✅ ${inst.nome}: Já está conectado!`)
+        await buscarNumeroDaInstancia(inst)
+      } else {
+        setMsg(`⚠️ ${inst.nome}: Não foi possível gerar QR Code. Verifique se a instância existe na Evolution API.`)
+      }
+    } catch (e) {
+      setMsg('❌ Erro ao gerar QR: ' + e.message)
+    }
     setLoadingInst(prev => ({ ...prev, [inst.id]: null }))
+  }
+
+  // ── Salva instâncias com estado atual do React ──
+  async function salvarComInstanciasAtuais() {
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novoWppInbox = { ...atual.wppInbox, instancias, instanciaAtiva, evolutionUrl: evoUrl, evolutionKey: evoKey, evolutionInstance: instancias.find(i => i.id === instanciaAtiva)?.instance || instancias[0]?.instance || '' }
+      const novo = { ...atual, wppTags, wppInbox: novoWppInbox }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() }, { onConflict: 'key' })
+      setCfg(novo)
+    } catch {}
   }
 
   // ── Tags ─────────────────────────────────────
