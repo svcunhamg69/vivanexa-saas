@@ -15,27 +15,32 @@ export default async function handler(req, res) {
 
   const isBrevo = cfg.smtpHost.includes('brevo.com') || cfg.smtpHost.includes('sendinblue') || cfg.smtpUser === 'apikey'
 
-  // Debug — aparece nos logs do Vercel
-  console.log('[send-email] isBrevo:', isBrevo, '| campos cfg:', Object.keys(cfg), '| apiKey len:', (cfg.apiKey||cfg.smtpPass||'').length)
+  console.log('[send-email] isBrevo:', isBrevo, '| campos cfg:', Object.keys(cfg), '| smtpHost:', cfg.smtpHost)
 
-  // ── Brevo: usa API HTTP (mais confiável que SMTP no Vercel) ──
+  // ── Brevo: usa API HTTP ──
   if (isBrevo) {
-    // Tenta todos os campos possíveis onde a API key pode estar salva
-    const apiKey = cfg.apiKey || cfg.brevoApiKey || cfg.smtpPass || cfg.api_key || ''
+    // Busca a API key em TODOS os campos possíveis
+    const apiKey = cfg.apiKey || cfg.brevoApiKey || cfg.emailApiKey || cfg.api_key || cfg.brevo_api_key || ''
+
+    console.log('[send-email] Brevo apiKey found:', !!apiKey, '| len:', apiKey.length)
 
     if (!apiKey) {
-      return res.status(500).json({ error: 'API Key do Brevo não encontrada. Preencha o campo "API Key (para Brevo/SendGrid)" em Configurações → Empresa.' })
+      return res.status(500).json({
+        error: 'API Key do Brevo não encontrada. Acesse Configurações → Empresa → campo "API Key (Brevo/SendGrid)" e salve sua chave.'
+      })
     }
+
     try {
-      const senderEmail = cfg.emailRemetente || cfg.smtpFrom || cfg.emailEmpresa || cfg.smtpUser !== 'apikey' ? (cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||'noreply@vivanexa.com.br') : 'noreply@vivanexa.com.br'
+      const senderEmail = cfg.emailRemetente || cfg.smtpFrom || cfg.emailEmpresa || cfg.emailEmp || 'noreply@vivanexa.com.br'
+      const senderName  = cfg.nomeRemetente || cfg.company || 'Vivanexa'
+
       const body = {
-        sender: { name: cfg.nomeRemetente || cfg.company || 'Vivanexa', email: senderEmail },
+        sender: { name: senderName, email: senderEmail },
         to: [{ email: to }],
         subject,
-        htmlContent: html || `<p>${text || ''}</p>`,
+        htmlContent: html || `<p style="font-family:Arial,sans-serif;white-space:pre-wrap">${(text || '').replace(/\n/g, '<br>')}</p>`,
       }
 
-      // Anexos
       if (attachments.length > 0) {
         body.attachment = attachments
           .filter(a => a.content && a.filename)
@@ -44,17 +49,15 @@ export default async function handler(req, res) {
 
       const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': apiKey,
-        },
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify(body),
       })
 
       const result = await resp.json()
+      console.log('[send-email] Brevo result:', resp.status, JSON.stringify(result).slice(0, 200))
+
       if (resp.ok) return res.status(200).json({ success: true })
 
-      // Erro da API Brevo
       const msg = result.message || JSON.stringify(result)
       return res.status(500).json({ error: `Brevo API: ${msg}` })
     } catch (err) {
