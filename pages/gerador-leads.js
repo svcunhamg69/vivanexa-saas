@@ -4,7 +4,7 @@
 // ✅ Filtro de data de abertura (empresas recentes / período)
 // ✅ Usa minhareceita.org + opencnpj.org (APIs corretas e gratuitas)
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
@@ -515,7 +515,8 @@ export default function GeradorLeads() {
     setImportando(false)
   }
 
-  const leadsFiltrados = leads.filter(l => {
+  const leadsFiltrados = useMemo(() => leads.filter(l => {
+    // ── Filtro texto livre ────────────────────────────────────────────
     if (filtroLocal.trim()) {
       const q = filtroLocal.toLowerCase()
       const bate = (l.nome||'').toLowerCase().includes(q) || (l.cidade||'').toLowerCase().includes(q) ||
@@ -525,9 +526,32 @@ export default function GeradorLeads() {
              (l.atividade||'').toLowerCase().includes(q)
       if (!bate) return false
     }
+    // ── Filtro email contém ───────────────────────────────────────────
     if (filtroEmailContem.trim() && !(l.email||'').toLowerCase().includes(filtroEmailContem.trim().toLowerCase())) return false
+
+    // ── Filtros de qualidade (todos client-side, aplicados sobre resultado já buscado) ──
+    const telDigitos = (l.telefone||'').replace(/\D/g,'')
+    if (apenasComTelefone && telDigitos.length < 10) return false
+    if (apenasComCelular  && !(telDigitos.length === 11 && telDigitos[2] === '9')) return false
+    if (apenasComEmail    && !l.email) return false
+
+    // natureza jurídica
+    const natJur = (l.natureza||'').trim()
+    const ehMei  = natJur === '2135'
+    if (excluirMei   && ehMei)  return false
+    if (somenteMei   && !ehMei) return false
+
+    // matriz/filial — guardamos no campo l.matrizFilial  (1=Matriz, 2=Filial)
+    const mf = String(l.matrizFilial||'')
+    if (somenteMatriz && mf !== '1') return false
+    if (somenteFilial && mf !== '2') return false
+
+    // naturezas múltiplas selecionadas
+    if (naturezasSelecionadas.length > 0 && !naturezasSelecionadas.find(n=>n.cod===natJur)) return false
+
     return true
-  })
+  }), [leads, filtroLocal, filtroEmailContem, apenasComTelefone, apenasComCelular, apenasComEmail,
+       excluirMei, somenteMei, somenteMatriz, somenteFilial, naturezasSelecionadas])
 
   const alvosExport = selecionados.length>0 ? leads.filter(l=>selecionados.includes(l.id)) : leadsFiltrados
   const toggleSel   = id => setSelecionados(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])
@@ -750,69 +774,6 @@ export default function GeradorLeads() {
                       )}
                     </div>
                   )}
-                </div>
-              </div>
-
-              {/* ── Linha 4: CNAE multi-select ── */}
-              <div style={{marginBottom:14,position:'relative'}}>
-                <label style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:5,letterSpacing:.5}}>
-                  Código CNAE <span style={{fontSize:9,color:'var(--muted)',background:'var(--surface2)',border:'1px solid var(--border)',padding:'1px 6px',borderRadius:10,marginLeft:4}}>OPCIONAL — MÚLTIPLO — SOBREPÕE NICHO</span>
-                </label>
-
-                {/* Tags selecionadas */}
-                {cnaesSelecionados.length>0&&(
-                  <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
-                    {cnaesSelecionados.map(c=>(
-                      <span key={c.cod} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 10px',borderRadius:20,fontSize:11,
-                        background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.4)',color:'var(--accent)',fontFamily:'monospace'}}>
-                        {c.cod}{c.label&&` · ${c.label.slice(0,30)}`}
-                        <button onClick={()=>setCnaesSelecionados(p=>p.filter(x=>x.cod!==c.cod))}
-                          style={{background:'none',border:'none',cursor:'pointer',color:'var(--accent)',fontSize:13,lineHeight:1,padding:0}}>×</button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Input de busca/digitação */}
-                <div style={{position:'relative'}}>
-                  <input
-                    value={buscaCnae}
-                    onChange={e=>{setBuscaCnae(e.target.value);setCnaeAberto(true)}}
-                    onFocus={()=>setCnaeAberto(true)}
-                    onBlur={()=>setTimeout(()=>setCnaeAberto(false),180)}
-                    onKeyDown={e=>{
-                      if(e.key==='Enter'&&buscaCnae.replace(/\D/g,'').length>=4){
-                        const cod=buscaCnae.replace(/\D/g,'')
-                        if(!cnaesSelecionados.find(c=>c.cod===cod)){
-                          setCnaesSelecionados(p=>[...p,{cod,label:''}])
-                          setBuscaCnae('');setCnaeAberto(false)
-                        }
-                      }
-                    }}
-                    placeholder="Digite o código (ex: 6920601) ou nome e pressione Enter..."
-                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}}
-                  />
-                  {cnaeAberto&&buscaCnae.length>=2&&(()=>{
-                    const q=buscaCnae.toLowerCase().replace(/\D/g,'')||buscaCnae.toLowerCase()
-                    const matches=Object.entries(NICHO_CNAE_LABELS).filter(([cod,label])=>
-                      !cnaesSelecionados.find(c=>c.cod===cod)&&(cod.includes(q)||label.toLowerCase().includes(buscaCnae.toLowerCase()))
-                    ).slice(0,12)
-                    if(!matches.length) return null
-                    return (
-                      <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:200,background:'#111827',border:'1px solid #1e2d4a',borderRadius:8,marginTop:3,maxHeight:220,overflowY:'auto',boxShadow:'0 8px 32px rgba(0,0,0,.6)'}}>
-                        {matches.map(([cod,label])=>(
-                          <div key={cod}
-                            onMouseDown={()=>{setCnaesSelecionados(p=>[...p,{cod,label}]);setBuscaCnae('');setCnaeAberto(false)}}
-                            style={{padding:'9px 14px',cursor:'pointer',fontSize:12,fontFamily:'DM Mono,monospace',color:'var(--text)',borderBottom:'1px solid rgba(30,45,74,.5)',display:'flex',gap:8,alignItems:'center'}}
-                            onMouseEnter={e=>e.currentTarget.style.background='rgba(0,212,255,.07)'}
-                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                            <span style={{fontSize:10,color:'var(--accent)',fontFamily:'monospace',minWidth:60}}>{cod}</span>
-                            <span>{label}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  })()}
                 </div>
               </div>
 
