@@ -3,10 +3,8 @@
 // Recebe eventos da Evolution API e persiste no Supabase
 // no formato esperado pelo whatsapp-inbox.js
 //
-// Eventos tratados:
-//  - MESSAGES_UPSERT   → salva mensagem + atualiza índice
-//  - CONNECTION_UPDATE → atualiza status da instância
-//  - QRCODE_UPDATED    → (ignorado aqui — tratado via polling)
+// IMPORTANTE: no Vercel, res.json() encerra a função.
+// O processamento deve acontecer ANTES de responder.
 // ══════════════════════════════════════════════════════
 
 import { createClient } from '@supabase/supabase-js'
@@ -18,54 +16,51 @@ const supabase = createClient(
 
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } }
 
-// ── Helper: carrega cfg da empresa pela instância ────────
+// ── Busca empresa pela instância ─────────────────────
 async function getCfgPorInstancia(instanceName) {
-  // Busca todas as empresas que têm essa instância cadastrada
-  // Faz scan no vx_storage procurando por instanceName (limitado a 200 registros)
+  if (!instanceName) return null
   const { data: rows } = await supabase
     .from('vx_storage')
     .select('key, value')
     .like('key', 'cfg:%')
-    .limit(200)
+    .limit(300)
 
   if (!rows) return null
 
+  const instLower = instanceName.toLowerCase()
   for (const row of rows) {
     try {
       const cfg = JSON.parse(row.value)
       const instancias = cfg.wppInbox?.instancias || []
-      const match = instancias.find(
-        i => i.instance === instanceName || i.instance?.toLowerCase() === instanceName?.toLowerCase()
+
+      const match = instancias.find(i =>
+        i.instance?.toLowerCase() === instLower
       )
       if (match) {
-        const empresaId = row.key.replace('cfg:', '')
-        return { cfg, empresaId, instancia: match }
+        return { cfg, empresaId: row.key.replace('cfg:', ''), instancia: match }
       }
-      // Também checa o campo legado evolutionInstance
-      if (cfg.wppInbox?.evolutionInstance === instanceName || cfg.wppInbox?.evolutionInstance?.toLowerCase() === instanceName?.toLowerCase()) {
-        const empresaId = row.key.replace('cfg:', '')
-        return { cfg, empresaId, instancia: { id: 'default', nome: 'Principal', instance: instanceName } }
+      // Fallback: campo legado evolutionInstance
+      if (cfg.wppInbox?.evolutionInstance?.toLowerCase() === instLower) {
+        return {
+          cfg,
+          empresaId: row.key.replace('cfg:', ''),
+          instancia: { id: 'inst_legacy', nome: 'Principal', instance: instanceName }
+        }
       }
     } catch {}
   }
   return null
 }
 
-// ── Helper: gera protocolo ────────────────────────────
 function gerarProtocolo() {
-  const now = new Date()
-  const d = now.toISOString().slice(0, 10).replace(/-/g, '')
-  const t = Math.floor(Math.random() * 90000) + 10000
-  return `ATD-${d}-${t}`
+  const d = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  return `ATD-${d}-${Math.floor(Math.random() * 90000) + 10000}`
 }
 
-// ── Helper: normaliza número ──────────────────────────
 function normalizarNumero(jid) {
-  if (!jid) return ''
-  return jid.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '')
+  return (jid || '').replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '')
 }
 
-// ── Helper: extrai texto da mensagem ─────────────────
 function extrairTexto(msg) {
   if (!msg) return ''
   const m = msg.message || msg
@@ -83,17 +78,16 @@ function extrairTexto(msg) {
   )
 }
 
-// ── Helper: tipo de mídia ─────────────────────────────
 function tipoMidia(msg) {
   if (!msg) return null
   const m = msg.message || msg
-  if (m.imageMessage)    return 'image'
-  if (m.videoMessage)    return 'video'
+  if (m.imageMessage)            return 'image'
+  if (m.videoMessage)            return 'video'
   if (m.audioMessage || m.pttMessage) return 'audio'
-  if (m.documentMessage) return 'document'
-  if (m.stickerMessage)  return 'sticker'
-  if (m.locationMessage) return 'location'
-  if (m.contactMessage)  return 'contact'
+  if (m.documentMessage)         return 'document'
+  if (m.stickerMessage)          return 'sticker'
+  if (m.locationMessage)         return 'location'
+  if (m.contactMessage)          return 'contact'
   return null
 }
 
@@ -102,7 +96,7 @@ async function processarMensagem(payload, instanceName) {
   const dados = await getCfgPorInstancia(instanceName)
   if (!dados) {
     console.warn('[webhook] Instância não encontrada:', instanceName)
-    return { ok: false, reason: 'instancia_nao_encontrada' }
+    return
   }
 
   const { cfg, empresaId, instancia } = dados
@@ -114,7 +108,6 @@ async function processarMensagem(payload, instanceName) {
     const fromMe = key.fromMe === true
     const jid = key.remoteJid || ''
 
-    // Ignora grupos e status
     if (jid.includes('@g.us') || jid.includes('@broadcast') || jid === 'status@broadcast') continue
 
     const numero = normalizarNumero(jid)
@@ -122,20 +115,27 @@ async function processarMensagem(payload, instanceName) {
 
     const texto = extrairTexto(msgEvento)
     const midia = tipoMidia(msgEvento)
-    const timestamp = msgEvento.messageTimestamp
+    const ts = msgEvento.messageTimestamp
       ? new Date(Number(msgEvento.messageTimestamp) * 1000).toISOString()
       : new Date().toISOString()
+    const nomePushName = msgEvento.pushName || ''
 
-    // Nome do contato
-    const nomePushName = msgEvento.pushName || msgEvento.verifiedBizName || ''
+    const textoFinal = texto || (midia ? (
+      midia === 'audio'    ? '[Áudio]'    :
+      midia === 'image'    ? '[Imagem]'   :
+      midia === 'video'    ? '[Vídeo]'    :
+      midia === 'document' ? '[Documento]' :
+      midia === 'sticker'  ? '[Sticker]'  : '[Mídia]'
+    ) : '')
 
-    // Monta objeto da mensagem
+    // Monta mensagem
     const novaMensagem = {
-      id:        key.id || `msg_${Date.now()}`,
+      id:        key.id || `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       fromMe,
-      texto:     texto || (midia ? `[${midia === 'audio' ? 'Áudio' : midia === 'image' ? 'Imagem' : midia === 'video' ? 'Vídeo' : midia === 'document' ? 'Documento' : 'Mídia'}]` : ''),
+      de:        fromMe ? 'empresa' : 'cliente',
+      texto:     textoFinal,
       tipo:      midia || 'text',
-      timestamp,
+      timestamp: ts,
       lida:      fromMe,
     }
 
@@ -146,10 +146,7 @@ async function processarMensagem(payload, instanceName) {
       .eq('key', `wpp_conv:${empresaId}:${numero}`)
       .maybeSingle()
 
-    const convAtual = convRow?.value ? JSON.parse(convRow.value) : null
-
-    // Monta/atualiza conversa
-    const conv = convAtual || {
+    const conv = convRow?.value ? JSON.parse(convRow.value) : {
       numero,
       nome:        nomePushName || numero,
       status:      'automacao',
@@ -158,40 +155,36 @@ async function processarMensagem(payload, instanceName) {
       instancia:   instanceName,
       mensagens:   [],
       naoLidas:    0,
-      criadoEm:    timestamp,
+      criadoEm:    ts,
     }
 
-    // Atualiza nome se recebemos o pushName
-    if (nomePushName && !fromMe) conv.nome = nomePushName
-
-    // Garante instanciaId
+    if (nomePushName && !fromMe && nomePushName !== numero) conv.nome = nomePushName
     if (!conv.instanciaId) conv.instanciaId = instancia.id
+    if (!conv.instancia)   conv.instancia   = instanceName
 
-    // Evita mensagem duplicada
-    const msgExiste = (conv.mensagens || []).some(m => m.id === novaMensagem.id)
-    if (!msgExiste) {
+    // Evita duplicatas pelo id
+    const existe = (conv.mensagens || []).some(m => m.id === novaMensagem.id)
+    if (!existe) {
       conv.mensagens = [...(conv.mensagens || []), novaMensagem]
     }
 
-    // Atualiza contadores
-    conv.ultimaMensagem = novaMensagem.texto
-    conv.ultimaAt       = timestamp
-    conv.updatedAt      = timestamp
+    conv.ultimaMensagem = textoFinal
+    conv.ultimaAt       = ts
+    conv.updatedAt      = ts
 
     if (!fromMe) {
       conv.naoLidas = (conv.naoLidas || 0) + 1
-      // Se estava finalizado e chegou nova mensagem → volta para automação
       if (conv.status === 'finalizado') {
-        conv.status      = 'automacao'
-        conv.botPausado  = false
-        conv.protocolo   = gerarProtocolo()
+        conv.status       = 'automacao'
+        conv.botPausado   = false
+        conv.protocolo    = gerarProtocolo()
         conv.finalizadoEm = null
       }
     }
 
     // Salva conversa
     await supabase.from('vx_storage').upsert(
-      { key: `wpp_conv:${empresaId}:${numero}`, value: JSON.stringify(conv), updated_at: timestamp },
+      { key: `wpp_conv:${empresaId}:${numero}`, value: JSON.stringify(conv), updated_at: ts },
       { onConflict: 'key' }
     )
 
@@ -205,44 +198,46 @@ async function processarMensagem(payload, instanceName) {
     const idx = idxRow?.value ? JSON.parse(idxRow.value) : {}
     idx[numero] = {
       numero,
-      nome:          conv.nome,
-      ultimaMensagem: conv.ultimaMensagem,
-      ultimaAt:      timestamp,
-      updatedAt:     timestamp,
-      status:        conv.status,
-      naoLidas:      conv.naoLidas,
-      instanciaId:   instancia.id,
-      instancia:     instanceName,
+      nome:           conv.nome,
+      ultimaMensagem: textoFinal,
+      ultimaAt:       ts,
+      updatedAt:      ts,
+      status:         conv.status,
+      naoLidas:       conv.naoLidas,
+      instanciaId:    instancia.id,
+      instancia:      instanceName,
     }
 
     await supabase.from('vx_storage').upsert(
-      { key: `wpp_idx:${empresaId}`, value: JSON.stringify(idx), updated_at: timestamp },
+      { key: `wpp_idx:${empresaId}`, value: JSON.stringify(idx), updated_at: ts },
       { onConflict: 'key' }
     )
-  }
 
-  return { ok: true }
+    console.log(`[webhook] ✅ Mensagem salva: ${numero} | fromMe:${fromMe} | "${textoFinal.slice(0,50)}"`)
+  }
 }
 
 // ── Processa CONNECTION_UPDATE ────────────────────────
 async function processarConexao(payload, instanceName) {
   const estado = payload.data?.state || payload.state || ''
-  const numero = payload.data?.number || payload.number || ''
+  const numero = payload.data?.number || payload.data?.phone || payload.number || ''
+  const profileName = payload.data?.profileName || payload.profileName || ''
 
-  if (!estado) return { ok: true }
+  console.log(`[webhook] CONNECTION_UPDATE | ${instanceName} | estado: ${estado} | numero: ${numero}`)
+
+  if (estado !== 'open') return
 
   const dados = await getCfgPorInstancia(instanceName)
-  if (!dados) return { ok: false, reason: 'instancia_nao_encontrada' }
+  if (!dados) return
 
   const { cfg, empresaId, instancia } = dados
 
-  // Se conectou e tem número, salva automaticamente na instância
-  if (estado === 'open' && numero) {
-    const numLimpo = normalizarNumero(numero + '@s.whatsapp.net')
+  if (numero) {
+    const numLimpo = normalizarNumero(numero + (numero.includes('@') ? '' : '@s.whatsapp.net'))
     const instancias = cfg.wppInbox?.instancias || []
     const instanciasAtualizadas = instancias.map(i =>
-      i.id === instancia.id || i.instance === instanceName
-        ? { ...i, numero: numLimpo, status: 'open' }
+      i.id === instancia.id || i.instance?.toLowerCase() === instanceName.toLowerCase()
+        ? { ...i, numero: numLimpo || i.numero, status: 'open', profileName: profileName || i.profileName }
         : i
     )
     const novoCfg = { ...cfg, wppInbox: { ...cfg.wppInbox, instancias: instanciasAtualizadas } }
@@ -250,19 +245,14 @@ async function processarConexao(payload, instanceName) {
       { key: `cfg:${empresaId}`, value: JSON.stringify(novoCfg), updated_at: new Date().toISOString() },
       { onConflict: 'key' }
     )
-    console.log(`[webhook] ${instanceName} conectado! Número: ${numLimpo}`)
+    console.log(`[webhook] ✅ Número ${numLimpo} salvo na instância ${instanceName}`)
   }
-
-  return { ok: true, estado, numero }
 }
 
 // ── Handler principal ─────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' })
 
-  // Evolution API v2 envia o nome da instância:
-  // - No header: "instance" ou "instancename"  
-  // - No body: payload.instance, payload.instanceName, ou payload.sender
   const instanceName = (
     req.headers['instance'] ||
     req.headers['instancename'] ||
@@ -272,24 +262,27 @@ export default async function handler(req, res) {
     ''
   ).toString().trim()
 
-  // Evolution v2: evento vem como "messages.upsert" (com ponto) ou "MESSAGES_UPSERT"
   const evento = (req.body?.event || req.body?.type || '').toString()
+  const eventoNorm = evento.toLowerCase().replace(/\./g, '_')
 
-  console.log('[webhook] evento:', evento, '| instance:', instanceName)
+  console.log('[webhook] evento:', evento, '| eventoNorm:', eventoNorm, '| instance:', instanceName)
+  console.log('[webhook] body keys:', Object.keys(req.body || {}).join(','))
 
-  // Responde imediatamente para não bloquear a Evolution
-  res.status(200).json({ ok: true })
-
-  // Processa em background (não bloqueia a resposta)
+  // ✅ CORREÇÃO CRÍTICA: processa ANTES de responder
+  // No Vercel, res.json() encerra a serverless function.
+  // Código após res.json() NÃO executa.
   try {
-    const eventoNorm = evento.toLowerCase().replace('.', '_') // "messages.upsert" → "messages_upsert"
     if (eventoNorm === 'messages_upsert') {
       await processarMensagem(req.body, instanceName)
     } else if (eventoNorm === 'connection_update') {
       await processarConexao(req.body, instanceName)
+    } else {
+      console.log('[webhook] Evento ignorado:', evento)
     }
-    // QRCODE_UPDATED, CONTACTS_UPSERT etc — ignorados aqui
   } catch (err) {
-    console.error('[webhook] Erro:', err.message, err.stack?.slice(0, 200))
+    console.error('[webhook] Erro:', err.message)
   }
+
+  // Responde DEPOIS de processar
+  return res.status(200).json({ ok: true, evento: eventoNorm, instance: instanceName })
 }
