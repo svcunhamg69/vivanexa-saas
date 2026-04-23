@@ -309,12 +309,19 @@ export default async function handler(req, res) {
     cidade,
     bairro,
     logradouro,
-    situacaoFiltro = 'todas',   // ← padrão: trazer TUDO, usuário filtra depois
+    situacaoFiltro = 'todas',
     dataInicioDe,
     dataInicioAte,
     apenasNovas    = false,
     diasNovas      = 365,
     empresaId,
+    // ── Filtros de qualidade pré-busca ──────────────────────────────
+    apenasComTelefone  = false,  // só traz quem tem tel na RF
+    apenasComCelular   = false,  // tel com 9 dígitos (celular)
+    apenasComEmail     = false,  // só traz quem tem email na RF
+    excluirMei         = false,  // exclui MEI (natureza jurídica 2135)
+    naturezaJuridica   = '',     // filtrar por código/nome natureza
+    porteFiltro        = '',     // ME, EPP, DEMAIS, MEI
   } = req.body || {}
 
   if (!uf?.trim()) return res.status(400).json({ error: 'Estado (UF) é obrigatório' })
@@ -400,14 +407,44 @@ export default async function handler(req, res) {
           if (bairro && !safeStr(emp.bairro).includes(normStr(bairro))) continue
           if (logradouro && !safeStr(emp.logradouro).includes(normStr(logradouro))) continue
 
+          // ── Filtros de qualidade pré-busca ───────────────────────
+          // MEI: natureza jurídica 2135
+          const natJur = safeStr(emp.natureza_juridica)
+          if (excluirMei && (natJur === '2135' || natJur.includes('2135'))) continue
+          if (porteFiltro && safeStr(emp.porte) !== porteFiltro.toUpperCase()) continue
+          if (naturezaJuridica && !natJur.includes(safeStr(naturezaJuridica))) continue
+
+          // Filtros de telefone/email: precisam existir nos dados brutos da RF
+          // (se token ativo, o enriquecimento ainda pode suprir depois)
+          const telBruto = safeStr(emp.ddd_telefone_1 || emp.telefone_1).replace(/\D/g,'')
+          const telBruto2 = safeStr(emp.ddd_telefone_2 || emp.telefone_2).replace(/\D/g,'')
+          const melhorTel = telBruto.length >= 10 ? telBruto : telBruto2.length >= 10 ? telBruto2 : ''
+          const emailBruto = safeStr(emp.email)
+
+          // Se token ativo: enriquece ANTES de aplicar filtros de tel/email
+          // para não descartar empresas que só têm tel/email na cnpj-api
+          let extraParaFiltro = null
+          if (tokenCnpjApi && (apenasComTelefone || apenasComCelular || apenasComEmail)) {
+            if (!melhorTel || !emailBruto) {
+              await sleep(200)
+              extraParaFiltro = await enriquecerCnpjApi(safeStr(emp.cnpj).replace(/\D/g,''), tokenCnpjApi)
+            }
+          }
+
+          const telFinal  = melhorTel || safeStr(extraParaFiltro?.telefone || (Array.isArray(extraParaFiltro?.telefones) ? extraParaFiltro?.telefones[0] : '')).replace(/\D/g,'')
+          const emailFinal = emailBruto || safeStr(extraParaFiltro?.email)
+
+          if (apenasComTelefone && telFinal.length < 10) continue
+          if (apenasComCelular  && !(telFinal.length === 11 && telFinal[2] === '9')) continue
+          if (apenasComEmail    && !emailFinal) continue
+
           const lead = mapMinhareceita(emp)
 
-          // ── Enriquecimento com cnpj-api.com.br ───────────────────
-          // Só enriquece se token configurado e faltam dados
-          if (tokenCnpjApi && (!lead.telefone || !lead.email)) {
-            await sleep(200) // respeita 5 req/min do plano gratuito
-            const extra = await enriquecerCnpjApi(cnpj, tokenCnpjApi)
-            aplicarEnriquecimento(lead, extra)
+          // ── Enriquecimento com cnpj-api.com ──────────────────────
+          if (tokenCnpjApi) {
+            // Se já enriquecemos para o filtro, reusa; senão enriquece se faltam dados
+            const extra = extraParaFiltro || ((!lead.telefone || !lead.email) ? (await sleep(200), await enriquecerCnpjApi(lead.cnpj, tokenCnpjApi)) : null)
+            if (extra) aplicarEnriquecimento(lead, extra)
           }
 
           resultados.push(lead)
@@ -440,7 +477,10 @@ export default async function handler(req, res) {
       linhas.push(`• ${totalBruto} registros encontrados mas filtrados por situação "${situacaoFiltro}"`)
       linhas.push(`  → Tente trocar o filtro de Situação Cadastral para "Todas"`)
     } else if (totalBruto > 0) {
-      linhas.push(`• ${totalBruto} registros brutos encontrados mas filtrados pelas datas/localização`)
+      linhas.push(`• ${totalBruto} registros brutos encontrados mas filtrados pelos critérios selecionados`)
+      if (apenasComTelefone) linhas.push(`  → Filtro "Com telefone" ativo — muitas empresas na RF não têm telefone cadastrado`)
+      if (apenasComEmail)    linhas.push(`  → Filtro "Com e-mail" ativo — poucos CNPJs têm e-mail na Receita Federal`)
+      if (excluirMei)        linhas.push(`  → Filtro "Excluir MEI" ativo — tente incluir MEIs se a cidade for pequena`)
     } else {
       linhas.push(`• minhareceita.org não retornou registros para estes CNAEs nesta UF`)
       linhas.push(`  → Tente sem informar a cidade (busca no estado todo retorna mais resultados)`)
