@@ -1,5 +1,6 @@
 // pages/api/wpp/media.js
-// Proxy para buscar mídia da Evolution API sem CORS no browser
+// Proxy server-side para buscar mídia da Evolution API
+// Evita CORS ao chamar Evolution diretamente do browser
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -8,6 +9,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
+export const config = { api: { responseLimit: '50mb', bodyParser: { sizeLimit: '1mb' } } }
+
 export default async function handler(req, res) {
   const { empresaId, instancia, mediaId } = req.query
   if (!empresaId || !instancia || !mediaId) {
@@ -15,7 +18,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Busca credenciais da empresa
     const { data: row } = await supabase
       .from('vx_storage').select('value')
       .eq('key', `cfg:${empresaId}`).maybeSingle()
@@ -28,25 +30,34 @@ export default async function handler(req, res) {
 
     if (!evoUrl || !evoKey) return res.status(400).json({ error: 'Evolution API não configurada' })
 
-    // Busca mídia na Evolution API (server-side, sem CORS)
+    // Evolution API v2: POST /chat/getBase64FromMediaMessage/{instance}
     const r = await fetch(`${evoUrl}/chat/getBase64FromMediaMessage/${instancia}`, {
       method: 'POST',
       headers: { apikey: evoKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: { key: { id: mediaId } }, convertToMp4: false })
+      body: JSON.stringify({
+        message: { key: { id: mediaId } },
+        convertToMp4: false
+      })
     })
 
-    if (!r.ok) return res.status(r.status).json({ error: 'Mídia não encontrada' })
+    if (!r.ok) {
+      console.error('[media proxy] Evolution retornou:', r.status)
+      return res.status(r.status).json({ error: 'Mídia não encontrada na Evolution' })
+    }
 
     const data = await r.json()
     const base64 = data?.base64 || data?.mediaBase64 || ''
     const mimetype = data?.mimetype || 'application/octet-stream'
 
-    if (!base64) return res.status(404).json({ error: 'Base64 não retornado' })
+    if (!base64) return res.status(404).json({ error: 'Base64 não retornado pela Evolution' })
 
-    // Retorna como imagem/áudio diretamente
-    const buffer = Buffer.from(base64, 'base64')
+    // Remove prefixo data:... se presente
+    const b64clean = base64.includes(',') ? base64.split(',')[1] : base64
+    const buffer = Buffer.from(b64clean, 'base64')
+
     res.setHeader('Content-Type', mimetype)
-    res.setHeader('Cache-Control', 'public, max-age=86400')
+    res.setHeader('Content-Length', buffer.length)
+    res.setHeader('Cache-Control', 'public, max-age=3600')
     return res.send(buffer)
   } catch (err) {
     console.error('[media proxy]', err.message)
