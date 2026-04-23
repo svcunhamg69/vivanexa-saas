@@ -423,6 +423,10 @@ export default function GeradorLeads() {
 
     setBuscando(true); setLeads([]); setSelecionados([])
     setErroAPI(''); setBuscaFeita(false); setFiltroLocal(''); setCnaesUsados([]); setFiltroEmailContem('')
+    // Resetar filtros de qualidade ao iniciar nova busca
+    setApenasComTelefone(false); setApenasComCelular(false); setApenasComEmail(false)
+    setExcluirMei(false); setSomenteMei(false); setSomenteMatriz(false); setSomenteFilial(false)
+    setNaturezasSelecionadas([])
 
     try {
       let resultado=[], erro=null
@@ -777,50 +781,6 @@ export default function GeradorLeads() {
                 </div>
               </div>
 
-              {/* ── Linha 5: Qualidade do contato ── */}
-              <div style={{borderTop:'1px solid rgba(0,212,255,.1)',paddingTop:14}}>
-                <div style={{fontSize:10,color:'var(--accent)',textTransform:'uppercase',letterSpacing:1,fontWeight:700,marginBottom:10}}>
-                  🎯 Qualidade do contato — aplicados antes de buscar
-                </div>
-                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                  {[
-                    [apenasComTelefone, setApenasComTelefone, '📞 Com telefone',    '#10b981'],
-                    [apenasComCelular,  setApenasComCelular,  '📱 Com celular',     '#0ea5e9'],
-                    [apenasComEmail,    setApenasComEmail,    '✉️ Com e-mail',      '#00d4ff'],
-                    [excluirMei,        setExcluirMei,        '🚫 Excluir MEI',     '#f59e0b'],
-                    [somenteMei,        setSomenteMei,        '🧾 Somente MEI',     '#a78bfa'],
-                    [somenteMatriz,     setSomenteMatriz,     '🏢 Somente Matriz',  '#10b981'],
-                    [somenteFilial,     setSomenteFilial,     '🔗 Somente Filial',  '#0ea5e9'],
-                  ].map(([ativo, setter, label, cor])=>{
-                    // Regras de exclusão mútua
-                    const desabilitado =
-                      (label.includes('MEI') && label.includes('Somente') && excluirMei) ||
-                      (label.includes('Excluir') && somenteMei) ||
-                      (label.includes('Matriz') && somenteFilial) ||
-                      (label.includes('Filial') && somenteMatriz)
-                    return (
-                      <button key={label}
-                        onClick={()=>{ if(!desabilitado) setter(v=>!v) }}
-                        disabled={desabilitado}
-                        style={{padding:'7px 14px',borderRadius:9,cursor:desabilitado?'not-allowed':'pointer',fontFamily:'DM Mono,monospace',fontSize:11,
-                          fontWeight:ativo?700:400,transition:'all .18s',
-                          border:`1.5px solid ${ativo?cor:desabilitado?'rgba(100,116,139,.2)':cor+'44'}`,
-                          background:ativo?`${cor}18`:desabilitado?'rgba(100,116,139,.05)':'rgba(255,255,255,.02)',
-                          color:ativo?cor:desabilitado?'#334155':'#64748b',
-                          boxShadow:ativo?`0 0 10px ${cor}30`:'none',
-                          opacity:desabilitado?0.45:1}}>
-                        {ativo?'✓ ':''}{label}
-                      </button>
-                    )
-                  })}
-                </div>
-                {(apenasComTelefone||apenasComCelular||apenasComEmail||excluirMei||somenteMei||somenteMatriz||somenteFilial)&&(
-                  <div style={{marginTop:10,fontSize:11,color:'#fbbf24',background:'rgba(245,158,11,.08)',border:'1px solid rgba(245,158,11,.2)',borderRadius:7,padding:'7px 12px'}}>
-                    ⚡ {[apenasComTelefone&&'Com telefone',apenasComCelular&&'Com celular',apenasComEmail&&'Com e-mail',excluirMei&&'Excluindo MEI',somenteMei&&'Só MEI',somenteMatriz&&'Só Matriz',somenteFilial&&'Só Filial'].filter(Boolean).join(' · ')} — a busca pode demorar mais pois filtra antes de retornar
-                  </div>
-                )}
-              </div>
-
               <div style={{marginTop:12,fontSize:11,color:'var(--muted)',lineHeight:1.6,background:'rgba(0,212,255,.04)',border:'1px solid rgba(0,212,255,.1)',borderRadius:8,padding:'8px 12px'}}>
                 ℹ️ <strong style={{color:'var(--text)'}}>Como funciona:</strong> usa a API <strong style={{color:'var(--accent)'}}>minhareceita.org</strong> (Receita Federal, atualizada mensalmente). O <strong style={{color:'var(--text)'}}>CNAE</strong> é detectado automaticamente pelo nicho. Para mais resultados, deixe a cidade em branco.
               </div>
@@ -871,31 +831,67 @@ export default function GeradorLeads() {
 
             {leads.length>0&&(
               <>
-                {/* ── Filtros pós-busca ── */}
-                <div style={{display:'flex',gap:10,marginBottom:12,alignItems:'center',flexWrap:'wrap'}}>
-                  <input value={filtroLocal} onChange={e=>setFiltroLocal(e.target.value)}
-                    placeholder="🔍 Filtrar lista..."
-                    style={{maxWidth:220,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
+                {/* ── Painel de filtros pós-busca ── */}
+                <div style={{marginBottom:14,background:'rgba(0,212,255,.03)',border:'1px solid rgba(0,212,255,.1)',borderRadius:10,padding:'12px 14px'}}>
 
-                  {/* Filtrar por texto no e-mail */}
-                  <input value={filtroEmailContem} onChange={e=>setFiltroEmailContem(e.target.value)}
-                    placeholder="✉️ Filtrar e-mail (ex: cont)"
-                    style={{maxWidth:200,background:'var(--surface2)',border:'1px solid rgba(0,212,255,.3)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
-
-                  <button onClick={toggleTodos} className="bs">
-                    {selecionados.length===leadsFiltrados.length&&leadsFiltrados.length>0?'✕ Desmarcar':'☑ Marcar todos'}
-                  </button>
-
-                  {leadsFiltrados.length!==leads.length&&(
-                    <span style={{fontSize:11,color:'var(--muted)'}}>{leadsFiltrados.length} de {leads.length}</span>
-                  )}
-
-                  {(filtroLocal||filtroEmailContem) && (
-                    <button onClick={()=>{setFiltroLocal('');setFiltroEmailContem('')}}
-                      style={{padding:'5px 11px',borderRadius:7,border:'1px solid rgba(239,68,68,.4)',background:'rgba(239,68,68,.08)',color:'#ef4444',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:11}}>
-                      ✕ Limpar
+                  {/* Linha 1: texto livre + email */}
+                  <div style={{display:'flex',gap:10,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+                    <input value={filtroLocal} onChange={e=>setFiltroLocal(e.target.value)}
+                      placeholder="🔍 Filtrar lista..."
+                      style={{maxWidth:220,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'7px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
+                    <input value={filtroEmailContem} onChange={e=>setFiltroEmailContem(e.target.value)}
+                      placeholder="✉️ Domínio do e-mail (ex: cont)"
+                      style={{maxWidth:210,background:'var(--surface2)',border:'1px solid rgba(0,212,255,.25)',borderRadius:8,padding:'7px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
+                    <button onClick={toggleTodos} className="bs">
+                      {selecionados.length===leadsFiltrados.length&&leadsFiltrados.length>0?'✕ Desmarcar':'☑ Marcar todos'}
                     </button>
-                  )}
+                    <span style={{fontSize:11,color:'var(--muted)',marginLeft:2}}>
+                      {leadsFiltrados.length} de {leads.length}
+                    </span>
+                    {(filtroLocal||filtroEmailContem||apenasComTelefone||apenasComCelular||apenasComEmail||excluirMei||somenteMei||somenteMatriz||somenteFilial||naturezasSelecionadas.length>0)&&(
+                      <button onClick={()=>{setFiltroLocal('');setFiltroEmailContem('');setApenasComTelefone(false);setApenasComCelular(false);setApenasComEmail(false);setExcluirMei(false);setSomenteMei(false);setSomenteMatriz(false);setSomenteFilial(false);setNaturezasSelecionadas([])}}
+                        style={{padding:'5px 11px',borderRadius:7,border:'1px solid rgba(239,68,68,.4)',background:'rgba(239,68,68,.08)',color:'#ef4444',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:11}}>
+                        ✕ Limpar filtros
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Linha 2: toggles de qualidade */}
+                  <div style={{borderTop:'1px solid rgba(255,255,255,.05)',paddingTop:10}}>
+                    <div style={{fontSize:10,color:'var(--accent)',textTransform:'uppercase',letterSpacing:1,fontWeight:700,marginBottom:8}}>
+                      🎯 Filtrar resultados
+                    </div>
+                    <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
+                      {[
+                        [apenasComTelefone, setApenasComTelefone, '📞 Com telefone',   '#10b981'],
+                        [apenasComCelular,  setApenasComCelular,  '📱 Com celular',    '#0ea5e9'],
+                        [apenasComEmail,    setApenasComEmail,    '✉️ Com e-mail',     '#00d4ff'],
+                        [excluirMei,        setExcluirMei,        '🚫 Excluir MEI',    '#f59e0b'],
+                        [somenteMei,        setSomenteMei,        '🧾 Somente MEI',    '#a78bfa'],
+                        [somenteMatriz,     setSomenteMatriz,     '🏢 Somente Matriz', '#10b981'],
+                        [somenteFilial,     setSomenteFilial,     '🔗 Somente Filial', '#6366f1'],
+                      ].map(([ativo, setter, label, cor])=>{
+                        const desabilitado =
+                          (label.includes('Somente MEI') && excluirMei) ||
+                          (label.includes('Excluir MEI') && somenteMei) ||
+                          (label.includes('Matriz') && somenteFilial) ||
+                          (label.includes('Filial') && somenteMatriz)
+                        return (
+                          <button key={label}
+                            onClick={()=>{ if(!desabilitado) setter(v=>!v) }}
+                            style={{padding:'5px 12px',borderRadius:8,cursor:desabilitado?'not-allowed':'pointer',
+                              fontFamily:'DM Mono,monospace',fontSize:11,fontWeight:ativo?700:400,transition:'all .15s',
+                              border:`1.5px solid ${ativo?cor:desabilitado?'rgba(100,116,139,.15)':cor+'44'}`,
+                              background:ativo?`${cor}18`:desabilitado?'rgba(100,116,139,.04)':'transparent',
+                              color:ativo?cor:desabilitado?'#334155':'#64748b',
+                              boxShadow:ativo?`0 0 8px ${cor}28`:'none',
+                              opacity:desabilitado?0.4:1}}>
+                            {ativo?'✓ ':''}{label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="tw">
