@@ -19,12 +19,16 @@ import Navbar from '../components/Navbar'
 // TAB CHATBOT FLOW — construtor visual de fluxos inline
 // ══════════════════════════════════════════════════════════════════
 const FLOW_NODE_TYPES = {
-  start:     { label: 'Início',    icon: '▶', color: '#10b981', desc: 'Ponto de entrada do fluxo' },
-  message:   { label: 'Mensagem', icon: '💬', color: '#00d4ff', desc: 'Envia texto ao cliente' },
-  question:  { label: 'Pergunta', icon: '❓', color: '#7c3aed', desc: 'Aguarda resposta do cliente' },
-  condition: { label: 'Condição', icon: '⚡', color: '#f59e0b', desc: 'Ramifica por palavra-chave' },
-  action:    { label: 'Ação',     icon: '⚙', color: '#ec4899', desc: 'Transfere ou chama webhook' },
-  end:       { label: 'Fim',      icon: '⏹', color: '#64748b', desc: 'Encerra o atendimento' },
+  start:     { label: 'Início',        icon: '▶',  color: '#10b981', desc: 'Ponto de entrada do fluxo' },
+  message:   { label: 'Mensagem',      icon: '💬', color: '#00d4ff', desc: 'Envia texto ao cliente' },
+  question:  { label: 'Pergunta',      icon: '❓', color: '#7c3aed', desc: 'Aguarda resposta do cliente' },
+  condition: { label: 'Condição',      icon: '⚡', color: '#f59e0b', desc: 'Ramifica por palavra-chave' },
+  action:    { label: 'Ação',          icon: '⚙',  color: '#ec4899', desc: 'Transfere ou chama webhook' },
+  delay:     { label: 'Delay',         icon: '⏱',  color: '#64748b', desc: 'Aguarda X segundos antes de continuar' },
+  media:     { label: 'Mídia',         icon: '🖼',  color: '#0ea5e9', desc: 'Envia imagem, vídeo ou áudio' },
+  goto:      { label: 'Ir p/ Fluxo',   icon: '↪',  color: '#a78bfa', desc: 'Transfere para outro fluxo' },
+  human:     { label: 'Humano',        icon: '👤', color: '#f97316', desc: 'Para o bot e envia para atendente' },
+  end:       { label: 'Fim',           icon: '⏹',  color: '#475569', desc: 'Encerra o atendimento' },
 }
 const FLOW_SNAP = 20
 const snapV = v => Math.round(v / FLOW_SNAP) * FLOW_SNAP
@@ -215,6 +219,78 @@ function FlowPropsPanel({ node, onChange, onDelete }) {
             <input value={node.data?.tag || ''} onChange={e => upd({ tag: e.target.value })} placeholder="Ex: lead_quente" style={fInp} />
           </div>
         )}
+      </>}
+
+      {/* ── DELAY ── */}
+      {node.type === 'delay' && <>
+        <div style={fFld}><label style={fLbl}>Tempo de espera (segundos)</label>
+          <input type="number" min={1} max={300} value={node.data?.seconds || 3}
+            onChange={e => upd({ seconds: Number(e.target.value) })} style={fInp} placeholder="Ex: 3" />
+        </div>
+        <div style={fFld}><label style={fLbl}>Mensagem "digitando..." (opcional)</label>
+          <textarea value={node.data?.text || ''} onChange={e => upd({ text: e.target.value })}
+            rows={2} style={fTa} placeholder="Ex: Preparando sua resposta..." />
+        </div>
+        <div style={{fontSize:11,color:'#64748b',marginTop:-6,lineHeight:1.5}}>⏱ Simula digitação antes de enviar a próxima mensagem.</div>
+      </>}
+
+      {/* ── MÍDIA ── */}
+      {node.type === 'media' && <>
+        <div style={fFld}><label style={fLbl}>Tipo de mídia</label>
+          <select value={node.data?.mediaType || 'image'} onChange={e => upd({ mediaType: e.target.value })} style={fSel}>
+            <option value="image">🖼 Imagem (JPG, PNG, GIF)</option>
+            <option value="video">🎬 Vídeo (MP4)</option>
+            <option value="audio">🎵 Áudio (MP3, OGG)</option>
+            <option value="document">📄 Documento (PDF)</option>
+          </select>
+        </div>
+        <div style={fFld}><label style={fLbl}>URL da mídia (pública)</label>
+          <input value={node.data?.mediaUrl || ''} onChange={e => upd({ mediaUrl: e.target.value })}
+            style={fInp} placeholder="https://exemplo.com/arquivo.jpg" />
+        </div>
+        <div style={fFld}><label style={fLbl}>Legenda (opcional)</label>
+          <input value={node.data?.caption || ''} onChange={e => upd({ caption: e.target.value })}
+            style={fInp} placeholder="Ex: Confira nosso catálogo!" />
+        </div>
+      </>}
+
+      {/* ── IR PARA FLUXO ── */}
+      {node.type === 'goto' && <>
+        <div style={fFld}><label style={fLbl}>Fluxo de destino</label>
+          <select value={node.data?.gotoFlowId || ''} onChange={e => {
+            const opt = e.target.options[e.target.selectedIndex]
+            upd({ gotoFlowId: e.target.value, gotoFlowName: opt?.text })
+          }} style={fSel}>
+            <option value="">— Selecione um fluxo —</option>
+            {(cfg?.chatbotFlows || []).filter(f => f.id !== editFlow?.id).map(f => (
+              <option key={f.id} value={f.id}>{f.name || f.nome}</option>
+            ))}
+          </select>
+        </div>
+        <div style={fFld}><label style={fLbl}>Mensagem de transição (opcional)</label>
+          <textarea value={node.data?.text || ''} onChange={e => upd({ text: e.target.value })}
+            rows={2} style={fTa} placeholder="Ex: Vou te direcionar para o setor correto..." />
+        </div>
+      </>}
+
+      {/* ── HUMANO ── */}
+      {node.type === 'human' && <>
+        <div style={fFld}><label style={fLbl}>Departamento de destino</label>
+          <select value={node.data?.departamentoId || ''} onChange={e => {
+            const opt = e.target.options[e.target.selectedIndex]
+            upd({ departamentoId: e.target.value, departamentoNome: opt?.text })
+          }} style={fSel}>
+            <option value="">— Inbox geral —</option>
+            {(cfg?.wppDeps || []).map(d => (
+              <option key={d.id} value={d.id}>{d.nome}</option>
+            ))}
+          </select>
+        </div>
+        <div style={fFld}><label style={fLbl}>Mensagem antes de transferir</label>
+          <textarea value={node.data?.text || ''} onChange={e => upd({ text: e.target.value })}
+            rows={2} style={fTa} placeholder="Ex: Conectando com um atendente. Aguarde! 👤" />
+        </div>
+        <div style={{fontSize:11,color:'#f97316',marginTop:-6,lineHeight:1.5}}>👤 O bot para e a conversa vai para fila humana.</div>
       </>}
       <button onClick={() => onDelete(node.id)}
         style={{ width: '100%', padding: '9px', marginTop: 20, borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', color: '#ef4444', fontFamily: 'DM Mono,monospace', fontSize: 12, cursor: 'pointer' }}>
