@@ -2576,24 +2576,54 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
       })
       if (!r.ok) return
       const d = await r.json()
-      // Retorna array — pega o item correspondente
       const arr = Array.isArray(d) ? d : [d]
       const info = arr.find(i =>
         i?.instance?.instanceName === inst.instance ||
-        i?.name === inst.instance
+        i?.instance?.instanceName?.toLowerCase() === inst.instance?.toLowerCase()
       )
-      // owner vem como "553198296801@s.whatsapp.net"
+      // owner vem como "5511986358408@s.whatsapp.net"
       const owner = info?.instance?.owner || ''
       if (owner) {
         const numeroLimpo = owner.replace('@s.whatsapp.net', '').replace('@c.us', '')
-        if (numeroLimpo && numeroLimpo !== inst.numero) {
-          setInstancias(prev => prev.map(i =>
-            i.id === inst.id ? { ...i, numero: numeroLimpo } : i
-          ))
-          setMsg(`✅ ${inst.nome}: Conectado! Número: ${numeroLimpo}`)
+        const profileName = info?.instance?.profileName || ''
+        if (numeroLimpo) {
+          // Atualiza estado local
+          setInstancias(prev => {
+            const atualizadas = prev.map(i =>
+              i.id === inst.id ? { ...i, numero: numeroLimpo, status: 'open', profileName } : i
+            )
+            // Salva no banco com as instâncias atualizadas
+            setTimeout(async () => {
+              try {
+                const { data: row } = await supabase.from('vx_storage').select('value')
+                  .eq('key', `cfg:${empresaId}`).maybeSingle()
+                const atual = row?.value ? JSON.parse(row.value) : {}
+                const novo = {
+                  ...atual,
+                  wppInbox: {
+                    ...(atual.wppInbox || {}),
+                    evolutionUrl: evoUrl,
+                    evolutionKey: evoKey,
+                    instancias: atualizadas,
+                    instanciaAtiva,
+                    evolutionInstance: atualizadas.find(i => i.id === instanciaAtiva)?.instance || atualizadas[0]?.instance || ''
+                  }
+                }
+                await supabase.from('vx_storage').upsert(
+                  { key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() },
+                  { onConflict: 'key' }
+                )
+                setCfg(novo)
+                setMsg(`✅ Conectado! Número salvo: ${numeroLimpo}`)
+              } catch {}
+            }, 100)
+            return atualizadas
+          })
         }
       }
-    } catch {}
+    } catch (e) {
+      console.warn('buscarNumeroDaInstancia:', e.message)
+    }
   }
 
   // ── Gerar QR Code com webhook configurado e polling ──
