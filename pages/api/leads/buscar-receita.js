@@ -235,12 +235,28 @@ async function enriquecerCnpjApi(cnpj, token) {
 const SITUACAO_MAP = {
   '1': 'Nula', '2': 'Ativa', '3': 'Suspensa', '4': 'Inapta', '8': 'Baixada',
 }
+// A minhareceita.org pode retornar situacao_cadastral como:
+//   número: 2
+//   string: "ATIVA" | "2"
+//   objeto: { codigo: 2, descricao: "ATIVA" }
 function parseSituacao(v) {
-  const s = safeStr(v)
-  // Se já é texto legível (ex: "ATIVA", "BAIXADA"), normaliza e retorna
+  if (v === null || v === undefined) return ''
+  // Objeto com descricao
+  if (typeof v === 'object') {
+    if (v.descricao) return v.descricao.charAt(0).toUpperCase() + v.descricao.slice(1).toLowerCase()
+    if (v.codigo !== undefined) return SITUACAO_MAP[String(v.codigo)] || `Código ${v.codigo}`
+    return ''
+  }
+  const s = String(v).trim()
+  // Texto direto: "ATIVA", "BAIXADA"...
   if (/[a-zA-Z]/.test(s)) return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
-  // Se é número, converte pelo mapa
+  // Número como string: "2", "8"...
   return SITUACAO_MAP[s] || (s ? `Código ${s}` : '')
+}
+
+// Retorna true se a situação for considerada "ativa"
+function ehAtiva(v) {
+  return parseSituacao(v).toLowerCase().includes('ativa')
 }
 
 // ── Mappers ───────────────────────────────────────────────────────────
@@ -276,6 +292,7 @@ function mapMinhareceita(e) {
     capital:     safeStr(e.capital_social),
     porte:       safeStr(e.porte),
     natureza:    safeStr(e.natureza_juridica),
+    matrizFilial: safeStr(e.identificador_matriz_filial), // '1'=Matriz '2'=Filial
     fonte:       'Receita Federal',
   }
 }
@@ -388,10 +405,9 @@ export default async function handler(req, res) {
           if (!cnpj || cnpjsVistos.has(cnpj)) continue
           cnpjsVistos.add(cnpj)
 
-          // ── Filtro situação: parseia código numérico antes de comparar ──
-          const sitEmp = parseSituacao(emp.situacao_cadastral).toLowerCase()
-          if (situacaoFiltro === 'ativa'   && !sitEmp.includes('ativa'))  continue
-          if (situacaoFiltro === 'inativa' &&  sitEmp.includes('ativa'))  continue
+          // ── Filtro situação: usa ehAtiva() que trata número/string/objeto ──
+          if (situacaoFiltro === 'ativa'   && !ehAtiva(emp.situacao_cadastral)) continue
+          if (situacaoFiltro === 'inativa' &&  ehAtiva(emp.situacao_cadastral)) continue
           // 'todas' não filtra nada
 
           // ── Filtro datas ──────────────────────────────────────────
@@ -406,58 +422,17 @@ export default async function handler(req, res) {
           }
 
           // ── Filtros geográficos locais ────────────────────────────
-          // Se não achou código IBGE, filtra cidade por nome localmente
           if (cidade && !codIbge && !normStr(emp.municipio || '').includes(normStr(cidade))) continue
           if (bairro && !safeStr(emp.bairro).includes(normStr(bairro))) continue
           if (logradouro && !safeStr(emp.logradouro).includes(normStr(logradouro))) continue
 
-          // ── Filtros de qualidade pré-busca ───────────────────────
-          const natJur = safeStr(emp.natureza_juridica)
-          const ehMei  = natJur === '2135' || natJur.includes('2135')
-          const matFil = safeStr(emp.identificador_matriz_filial) // '1'=Matriz '2'=Filial
-
-          if (excluirMei  && ehMei)  continue
-          if (somenteMei  && !ehMei) continue
-          if (somenteMatriz && matFil !== '1') continue
-          if (somenteFilial && matFil !== '2') continue
-          if (porteFiltro && safeStr(emp.porte) !== porteFiltro.toUpperCase()) continue
-
-          // Naturezas múltiplas selecionadas
-          if (naturezasSelecionadas.length > 0 && !naturezasSelecionadas.includes(natJur)) continue
-          // Legado: naturezaJuridica única
-          else if (!naturezasSelecionadas.length && naturezaJuridica && !natJur.includes(safeStr(naturezaJuridica))) continue
-
-          // Filtros de telefone/email: precisam existir nos dados brutos da RF
-          // (se token ativo, o enriquecimento ainda pode suprir depois)
-          const telBruto = safeStr(emp.ddd_telefone_1 || emp.telefone_1).replace(/\D/g,'')
-          const telBruto2 = safeStr(emp.ddd_telefone_2 || emp.telefone_2).replace(/\D/g,'')
-          const melhorTel = telBruto.length >= 10 ? telBruto : telBruto2.length >= 10 ? telBruto2 : ''
-          const emailBruto = safeStr(emp.email)
-
-          // Se token ativo: enriquece ANTES de aplicar filtros de tel/email
-          // para não descartar empresas que só têm tel/email na cnpj-api
-          let extraParaFiltro = null
-          if (tokenCnpjApi && (apenasComTelefone || apenasComCelular || apenasComEmail)) {
-            if (!melhorTel || !emailBruto) {
-              await sleep(200)
-              extraParaFiltro = await enriquecerCnpjApi(safeStr(emp.cnpj).replace(/\D/g,''), tokenCnpjApi)
-            }
-          }
-
-          const telFinal  = melhorTel || safeStr(extraParaFiltro?.telefone || (Array.isArray(extraParaFiltro?.telefones) ? extraParaFiltro?.telefones[0] : '')).replace(/\D/g,'')
-          const emailFinal = emailBruto || safeStr(extraParaFiltro?.email)
-
-          if (apenasComTelefone && telFinal.length < 10) continue
-          if (apenasComCelular  && !(telFinal.length === 11 && telFinal[2] === '9')) continue
-          if (apenasComEmail    && !emailFinal) continue
-
           const lead = mapMinhareceita(emp)
 
-          // ── Enriquecimento com cnpj-api.com ──────────────────────
-          if (tokenCnpjApi) {
-            // Se já enriquecemos para o filtro, reusa; senão enriquece se faltam dados
-            const extra = extraParaFiltro || ((!lead.telefone || !lead.email) ? (await sleep(200), await enriquecerCnpjApi(lead.cnpj, tokenCnpjApi)) : null)
-            if (extra) aplicarEnriquecimento(lead, extra)
+          // ── Enriquecimento com cnpj-api.com (apenas para dados faltantes) ──
+          if (tokenCnpjApi && (!lead.telefone || !lead.email)) {
+            await sleep(200)
+            const extra = await enriquecerCnpjApi(lead.cnpj, tokenCnpjApi)
+            aplicarEnriquecimento(lead, extra)
           }
 
           resultados.push(lead)
