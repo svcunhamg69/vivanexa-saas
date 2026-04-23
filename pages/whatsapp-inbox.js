@@ -5,7 +5,7 @@
 //   3. Agente IA por departamento (treinado em cfg.agentConfig), reconhece imagem/áudio/vídeo
 //   4. Busca global de conversas por telefone, nome, protocolo (todas as abas)
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 import { supabase } from '../lib/supabase'
