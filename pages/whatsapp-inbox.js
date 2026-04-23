@@ -716,14 +716,23 @@ export default function WhatsappInbox() {
     return () => clearInterval(pollingRef.current)
   }, [empresaId, convAtiva])
 
+  // ✅ FIX AUTO-SCROLL: função utilitária reutilizável
+  const scrollParaBaixo = useCallback((behavior = 'smooth') => {
+    setTimeout(() => {
+      if (msgEndRef.current) {
+        msgEndRef.current.scrollIntoView({ behavior, block: 'end' })
+      } else if (mensagensRef.current) {
+        mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight + 9999
+      }
+    }, 50)
+  }, [])
+
   useEffect(() => {
-    if (mensagensRef.current) mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight
-    if (msgEndRef.current) msgEndRef.current.scrollIntoView({ behavior: 'instant' })
+    scrollParaBaixo('instant')
   }, [convAtiva])
 
   useEffect(() => {
-    if (mensagensRef.current) mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight
-    if (msgEndRef.current) msgEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    scrollParaBaixo('smooth')
   }, [conv?.mensagens?.length, conv?.ultimaAt])
 
   // Atalho teclado: Ctrl+K para busca global
@@ -770,6 +779,11 @@ export default function WhatsappInbox() {
           await supabase.from('vx_storage').upsert({key:`wpp_conv:${eid}:${numero}`,value:JSON.stringify(c),updated_at:new Date().toISOString()},{onConflict:'key'})
           setIdx(prev => { const n={...prev,[numero]:{...(prev[numero]||{}),naoLidas:0}}; idxRef.current=n; return n })
         }
+        // ✅ Scroll imediato para última mensagem
+        setTimeout(() => {
+          if (msgEndRef.current) msgEndRef.current.scrollIntoView({ behavior: silencioso ? 'smooth' : 'instant', block: 'end' })
+          else if (mensagensRef.current) mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight + 9999
+        }, 60)
       }
     } catch {}
     if (!silencioso) setLoadingConv(false)
@@ -1068,18 +1082,29 @@ export default function WhatsappInbox() {
 
               <div className="mensagens" ref={mensagensRef}>
                 {(conv.mensagens||[]).map(m=>{
-                  // ✅ FIX 3: Resolve URL da mídia — suporta base64, URL direta e proxy Evolution
                   const resolverMidia = (msg) => {
+                    // ✅ Base64 salvo pelo webhook (melhor opção — sem request extra)
                     if (msg.mediaBase64) {
-                      const mime = msg.tipo==='image' ? (msg.mimetype||'image/jpeg')
-                                 : msg.tipo==='audio' ? (msg.mimetype||'audio/ogg')
-                                 : (msg.mimetype||'video/mp4')
-                      return `data:${mime};base64,${msg.mediaBase64}`
+                      const mime = msg.mimetype || (
+                        msg.tipo === 'image'    ? 'image/jpeg'  :
+                        msg.tipo === 'audio'    ? 'audio/ogg'   :
+                        msg.tipo === 'video'    ? 'video/mp4'   :
+                        msg.tipo === 'sticker'  ? 'image/webp'  :
+                        msg.tipo === 'document' ? 'application/pdf' : 'application/octet-stream'
+                      )
+                      const b64 = msg.mediaBase64.startsWith('data:')
+                        ? msg.mediaBase64
+                        : `data:${mime};base64,${msg.mediaBase64}`
+                      return b64
                     }
                     if (msg.mediaUrl) return msg.mediaUrl
-                    // ✅ FIX: usa proxy interno para evitar CORS ao chamar Evolution diretamente
+                    // ✅ Proxy server-side — busca da Evolution sem CORS
                     if (msg.mediaId && conv?.instancia) {
-                      return `/api/wpp/media?empresaId=${empresaId}&instancia=${conv.instancia}&mediaId=${encodeURIComponent(msg.mediaId)}`
+                      return `/api/wpp/media?empresaId=${empresaId}&instancia=${encodeURIComponent(conv.instancia)}&mediaId=${encodeURIComponent(msg.mediaId)}`
+                    }
+                    // Tenta com id da mensagem como mediaId
+                    if (msg.id && conv?.instancia) {
+                      return `/api/wpp/media?empresaId=${empresaId}&instancia=${encodeURIComponent(conv.instancia)}&mediaId=${encodeURIComponent(msg.id)}`
                     }
                     return null
                   }
@@ -1102,10 +1127,19 @@ export default function WhatsappInbox() {
                         </video>
                       )}
                       {/* Indicador quando não há mídia resolvida */}
-                      {(m.tipo==='image'||m.tipo==='audio'||m.tipo==='video')&&!mediaResolvida&&(
-                        <div style={{padding:'8px 12px',background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.2)',borderRadius:8,marginBottom:4,fontSize:12,color:'#00d4ff',display:'flex',alignItems:'center',gap:6}}>
-                          <span style={{fontSize:18}}>{m.tipo==='image'?'🖼️':m.tipo==='audio'?'🎵':'🎬'}</span>
-                          <span>{m.tipo==='image'?'Imagem':m.tipo==='audio'?'Áudio':'Vídeo'} recebido — sem prévia disponível</span>
+                      {(m.tipo==='image'||m.tipo==='audio'||m.tipo==='video'||m.tipo==='document')&&!mediaResolvida&&(
+                        <div style={{padding:'8px 12px',background:'rgba(0,212,255,.08)',border:'1px solid rgba(0,212,255,.2)',borderRadius:8,marginBottom:4,fontSize:12,color:'#00d4ff',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                          <span>{m.tipo==='image'?'🖼':m.tipo==='audio'?'🎵':m.tipo==='video'?'🎬':'📄'}</span>
+                          <span>{m.tipo==='image'?'Imagem':m.tipo==='audio'?'Áudio':m.tipo==='video'?'Vídeo':'Documento'} recebido</span>
+                          {(m.mediaId||m.id) && conv?.instancia && (
+                            <a
+                              href={`/api/wpp/media?empresaId=${empresaId}&instancia=${encodeURIComponent(conv.instancia)}&mediaId=${encodeURIComponent(m.mediaId||m.id)}`}
+                              target="_blank" rel="noreferrer"
+                              style={{marginLeft:'auto',padding:'3px 10px',background:'rgba(0,212,255,.15)',border:'1px solid rgba(0,212,255,.3)',borderRadius:6,color:'#00d4ff',textDecoration:'none',fontSize:11,fontWeight:600}}
+                            >
+                              ⬇ Ver
+                            </a>
+                          )}
                         </div>
                       )}
                       {m.tipo==='document'&&(
