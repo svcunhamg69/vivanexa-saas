@@ -725,62 +725,6 @@ export default function GeradorLeads() {
                 </label>
               </div>
 
-              {/* ── Linha 3: Natureza Jurídica multi-select ── */}
-              <div style={{marginBottom:14,position:'relative'}}>
-                <label style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:5,letterSpacing:.5}}>
-                  Natureza Jurídica <span style={{fontSize:9,color:'var(--muted)',background:'var(--surface2)',border:'1px solid var(--border)',padding:'1px 6px',borderRadius:10,marginLeft:4}}>OPCIONAL — MÚLTIPLA</span>
-                </label>
-
-                {/* Tags selecionadas */}
-                {naturezasSelecionadas.length>0&&(
-                  <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
-                    {naturezasSelecionadas.map(n=>(
-                      <span key={n.cod} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 10px',borderRadius:20,fontSize:11,
-                        background:'rgba(124,58,237,.15)',border:'1px solid rgba(124,58,237,.4)',color:'#a78bfa',fontFamily:'DM Mono,monospace'}}>
-                        {n.cod} · {n.label.split('(')[0].trim()}
-                        <button onClick={()=>setNaturezasSelecionadas(p=>p.filter(x=>x.cod!==n.cod))}
-                          style={{background:'none',border:'none',cursor:'pointer',color:'#a78bfa',fontSize:13,lineHeight:1,padding:0}}>×</button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Input de busca */}
-                <div style={{position:'relative'}}>
-                  <input
-                    value={buscaNatureza}
-                    onChange={e=>{setBuscaNatureza(e.target.value);setNaturezaAberta(true)}}
-                    onFocus={()=>setNaturezaAberta(true)}
-                    onBlur={()=>setTimeout(()=>setNaturezaAberta(false),180)}
-                    placeholder="Digite para buscar natureza jurídica..."
-                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}}
-                  />
-                  {naturezaAberta&&(
-                    <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:200,background:'#111827',border:'1px solid #1e2d4a',borderRadius:8,marginTop:3,maxHeight:220,overflowY:'auto',boxShadow:'0 8px 32px rgba(0,0,0,.6)'}}>
-                      {NATUREZAS
-                        .filter(n=>{
-                          const q=buscaNatureza.toLowerCase()
-                          return !naturezasSelecionadas.find(s=>s.cod===n.cod) &&
-                            (n.cod.includes(q)||n.label.toLowerCase().includes(q)||q==='')
-                        })
-                        .map(n=>(
-                          <div key={n.cod}
-                            onMouseDown={()=>{setNaturezasSelecionadas(p=>[...p,n]);setBuscaNatureza('');setNaturezaAberta(false)}}
-                            style={{padding:'9px 14px',cursor:'pointer',fontSize:12,fontFamily:'DM Mono,monospace',color:'var(--text)',borderBottom:'1px solid rgba(30,45,74,.5)',display:'flex',gap:8,alignItems:'center'}}
-                            onMouseEnter={e=>e.currentTarget.style.background='rgba(0,212,255,.07)'}
-                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                            <span style={{fontSize:10,color:'#a78bfa',fontFamily:'monospace',minWidth:38}}>{n.cod}</span>
-                            <span>{n.label}</span>
-                          </div>
-                        ))}
-                      {NATUREZAS.filter(n=>{const q=buscaNatureza.toLowerCase();return !naturezasSelecionadas.find(s=>s.cod===n.cod)&&(n.cod.includes(q)||n.label.toLowerCase().includes(q)||q==='')}).length===0&&(
-                        <div style={{padding:'12px 14px',fontSize:12,color:'var(--muted)',textAlign:'center'}}>Nenhuma natureza encontrada</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
               <div style={{marginTop:12,fontSize:11,color:'var(--muted)',lineHeight:1.6,background:'rgba(0,212,255,.04)',border:'1px solid rgba(0,212,255,.1)',borderRadius:8,padding:'8px 12px'}}>
                 ℹ️ <strong style={{color:'var(--text)'}}>Como funciona:</strong> usa a API <strong style={{color:'var(--accent)'}}>minhareceita.org</strong> (Receita Federal, atualizada mensalmente). O <strong style={{color:'var(--text)'}}>CNAE</strong> é detectado automaticamente pelo nicho. Para mais resultados, deixe a cidade em branco.
               </div>
