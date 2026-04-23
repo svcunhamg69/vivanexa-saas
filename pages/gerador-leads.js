@@ -224,6 +224,11 @@ export default function GeradorLeads() {
   const [apenasNovas,    setApenasNovas]     = useState(false)
   const [diasNovas,      setDiasNovas]       = useState(90)
 
+  // Filtros de qualidade (pós-busca, client-side)
+  const [filtroTelefone,  setFiltroTelefone]  = useState(false) // só com telefone
+  const [filtroEmail,     setFiltroEmail]     = useState(false) // só com e-mail
+  const [filtroEmailContem, setFiltroEmailContem] = useState('') // texto no domínio do email
+
   // Resultados
   const [leads,       setLeads]       = useState([])
   const [selecionados,setSelecionados]= useState([])
@@ -366,13 +371,21 @@ export default function GeradorLeads() {
   }
 
   const leadsFiltrados = leads.filter(l => {
-    if (!filtroLocal.trim()) return true
-    const q = filtroLocal.toLowerCase()
-    return (l.nome||'').toLowerCase().includes(q) || (l.cidade||'').toLowerCase().includes(q) ||
-           (l.bairro||'').toLowerCase().includes(q) || (l.cnpj||'').includes(q) ||
-           (l.telefone||'').includes(q) || (l.email||'').toLowerCase().includes(q) ||
-           (l.responsavel||'').toLowerCase().includes(q) || (l.cnae||'').includes(q) ||
-           (l.atividade||'').toLowerCase().includes(q)
+    // Filtro de texto livre
+    if (filtroLocal.trim()) {
+      const q = filtroLocal.toLowerCase()
+      const bate = (l.nome||'').toLowerCase().includes(q) || (l.cidade||'').toLowerCase().includes(q) ||
+             (l.bairro||'').toLowerCase().includes(q) || (l.cnpj||'').includes(q) ||
+             (l.telefone||'').includes(q) || (l.email||'').toLowerCase().includes(q) ||
+             (l.responsavel||'').toLowerCase().includes(q) || (l.cnae||'').includes(q) ||
+             (l.atividade||'').toLowerCase().includes(q)
+      if (!bate) return false
+    }
+    // Filtros de qualidade
+    if (filtroTelefone && !(l.telefone && l.telefone.replace(/\D/g,'').length >= 10)) return false
+    if (filtroEmail    && !l.email) return false
+    if (filtroEmailContem.trim() && !(l.email||'').toLowerCase().includes(filtroEmailContem.trim().toLowerCase())) return false
+    return true
   })
 
   const alvosExport = selecionados.length>0 ? leads.filter(l=>selecionados.includes(l.id)) : leadsFiltrados
@@ -598,12 +611,49 @@ export default function GeradorLeads() {
 
             {leads.length>0&&(
               <>
+                {/* ── Filtros pós-busca ── */}
                 <div style={{display:'flex',gap:10,marginBottom:12,alignItems:'center',flexWrap:'wrap'}}>
-                  <input value={filtroLocal} onChange={e=>setFiltroLocal(e.target.value)} placeholder="🔍 Filtrar lista..." style={{maxWidth:260,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
+                  <input value={filtroLocal} onChange={e=>setFiltroLocal(e.target.value)} placeholder="🔍 Filtrar lista..." style={{maxWidth:220,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
+
+                  {/* Só com telefone */}
+                  <button onClick={()=>setFiltroTelefone(v=>!v)}
+                    style={{padding:'6px 13px',borderRadius:8,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:11,fontWeight:filtroTelefone?700:400,
+                      border:`1.5px solid ${filtroTelefone?'#10b981':'rgba(16,185,129,.3)'}`,
+                      background:filtroTelefone?'rgba(16,185,129,.15)':'transparent',
+                      color:filtroTelefone?'#10b981':'#64748b',transition:'all .2s'}}>
+                    📞 Com telefone
+                  </button>
+
+                  {/* Só com e-mail */}
+                  <button onClick={()=>setFiltroEmail(v=>!v)}
+                    style={{padding:'6px 13px',borderRadius:8,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:11,fontWeight:filtroEmail?700:400,
+                      border:`1.5px solid ${filtroEmail?'#00d4ff':'rgba(0,212,255,.3)'}`,
+                      background:filtroEmail?'rgba(0,212,255,.1)':'transparent',
+                      color:filtroEmail?'#00d4ff':'#64748b',transition:'all .2s'}}>
+                    ✉️ Com e-mail
+                  </button>
+
+                  {/* Filtrar por conteúdo do e-mail */}
+                  {filtroEmail && (
+                    <input value={filtroEmailContem} onChange={e=>setFiltroEmailContem(e.target.value)}
+                      placeholder="Ex: cont, gmail, hotmail..."
+                      style={{maxWidth:190,background:'var(--surface2)',border:'1px solid rgba(0,212,255,.35)',borderRadius:8,padding:'6px 11px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
+                  )}
+
                   <button onClick={toggleTodos} className="bs">
                     {selecionados.length===leadsFiltrados.length&&leadsFiltrados.length>0?'✕ Desmarcar':'☑ Marcar todos'}
                   </button>
-                  {leadsFiltrados.length!==leads.length&&<span style={{fontSize:11,color:'var(--muted)'}}>{leadsFiltrados.length} de {leads.length}</span>}
+                  {leadsFiltrados.length!==leads.length&&(
+                    <span style={{fontSize:11,color:'var(--muted)'}}>{leadsFiltrados.length} de {leads.length}</span>
+                  )}
+
+                  {/* Botão limpar filtros */}
+                  {(filtroLocal||filtroTelefone||filtroEmail||filtroEmailContem) && (
+                    <button onClick={()=>{setFiltroLocal('');setFiltroTelefone(false);setFiltroEmail(false);setFiltroEmailContem('')}}
+                      style={{padding:'5px 11px',borderRadius:7,border:'1px solid rgba(239,68,68,.4)',background:'rgba(239,68,68,.08)',color:'#ef4444',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:11}}>
+                      ✕ Limpar filtros
+                    </button>
+                  )}
                 </div>
 
                 <div className="tw">
