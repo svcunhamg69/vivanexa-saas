@@ -9,12 +9,16 @@ import Navbar from '../../components/Navbar'
 
 // ─── Tipos de nó disponíveis ────────────────────────────────────
 const NODE_TYPES = {
-  start:     { label: 'Início',        icon: '▶', color: '#10b981', desc: 'Ponto de entrada do fluxo' },
-  message:   { label: 'Mensagem',      icon: '💬', color: '#00d4ff', desc: 'Envia texto ao cliente' },
-  question:  { label: 'Pergunta',      icon: '❓', color: '#7c3aed', desc: 'Aguarda resposta do cliente' },
-  condition: { label: 'Condição',      icon: '⚡', color: '#f59e0b', desc: 'Ramifica por palavra-chave' },
-  action:    { label: 'Ação',          icon: '⚙', color: '#ec4899', desc: 'Transfere para humano ou API' },
-  end:       { label: 'Fim',           icon: '⏹', color: '#64748b', desc: 'Encerra o atendimento' },
+  start:         { label: 'Início',          icon: '▶',  color: '#10b981', desc: 'Ponto de entrada do fluxo' },
+  message:       { label: 'Mensagem',        icon: '💬', color: '#00d4ff', desc: 'Envia texto ao cliente' },
+  question:      { label: 'Pergunta',        icon: '❓', color: '#7c3aed', desc: 'Aguarda resposta do cliente' },
+  condition:     { label: 'Condição',        icon: '⚡', color: '#f59e0b', desc: 'Ramifica por palavra-chave' },
+  action:        { label: 'Ação',            icon: '⚙',  color: '#ec4899', desc: 'Transfere para humano ou API' },
+  delay:         { label: 'Delay',           icon: '⏱',  color: '#64748b', desc: 'Aguarda X segundos antes de continuar' },
+  media:         { label: 'Mídia',           icon: '🖼',  color: '#0ea5e9', desc: 'Envia imagem, vídeo ou áudio' },
+  goto:          { label: 'Ir para Fluxo',   icon: '↪',  color: '#a78bfa', desc: 'Transfere para outro fluxo' },
+  human:         { label: 'Humano',          icon: '👤', color: '#f97316', desc: 'Transfere para atendente humano' },
+  end:           { label: 'Fim',             icon: '⏹',  color: '#475569', desc: 'Encerra o atendimento' },
 }
 
 const SNAP = 20
@@ -238,6 +242,111 @@ function PropsPanel({ node, onChange, onDelete }) {
               <textarea value={node.data?.text || ''} onChange={e => update({ text: e.target.value })} rows={2} style={st.textarea} placeholder="Aguarde, vou te conectar com um atendente..." />
             </Field>
           )}
+        </>
+      )}
+
+      {/* ── DELAY ── */}
+      {node.type === 'delay' && (
+        <>
+          <Field label="Tempo de espera (segundos)">
+            <input
+              type="number" min={1} max={300}
+              value={node.data?.seconds || 3}
+              onChange={e => update({ seconds: Number(e.target.value) })}
+              style={st.input} placeholder="Ex: 3"
+            />
+          </Field>
+          <Field label="Mensagem durante espera (opcional)">
+            <textarea
+              value={node.data?.text || ''}
+              onChange={e => update({ text: e.target.value })}
+              rows={2} style={st.textarea}
+              placeholder="Ex: Digitando..."
+            />
+          </Field>
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: -8 }}>
+            ⏱ Simula digitação antes de enviar a próxima mensagem.
+          </div>
+        </>
+      )}
+
+      {/* ── MÍDIA ── */}
+      {node.type === 'media' && (
+        <>
+          <Field label="Tipo de mídia">
+            <select value={node.data?.mediaType || 'image'} onChange={e => update({ mediaType: e.target.value })} style={st.select}>
+              <option value="image">🖼 Imagem (JPG, PNG, GIF)</option>
+              <option value="video">🎬 Vídeo (MP4)</option>
+              <option value="audio">🎵 Áudio (MP3, OGG)</option>
+              <option value="document">📄 Documento (PDF)</option>
+            </select>
+          </Field>
+          <Field label="URL da mídia">
+            <input
+              value={node.data?.mediaUrl || ''}
+              onChange={e => update({ mediaUrl: e.target.value })}
+              style={st.input}
+              placeholder="https://exemplo.com/arquivo.jpg"
+            />
+          </Field>
+          <Field label="Legenda (opcional)">
+            <input
+              value={node.data?.caption || ''}
+              onChange={e => update({ caption: e.target.value })}
+              style={st.input}
+              placeholder="Ex: Veja nosso catálogo!"
+            />
+          </Field>
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: -8, lineHeight: 1.5 }}>
+            💡 Use URLs públicas. Para áudios PTT use <code>.ogg</code>.
+          </div>
+        </>
+      )}
+
+      {/* ── IR PARA FLUXO ── */}
+      {node.type === 'goto' && (
+        <>
+          <Field label="Fluxo de destino">
+            <select value={node.data?.gotoFlowId || ''} onChange={e => update({ gotoFlowId: e.target.value, gotoFlowName: e.target.options[e.target.selectedIndex]?.text })} style={st.select}>
+              <option value="">— Selecione um fluxo —</option>
+              {(allFlows || []).filter(f => f.id !== fluxoAtivo?.id).map(f => (
+                <option key={f.id} value={f.id}>{f.nome}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Mensagem antes de redirecionar (opcional)">
+            <textarea
+              value={node.data?.text || ''}
+              onChange={e => update({ text: e.target.value })}
+              rows={2} style={st.textarea}
+              placeholder="Ex: Vou te direcionar para o setor correto..."
+            />
+          </Field>
+        </>
+      )}
+
+      {/* ── TRANSFERIR PARA HUMANO ── */}
+      {node.type === 'human' && (
+        <>
+          <Field label="Departamento">
+            <select value={node.data?.departamentoId || ''} onChange={e => update({ departamentoId: e.target.value, departamentoNome: e.target.options[e.target.selectedIndex]?.text })} style={st.select}>
+              <option value="">— Inbox geral —</option>
+              {(cfg?.wppDeps || []).map(d => (
+                <option key={d.id} value={d.id}>{d.nome}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Mensagem antes de transferir">
+            <textarea
+              value={node.data?.text || ''}
+              onChange={e => update({ text: e.target.value })}
+              rows={2} style={st.textarea}
+              placeholder="Ex: Conectando com um atendente. Aguarde um momento! 👤"
+            />
+          </Field>
+          <div style={{ fontSize: 11, color: '#f97316', marginTop: -8 }}>
+            👤 O bot para de responder e a conversa vai para fila humana.
+          </div>
         </>
       )}
 
