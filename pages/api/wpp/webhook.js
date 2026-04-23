@@ -128,19 +128,30 @@ async function processarMensagem(payload, instanceName) {
       midia === 'sticker'  ? '[Sticker]'  : '[Mídia]'
     ) : '')
 
-    // Extrai base64 e mimetype da mídia (Evolution já envia com webhook_base64: true)
+    // Extrai base64 e mimetype da mídia
+    // Evolution envia base64 completo quando webhook_base64: true
     let mediaBase64 = null
     let mimetype = null
     let mediaId = null
     if (midia) {
       const m = msgEvento.message || msgEvento
-      const mediaMsg = m.imageMessage || m.videoMessage || m.audioMessage || m.pttMessage || m.documentMessage || m.stickerMessage
+      const mediaMsg = (
+        m.imageMessage || m.videoMessage || m.audioMessage ||
+        m.pttMessage   || m.documentMessage || m.stickerMessage
+      )
       if (mediaMsg) {
-        mimetype     = mediaMsg.mimetype || null
-        mediaId      = mediaMsg.fileEncSha256 || key.id || null
-        // Evolution envia base64 quando webhook_base64: true está configurado
-        mediaBase64  = mediaMsg.base64 || mediaMsg.jpegThumbnail || null
-        // Tenta campo alternativo
+        mimetype  = mediaMsg.mimetype || null
+        mediaId   = key.id || null
+        // Evolution API com webhook_base64:true envia base64 no campo base64
+        // O campo jpegThumbnail é apenas thumbnail (baixa qualidade) — NÃO usar para vídeo/áudio
+        if (midia === 'image' || midia === 'sticker') {
+          // Para imagens: usa base64 completo se disponível, senão thumbnail
+          mediaBase64 = mediaMsg.base64 || mediaMsg.jpegThumbnail || null
+        } else {
+          // Para vídeo/áudio/doc: só usa se for base64 completo (não thumbnail)
+          mediaBase64 = mediaMsg.base64 || null
+        }
+        // Tenta campo alternativo no evento raiz
         if (!mediaBase64 && msgEvento.base64) mediaBase64 = msgEvento.base64
       }
     }
