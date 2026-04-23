@@ -216,18 +216,22 @@ export default function GeradorLeads() {
   const [cidade,       setCidade]       = useState('')
   const [bairro,       setBairro]       = useState('')
   const [logradouro,   setLogradouro]   = useState('')
-  // Filtros
-  const [situacaoFiltro,  setSituacaoFiltro]  = useState('ativa')
-  const [dataInicioDe,    setDataInicioDe]    = useState('')
-  const [dataInicioAte,   setDataInicioAte]   = useState('')
-  const [empresasRecentes,setEmpresasRecentes]= useState(false)
-  const [apenasNovas,    setApenasNovas]     = useState(false)
-  const [diasNovas,      setDiasNovas]       = useState(90)
 
-  // Filtros de qualidade (pós-busca, client-side)
-  const [filtroTelefone,  setFiltroTelefone]  = useState(false) // só com telefone
-  const [filtroEmail,     setFiltroEmail]     = useState(false) // só com e-mail
-  const [filtroEmailContem, setFiltroEmailContem] = useState('') // texto no domínio do email
+  // ── Filtros de situação e data ─────────────────────────────────────
+  const [situacaoFiltro,   setSituacaoFiltro]   = useState('ativa')
+  const [dataInicioDe,     setDataInicioDe]     = useState('')
+  const [dataInicioAte,    setDataInicioAte]    = useState('')
+  const [empresasRecentes, setEmpresasRecentes] = useState(false)
+
+  // ── Filtros de qualidade PRÉ-BUSCA (enviados à API) ────────────────
+  const [apenasComTelefone, setApenasComTelefone] = useState(false)
+  const [apenasComCelular,  setApenasComCelular]  = useState(false)
+  const [apenasComEmail,    setApenasComEmail]    = useState(false)
+  const [excluirMei,        setExcluirMei]        = useState(false)
+
+  // ── Filtros pós-busca (client-side) ───────────────────────────────
+  const [filtroLocal,       setFiltroLocal]       = useState('')
+  const [filtroEmailContem, setFiltroEmailContem] = useState('')
 
   // Resultados
   const [leads,       setLeads]       = useState([])
@@ -236,7 +240,6 @@ export default function GeradorLeads() {
   const [progresso,   setProgresso]   = useState('')
   const [erroAPI,     setErroAPI]     = useState('')
   const [buscaFeita,  setBuscaFeita]  = useState(false)
-  const [filtroLocal, setFiltroLocal] = useState('')
   const [cnaesUsados, setCnaesUsados] = useState([])
 
   // Modal CRM
@@ -268,7 +271,6 @@ export default function GeradorLeads() {
     init()
   },[router])
 
-  // Atalho para empresas recentes: seta data de início para 1 ano atrás
   useEffect(()=>{
     if (empresasRecentes) {
       const d = new Date(); d.setFullYear(d.getFullYear()-1)
@@ -288,7 +290,7 @@ export default function GeradorLeads() {
     if (fonte!=='receita' && !nicho.trim()) { showToast('Informe o nicho/segmento', 'err'); return }
 
     setBuscando(true); setLeads([]); setSelecionados([])
-    setErroAPI(''); setBuscaFeita(false); setFiltroLocal(''); setCnaesUsados([])
+    setErroAPI(''); setBuscaFeita(false); setFiltroLocal(''); setCnaesUsados([]); setFiltroEmailContem('')
 
     try {
       let resultado=[], erro=null
@@ -307,9 +309,14 @@ export default function GeradorLeads() {
             situacaoFiltro,
             dataInicioDe: dataInicioDe  || undefined,
             dataInicioAte: dataInicioAte || undefined,
-            apenasNovas: empresasRecentes || apenasNovas,
-            diasNovas:   empresasRecentes ? 365 : diasNovas,
+            apenasNovas: empresasRecentes,
+            diasNovas:   365,
             empresaId,
+            // filtros de qualidade pré-busca
+            apenasComTelefone,
+            apenasComCelular,
+            apenasComEmail,
+            excluirMei,
           }),
           signal: AbortSignal.timeout(180000),
         })
@@ -371,7 +378,6 @@ export default function GeradorLeads() {
   }
 
   const leadsFiltrados = leads.filter(l => {
-    // Filtro de texto livre
     if (filtroLocal.trim()) {
       const q = filtroLocal.toLowerCase()
       const bate = (l.nome||'').toLowerCase().includes(q) || (l.cidade||'').toLowerCase().includes(q) ||
@@ -381,9 +387,6 @@ export default function GeradorLeads() {
              (l.atividade||'').toLowerCase().includes(q)
       if (!bate) return false
     }
-    // Filtros de qualidade
-    if (filtroTelefone && !(l.telefone && l.telefone.replace(/\D/g,'').length >= 10)) return false
-    if (filtroEmail    && !l.email) return false
     if (filtroEmailContem.trim() && !(l.email||'').toLowerCase().includes(filtroEmailContem.trim().toLowerCase())) return false
     return true
   })
@@ -520,49 +523,80 @@ export default function GeradorLeads() {
           {/* Filtros avançados — só Receita Federal */}
           {fonte==='receita'&&(
             <div className="filtros-box">
-              <div className="sl" style={{marginBottom:12}}>⚙️ Filtros Avançados</div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:14}}>
+              <div className="sl" style={{marginBottom:14}}>⚙️ Filtros Avançados</div>
 
-                {/* Situação */}
+              {/* Linha 1: Situação + Data abertura */}
+              <div style={{display:'grid',gridTemplateColumns:'auto 1fr 1fr',gap:14,marginBottom:14,alignItems:'start'}}>
+
+                {/* Situação Cadastral */}
                 <div className="fw">
                   <label>Situação Cadastral</label>
-                  <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:2}}>
-                    {[['ativa','✅ Ativas','#10b981'],['inativa','❌ Inativas','#ef4444'],['todas','📋 Todas','#64748b']].map(([val,label,cor])=>(
+                  <div style={{display:'flex',gap:6,marginTop:4,flexWrap:'wrap'}}>
+                    {[['ativa','✅ Ativa','#10b981'],['inativa','❌ Inativa','#ef4444'],['todas','📋 Todas','#64748b']].map(([val,label,cor])=>(
                       <button key={val} onClick={()=>setSituacaoFiltro(val)}
                         style={{padding:'5px 12px',borderRadius:7,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:11,
                           border:`1.5px solid ${situacaoFiltro===val?cor:cor+'44'}`,
                           background:situacaoFiltro===val?`${cor}22`:'transparent',
-                          color:situacaoFiltro===val?cor:cor+'99',fontWeight:situacaoFiltro===val?700:400}}>
+                          color:situacaoFiltro===val?cor:cor+'99',fontWeight:situacaoFiltro===val?700:400,transition:'all .15s'}}>
                         {label}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Empresas recentes */}
-                <div className="fw">
-                  <label>Empresas Recentes</label>
-                  <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:6}}>
-                    <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:12,color:'var(--text)'}}>
-                      <input type="checkbox" checked={empresasRecentes} onChange={e=>setEmpresasRecentes(e.target.checked)} style={{width:14,height:14,accentColor:'var(--accent)'}} />
-                      Abertas nos últimos 12 meses
-                    </label>
-                  </div>
-                </div>
-
-                {/* Período de abertura */}
+                {/* Abertura De */}
                 <div className="fw">
                   <label>Abertura — De</label>
-                  <input type="date" value={dataInicioDe} onChange={e=>{setDataInicioDe(e.target.value);setEmpresasRecentes(false)}} />
+                  <input type="date" value={dataInicioDe} onChange={e=>{setDataInicioDe(e.target.value);setEmpresasRecentes(false)}} style={{marginTop:4}} />
                 </div>
+
+                {/* Abertura Até */}
                 <div className="fw">
                   <label>Abertura — Até</label>
-                  <input type="date" value={dataInicioAte} onChange={e=>{setDataInicioAte(e.target.value);setEmpresasRecentes(false)}} />
+                  <input type="date" value={dataInicioAte} onChange={e=>{setDataInicioAte(e.target.value);setEmpresasRecentes(false)}} style={{marginTop:4}} />
                 </div>
               </div>
 
-              <div style={{marginTop:10,fontSize:11,color:'var(--muted)',lineHeight:1.6,background:'rgba(0,212,255,.04)',border:'1px solid rgba(0,212,255,.1)',borderRadius:8,padding:'8px 12px'}}>
-                ℹ️ <strong style={{color:'var(--text)'}}>Como funciona:</strong> a busca usa a API pública <strong style={{color:'var(--accent)'}}>minhareceita.org</strong> (dados abertos da Receita Federal, atualizados mensalmente). O campo <strong style={{color:'var(--text)'}}>CNAE</strong> é mapeado automaticamente do nicho — ou informe o código diretamente. Para cidades, deixe em branco para buscar no estado todo (mais resultados).
+              {/* Linha 2: Empresas recentes toggle */}
+              <div style={{marginBottom:14}}>
+                <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:12,color:'var(--text)',width:'fit-content'}}>
+                  <input type="checkbox" checked={empresasRecentes} onChange={e=>setEmpresasRecentes(e.target.checked)} style={{width:14,height:14,accentColor:'var(--accent)'}} />
+                  Abertas nos últimos 12 meses
+                </label>
+              </div>
+
+              {/* Linha 3: Filtros de qualidade PRÉ-BUSCA */}
+              <div style={{borderTop:'1px solid rgba(0,212,255,.1)',paddingTop:14}}>
+                <div style={{fontSize:10,color:'var(--accent)',textTransform:'uppercase',letterSpacing:1,fontWeight:700,marginBottom:10}}>
+                  🎯 Qualidade do contato — aplicados antes de buscar
+                </div>
+                <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                  {[
+                    [apenasComTelefone, setApenasComTelefone, '📞 Com telefone',  '#10b981'],
+                    [apenasComCelular,  setApenasComCelular,  '📱 Com celular',   '#0ea5e9'],
+                    [apenasComEmail,    setApenasComEmail,    '✉️ Com e-mail',    '#00d4ff'],
+                    [excluirMei,        setExcluirMei,        '🚫 Excluir MEI',   '#f59e0b'],
+                  ].map(([ativo, setter, label, cor])=>(
+                    <button key={label} onClick={()=>setter(v=>!v)}
+                      style={{padding:'7px 15px',borderRadius:9,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,
+                        fontWeight:ativo?700:400,transition:'all .18s',
+                        border:`1.5px solid ${ativo?cor:cor+'44'}`,
+                        background:ativo?`${cor}18`:'rgba(255,255,255,.02)',
+                        color:ativo?cor:'#64748b',
+                        boxShadow:ativo?`0 0 10px ${cor}30`:'none'}}>
+                      {ativo?'✓ ':''}{label}
+                    </button>
+                  ))}
+                </div>
+                {(apenasComTelefone||apenasComCelular||apenasComEmail||excluirMei)&&(
+                  <div style={{marginTop:10,fontSize:11,color:'#fbbf24',background:'rgba(245,158,11,.08)',border:'1px solid rgba(245,158,11,.2)',borderRadius:7,padding:'7px 12px'}}>
+                    ⚡ {[apenasComTelefone&&'Com telefone',apenasComCelular&&'Com celular',apenasComEmail&&'Com e-mail',excluirMei&&'Excluindo MEI'].filter(Boolean).join(' · ')} — a busca pode demorar mais pois filtra na API
+                  </div>
+                )}
+              </div>
+
+              <div style={{marginTop:12,fontSize:11,color:'var(--muted)',lineHeight:1.6,background:'rgba(0,212,255,.04)',border:'1px solid rgba(0,212,255,.1)',borderRadius:8,padding:'8px 12px'}}>
+                ℹ️ <strong style={{color:'var(--text)'}}>Como funciona:</strong> usa a API <strong style={{color:'var(--accent)'}}>minhareceita.org</strong> (Receita Federal, atualizada mensalmente). O <strong style={{color:'var(--text)'}}>CNAE</strong> é detectado automaticamente pelo nicho. Para mais resultados, deixe a cidade em branco.
               </div>
             </div>
           )}
@@ -613,45 +647,27 @@ export default function GeradorLeads() {
               <>
                 {/* ── Filtros pós-busca ── */}
                 <div style={{display:'flex',gap:10,marginBottom:12,alignItems:'center',flexWrap:'wrap'}}>
-                  <input value={filtroLocal} onChange={e=>setFiltroLocal(e.target.value)} placeholder="🔍 Filtrar lista..." style={{maxWidth:220,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
+                  <input value={filtroLocal} onChange={e=>setFiltroLocal(e.target.value)}
+                    placeholder="🔍 Filtrar lista..."
+                    style={{maxWidth:220,background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
 
-                  {/* Só com telefone */}
-                  <button onClick={()=>setFiltroTelefone(v=>!v)}
-                    style={{padding:'6px 13px',borderRadius:8,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:11,fontWeight:filtroTelefone?700:400,
-                      border:`1.5px solid ${filtroTelefone?'#10b981':'rgba(16,185,129,.3)'}`,
-                      background:filtroTelefone?'rgba(16,185,129,.15)':'transparent',
-                      color:filtroTelefone?'#10b981':'#64748b',transition:'all .2s'}}>
-                    📞 Com telefone
-                  </button>
-
-                  {/* Só com e-mail */}
-                  <button onClick={()=>setFiltroEmail(v=>!v)}
-                    style={{padding:'6px 13px',borderRadius:8,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:11,fontWeight:filtroEmail?700:400,
-                      border:`1.5px solid ${filtroEmail?'#00d4ff':'rgba(0,212,255,.3)'}`,
-                      background:filtroEmail?'rgba(0,212,255,.1)':'transparent',
-                      color:filtroEmail?'#00d4ff':'#64748b',transition:'all .2s'}}>
-                    ✉️ Com e-mail
-                  </button>
-
-                  {/* Filtrar por conteúdo do e-mail */}
-                  {filtroEmail && (
-                    <input value={filtroEmailContem} onChange={e=>setFiltroEmailContem(e.target.value)}
-                      placeholder="Ex: cont, gmail, hotmail..."
-                      style={{maxWidth:190,background:'var(--surface2)',border:'1px solid rgba(0,212,255,.35)',borderRadius:8,padding:'6px 11px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
-                  )}
+                  {/* Filtrar por texto no e-mail */}
+                  <input value={filtroEmailContem} onChange={e=>setFiltroEmailContem(e.target.value)}
+                    placeholder="✉️ Filtrar e-mail (ex: cont)"
+                    style={{maxWidth:200,background:'var(--surface2)',border:'1px solid rgba(0,212,255,.3)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}} />
 
                   <button onClick={toggleTodos} className="bs">
                     {selecionados.length===leadsFiltrados.length&&leadsFiltrados.length>0?'✕ Desmarcar':'☑ Marcar todos'}
                   </button>
+
                   {leadsFiltrados.length!==leads.length&&(
                     <span style={{fontSize:11,color:'var(--muted)'}}>{leadsFiltrados.length} de {leads.length}</span>
                   )}
 
-                  {/* Botão limpar filtros */}
-                  {(filtroLocal||filtroTelefone||filtroEmail||filtroEmailContem) && (
-                    <button onClick={()=>{setFiltroLocal('');setFiltroTelefone(false);setFiltroEmail(false);setFiltroEmailContem('')}}
+                  {(filtroLocal||filtroEmailContem) && (
+                    <button onClick={()=>{setFiltroLocal('');setFiltroEmailContem('')}}
                       style={{padding:'5px 11px',borderRadius:7,border:'1px solid rgba(239,68,68,.4)',background:'rgba(239,68,68,.08)',color:'#ef4444',cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:11}}>
-                      ✕ Limpar filtros
+                      ✕ Limpar
                     </button>
                   )}
                 </div>
