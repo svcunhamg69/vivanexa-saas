@@ -128,15 +128,35 @@ async function processarMensagem(payload, instanceName) {
       midia === 'sticker'  ? '[Sticker]'  : '[Mídia]'
     ) : '')
 
+    // Extrai base64 e mimetype da mídia (Evolution já envia com webhook_base64: true)
+    let mediaBase64 = null
+    let mimetype = null
+    let mediaId = null
+    if (midia) {
+      const m = msgEvento.message || msgEvento
+      const mediaMsg = m.imageMessage || m.videoMessage || m.audioMessage || m.pttMessage || m.documentMessage || m.stickerMessage
+      if (mediaMsg) {
+        mimetype     = mediaMsg.mimetype || null
+        mediaId      = mediaMsg.fileEncSha256 || key.id || null
+        // Evolution envia base64 quando webhook_base64: true está configurado
+        mediaBase64  = mediaMsg.base64 || mediaMsg.jpegThumbnail || null
+        // Tenta campo alternativo
+        if (!mediaBase64 && msgEvento.base64) mediaBase64 = msgEvento.base64
+      }
+    }
+
     // Monta mensagem
     const novaMensagem = {
-      id:        key.id || `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      id:          key.id || `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       fromMe,
-      de:        fromMe ? 'empresa' : 'cliente',
-      texto:     textoFinal,
-      tipo:      midia || 'text',
-      timestamp: ts,
-      lida:      fromMe,
+      de:          fromMe ? 'empresa' : 'cliente',
+      texto:       textoFinal,
+      tipo:        midia || 'text',
+      timestamp:   ts,
+      lida:        fromMe,
+      ...(mediaBase64 ? { mediaBase64, mimetype }   : {}),
+      ...(mediaId     ? { mediaId }                  : {}),
+      ...(mimetype    ? { mimetype }                 : {}),
     }
 
     // Carrega conversa existente
@@ -214,6 +234,17 @@ async function processarMensagem(payload, instanceName) {
     )
 
     console.log(`[webhook] ✅ Mensagem salva: ${numero} | fromMe:${fromMe} | "${textoFinal.slice(0,50)}"`)
+
+    // ✅ Aciona o motor do bot para mensagens recebidas (não enviadas)
+    if (!fromMe) {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ||
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+      fetch(`${baseUrl}/api/wpp/bot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresaId, numero, mensagem: textoFinal })
+      }).catch(e => console.error('[webhook] Erro ao acionar bot:', e.message))
+    }
   }
 }
 
