@@ -122,8 +122,9 @@ function getCnaes(nicho) {
   return [...set].slice(0, 6)
 }
 
-// ── MAPA IBGE ─────────────────────────────────────────────────────────
+// ── MAPA IBGE (cache estático para cidades frequentes) ───────────────
 const IBGE = {
+  // Capitais e grandes cidades
   'belo horizonte':'3106200','sao paulo':'3550308','rio de janeiro':'3304557',
   'porto alegre':'4314902','curitiba':'4106902','fortaleza':'2304400',
   'manaus':'1302603','salvador':'2927408','recife':'2611606',
@@ -139,11 +140,54 @@ const IBGE = {
   'boa vista':'1400100','palmas':'1721000','contagem':'3118601',
   'juiz de fora':'3136702','betim':'3106705','montes claros':'3143302',
   'uberaba':'3170107','ipatinga':'3131307','feira de santana':'2910800',
+  // MG — cidades médias e do interior
+  'pedro leopoldo':'3149309','vespasiano':'3171303','lagoa santa':'3137601',
+  'ribeiro das neves':'3154606','santa luzia':'3157807','sabara':'3156700',
+  'nova lima':'3144805','brumadinho':'3109006','esmeraldas':'3124104',
+  'sete lagoas':'3167202','divinopolis':'3122306','pocos de caldas':'3151800',
+  'varginha':'3170701','pouso alegre':'3152402','itajuba':'3132503',
+  'lavras':'3138203','passos':'3147907','patos de minas':'3148004',
+  'araguari':'3103504','ituiutaba':'3134202','governador valadares':'3127701',
+  'coronel fabriciano':'3119401','timoteo':'3168705','cataguases':'3115300',
+  'muriae':'3143700','vicosa':'3171907','uba':'3170008',
+  'barbacena':'3105608','sao joao del rei':'3162500','conselheiro lafaiete':'3118304',
+  'ouro preto':'3146107','mariana':'3140001','congonhas':'3117900',
+  'formiga':'3126109','divinopolis':'3122306','nova serrana':'3145208',
+  'para de minas':'3147105','caete':'3109709','caeté':'3109709',
 }
 
-function getCodIbge(cidade) {
+// Busca código IBGE via API do IBGE (fallback para cidades não mapeadas)
+async function buscarCodIbgeDinamico(cidade, uf) {
   if (!cidade) return null
-  return IBGE[normStr(cidade)] || null
+  try {
+    const nome = encodeURIComponent(cidade.trim())
+    const url  = `https://servicodados.ibge.gov.br/api/v1/localidades/municipios?nome=${nome}`
+    const r    = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    if (!r.ok) return null
+    const lista = await r.json()
+    if (!Array.isArray(lista) || lista.length === 0) return null
+    // Filtra por UF se informado
+    const filtrados = uf
+      ? lista.filter(m => m.microrregiao?.mesorregiao?.UF?.sigla?.toLowerCase() === uf.toLowerCase())
+      : lista
+    const match = filtrados[0] || lista[0]
+    return match?.id ? String(match.id) : null
+  } catch(e) {
+    console.warn('[ibge] falha na busca dinâmica:', e.message)
+    return null
+  }
+}
+
+async function getCodIbge(cidade, uf) {
+  if (!cidade) return null
+  const codEstatico = IBGE[normStr(cidade)]
+  if (codEstatico) return codEstatico
+  // Fallback: consulta API do IBGE em tempo real
+  console.log(`[ibge] buscando código para "${cidade}" (${uf}) via API...`)
+  const cod = await buscarCodIbgeDinamico(cidade, uf)
+  if (cod) console.log(`[ibge] encontrado: ${cidade} → ${cod}`)
+  else console.warn(`[ibge] não encontrado para "${cidade}"`)
+  return cod
 }
 
 // ── minhareceita.org ──────────────────────────────────────────────────
@@ -167,12 +211,12 @@ async function buscarMinhareceita({ cnae, uf, codIbge, cursor }) {
   return r.json()
 }
 
-// ── cnpj-api.com.br — enriquecimento ─────────────────────────────────
-// URL correta: api.cnpj-api.com.br (com .br)
+// ── cnpj-api.com — enriquecimento ────────────────────────────────────
+// URL correta: api.cnpj-api.com (SEM .br)
 async function enriquecerCnpjApi(cnpj, token) {
   if (!token || !cnpj) return null
   try {
-    const url = `https://api.cnpj-api.com.br/v1/cnpj/${cnpj}?token=${token}`
+    const url = `https://api.cnpj-api.com/v1/cnpj/${cnpj}?token=${token}`
     const r   = await fetch(url, {
       headers: { 'User-Agent': 'Vivanexa/3.0' },
       signal:  AbortSignal.timeout(12000),
@@ -293,7 +337,7 @@ export default async function handler(req, res) {
     })
   }
 
-  const codIbge     = getCodIbge(cidade)
+  const codIbge     = await getCodIbge(cidade, uf)
   const resultados  = []
   const cnpjsVistos = new Set()
   const erros       = []
@@ -338,6 +382,8 @@ export default async function handler(req, res) {
           }
 
           // ── Filtros geográficos locais ────────────────────────────
+          // Se não achou código IBGE, filtra cidade por nome localmente
+          if (cidade && !codIbge && !normStr(emp.municipio || '').includes(normStr(cidade))) continue
           if (bairro && !safeStr(emp.bairro).includes(normStr(bairro))) continue
           if (logradouro && !safeStr(emp.logradouro).includes(normStr(logradouro))) continue
 
