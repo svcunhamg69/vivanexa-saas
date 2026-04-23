@@ -316,12 +316,16 @@ export default async function handler(req, res) {
     diasNovas      = 365,
     empresaId,
     // ── Filtros de qualidade pré-busca ──────────────────────────────
-    apenasComTelefone  = false,  // só traz quem tem tel na RF
-    apenasComCelular   = false,  // tel com 9 dígitos (celular)
-    apenasComEmail     = false,  // só traz quem tem email na RF
-    excluirMei         = false,  // exclui MEI (natureza jurídica 2135)
-    naturezaJuridica   = '',     // filtrar por código/nome natureza
-    porteFiltro        = '',     // ME, EPP, DEMAIS, MEI
+    apenasComTelefone  = false,
+    apenasComCelular   = false,
+    apenasComEmail     = false,
+    excluirMei         = false,
+    somenteMei         = false,   // só MEI (natureza 2135)
+    somenteMatriz      = false,   // identificador_matriz_filial = 1
+    somenteFilial      = false,   // identificador_matriz_filial = 2
+    naturezasSelecionadas = [],   // array de códigos ex: ['2135','2062']
+    naturezaJuridica   = '',      // legado — código único
+    porteFiltro        = '',
   } = req.body || {}
 
   if (!uf?.trim()) return res.status(400).json({ error: 'Estado (UF) é obrigatório' })
@@ -408,11 +412,20 @@ export default async function handler(req, res) {
           if (logradouro && !safeStr(emp.logradouro).includes(normStr(logradouro))) continue
 
           // ── Filtros de qualidade pré-busca ───────────────────────
-          // MEI: natureza jurídica 2135
           const natJur = safeStr(emp.natureza_juridica)
-          if (excluirMei && (natJur === '2135' || natJur.includes('2135'))) continue
+          const ehMei  = natJur === '2135' || natJur.includes('2135')
+          const matFil = safeStr(emp.identificador_matriz_filial) // '1'=Matriz '2'=Filial
+
+          if (excluirMei  && ehMei)  continue
+          if (somenteMei  && !ehMei) continue
+          if (somenteMatriz && matFil !== '1') continue
+          if (somenteFilial && matFil !== '2') continue
           if (porteFiltro && safeStr(emp.porte) !== porteFiltro.toUpperCase()) continue
-          if (naturezaJuridica && !natJur.includes(safeStr(naturezaJuridica))) continue
+
+          // Naturezas múltiplas selecionadas
+          if (naturezasSelecionadas.length > 0 && !naturezasSelecionadas.includes(natJur)) continue
+          // Legado: naturezaJuridica única
+          else if (!naturezasSelecionadas.length && naturezaJuridica && !natJur.includes(safeStr(naturezaJuridica))) continue
 
           // Filtros de telefone/email: precisam existir nos dados brutos da RF
           // (se token ativo, o enriquecimento ainda pode suprir depois)
