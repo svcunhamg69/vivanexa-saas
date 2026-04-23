@@ -230,6 +230,19 @@ async function enriquecerCnpjApi(cnpj, token) {
   }
 }
 
+// ── Situação cadastral: a minhareceita.org retorna código numérico ────
+// 1=Nula, 2=Ativa, 3=Suspensa, 4=Inapta, 8=Baixada
+const SITUACAO_MAP = {
+  '1': 'Nula', '2': 'Ativa', '3': 'Suspensa', '4': 'Inapta', '8': 'Baixada',
+}
+function parseSituacao(v) {
+  const s = safeStr(v)
+  // Se já é texto legível (ex: "ATIVA", "BAIXADA"), normaliza e retorna
+  if (/[a-zA-Z]/.test(s)) return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+  // Se é número, converte pelo mapa
+  return SITUACAO_MAP[s] || (s ? `Código ${s}` : '')
+}
+
 // ── Mappers ───────────────────────────────────────────────────────────
 function mapMinhareceita(e) {
   const cnpj = safeStr(e.cnpj).replace(/\D/g,'')
@@ -257,8 +270,8 @@ function mapMinhareceita(e) {
     cep:         safeStr(e.cep).replace(/\D/g,''),
     atividade:   safeStr(e.cnae_fiscal_descricao),
     cnae:        safeStr(e.cnae_fiscal),
-    // ✅ Usa safeStr para evitar o erro "toLowerCase is not a function"
-    situacao:    safeStr(e.situacao_cadastral),
+    // ✅ Converte código numérico (2=Ativa, 8=Baixada, etc.) para texto
+    situacao:    parseSituacao(e.situacao_cadastral),
     dataInicio:  safeStr(e.data_inicio_atividade),
     capital:     safeStr(e.capital_social),
     porte:       safeStr(e.porte),
@@ -364,8 +377,8 @@ export default async function handler(req, res) {
           if (!cnpj || cnpjsVistos.has(cnpj)) continue
           cnpjsVistos.add(cnpj)
 
-          // ── Filtro situação: usa safeStr para evitar o crash ──────
-          const sitEmp = safeStr(emp.situacao_cadastral) // ✅ sempre string
+          // ── Filtro situação: parseia código numérico antes de comparar ──
+          const sitEmp = parseSituacao(emp.situacao_cadastral).toLowerCase()
           if (situacaoFiltro === 'ativa'   && !sitEmp.includes('ativa'))  continue
           if (situacaoFiltro === 'inativa' &&  sitEmp.includes('ativa'))  continue
           // 'todas' não filtra nada
