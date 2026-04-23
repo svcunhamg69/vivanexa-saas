@@ -137,7 +137,7 @@ function FlowEdge({ conn, nodes, selected, onClick }) {
   )
 }
 
-function FlowPropsPanel({ node, onChange, onDelete }) {
+function FlowPropsPanel({ node, onChange, onDelete, cfg, flows, editFlow }) {
   const fInp = { width: '100%', padding: '7px 9px', borderRadius: 7, background: '#0a0f1e', border: '1px solid #1e2d4a', color: '#e2e8f0', fontFamily: 'DM Mono,monospace', fontSize: 12, outline: 'none', boxSizing: 'border-box', marginBottom: 0 }
   const fTa  = { ...fInp, resize: 'vertical' }
   const fSel = { ...fInp }
@@ -262,7 +262,7 @@ function FlowPropsPanel({ node, onChange, onDelete }) {
             upd({ gotoFlowId: e.target.value, gotoFlowName: opt?.text })
           }} style={fSel}>
             <option value="">— Selecione um fluxo —</option>
-            {(cfg?.chatbotFlows || []).filter(f => f.id !== editFlow?.id).map(f => (
+            {(flows || []).filter(f => f.id !== editFlow?.id).map(f => (
               <option key={f.id} value={f.id}>{f.name || f.nome}</option>
             ))}
           </select>
@@ -608,7 +608,7 @@ function TabChatbotFlow({ empresaId, cfg }) {
         </div>
         <div style={{ width: 260, background: '#0c1628', borderLeft: '1px solid #1e2d4a', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
           <div style={{ padding: '10px 14px', borderBottom: '1px solid #1e2d4a', fontSize: 10, color: '#334155', letterSpacing: 0.8 }}>PROPRIEDADES DO NÓ</div>
-          <FlowPropsPanel node={selectedNode} onChange={updateNode} onDelete={deleteNode} />
+          <FlowPropsPanel node={selectedNode} onChange={updateNode} onDelete={deleteNode} cfg={cfg} flows={flows} editFlow={editFlow} />
         </div>
       </div>
       {flowToast && <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: flowToast.type === 'ok' ? 'rgba(16,185,129,.9)' : 'rgba(239,68,68,.9)', color: '#fff', padding: '11px 22px', borderRadius: 10, fontSize: 13, zIndex: 99999, fontFamily: 'DM Mono,monospace' }}>{flowToast.msg}</div>}
