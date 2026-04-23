@@ -1,17 +1,25 @@
-// pages/admin.js — Vivanexa Master Admin v2
-// Funcionalidades:
-//   ✅ Cadastro completo de clientes (tenants) com vendedor
-//   ✅ Gestão de planos com valores e módulos padrão
-//   ✅ Liberação granular de módulos + todos os submenus
-//   ✅ Integração Asaas (cliente + assinatura recorrente + adesão)
-//   ✅ Criação de usuário no Supabase Auth com senha definida
-//   ✅ Envio de e-mail de boas-vindas com credenciais
-//   ✅ Configuração SMTP da empresa master
+// pages/admin.js — Vivanexa Master Admin v3
+// ✅ Isolamento de sessão: autenticação master por senha própria (não usa sessão Supabase do tenant)
+// ✅ Cadastro de vendedores internos da Vivanexa
+// ✅ Relatório de vendas com filtro por vendedor e mês
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
-import { supabase } from '../lib/supabase'
+import { createClient } from '@supabase/supabase-js'
+
+// ── Cliente Supabase DEDICADO ao admin (usa anon key mas com lógica própria de auth)
+// Isso garante que a sessão do admin NUNCA interfere com a sessão do tenant
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  {
+    auth: {
+      storageKey: 'vx_master_session', // chave própria no localStorage — não conflita com o tenant
+      persistSession: true,
+    },
+  }
+)
 
 // ══════════════════════════════════════════════════════
 // CONSTANTES
@@ -96,6 +104,9 @@ const gerarSenha = (len=10) => {
 }
 const calcVenc = (dias=30) => { const d=new Date(); d.setDate(d.getDate()+dias); return d.toISOString().slice(0,10) }
 
+// Mês atual no formato YYYY-MM
+const mesAtual = () => new Date().toISOString().slice(0, 7)
+
 function toast(msg, tipo='ok') {
   const el = document.getElementById('admin-toast')
   if (!el) return
@@ -106,17 +117,81 @@ function toast(msg, tipo='ok') {
 }
 
 // ══════════════════════════════════════════════════════
+// TELA DE LOGIN MASTER (independente do tenant)
+// ══════════════════════════════════════════════════════
+
+function LoginMaster({ onAuth }) {
+  const [email,    setEmail]    = useState('')
+  const [senha,    setSenha]    = useState('')
+  const [erro,     setErro]     = useState('')
+  const [loading,  setLoading]  = useState(false)
+
+  async function entrar(e) {
+    e.preventDefault()
+    if (!email || !senha) { setErro('Preencha e-mail e senha.'); return }
+    setLoading(true); setErro('')
+    try {
+      // Login no cliente admin dedicado (storageKey: 'vx_master_session')
+      const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email: email.trim(), password: senha })
+      if (error) throw new Error(error.message)
+      const isMaster = MASTER_EMAILS.includes(data.user.email)
+      if (!isMaster) {
+        // Verifica na tabela perfis
+        const { data: perfil } = await supabaseAdmin.from('perfis').select('perfil,is_master').eq('user_id', data.user.id).maybeSingle()
+        if (perfil?.perfil !== 'master_admin' && !perfil?.is_master) {
+          await supabaseAdmin.auth.signOut()
+          throw new Error('Você não tem permissão de acesso master.')
+        }
+      }
+      onAuth(data.user)
+    } catch(err) {
+      setErro(err.message || 'Erro ao autenticar.')
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{minHeight:'100vh',background:'#060c1a',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'DM Mono,monospace',padding:20}}>
+      <div style={{width:'100%',maxWidth:380,background:'#0d1526',border:'1px solid #1e2d4a',borderRadius:16,padding:'36px 32px',boxShadow:'0 4px 32px rgba(0,0,0,.5)'}}>
+        <div style={{textAlign:'center',marginBottom:28}}>
+          <div style={{fontSize:40,marginBottom:12}}>🛡️</div>
+          <div style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:18,color:'#e2e8f0'}}>MASTER ADMIN</div>
+          <div style={{fontSize:11,color:'#475569',marginTop:4,letterSpacing:1}}>VIVANEXA SaaS</div>
+        </div>
+        <form onSubmit={entrar}>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,color:'#64748b',display:'block',marginBottom:5,letterSpacing:.8}}>E-MAIL</label>
+            <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="admin@vivanexa.com.br"
+              style={{width:'100%',background:'#111827',border:'1px solid #1e2d4a',borderRadius:8,padding:'10px 12px',color:'#e2e8f0',fontFamily:'DM Mono,monospace',fontSize:13,outline:'none'}}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,color:'#64748b',display:'block',marginBottom:5,letterSpacing:.8}}>SENHA</label>
+            <input value={senha} onChange={e=>setSenha(e.target.value)} type="password" placeholder="••••••••"
+              style={{width:'100%',background:'#111827',border:'1px solid #1e2d4a',borderRadius:8,padding:'10px 12px',color:'#e2e8f0',fontFamily:'DM Mono,monospace',fontSize:13,outline:'none'}}/>
+          </div>
+          {erro && <div style={{fontSize:12,color:'#ef4444',marginBottom:12,lineHeight:1.4}}>{erro}</div>}
+          <button type="submit" disabled={loading} style={{width:'100%',padding:12,borderRadius:8,background:'linear-gradient(135deg,#00d4ff,#0099bb)',border:'none',color:'#000',fontFamily:'DM Mono,monospace',fontWeight:700,fontSize:14,cursor:loading?'not-allowed':'pointer',opacity:loading?.6:1}}>
+            {loading ? 'Autenticando...' : '🔐 Entrar como Master'}
+          </button>
+        </form>
+        <div style={{marginTop:16,fontSize:11,color:'#1e2d4a',textAlign:'center'}}>
+          Esta área não compartilha sessão com o sistema principal.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ══════════════════════════════════════════════════════
 
 export default function AdminPage() {
   const router = useRouter()
-  const [loading,      setLoading]      = useState(true)
-  const [authorized,   setAuthorized]   = useState(false)
-  const [masterUser,   setMasterUser]   = useState(null)
+  const [masterUser,   setMasterUser]   = useState(null)  // null = não autenticado
   const [masterCfg,    setMasterCfg]    = useState({})
   const [tenants,      setTenants]      = useState([])
-  const [vendedores,   setVendedores]   = useState([])
+  const [vendedores,   setVendedores]   = useState([])   // vendedores internos da Vivanexa
   const [planos,       setPlanos]       = useState(PLANOS_PADRAO)
   const [aba,          setAba]          = useState('tenants')
   const [busca,        setBusca]        = useState('')
@@ -125,37 +200,61 @@ export default function AdminPage() {
   const [modalTenant,  setModalTenant]  = useState(null)
   const [modalDelete,  setModalDelete]  = useState(null)
   const [saving,       setSaving]       = useState(false)
+  const [checking,     setChecking]     = useState(true)
 
+  // Verifica se já existe sessão master ativa (sem redirecionar para login principal)
   useEffect(() => {
-    async function init() {
-      const { data:{ session } } = await supabase.auth.getSession()
-      if (!session) { router.replace('/'); return }
-      const { data:perfil } = await supabase.from('perfis').select('*').eq('user_id', session.user.id).maybeSingle()
-      const isMaster = MASTER_EMAILS.includes(session.user.email) || perfil?.perfil==='master_admin' || perfil?.is_master===true
-      if (!isMaster) { router.replace('/dashboard'); return }
-      setMasterUser({ ...session.user, ...perfil })
-      const { data:cfgRow } = await supabase.from('vx_storage').select('value').eq('key','master_cfg').maybeSingle()
-      const mc = cfgRow?.value ? JSON.parse(cfgRow.value) : {}
-      setMasterCfg(mc)
-      if (mc.planosPersonalizados?.length) setPlanos(mc.planosPersonalizados)
-      const { data:perfis } = await supabase.from('perfis').select('*')
-      setVendedores(perfis||[])
-      await carregarTenants()
-      setLoading(false); setAuthorized(true)
-    }
-    init()
-  }, [router])
+    supabaseAdmin.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        const isMaster = MASTER_EMAILS.includes(session.user.email)
+        if (isMaster) {
+          await carregarDados(session.user)
+          setMasterUser(session.user)
+        }
+      }
+      setChecking(false)
+    })
+    // Escuta mudança de auth do cliente admin (não do tenant)
+    const { data: listener } = supabaseAdmin.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') setMasterUser(null)
+    })
+    return () => listener.subscription.unsubscribe()
+  }, [])
+
+  const carregarDados = useCallback(async (user) => {
+    // Carrega configurações master
+    const { data:cfgRow } = await supabaseAdmin.from('vx_storage').select('value').eq('key','master_cfg').maybeSingle()
+    const mc = cfgRow?.value ? JSON.parse(cfgRow.value) : {}
+    setMasterCfg(mc)
+    if (mc.planosPersonalizados?.length) setPlanos(mc.planosPersonalizados)
+
+    // Carrega vendedores internos da Vivanexa (salvo em master_cfg.vendedores)
+    setVendedores(mc.vendedores || [])
+
+    // Carrega tenants
+    await carregarTenants()
+  }, [])
 
   const carregarTenants = useCallback(async () => {
-    const { data:rows } = await supabase.from('vx_storage').select('key,value,updated_at').like('key','tenant:%').order('updated_at',{ascending:false})
+    const { data:rows } = await supabaseAdmin.from('vx_storage').select('key,value,updated_at').like('key','tenant:%').order('updated_at',{ascending:false})
     const lista = (rows||[]).map(r => { try { return {...JSON.parse(r.value),_at:r.updated_at} } catch { return null } }).filter(Boolean)
     setTenants(lista)
   }, [])
 
+  async function onAuth(user) {
+    await carregarDados(user)
+    setMasterUser(user)
+  }
+
+  async function sair() {
+    await supabaseAdmin.auth.signOut()
+    setMasterUser(null)
+  }
+
   async function salvarMasterCfg(novoCfg) {
     const cfg = { ...masterCfg, ...novoCfg }
     setMasterCfg(cfg)
-    await supabase.from('vx_storage').upsert({ key:'master_cfg', value:JSON.stringify(cfg), updated_at:new Date().toISOString() }, { onConflict:'key' })
+    await supabaseAdmin.from('vx_storage').upsert({ key:'master_cfg', value:JSON.stringify(cfg), updated_at:new Date().toISOString() }, { onConflict:'key' })
     toast('✅ Configurações salvas!')
   }
 
@@ -179,10 +278,10 @@ export default function AdminPage() {
     try {
       const agora = new Date().toISOString()
       const tenant = { ...dados, atualizadoEm:agora }
-      await supabase.from('vx_storage').upsert({ key:`tenant:${dados.id}`, value:JSON.stringify(tenant), updated_at:agora }, { onConflict:'key' })
-      const { data:cfgRow } = await supabase.from('vx_storage').select('value').eq('key',`cfg:${dados.empresaId||dados.id}`).maybeSingle()
+      await supabaseAdmin.from('vx_storage').upsert({ key:`tenant:${dados.id}`, value:JSON.stringify(tenant), updated_at:agora }, { onConflict:'key' })
+      const { data:cfgRow } = await supabaseAdmin.from('vx_storage').select('value').eq('key',`cfg:${dados.empresaId||dados.id}`).maybeSingle()
       const cfgAtual = cfgRow?.value ? JSON.parse(cfgRow.value) : {}
-      await supabase.from('vx_storage').upsert({
+      await supabaseAdmin.from('vx_storage').upsert({
         key:`cfg:${dados.empresaId||dados.id}`,
         value: JSON.stringify({ ...cfgAtual, company:dados.nomeEmpresa, tenant_plano:dados.plano, tenant_status:dados.status, tenant_modulos:dados.modulosLiberados, tenant_maxUsuarios:dados.maxUsuarios, tenant_vencimento:dados.vencimento, modulosAtivos:dados.modulosLiberados }),
         updated_at:agora,
@@ -194,7 +293,7 @@ export default function AdminPage() {
 
   async function deletarTenant(id) {
     setSaving(true)
-    await supabase.from('vx_storage').delete().eq('key',`tenant:${id}`)
+    await supabaseAdmin.from('vx_storage').delete().eq('key',`tenant:${id}`)
     toast('🗑️ Removido.'); await carregarTenants(); setModalDelete(null); setSaving(false)
   }
 
@@ -215,8 +314,17 @@ export default function AdminPage() {
     mrr:       tenants.filter(t=>t.status==='ativo').reduce((a,t)=>a+Number(t.mensalidade||0),0),
   }
 
-  if (loading) return <div style={{minHeight:'100vh',background:'#060c1a',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'DM Mono,monospace',color:'#64748b'}}><div style={{textAlign:'center'}}><div style={{fontSize:40,marginBottom:12}}>🛡️</div>Verificando acesso...</div></div>
-  if (!authorized) return null
+  // ── Tela de verificação inicial
+  if (checking) {
+    return (
+      <div style={{minHeight:'100vh',background:'#060c1a',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'DM Mono,monospace',color:'#64748b'}}>
+        <div style={{textAlign:'center'}}><div style={{fontSize:40,marginBottom:12}}>🛡️</div>Verificando acesso...</div>
+      </div>
+    )
+  }
+
+  // ── Se não autenticado como master, mostra login dedicado
+  if (!masterUser) return <LoginMaster onAuth={onAuth} />
 
   return (
     <>
@@ -234,7 +342,15 @@ export default function AdminPage() {
             <div><div style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:14,color:'#e2e8f0'}}>MASTER</div><div style={{fontSize:10,color:'#64748b',letterSpacing:1}}>ADMIN</div></div>
           </div>
           <nav className="sidebar-nav">
-            {[{id:'tenants',icon:'🏢',label:'Clientes'},{id:'planos',icon:'📦',label:'Planos'},{id:'financeiro',icon:'💰',label:'Financeiro'},{id:'metricas',icon:'📊',label:'Métricas'},{id:'config',icon:'⚙️',label:'Config'}].map(item=>(
+            {[
+              {id:'tenants',   icon:'🏢', label:'Clientes'},
+              {id:'vendedores',icon:'👔', label:'Vendedores'},
+              {id:'planos',    icon:'📦', label:'Planos'},
+              {id:'financeiro',icon:'💰', label:'Financeiro'},
+              {id:'relvendas', icon:'📊', label:'Rel. Vendas'},
+              {id:'metricas',  icon:'📈', label:'Métricas'},
+              {id:'config',    icon:'⚙️', label:'Config'},
+            ].map(item=>(
               <button key={item.id} className={`nav-btn ${aba===item.id?'active':''}`} onClick={()=>setAba(item.id)}>
                 <span>{item.icon}</span><span>{item.label}</span>
               </button>
@@ -243,7 +359,7 @@ export default function AdminPage() {
           <div className="sidebar-user">
             <div style={{fontSize:11,color:'#475569'}}>Master Admin</div>
             <div style={{fontSize:11,color:'#94a3b8',marginTop:3,wordBreak:'break-all'}}>{masterUser?.email}</div>
-            <button className="btn-sair" onClick={async()=>{await supabase.auth.signOut();router.replace('/')}}>Sair</button>
+            <button className="btn-sair" onClick={sair}>Sair</button>
           </div>
         </aside>
 
@@ -289,7 +405,7 @@ export default function AdminPage() {
                         const plano  = planos.find(p=>p.id===t.plano)
                         const status = STATUS_TENANT.find(s=>s.id===t.status)
                         const vencido = t.vencimento && new Date(t.vencimento)<new Date()
-                        const vendedor = vendedores.find(v=>v.user_id===t.vendedorId)
+                        const vendedor = vendedores.find(v=>v.id===t.vendedorId)
                         return (
                           <tr key={t.id} className="table-row">
                             <td><div style={{fontWeight:600,color:'#e2e8f0',fontSize:13}}>{t.nomeEmpresa}</div><div style={{fontSize:11,color:'#475569'}}>{t.emailAdmin}</div>{t.cnpj&&<div style={{fontSize:10,color:'#334155'}}>{t.cnpj}</div>}</td>
@@ -313,6 +429,17 @@ export default function AdminPage() {
               </table>
             </div>
           </>}
+
+          {/* ─── VENDEDORES ─── */}
+          {aba==='vendedores' && (
+            <GerenciarVendedores
+              vendedores={vendedores}
+              onSave={async (lista) => {
+                setVendedores(lista)
+                await salvarMasterCfg({ vendedores: lista })
+              }}
+            />
+          )}
 
           {/* ─── PLANOS ─── */}
           {aba==='planos' && <GerenciarPlanos planos={planos} setPlanos={setPlanos} onSave={p=>{setPlanos(p);salvarMasterCfg({planosPersonalizados:p})}}/>}
@@ -346,6 +473,11 @@ export default function AdminPage() {
               </table>
             </div>
           </>}
+
+          {/* ─── RELATÓRIO DE VENDAS ─── */}
+          {aba==='relvendas' && (
+            <RelatorioVendas tenants={tenants} vendedores={vendedores} planos={planos} />
+          )}
 
           {/* ─── MÉTRICAS ─── */}
           {aba==='metricas' && <>
@@ -383,6 +515,284 @@ export default function AdminPage() {
         </div>
       )}
     </>
+  )
+}
+
+// ══════════════════════════════════════════════════════
+// GERENCIAR VENDEDORES INTERNOS
+// ══════════════════════════════════════════════════════
+
+function GerenciarVendedores({ vendedores, onSave }) {
+  const [lista,   setLista]   = useState(vendedores)
+  const [modal,   setModal]   = useState(null)   // null | 'novo' | objeto
+  const [saving,  setSaving]  = useState(false)
+
+  // Sincroniza se prop muda
+  useEffect(() => { setLista(vendedores) }, [vendedores])
+
+  const [nome,   setNome]   = useState('')
+  const [email,  setEmail]  = useState('')
+  const [tel,    setTel]    = useState('')
+  const [ativo,  setAtivo]  = useState(true)
+
+  function abrirNovo() { setNome(''); setEmail(''); setTel(''); setAtivo(true); setModal('novo') }
+  function abrirEditar(v) { setNome(v.nome); setEmail(v.email); setTel(v.tel||''); setAtivo(v.ativo!==false); setModal(v) }
+
+  async function salvar() {
+    if (!nome.trim() || !email.trim()) { alert('Nome e e-mail são obrigatórios.'); return }
+    setSaving(true)
+    let novaLista
+    if (modal === 'novo') {
+      const novo = { id: Date.now().toString(), nome: nome.trim(), email: email.trim().toLowerCase(), tel: tel.trim(), ativo, criadoEm: new Date().toISOString() }
+      novaLista = [...lista, novo]
+    } else {
+      novaLista = lista.map(v => v.id === modal.id ? { ...v, nome: nome.trim(), email: email.trim().toLowerCase(), tel: tel.trim(), ativo } : v)
+    }
+    setLista(novaLista)
+    await onSave(novaLista)
+    setModal(null)
+    setSaving(false)
+  }
+
+  async function remover(id) {
+    if (!confirm('Remover este vendedor?')) return
+    const novaLista = lista.filter(v => v.id !== id)
+    setLista(novaLista)
+    await onSave(novaLista)
+  }
+
+  return (
+    <div>
+      <div className="page-header">
+        <div><h1 className="page-title">Vendedores</h1><p className="page-sub">Equipe interna de vendas da Vivanexa</p></div>
+        <button className="btn-primary" onClick={abrirNovo}>+ Novo Vendedor</button>
+      </div>
+
+      <div className="table-wrap">
+        <table className="admin-table">
+          <thead><tr><th>Nome</th><th>E-mail</th><th>Telefone</th><th>Clientes</th><th>MRR Gerado</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody>
+            {lista.length === 0
+              ? <tr><td colSpan={7} style={{textAlign:'center',color:'#475569',padding:'40px 20px'}}>👔 Nenhum vendedor cadastrado. Clique em "+ Novo Vendedor".</td></tr>
+              : lista.map(v => {
+                  // calcula métricas deste vendedor
+                  // IMPORTANT: os tenants agora usam vendedorId = v.id (string do nosso sistema)
+                  const clientesV = []  // será passado via props se necessário — aqui apenas placeholder
+                  return (
+                    <tr key={v.id} className="table-row">
+                      <td style={{fontWeight:600,color:'#e2e8f0',fontSize:13}}>{v.nome}</td>
+                      <td style={{fontSize:12,color:'#94a3b8'}}>{v.email}</td>
+                      <td style={{fontSize:12,color:'#94a3b8'}}>{v.tel||'—'}</td>
+                      <td style={{fontSize:12,color:'#94a3b8'}}>—</td>
+                      <td style={{fontSize:12,color:'#10b981'}}>—</td>
+                      <td><span className="badge" style={{background:v.ativo!==false?'#10b98122':'#64748b22',color:v.ativo!==false?'#10b981':'#64748b',border:`1px solid ${v.ativo!==false?'#10b98144':'#64748b44'}`}}>{v.ativo!==false?'Ativo':'Inativo'}</span></td>
+                      <td><div style={{display:'flex',gap:6}}>
+                        <button className="btn-icon" onClick={()=>abrirEditar(v)}>✏️</button>
+                        <button className="btn-icon danger" onClick={()=>remover(v.id)}>🗑️</button>
+                      </div></td>
+                    </tr>
+                  )
+                })
+            }
+          </tbody>
+        </table>
+      </div>
+
+      {modal && (
+        <div className="modal-overlay" onClick={()=>setModal(null)}>
+          <div className="modal-box" style={{maxWidth:480}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+              <h2 style={{fontFamily:'Syne,sans-serif',fontSize:17,color:'#00d4ff'}}>{modal==='novo'?'👔 Novo Vendedor':'✏️ Editar Vendedor'}</h2>
+              <button onClick={()=>setModal(null)} style={{background:'none',border:'none',color:'#64748b',fontSize:20,cursor:'pointer'}}>✕</button>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              <div className="field"><label>Nome *</label><input value={nome} onChange={e=>setNome(e.target.value)} placeholder="João Silva"/></div>
+              <div className="field"><label>E-mail *</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="joao@vivanexa.com.br"/></div>
+              <div className="field"><label>Telefone / WhatsApp</label><input value={tel} onChange={e=>setTel(e.target.value)} placeholder="(11) 9 9999-9999"/></div>
+              <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',fontSize:13,color:'#94a3b8'}}>
+                <input type="checkbox" checked={ativo} onChange={e=>setAtivo(e.target.checked)}/>
+                Vendedor ativo
+              </label>
+            </div>
+            <div style={{display:'flex',gap:10,marginTop:24,justifyContent:'flex-end'}}>
+              <button className="btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
+              <button className="btn-primary" disabled={saving} onClick={salvar}>{saving?'Salvando...':'✅ Salvar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════
+// RELATÓRIO DE VENDAS
+// ══════════════════════════════════════════════════════
+
+function RelatorioVendas({ tenants, vendedores, planos }) {
+  const [filtroVend, setFiltroVend] = useState('')
+  const [filtroMes,  setFiltroMes]  = useState(mesAtual())
+  const [filtroPlano,setFiltroPlano] = useState('')
+
+  // Gera lista de meses únicos a partir dos tenants cadastrados
+  const mesesDisponiveis = [...new Set(
+    tenants
+      .filter(t => t.criadoEm)
+      .map(t => t.criadoEm.slice(0, 7))
+  )].sort((a,b) => b.localeCompare(a))
+
+  // Adiciona o mês atual se não estiver na lista
+  if (!mesesDisponiveis.includes(mesAtual())) mesesDisponiveis.unshift(mesAtual())
+
+  // Filtra tenants pelo mês de criação
+  const filtrados = tenants.filter(t => {
+    const mesT = t.criadoEm?.slice(0, 7) || ''
+    const ok1 = !filtroMes  || mesT === filtroMes
+    const ok2 = !filtroVend || t.vendedorId === filtroVend
+    const ok3 = !filtroPlano || t.plano === filtroPlano
+    return ok1 && ok2 && ok3
+  })
+
+  const totalAdesao    = filtrados.reduce((a,t) => a + Number(t.adesao||0), 0)
+  const totalMensal    = filtrados.reduce((a,t) => a + Number(t.mensalidade||0), 0)
+
+  // Agrupado por vendedor
+  const porVendedor = vendedores.map(v => {
+    const clientes = filtrados.filter(t => t.vendedorId === v.id)
+    return {
+      ...v,
+      qtd:    clientes.length,
+      adesao: clientes.reduce((a,t) => a + Number(t.adesao||0), 0),
+      mrr:    clientes.reduce((a,t) => a + Number(t.mensalidade||0), 0),
+    }
+  }).filter(v => v.qtd > 0 || !filtroMes)  // mostra todos quando sem filtro de mês
+
+  const fmtMes = iso => {
+    if (!iso) return '—'
+    const [y, m] = iso.split('-')
+    const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+    return `${meses[Number(m)-1]}/${y}`
+  }
+
+  return (
+    <div>
+      <div className="page-header">
+        <div><h1 className="page-title">Relatório de Vendas</h1><p className="page-sub">Vendas por período, vendedor e produto</p></div>
+      </div>
+
+      {/* Filtros */}
+      <div className="filtros-bar" style={{marginBottom:20}}>
+        <select className="select-filtro" value={filtroMes} onChange={e=>setFiltroMes(e.target.value)}>
+          <option value="">Todos os meses</option>
+          {mesesDisponiveis.map(m=><option key={m} value={m}>{fmtMes(m)}</option>)}
+        </select>
+        <select className="select-filtro" value={filtroVend} onChange={e=>setFiltroVend(e.target.value)}>
+          <option value="">Todos os vendedores</option>
+          {vendedores.map(v=><option key={v.id} value={v.id}>{v.nome}</option>)}
+          <option value="__sem__">Sem vendedor</option>
+        </select>
+        <select className="select-filtro" value={filtroPlano} onChange={e=>setFiltroPlano(e.target.value)}>
+          <option value="">Todos os planos</option>
+          {planos.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <span style={{fontSize:12,color:'#475569',marginLeft:'auto'}}>{filtrados.length} venda(s)</span>
+      </div>
+
+      {/* Cards de totais */}
+      <div className="stats-grid" style={{gridTemplateColumns:'repeat(4,1fr)',marginBottom:24}}>
+        {[
+          {label:'Vendas no período', valor:filtrados.length,       icon:'🧾', cor:'#00d4ff'},
+          {label:'Total em Adesão',   valor:fmt(totalAdesao),       icon:'💵', cor:'#10b981'},
+          {label:'MRR Gerado',        valor:fmt(totalMensal),       icon:'🔄', cor:'#7c3aed'},
+          {label:'ARR Gerado',        valor:fmt(totalMensal*12),    icon:'📈', cor:'#ec4899'},
+        ].map((s,i)=>(
+          <div key={i} className="stat-card" style={{'--cor':s.cor}}>
+            <div className="stat-icon">{s.icon}</div>
+            <div className="stat-val" style={{color:s.cor,fontSize:18}}>{s.valor}</div>
+            <div className="stat-label">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabela de vendas */}
+      <div className="table-wrap" style={{marginBottom:24}}>
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Empresa</th>
+              <th>Vendedor</th>
+              <th>Plano</th>
+              <th>Status</th>
+              <th>Adesão</th>
+              <th>Mensalidade</th>
+              <th>Data de Cadastro</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrados.length === 0
+              ? <tr><td colSpan={7} style={{textAlign:'center',color:'#475569',padding:'40px 20px'}}>📊 Nenhuma venda no período selecionado.</td></tr>
+              : filtrados.map(t => {
+                  const plano   = planos.find(p=>p.id===t.plano)
+                  const status  = STATUS_TENANT.find(s=>s.id===t.status)
+                  const vendedor = t.vendedorId === '__sem__' ? null : vendedores.find(v=>v.id===t.vendedorId)
+                  return (
+                    <tr key={t.id} className="table-row">
+                      <td>
+                        <div style={{fontWeight:600,color:'#e2e8f0',fontSize:13}}>{t.nomeEmpresa}</div>
+                        <div style={{fontSize:11,color:'#475569'}}>{t.emailAdmin}</div>
+                      </td>
+                      <td style={{fontSize:12,color:'#94a3b8'}}>{vendedor?.nome || <span style={{color:'#334155',fontSize:11}}>—</span>}</td>
+                      <td><span className="badge" style={{background:plano?.cor+'22',color:plano?.cor,border:`1px solid ${plano?.cor}44`}}>{plano?.name||t.plano}</span></td>
+                      <td><span className="badge" style={{background:status?.cor+'22',color:status?.cor,border:`1px solid ${status?.cor}44`}}>{status?.label}</span></td>
+                      <td style={{color:'#94a3b8',fontSize:13}}>{t.adesao ? fmt(t.adesao) : '—'}</td>
+                      <td style={{color:'#10b981',fontWeight:600,fontSize:13}}>{t.mensalidade ? fmt(t.mensalidade) : '—'}</td>
+                      <td style={{fontSize:12,color:'#94a3b8'}}>{t.criadoEm ? new Date(t.criadoEm).toLocaleDateString('pt-BR') : '—'}</td>
+                    </tr>
+                  )
+                })
+            }
+          </tbody>
+          {filtrados.length > 0 && (
+            <tfoot>
+              <tr style={{background:'#0d1526'}}>
+                <td colSpan={4} style={{padding:'12px 16px',fontSize:12,color:'#64748b',fontWeight:600}}>TOTAIS ({filtrados.length} cliente{filtrados.length!==1?'s':''})</td>
+                <td style={{padding:'12px 16px',color:'#94a3b8',fontWeight:700,fontSize:13}}>{fmt(totalAdesao)}</td>
+                <td style={{padding:'12px 16px',color:'#10b981',fontWeight:700,fontSize:13}}>{fmt(totalMensal)}/mês</td>
+                <td/>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {/* Ranking por vendedor */}
+      {porVendedor.filter(v=>v.qtd>0).length > 0 && (
+        <div className="card">
+          <h3 className="card-title" style={{marginBottom:16}}>🏆 Ranking de Vendedores {filtroMes ? `— ${fmtMes(filtroMes)}` : ''}</h3>
+          <table className="admin-table">
+            <thead><tr><th>#</th><th>Vendedor</th><th>Clientes</th><th>Adesão Total</th><th>MRR Gerado</th><th>ARR</th></tr></thead>
+            <tbody>
+              {porVendedor
+                .filter(v=>v.qtd>0)
+                .sort((a,b)=>b.mrr-a.mrr)
+                .map((v,i)=>(
+                  <tr key={v.id} className="table-row">
+                    <td style={{color:i===0?'#f59e0b':i===1?'#94a3b8':i===2?'#cd7f32':'#475569',fontWeight:700,fontSize:16}}>
+                      {i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`}
+                    </td>
+                    <td><div style={{fontWeight:600,color:'#e2e8f0',fontSize:13}}>{v.nome}</div><div style={{fontSize:11,color:'#475569'}}>{v.email}</div></td>
+                    <td style={{color:'#94a3b8',fontSize:13}}>{v.qtd}</td>
+                    <td style={{color:'#94a3b8',fontSize:13}}>{fmt(v.adesao)}</td>
+                    <td style={{color:'#10b981',fontWeight:700,fontSize:13}}>{fmt(v.mrr)}/mês</td>
+                    <td style={{color:'#7c3aed',fontSize:13}}>{fmt(v.mrr*12)}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -458,7 +868,7 @@ function ModalTenant({ tenant, planos, vendedores, masterCfg, onSave, onClose, s
           <div className="field" style={{gridColumn:'1/-1'}}><label>👔 Vendedor responsável pela venda</label>
             <select value={vendId} onChange={e=>setVendId(e.target.value)}>
               <option value="">— Selecionar vendedor —</option>
-              {vendedores.map(v=><option key={v.user_id} value={v.user_id}>{v.nome} ({v.email})</option>)}
+              {vendedores.filter(v=>v.ativo!==false).map(v=><option key={v.id} value={v.id}>{v.nome} ({v.email})</option>)}
             </select>
           </div>
           <div className="field" style={{gridColumn:'1/-1'}}><label>Observações internas</label>
@@ -703,6 +1113,7 @@ body { font-family:'DM Mono',monospace; background:var(--bg); color:var(--text);
 .admin-table { width:100%; border-collapse:collapse; }
 .admin-table th { padding:12px 16px; text-align:left; font-size:11px; color:var(--muted); border-bottom:1px solid var(--border); background:var(--surface); letter-spacing:.5px; }
 .admin-table td { padding:12px 16px; border-bottom:1px solid #0d1526; vertical-align:middle; }
+.admin-table tfoot td { border-top:2px solid var(--border); border-bottom:none; }
 .table-row:hover { background:rgba(0,212,255,.025); }
 .table-row:last-child td { border-bottom:none; }
 .badge { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; }
