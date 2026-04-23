@@ -260,16 +260,20 @@ async function processarConexao(payload, instanceName) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' })
 
-  // Evolution API envia o nome da instância no header ou no body
-  const instanceName =
+  // Evolution API v2 envia o nome da instância:
+  // - No header: "instance" ou "instancename"  
+  // - No body: payload.instance, payload.instanceName, ou payload.sender
+  const instanceName = (
     req.headers['instance'] ||
     req.headers['instancename'] ||
     req.body?.instance ||
     req.body?.instanceName ||
     req.body?.sender ||
     ''
+  ).toString().trim()
 
-  const evento = req.body?.event || req.body?.type || ''
+  // Evolution v2: evento vem como "messages.upsert" (com ponto) ou "MESSAGES_UPSERT"
+  const evento = (req.body?.event || req.body?.type || '').toString()
 
   console.log('[webhook] evento:', evento, '| instance:', instanceName)
 
@@ -278,12 +282,13 @@ export default async function handler(req, res) {
 
   // Processa em background (não bloqueia a resposta)
   try {
-    if (evento === 'messages.upsert' || evento === 'MESSAGES_UPSERT') {
+    const eventoNorm = evento.toLowerCase().replace('.', '_') // "messages.upsert" → "messages_upsert"
+    if (eventoNorm === 'messages_upsert') {
       await processarMensagem(req.body, instanceName)
-    } else if (evento === 'connection.update' || evento === 'CONNECTION_UPDATE') {
+    } else if (eventoNorm === 'connection_update') {
       await processarConexao(req.body, instanceName)
     }
-    // QRCODE_UPDATED, CONTACTS_SET etc — ignorados por ora
+    // QRCODE_UPDATED, CONTACTS_UPSERT etc — ignorados aqui
   } catch (err) {
     console.error('[webhook] Erro:', err.message, err.stack?.slice(0, 200))
   }
