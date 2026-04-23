@@ -1077,10 +1077,9 @@ export default function WhatsappInbox() {
                       return `data:${mime};base64,${msg.mediaBase64}`
                     }
                     if (msg.mediaUrl) return msg.mediaUrl
-                    // Tenta buscar via Evolution API proxy
-                    if (msg.mediaId && cfg.wppInbox?.evolutionUrl && cfg.wppInbox?.evolutionKey) {
-                      const inst = conv.instanciaId || cfg.wppInbox?.evolutionInstance || ''
-                      return `${cfg.wppInbox.evolutionUrl}/chat/getBase64FromMediaMessage/${inst}`
+                    // ✅ FIX: usa proxy interno para evitar CORS ao chamar Evolution diretamente
+                    if (msg.mediaId && conv?.instancia) {
+                      return `/api/wpp/media?empresaId=${empresaId}&instancia=${conv.instancia}&mediaId=${encodeURIComponent(msg.mediaId)}`
                     }
                     return null
                   }
