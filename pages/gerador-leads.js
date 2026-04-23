@@ -201,6 +201,125 @@ function baixar(blob, nome) {
 }
 
 // ── Componente ────────────────────────────────────────────────────────
+// ── CNAE com descrições (para autocomplete) ───────────────────────────
+const NICHO_CNAE_LABELS = {
+  '6920601': 'Atividades de contabilidade',
+  '6920602': 'Escrituração fiscal e previdenciária',
+  '6911701': 'Serviços advocatícios',
+  '6911702': 'Atividades auxiliares da justiça',
+  '6912500': 'Cartórios',
+  '8630502': 'Atividade médica ambulatorial com recursos para realização de exames complementares',
+  '8630501': 'Atividade médica ambulatorial sem recursos para realização de exames',
+  '8630503': 'Atividade médica ambulatorial restrita a consultas',
+  '8630504': 'Atividade odontológica',
+  '8610101': 'Atividades de atendimento hospitalar',
+  '8610102': 'UTI Neonatal',
+  '8650001': 'Atividades de enfermagem e fisioterapia',
+  '8650002': 'Atividades de psicologia e psicanálise',
+  '8650004': 'Atividades de fisioterapia',
+  '8650006': 'Atividades de nutricionistas',
+  '4771701': 'Comércio varejista de produtos farmacêuticos',
+  '4771702': 'Comércio varejista de produtos farmacêuticos homeopáticos',
+  '8640202': 'Laboratórios clínicos',
+  '8640203': 'Serviços de diálise e nefrologia',
+  '4774100': 'Comércio varejista de artigos de óptica',
+  '5611201': 'Restaurantes e similares',
+  '5611202': 'Bares e outros estabelecimentos especializados em servir bebidas',
+  '5611203': 'Lanchonetes, casas de chá, de sucos e similares',
+  '1091101': 'Fabricação de produtos de panificação industrial',
+  '4721102': 'Padaria e confeitaria com predominância de revenda',
+  '8511200': 'Educação infantil — creche',
+  '8512100': 'Educação infantil — pré-escola',
+  '8513900': 'Ensino fundamental',
+  '8532500': 'Educação superior — graduação e pós-graduação',
+  '8533300': 'Educação superior — pós-graduação e extensão',
+  '8599604': 'Treinamento em desenvolvimento profissional e gerencial',
+  '8599605': 'Cursos preparatórios para concursos',
+  '8599699': 'Outras atividades de ensino não especificadas',
+  '9602501': 'Cabeleireiros',
+  '9602502': 'Outras atividades de tratamento de beleza',
+  '9602503': 'Barbearias',
+  '9609202': 'Clínicas de estética e similares',
+  '9313100': 'Academias de condicionamento físico',
+  '4789004': 'Comércio varejista de animais vivos e artigos para animais de estimação',
+  '7500100': 'Atividades veterinárias',
+  '4520001': 'Serviços de manutenção e reparação mecânica de veículos automotores',
+  '4520002': 'Serviços de manutenção e reparação elétrica de veículos automotores',
+  '4520003': 'Serviços de manutenção e reparação de veículos automotores (geral)',
+  '4530701': 'Comércio por atacado de peças e acessórios para veículos automotores',
+  '4530703': 'Comércio a varejo de peças e acessórios para veículos automotores',
+  '6821801': 'Corretagem de imóveis de terceiros',
+  '6821802': 'Corretagem de imóveis próprios',
+  '4110700': 'Incorporação de empreendimentos imobiliários',
+  '4120400': 'Construção de edifícios',
+  '6201500': 'Desenvolvimento de programas de computador sob encomenda',
+  '6202300': 'Desenvolvimento e licenciamento de programas de computador customizáveis',
+  '6209100': 'Suporte técnico, manutenção e outros serviços em tecnologia da informação',
+  '4751201': 'Comércio varejista especializado de equipamentos e suprimentos de informática',
+  '4711302': 'Supermercados',
+  '4711301': 'Minimercados e mercearias',
+  '5510801': 'Hotéis',
+  '5510802': 'Apart-hotéis',
+  '5590601': 'Albergues, exceto assistenciais',
+  '5590602': 'Campings',
+  '7911200': 'Agências de viagens',
+  '7912100': 'Operadores turísticos',
+  '6511101': 'Seguros de vida',
+  '6511102': 'Planos de auxílio-funeral',
+  '6512000': 'Seguros não-vida',
+  '7020400': 'Atividades de consultoria em gestão empresarial',
+  '7319002': 'Promoção de vendas',
+  '7319003': 'Marketing direto',
+  '7311400': 'Agências de publicidade',
+  '7312200': 'Agenciamento de espaços para publicidade',
+  '7112000': 'Atividades de engenharia e consultorias em engenharia e correlatas',
+  '7111100': 'Atividades de arquitetura',
+  '8121400': 'Limpeza de prédios e em domicílios',
+  '8122200': 'Imunização e controle de pragas urbanas',
+  '8011101': 'Atividades de vigilância e segurança privada',
+  '8011102': 'Serviços de escolta e vigilância',
+  '4930201': 'Transporte rodoviário de carga, exceto produtos perigosos e mudanças',
+  '4930202': 'Transporte rodoviário de carga, exceto produtos perigosos e mudanças — municipal',
+  '5229001': 'Serviços de apoio ao transporte por táxi',
+  '5229002': 'Serviços de reboque de veículos',
+  '1811301': 'Impressão de jornais',
+  '1811302': 'Impressão de livros, revistas e outras publicações periódicas',
+  '7420001': 'Atividades de produção de fotografias',
+  '7420002': 'Atividades de produção de fotografias aéreas e submarinas',
+  '4759801': 'Comércio varejista de artigos de tapeçaria, cortinas e persianas',
+  '4759899': 'Comércio varejista de outros artigos de uso pessoal e doméstico',
+  '4330401': 'Impermeabilização em obras de engenharia civil',
+  '4330402': 'Instalação de portas, janelas, tetos, divisórias e armários embutidos',
+  '4321500': 'Instalação e manutenção elétrica',
+  '4322301': 'Instalações hidráulicas, sanitárias e de gás',
+  '4754701': 'Comércio varejista de móveis',
+  '4754702': 'Comércio varejista de artigos de colchoaria',
+  '4783102': 'Comércio varejista de artigos de joalheria',
+  '6422100': 'Bancos múltiplos, com carteira comercial',
+  '6499901': 'Clubes de investimento',
+  '7810800': 'Seleção e agenciamento de mão-de-obra',
+  '7820500': 'Locação de mão-de-obra temporária',
+  '8130300': 'Atividades paisagísticas',
+}
+
+// ── Naturezas Jurídicas (principais) ─────────────────────────────────
+const NATUREZAS = [
+  { cod: '2135', label: 'MEI – Microempreendedor Individual' },
+  { cod: '2062', label: 'Sociedade Empresária Limitada (LTDA)' },
+  { cod: '2305', label: 'Sociedade Anônima Fechada (S.A.)' },
+  { cod: '2054', label: 'Sociedade Simples Pura' },
+  { cod: '2046', label: 'Sociedade em Nome Coletivo' },
+  { cod: '4120', label: 'Empresa Individual (EIRELI)' },
+  { cod: '2143', label: 'Empresa Individual de Responsabilidade Limitada' },
+  { cod: '1015', label: 'Órgão Público Federal' },
+  { cod: '1023', label: 'Órgão Público Estadual' },
+  { cod: '1031', label: 'Órgão Público Municipal' },
+  { cod: '3999', label: 'Associação Privada' },
+  { cod: '3069', label: 'Fundação Privada' },
+  { cod: '2232', label: 'Sociedade Cooperativa' },
+  { cod: '2240', label: 'Consórcio de Empregadores' },
+]
+
 export default function GeradorLeads() {
   const router = useRouter()
   const [user,      setUser]      = useState(null)
@@ -228,6 +347,19 @@ export default function GeradorLeads() {
   const [apenasComCelular,  setApenasComCelular]  = useState(false)
   const [apenasComEmail,    setApenasComEmail]    = useState(false)
   const [excluirMei,        setExcluirMei]        = useState(false)
+  const [somenteMei,        setSomenteMei]        = useState(false)
+  const [somenteMatriz,     setSomenteMatriz]     = useState(false)
+  const [somenteFilial,     setSomenteFilial]     = useState(false)
+
+  // ── Natureza Jurídica multi-select ────────────────────────────────
+  const [naturezasSelecionadas, setNaturezasSelecionadas] = useState([]) // [{cod,label}]
+  const [buscaNatureza,         setBuscaNatureza]         = useState('')
+  const [naturezaAberta,        setNaturezaAberta]        = useState(false)
+
+  // ── CNAE multi-select (além do campo manual) ──────────────────────
+  const [cnaesSelecionados,  setCnaesSelecionados]  = useState([]) // [{cod,label}]
+  const [buscaCnae,          setBuscaCnae]          = useState('')
+  const [cnaeAberto,         setCnaeAberto]         = useState(false)
 
   // ── Filtros pós-busca (client-side) ───────────────────────────────
   const [filtroLocal,       setFiltroLocal]       = useState('')
@@ -301,7 +433,9 @@ export default function GeradorLeads() {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
             nicho:        nicho.trim(),
-            cnaeManual:   cnaeManual.trim(),
+            cnaeManual:   cnaesSelecionados.length > 0
+              ? cnaesSelecionados.map(c=>c.cod).join(',')
+              : cnaeManual.trim(),
             uf,
             cidade:       cidade.trim(),
             bairro:       bairro.trim(),
@@ -317,6 +451,10 @@ export default function GeradorLeads() {
             apenasComCelular,
             apenasComEmail,
             excluirMei,
+            somenteMei,
+            somenteMatriz,
+            somenteFilial,
+            naturezasSelecionadas: naturezasSelecionadas.map(n=>n.cod),
           }),
           signal: AbortSignal.timeout(180000),
         })
@@ -525,10 +663,8 @@ export default function GeradorLeads() {
             <div className="filtros-box">
               <div className="sl" style={{marginBottom:14}}>⚙️ Filtros Avançados</div>
 
-              {/* Linha 1: Situação + Data abertura */}
+              {/* ── Linha 1: Situação + Data abertura ── */}
               <div style={{display:'grid',gridTemplateColumns:'auto 1fr 1fr',gap:14,marginBottom:14,alignItems:'start'}}>
-
-                {/* Situação Cadastral */}
                 <div className="fw">
                   <label>Situação Cadastral</label>
                   <div style={{display:'flex',gap:6,marginTop:4,flexWrap:'wrap'}}>
@@ -543,21 +679,17 @@ export default function GeradorLeads() {
                     ))}
                   </div>
                 </div>
-
-                {/* Abertura De */}
                 <div className="fw">
                   <label>Abertura — De</label>
                   <input type="date" value={dataInicioDe} onChange={e=>{setDataInicioDe(e.target.value);setEmpresasRecentes(false)}} style={{marginTop:4}} />
                 </div>
-
-                {/* Abertura Até */}
                 <div className="fw">
                   <label>Abertura — Até</label>
                   <input type="date" value={dataInicioAte} onChange={e=>{setDataInicioAte(e.target.value);setEmpresasRecentes(false)}} style={{marginTop:4}} />
                 </div>
               </div>
 
-              {/* Linha 2: Empresas recentes toggle */}
+              {/* ── Linha 2: Empresas recentes ── */}
               <div style={{marginBottom:14}}>
                 <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:12,color:'var(--text)',width:'fit-content'}}>
                   <input type="checkbox" checked={empresasRecentes} onChange={e=>setEmpresasRecentes(e.target.checked)} style={{width:14,height:14,accentColor:'var(--accent)'}} />
@@ -565,32 +697,165 @@ export default function GeradorLeads() {
                 </label>
               </div>
 
-              {/* Linha 3: Filtros de qualidade PRÉ-BUSCA */}
+              {/* ── Linha 3: Natureza Jurídica multi-select ── */}
+              <div style={{marginBottom:14,position:'relative'}}>
+                <label style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:5,letterSpacing:.5}}>
+                  Natureza Jurídica <span style={{fontSize:9,color:'var(--muted)',background:'var(--surface2)',border:'1px solid var(--border)',padding:'1px 6px',borderRadius:10,marginLeft:4}}>OPCIONAL — MÚLTIPLA</span>
+                </label>
+
+                {/* Tags selecionadas */}
+                {naturezasSelecionadas.length>0&&(
+                  <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
+                    {naturezasSelecionadas.map(n=>(
+                      <span key={n.cod} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 10px',borderRadius:20,fontSize:11,
+                        background:'rgba(124,58,237,.15)',border:'1px solid rgba(124,58,237,.4)',color:'#a78bfa',fontFamily:'DM Mono,monospace'}}>
+                        {n.cod} · {n.label.split('(')[0].trim()}
+                        <button onClick={()=>setNaturezasSelecionadas(p=>p.filter(x=>x.cod!==n.cod))}
+                          style={{background:'none',border:'none',cursor:'pointer',color:'#a78bfa',fontSize:13,lineHeight:1,padding:0}}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Input de busca */}
+                <div style={{position:'relative'}}>
+                  <input
+                    value={buscaNatureza}
+                    onChange={e=>{setBuscaNatureza(e.target.value);setNaturezaAberta(true)}}
+                    onFocus={()=>setNaturezaAberta(true)}
+                    onBlur={()=>setTimeout(()=>setNaturezaAberta(false),180)}
+                    placeholder="Digite para buscar natureza jurídica..."
+                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}}
+                  />
+                  {naturezaAberta&&(
+                    <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:200,background:'#111827',border:'1px solid #1e2d4a',borderRadius:8,marginTop:3,maxHeight:220,overflowY:'auto',boxShadow:'0 8px 32px rgba(0,0,0,.6)'}}>
+                      {NATUREZAS
+                        .filter(n=>{
+                          const q=buscaNatureza.toLowerCase()
+                          return !naturezasSelecionadas.find(s=>s.cod===n.cod) &&
+                            (n.cod.includes(q)||n.label.toLowerCase().includes(q)||q==='')
+                        })
+                        .map(n=>(
+                          <div key={n.cod}
+                            onMouseDown={()=>{setNaturezasSelecionadas(p=>[...p,n]);setBuscaNatureza('');setNaturezaAberta(false)}}
+                            style={{padding:'9px 14px',cursor:'pointer',fontSize:12,fontFamily:'DM Mono,monospace',color:'var(--text)',borderBottom:'1px solid rgba(30,45,74,.5)',display:'flex',gap:8,alignItems:'center'}}
+                            onMouseEnter={e=>e.currentTarget.style.background='rgba(0,212,255,.07)'}
+                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                            <span style={{fontSize:10,color:'#a78bfa',fontFamily:'monospace',minWidth:38}}>{n.cod}</span>
+                            <span>{n.label}</span>
+                          </div>
+                        ))}
+                      {NATUREZAS.filter(n=>{const q=buscaNatureza.toLowerCase();return !naturezasSelecionadas.find(s=>s.cod===n.cod)&&(n.cod.includes(q)||n.label.toLowerCase().includes(q)||q==='')}).length===0&&(
+                        <div style={{padding:'12px 14px',fontSize:12,color:'var(--muted)',textAlign:'center'}}>Nenhuma natureza encontrada</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Linha 4: CNAE multi-select ── */}
+              <div style={{marginBottom:14,position:'relative'}}>
+                <label style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:5,letterSpacing:.5}}>
+                  Código CNAE <span style={{fontSize:9,color:'var(--muted)',background:'var(--surface2)',border:'1px solid var(--border)',padding:'1px 6px',borderRadius:10,marginLeft:4}}>OPCIONAL — MÚLTIPLO — SOBREPÕE NICHO</span>
+                </label>
+
+                {/* Tags selecionadas */}
+                {cnaesSelecionados.length>0&&(
+                  <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
+                    {cnaesSelecionados.map(c=>(
+                      <span key={c.cod} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 10px',borderRadius:20,fontSize:11,
+                        background:'rgba(0,212,255,.1)',border:'1px solid rgba(0,212,255,.4)',color:'var(--accent)',fontFamily:'monospace'}}>
+                        {c.cod}{c.label&&` · ${c.label.slice(0,30)}`}
+                        <button onClick={()=>setCnaesSelecionados(p=>p.filter(x=>x.cod!==c.cod))}
+                          style={{background:'none',border:'none',cursor:'pointer',color:'var(--accent)',fontSize:13,lineHeight:1,padding:0}}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Input de busca/digitação */}
+                <div style={{position:'relative'}}>
+                  <input
+                    value={buscaCnae}
+                    onChange={e=>{setBuscaCnae(e.target.value);setCnaeAberto(true)}}
+                    onFocus={()=>setCnaeAberto(true)}
+                    onBlur={()=>setTimeout(()=>setCnaeAberto(false),180)}
+                    onKeyDown={e=>{
+                      if(e.key==='Enter'&&buscaCnae.replace(/\D/g,'').length>=4){
+                        const cod=buscaCnae.replace(/\D/g,'')
+                        if(!cnaesSelecionados.find(c=>c.cod===cod)){
+                          setCnaesSelecionados(p=>[...p,{cod,label:''}])
+                          setBuscaCnae('');setCnaeAberto(false)
+                        }
+                      }
+                    }}
+                    placeholder="Digite o código (ex: 6920601) ou nome e pressione Enter..."
+                    style={{width:'100%',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none'}}
+                  />
+                  {cnaeAberto&&buscaCnae.length>=2&&(()=>{
+                    const q=buscaCnae.toLowerCase().replace(/\D/g,'')||buscaCnae.toLowerCase()
+                    const matches=Object.entries(NICHO_CNAE_LABELS).filter(([cod,label])=>
+                      !cnaesSelecionados.find(c=>c.cod===cod)&&(cod.includes(q)||label.toLowerCase().includes(buscaCnae.toLowerCase()))
+                    ).slice(0,12)
+                    if(!matches.length) return null
+                    return (
+                      <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:200,background:'#111827',border:'1px solid #1e2d4a',borderRadius:8,marginTop:3,maxHeight:220,overflowY:'auto',boxShadow:'0 8px 32px rgba(0,0,0,.6)'}}>
+                        {matches.map(([cod,label])=>(
+                          <div key={cod}
+                            onMouseDown={()=>{setCnaesSelecionados(p=>[...p,{cod,label}]);setBuscaCnae('');setCnaeAberto(false)}}
+                            style={{padding:'9px 14px',cursor:'pointer',fontSize:12,fontFamily:'DM Mono,monospace',color:'var(--text)',borderBottom:'1px solid rgba(30,45,74,.5)',display:'flex',gap:8,alignItems:'center'}}
+                            onMouseEnter={e=>e.currentTarget.style.background='rgba(0,212,255,.07)'}
+                            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                            <span style={{fontSize:10,color:'var(--accent)',fontFamily:'monospace',minWidth:60}}>{cod}</span>
+                            <span>{label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
+                </div>
+              </div>
+
+              {/* ── Linha 5: Qualidade do contato ── */}
               <div style={{borderTop:'1px solid rgba(0,212,255,.1)',paddingTop:14}}>
                 <div style={{fontSize:10,color:'var(--accent)',textTransform:'uppercase',letterSpacing:1,fontWeight:700,marginBottom:10}}>
                   🎯 Qualidade do contato — aplicados antes de buscar
                 </div>
-                <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                   {[
-                    [apenasComTelefone, setApenasComTelefone, '📞 Com telefone',  '#10b981'],
-                    [apenasComCelular,  setApenasComCelular,  '📱 Com celular',   '#0ea5e9'],
-                    [apenasComEmail,    setApenasComEmail,    '✉️ Com e-mail',    '#00d4ff'],
-                    [excluirMei,        setExcluirMei,        '🚫 Excluir MEI',   '#f59e0b'],
-                  ].map(([ativo, setter, label, cor])=>(
-                    <button key={label} onClick={()=>setter(v=>!v)}
-                      style={{padding:'7px 15px',borderRadius:9,cursor:'pointer',fontFamily:'DM Mono,monospace',fontSize:12,
-                        fontWeight:ativo?700:400,transition:'all .18s',
-                        border:`1.5px solid ${ativo?cor:cor+'44'}`,
-                        background:ativo?`${cor}18`:'rgba(255,255,255,.02)',
-                        color:ativo?cor:'#64748b',
-                        boxShadow:ativo?`0 0 10px ${cor}30`:'none'}}>
-                      {ativo?'✓ ':''}{label}
-                    </button>
-                  ))}
+                    [apenasComTelefone, setApenasComTelefone, '📞 Com telefone',    '#10b981'],
+                    [apenasComCelular,  setApenasComCelular,  '📱 Com celular',     '#0ea5e9'],
+                    [apenasComEmail,    setApenasComEmail,    '✉️ Com e-mail',      '#00d4ff'],
+                    [excluirMei,        setExcluirMei,        '🚫 Excluir MEI',     '#f59e0b'],
+                    [somenteMei,        setSomenteMei,        '🧾 Somente MEI',     '#a78bfa'],
+                    [somenteMatriz,     setSomenteMatriz,     '🏢 Somente Matriz',  '#10b981'],
+                    [somenteFilial,     setSomenteFilial,     '🔗 Somente Filial',  '#0ea5e9'],
+                  ].map(([ativo, setter, label, cor])=>{
+                    // Regras de exclusão mútua
+                    const desabilitado =
+                      (label.includes('MEI') && label.includes('Somente') && excluirMei) ||
+                      (label.includes('Excluir') && somenteMei) ||
+                      (label.includes('Matriz') && somenteFilial) ||
+                      (label.includes('Filial') && somenteMatriz)
+                    return (
+                      <button key={label}
+                        onClick={()=>{ if(!desabilitado) setter(v=>!v) }}
+                        disabled={desabilitado}
+                        style={{padding:'7px 14px',borderRadius:9,cursor:desabilitado?'not-allowed':'pointer',fontFamily:'DM Mono,monospace',fontSize:11,
+                          fontWeight:ativo?700:400,transition:'all .18s',
+                          border:`1.5px solid ${ativo?cor:desabilitado?'rgba(100,116,139,.2)':cor+'44'}`,
+                          background:ativo?`${cor}18`:desabilitado?'rgba(100,116,139,.05)':'rgba(255,255,255,.02)',
+                          color:ativo?cor:desabilitado?'#334155':'#64748b',
+                          boxShadow:ativo?`0 0 10px ${cor}30`:'none',
+                          opacity:desabilitado?0.45:1}}>
+                        {ativo?'✓ ':''}{label}
+                      </button>
+                    )
+                  })}
                 </div>
-                {(apenasComTelefone||apenasComCelular||apenasComEmail||excluirMei)&&(
+                {(apenasComTelefone||apenasComCelular||apenasComEmail||excluirMei||somenteMei||somenteMatriz||somenteFilial)&&(
                   <div style={{marginTop:10,fontSize:11,color:'#fbbf24',background:'rgba(245,158,11,.08)',border:'1px solid rgba(245,158,11,.2)',borderRadius:7,padding:'7px 12px'}}>
-                    ⚡ {[apenasComTelefone&&'Com telefone',apenasComCelular&&'Com celular',apenasComEmail&&'Com e-mail',excluirMei&&'Excluindo MEI'].filter(Boolean).join(' · ')} — a busca pode demorar mais pois filtra na API
+                    ⚡ {[apenasComTelefone&&'Com telefone',apenasComCelular&&'Com celular',apenasComEmail&&'Com e-mail',excluirMei&&'Excluindo MEI',somenteMei&&'Só MEI',somenteMatriz&&'Só Matriz',somenteFilial&&'Só Filial'].filter(Boolean).join(' · ')} — a busca pode demorar mais pois filtra antes de retornar
                   </div>
                 )}
               </div>
