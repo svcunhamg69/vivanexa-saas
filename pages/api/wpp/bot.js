@@ -476,44 +476,56 @@ export default async function handler(req, res) {
     const conv = convInput || await getConv(empresaId, numero)
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' })
 
-    // Não processa se bot pausado ou atendendo por humano
-    if (conv.botPausado || conv.status === 'atendendo' || conv.status === 'finalizado') {
-      // Mas se tem agente IA de departamento, ainda responde
+    // Não processa se atendendo por humano ou finalizado
+    if (conv.status === 'atendendo' || conv.status === 'finalizado') {
+      return res.status(200).json({ ok: true, ignorado: true, motivo: conv.status })
+    }
+
+    const flowsData = await getFlows(empresaId)
+    const modoAutomacao = flowsData?.modoAutomacao || 'chatbot'
+    const botGlobalAtivo = flowsData?.botAtivo === true
+
+    // ── MODO AGENTE IA ────────────────────────────────
+    if (modoAutomacao === 'agente' && botGlobalAtivo && !conv.botPausado) {
+      // Usa o agente configurado globalmente (não por departamento)
+      const agentes = cfg.wppAgentes || []
+      const agente  = agentes.find(a => a.ativo) || null
+      if (agente) {
+        const historico = (conv.mensagens || []).slice(-10)
+        const resposta  = await chamarAgenteIA(cfg, { agentIA: agente.id }, mensagem, historico)
+        if (resposta) {
+          const instancia = conv.instancia || cfg.wppInbox?.evolutionInstance || ''
+          await enviarTexto(cfg, instancia, numero, resposta)
+          return res.status(200).json({ ok: true, modo: 'agente_ia' })
+        }
+      }
+      return res.status(200).json({ ok: true, modo: 'agente_ia', semResposta: true })
+    }
+
+    // ── MODO CHATBOT FLOW ─────────────────────────────
+    if (modoAutomacao === 'chatbot' && botGlobalAtivo && !conv.botPausado) {
+      const fluxoId = conv.botState?.fluxoId || flowsData?.activeFlowId
+      const fluxo   = (flowsData?.flows || []).find(f => f.id === fluxoId)
+                   || (flowsData?.flows || []).find(f => f.active)
+                   || flowsData?.flows?.[0]
+
+      if (fluxo) {
+        const resultado = await executarFluxo({ empresaId, cfg, fluxo, conv, mensagemCliente: mensagem })
+        return res.status(200).json({ ok: true, modo: 'chatbot', resultado })
+      }
+    }
+
+    // ── AGENTE IA DE DEPARTAMENTO (fallback) ──────────
+    if (!conv.botPausado) {
       const depto = (cfg.wppDeps || []).find(d => d.id === conv.departamentoId)
-      if (depto?.agentIA && !conv.botPausado && conv.status === 'aguardando') {
+      if (depto?.agentIA) {
         const historico = (conv.mensagens || []).slice(-10)
         const resposta  = await chamarAgenteIA(cfg, depto, mensagem, historico)
         if (resposta) {
           const instancia = conv.instancia || cfg.wppInbox?.evolutionInstance || ''
           await enviarTexto(cfg, instancia, numero, resposta)
+          return res.status(200).json({ ok: true, modo: 'agente_depto' })
         }
-      }
-      return res.status(200).json({ ok: true, ignorado: true })
-    }
-
-    // ── CHATBOT FLOW ──────────────────────────────────
-    const flowsData = await getFlows(empresaId)
-    if (flowsData?.botAtivo) {
-      const fluxoId  = conv.botState?.fluxoId || flowsData.activeFlowId
-      const fluxo    = (flowsData.flows || []).find(f => f.id === fluxoId && f.active !== false)
-                    || (flowsData.flows || []).find(f => f.active)
-                    || flowsData.flows?.[0]
-
-      if (fluxo) {
-        const resultado = await executarFluxo({ empresaId, cfg, fluxo, conv, mensagemCliente: mensagem })
-        return res.status(200).json({ ok: true, chatbot: true, resultado })
-      }
-    }
-
-    // ── AGENTE IA (sem chatbot) ───────────────────────
-    const depto = (cfg.wppDeps || []).find(d => d.id === conv.departamentoId)
-    if (depto?.agentIA) {
-      const historico = (conv.mensagens || []).slice(-10)
-      const resposta  = await chamarAgenteIA(cfg, depto, mensagem, historico)
-      if (resposta) {
-        const instancia = conv.instancia || cfg.wppInbox?.evolutionInstance || ''
-        await enviarTexto(cfg, instancia, numero, resposta)
-        return res.status(200).json({ ok: true, iaDepto: true })
       }
     }
 
