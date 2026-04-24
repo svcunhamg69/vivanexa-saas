@@ -431,7 +431,6 @@ export default function Navbar({ cfg = {}, perfil = null }) {
               )}
             </div>
           )}
-          )}
 
           {!user && (
             <button className="nav-sair" onClick={handleLogout}>Sair</button>
