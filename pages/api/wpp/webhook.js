@@ -262,14 +262,27 @@ async function executarFluxoBot({empresaId, cfg, fluxo, conv, mensagemCliente, v
   await saveConvBot(empresaId, numero, conv)
 }
 
-async function chamarIABot(cfg, agente, mensagem, historico=[], mediaBase64=null, mediaTipo=null, mimetype=null) {
+async function chamarIABot(cfg, agente, mensagem, historico=[], mediaBase64=null, mediaTipo=null, mimetype=null, empresaId=null) {
   if (!agente) return null
   const geminiKey = agente.geminiKey||cfg.geminiApiKey||process.env.GEMINI_API_KEY||''
   const groqKey   = agente.groqKey  ||cfg.groqApiKey  ||process.env.GROQ_API_KEY  ||''
   const openaiKey = agente.openaiKey||cfg.openaiApiKey ||process.env.OPENAI_API_KEY||''
+  const grokKey   = agente.grokKey  ||cfg.grokApiKey   ||process.env.GROK_API_KEY  ||''
+  const provider  = agente.provider || 'openai'
 
   const hist = historico.slice(-8).map(m=>`${m.fromMe||m.de==='empresa'?'Assistente':'Cliente'}: ${m.texto||m.body||''}`).join('\n')
   const basePrompt = agente.prompt || `Você é um assistente comercial da empresa ${cfg.company||'Vivanexa'}. Responda de forma cordial e objetiva em português. Máx 300 caracteres.`
+
+  // ✅ Google Calendar: injeta horários disponíveis no contexto se gcalEnabled
+  let agendaContexto = ''
+  if (agente.gcalEnabled && empresaId) {
+    try {
+      const horarios = await buscarDisponibilidadeGcal(empresaId, agente, cfg)
+      if (horarios && horarios.length > 0) {
+        agendaContexto = `\n\nHORÁRIOS DISPONÍVEIS PARA AGENDAMENTO (próximos 7 dias):\n${horarios.map((h,i)=>`${i+1}. ${h}`).join('\n')}\n\nSe o cliente quiser agendar, ofereça estes horários. Quando ele confirmar um, diga que o agendamento foi registrado e use o formato: AGENDAR:[nome do cliente]|[data e hora confirmada]`
+      }
+    } catch {}
+  }
 
   // Contexto de mídia para o prompt de texto
   const mediaContexto = mediaTipo === 'audio'    ? '\n[O cliente enviou um áudio. Você não consegue ouvir diretamente, mas tente ajudar.]'
@@ -278,7 +291,7 @@ async function chamarIABot(cfg, agente, mensagem, historico=[], mediaBase64=null
                       : mediaTipo === 'document' ? '\n[O cliente enviou um documento.]'
                       : ''
 
-  const promptTexto = `${basePrompt}${mediaContexto}\n\n${hist?`Histórico:\n${hist}\n`:''}\nCliente: ${mensagem||'(enviou mídia)'}\nAssistente:`
+  const promptTexto = `${basePrompt}${agendaContexto}${mediaContexto}\n\n${hist?`Histórico:\n${hist}\n`:''}\nCliente: ${mensagem||'(enviou mídia)'}\nAssistente:`
 
   // ── OpenAI (gpt-4o suporta imagem via base64) ────────
   if (openaiKey) {
@@ -353,13 +366,31 @@ async function chamarIABot(cfg, agente, mensagem, historico=[], mediaBase64=null
     } catch(e) { console.error('[IA] Gemini:', e.message) }
   }
 
-  // ── Groq (apenas texto — não suporta mídia) ──────────
-  if (groqKey) {
+  // ── Groq (texto + visão em modelos vision) ──────────
+  if (groqKey && (provider === 'groq' || !openaiKey && !geminiKey)) {
     try {
+      const model = agente.model || 'llama3-8b-8192'
+      const supportsVision = model.includes('vision')
+
+      let messages
+      if (supportsVision && mediaBase64 && mediaTipo === 'image') {
+        const b64 = mediaBase64.includes(',') ? mediaBase64.split(',')[1] : mediaBase64
+        const mime = mimetype || 'image/jpeg'
+        messages = [{
+          role: 'user',
+          content: [
+            { type: 'text', text: `${basePrompt}\n\n${hist?`Histórico:\n${hist}\n`:''}\nCliente enviou esta imagem${mensagem?` com a mensagem: "${mensagem}"`:'.'}` },
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }
+          ]
+        }]
+      } else {
+        messages = [{ role: 'user', content: promptTexto }]
+      }
+
       const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method:'POST',
         headers:{Authorization:`Bearer ${groqKey}`,'Content-Type':'application/json'},
-        body:JSON.stringify({model:agente.model||'llama3-8b-8192',messages:[{role:'user',content:promptTexto}],max_tokens:400})
+        body:JSON.stringify({model, messages, max_tokens:400})
       })
       const d = await r.json()
       const txt = d.choices?.[0]?.message?.content?.trim()
@@ -367,7 +398,141 @@ async function chamarIABot(cfg, agente, mensagem, historico=[], mediaBase64=null
     } catch(e) { console.error('[IA] Groq:', e.message) }
   }
 
+  // ── Grok / xAI (texto + imagem) ──────────────────────
+  if (grokKey && (provider === 'grok' || !openaiKey && !geminiKey && !groqKey)) {
+    try {
+      const model = agente.model || 'grok-2-vision'
+      const supportsVision = model.includes('vision')
+
+      let messages
+      if (supportsVision && mediaBase64 && mediaTipo === 'image') {
+        const b64 = mediaBase64.includes(',') ? mediaBase64.split(',')[1] : mediaBase64
+        const mime = mimetype || 'image/jpeg'
+        messages = [{
+          role: 'user',
+          content: [
+            { type: 'text', text: `${basePrompt}\n\n${hist?`Histórico:\n${hist}\n`:''}\nCliente enviou esta imagem${mensagem?` com a mensagem: "${mensagem}"`:'.'}` },
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }
+          ]
+        }]
+      } else {
+        messages = [{ role: 'user', content: promptTexto }]
+      }
+
+      const r = await fetch('https://api.x.ai/v1/chat/completions', {
+        method:'POST',
+        headers:{Authorization:`Bearer ${grokKey}`,'Content-Type':'application/json'},
+        body:JSON.stringify({model, messages, max_tokens:400})
+      })
+      const d = await r.json()
+      const txt = d.choices?.[0]?.message?.content?.trim()
+      if (txt) return txt
+    } catch(e) { console.error('[IA] Grok:', e.message) }
+  }
+
   return null
+}
+
+async function buscarDisponibilidadeGcal(empresaId, agente, cfg) {
+  // Busca token do Google Calendar
+  const tokenKey = `gcal_token:${empresaId}`
+  const { data: tokenRow } = await supabase.from('vx_storage').select('value').eq('key', tokenKey).maybeSingle()
+  if (!tokenRow?.value) return null
+
+  let token = JSON.parse(tokenRow.value)
+
+  // Refresh token se necessário
+  if (token.expires_in && token.obtained_at) {
+    const expiresAt = token.obtained_at + (token.expires_in * 1000)
+    if (Date.now() > expiresAt - 60000 && token.refresh_token) {
+      try {
+        const clientId     = cfg.gcal?.clientId || cfg.googleClientId || ''
+        const clientSecret = cfg.gcal?.clientSecret || cfg.googleClientSecret || ''
+        const r = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: token.refresh_token, client_id: clientId, client_secret: clientSecret })
+        })
+        const novo = await r.json()
+        if (novo.access_token) {
+          token = { ...token, ...novo, obtained_at: Date.now() }
+          await supabase.from('vx_storage').upsert({ key: tokenKey, value: JSON.stringify(token), updated_at: new Date().toISOString() }, { onConflict: 'key' })
+        }
+      } catch {}
+    }
+  }
+
+  if (!token.access_token) return null
+
+  // Busca próximos 7 dias
+  const agora = new Date()
+  const fim   = new Date(agora.getTime() + 7 * 24 * 60 * 60 * 1000)
+
+  try {
+    const r = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${agora.toISOString()}&timeMax=${fim.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=20`,
+      { headers: { Authorization: `Bearer ${token.access_token}` } }
+    )
+    const d = await r.json()
+    const eventos = (d.items || []).map(e => ({
+      titulo:  e.summary || 'Ocupado',
+      inicio:  e.start?.dateTime || e.start?.date,
+      fim:     e.end?.dateTime   || e.end?.date,
+    }))
+
+    // Gera lista de horários livres (dias úteis 8h-18h)
+    const horariosLivres = []
+    for (let i = 1; i <= 7; i++) {
+      const dia = new Date(agora)
+      dia.setDate(dia.getDate() + i)
+      if (dia.getDay() === 0 || dia.getDay() === 6) continue // pula fim de semana
+      const diaStr = dia.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })
+      for (const hora of ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00']) {
+        const slot = new Date(`${dia.toISOString().slice(0,10)}T${hora}:00`)
+        const slotFim = new Date(slot.getTime() + 60 * 60 * 1000)
+        const ocupado = eventos.some(e => {
+          const ini = new Date(e.inicio)
+          const f   = new Date(e.fim)
+          return slot < f && slotFim > ini
+        })
+        if (!ocupado) horariosLivres.push(`${diaStr} às ${hora}`)
+      }
+      if (horariosLivres.filter(h => h.includes(diaStr)).length >= 2) continue
+    }
+
+    return horariosLivres.slice(0, 6)
+  } catch (e) {
+    console.error('[gcal] buscarDisponibilidade:', e.message)
+    return null
+  }
+}
+
+async function criarEventoGcal(empresaId, cfg, titulo, dataHora, duracaoMin = 60, descricao = '') {
+  const tokenKey = `gcal_token:${empresaId}`
+  const { data: tokenRow } = await supabase.from('vx_storage').select('value').eq('key', tokenKey).maybeSingle()
+  if (!tokenRow?.value) return false
+
+  const token = JSON.parse(tokenRow.value)
+  if (!token.access_token) return false
+
+  const inicio = new Date(dataHora)
+  const fim    = new Date(inicio.getTime() + duracaoMin * 60000)
+
+  try {
+    const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        summary:     titulo,
+        description: descricao,
+        start: { dateTime: inicio.toISOString(), timeZone: 'America/Sao_Paulo' },
+        end:   { dateTime: fim.toISOString(),    timeZone: 'America/Sao_Paulo' },
+      })
+    })
+    return r.ok
+  } catch {
+    return false
+  }
 }
 
 async function processarBot(empresaId, numero, mensagem) {
@@ -392,10 +557,31 @@ async function processarBot(empresaId, numero, mensagem) {
   if (modoAutomacao==='agente' && botAtivo && !conv.botPausado) {
     const agente = (cfg.wppAgentes||[]).find(a=>a.ativo)
     if (agente) {
-      const resposta = await chamarIABot(cfg, agente, mensagem, mensagens.slice(-10), mediaBase64, mediaTipo, mimetype)
+      const resposta = await chamarIABot(cfg, agente, mensagem, mensagens.slice(-10), mediaBase64, mediaTipo, mimetype, empresaId)
       if (resposta) {
+        // Detecta intenção de agendamento: AGENDAR:[nome]|[data hora]
+        const agendarMatch = resposta.match(/AGENDAR:([^|]+)\|(.+)/i)
+        let respostaFinal = resposta.replace(/AGENDAR:[^\n]+/gi, '').trim()
+
+        if (agendarMatch && agente.gcalEnabled) {
+          const nomeCliente  = agendarMatch[1]?.trim() || conv.nome || 'Cliente'
+          const dataHoraStr  = agendarMatch[2]?.trim() || ''
+          // Tenta parsear a data em português (ex: "quinta-feira 24/04 às 10:00")
+          try {
+            const dataMatch = dataHoraStr.match(/(\d{1,2})\/(\d{1,2}).*?(\d{1,2}):(\d{2})/)
+            if (dataMatch) {
+              const ano = new Date().getFullYear()
+              const dataHora = new Date(`${ano}-${dataMatch[2].padStart(2,'0')}-${dataMatch[1].padStart(2,'0')}T${dataMatch[3].padStart(2,'0')}:${dataMatch[4]}:00-03:00`)
+              const criado = await criarEventoGcal(empresaId, cfg, `Atendimento — ${nomeCliente}`, dataHora, 60, `Agendado via WhatsApp. Número: ${numero}`)
+              if (criado && !respostaFinal) {
+                respostaFinal = `✅ Agendamento confirmado! ${nomeCliente}, te esperamos no dia ${dataMatch[1]}/${dataMatch[2]} às ${dataMatch[3]}:${dataMatch[4]}. Até lá! 😊`
+              }
+            }
+          } catch(e) { console.error('[gcal] criarEvento:', e.message) }
+        }
+
         const instancia = conv.instancia||cfg.wppInbox?.evolutionInstance||''
-        await enviarTextoBot(cfg, instancia, numero, resposta, empresaId)
+        await enviarTextoBot(cfg, instancia, numero, respostaFinal||resposta, empresaId)
       }
     }
     return
@@ -418,10 +604,23 @@ async function processarBot(empresaId, numero, mensagem) {
     const depto  = (cfg.wppDeps||[]).find(d=>d.id===conv.departamentoId)
     const agente = depto?.agentIA ? (cfg.wppAgentes||[]).find(a=>a.id===depto.agentIA&&a.ativo) : null
     if (agente) {
-      const resposta = await chamarIABot(cfg, agente, mensagem, mensagens.slice(-10), mediaBase64, mediaTipo, mimetype)
+      const resposta = await chamarIABot(cfg, agente, mensagem, mensagens.slice(-10), mediaBase64, mediaTipo, mimetype, empresaId)
       if (resposta) {
+        const agendarMatch = resposta.match(/AGENDAR:([^|]+)\|(.+)/i)
+        let respostaFinal = resposta.replace(/AGENDAR:[^\n]+/gi, '').trim()
+        if (agendarMatch && agente.gcalEnabled) {
+          try {
+            const dataMatch = agendarMatch[2]?.trim().match(/(\d{1,2})\/(\d{1,2}).*?(\d{1,2}):(\d{2})/)
+            if (dataMatch) {
+              const ano = new Date().getFullYear()
+              const dataHora = new Date(`${ano}-${dataMatch[2].padStart(2,'0')}-${dataMatch[1].padStart(2,'0')}T${dataMatch[3].padStart(2,'0')}:${dataMatch[4]}:00-03:00`)
+              const criado = await criarEventoGcal(empresaId, cfg, `Atendimento — ${conv.nome||'Cliente'}`, dataHora, 60, `Agendado via WhatsApp. Número: ${numero}`)
+              if (criado && !respostaFinal) respostaFinal = `✅ Agendado! Te esperamos no dia ${dataMatch[1]}/${dataMatch[2]} às ${dataMatch[3]}:${dataMatch[4]}. 😊`
+            }
+          } catch {}
+        }
         const instancia = conv.instancia||cfg.wppInbox?.evolutionInstance||''
-        await enviarTextoBot(cfg, instancia, numero, resposta, empresaId)
+        await enviarTextoBot(cfg, instancia, numero, respostaFinal||resposta, empresaId)
       }
     }
   }
