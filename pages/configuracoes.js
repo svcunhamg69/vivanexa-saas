@@ -2519,12 +2519,12 @@ function TabWhatsapp({ cfg, setCfg, empresaId }) {
       setMsg('⚠️ Preencha o nome e o nome da instância'); return
     }
     if (editInstIdx === 'novo') {
-      const novaInst = { id: 'inst_' + Date.now(), nome: formInst.nome.trim(), instance: formInst.instance.trim(), ativo: true, status: null }
+      const novaInst = { id: 'inst_' + Date.now(), nome: formInst.nome.trim(), instance: formInst.instance.trim(), numero: (formInst.numero||'').trim(), departamentoId: formInst.departamentoId||'', ativo: true, status: null }
       const novas = [...instancias, novaInst]
       setInstancias(novas)
       if (!instanciaAtiva) setInstanciaAtiva(novaInst.id)
     } else {
-      setInstancias(prev => prev.map((inst, i) => i === editInstIdx ? { ...inst, nome: formInst.nome.trim(), instance: formInst.instance.trim() } : inst))
+      setInstancias(prev => prev.map((inst, i) => i === editInstIdx ? { ...inst, nome: formInst.nome.trim(), instance: formInst.instance.trim(), numero: (formInst.numero||'').trim(), departamentoId: formInst.departamentoId||'' } : inst))
     }
     setFormInst(null); setEditInstIdx(null); setMsg('')
   }
