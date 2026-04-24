@@ -7,7 +7,7 @@ export const config = { api: { bodyParser: { sizeLimit: '20mb' } } }
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' })
 
-  const { to, subject, html, text, from, config: cfg, attachments = [] } = req.body
+  const { to, subject, html, text, from, config: cfg, attachments = [], empresaId, negocioId } = req.body
   if (!to || !subject) return res.status(400).json({ error: 'Destinatário e assunto são obrigatórios' })
 
   // ── Resolve a API key do Brevo de todos os campos possíveis ──
@@ -40,6 +40,8 @@ export default async function handler(req, res) {
         to:          [{ email: to }],
         subject,
         htmlContent: html || `<p style="font-family:Arial,sans-serif;white-space:pre-wrap">${(text || '').replace(/\n/g, '<br>')}</p>`,
+        // Tags para rastreamento via webhook Brevo → /api/brevo-webhook
+        ...(empresaId ? { tags: [`empresaId:${empresaId}`, negocioId ? `negocioId:${negocioId}` : 'negocioId:none'] } : {}),
       }
 
       if (attachments.length > 0) {
