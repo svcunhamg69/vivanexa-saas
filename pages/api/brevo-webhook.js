@@ -74,24 +74,35 @@ export default async function handler(req, res) {
         if (tagNeg) negocioId = tagNeg.replace('negocioId:', '')
       }
 
-      // Se não veio nas tags, busca no Supabase por email do destinatário
+      // Se não veio nas tags, busca por email nos negócios e atividades
       if (!empresaId) {
-        // Busca em todos os cfgs (apenas para ambientes com poucos tenants)
         const { data: rows } = await supabase
           .from('vx_storage')
           .select('key, value')
           .like('key', 'cfg:%')
-          .limit(50)
+          .limit(100)
 
         if (rows) {
           for (const row of rows) {
             try {
-              const cfg = JSON.parse(row.value)
-              const negocios = cfg.crm_negocios || []
+              const cfgRow = JSON.parse(row.value)
+              const negocios = cfgRow.crm_negocios || []
+              // 1. Busca por email exato no cadastro do negócio
               const neg = negocios.find(n => n.email && n.email.toLowerCase() === email.toLowerCase())
               if (neg) {
                 empresaId = row.key.replace('cfg:', '')
                 negocioId = neg.id
+                break
+              }
+              // 2. Busca nas atividades de email já enviados (histórico de envios)
+              const ativs = cfgRow.crm_atividades || []
+              const ativEmail = ativs.find(a =>
+                (a.tipo === 'E-mail' || a.tipo === 'E-mail Respondido') &&
+                a.descricao?.toLowerCase().includes(email.toLowerCase())
+              )
+              if (ativEmail) {
+                empresaId = row.key.replace('cfg:', '')
+                negocioId = ativEmail.negocioId || ''
                 break
               }
             } catch {}
@@ -140,17 +151,23 @@ export default async function handler(req, res) {
         cfg.wppNotificacoes = [...(cfg.wppNotificacoes || []).slice(-49), notif]
       }
 
-      // Para abertura de email — também notifica
+      // Para abertura de email — notifica (apenas 1x por email para evitar spam)
       if (event === 'opened') {
-        const notif = {
-          id: 'brevo_open_' + Date.now(),
-          tipo: 'email_open',
-          descricao: `${email} abriu o e-mail${subject ? ` "${subject}"` : ''}`,
-          data: new Date().toISOString(),
-          negocioId: negocioId || '',
-          lida: false,
+        const jaNotificou = (cfg.wppNotificacoes || []).some(n =>
+          n.tipo === 'email_open' && n.descricao?.includes(email) && n.descricao?.includes(subject || '')
+        )
+        if (!jaNotificou) {
+          const notif = {
+            id: 'brevo_open_' + Date.now(),
+            tipo: 'email_open',
+            icon: '👁',
+            descricao: `${email} abriu o e-mail${subject ? ` "${subject}"` : ''}`,
+            data: new Date().toISOString(),
+            negocioId: negocioId || '',
+            lida: false,
+          }
+          cfg.wppNotificacoes = [...(cfg.wppNotificacoes || []).slice(-49), notif]
         }
-        cfg.wppNotificacoes = [...(cfg.wppNotificacoes || []).slice(-49), notif]
       }
 
       await saveCfg(empresaId, cfg)
