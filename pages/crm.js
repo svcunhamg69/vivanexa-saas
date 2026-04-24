@@ -24,8 +24,8 @@ const ETAPAS_PADRAO = [
 ]
 
 const TIPO_ATIVIDADE = ['Ligação','Reunião','E-mail','WhatsApp','Proposta','Follow-up','Visita','Outro']
-const EMPTY_NEG  = { id:'',titulo:'',etapa:'lead',nome:'',fantasia:'',cnpj:'',cpf:'',email:'',telefone:'',endereco:'',cep:'',bairro:'',cidade:'',uf:'',responsavel:'',adesao:'',mensalidade:'',modulos:'',observacoes:'',origem:'manual',criadoEm:'',atualizadoEm:'' }
-const EMPTY_ATIV = { id:'',negocioId:'',tipo:'Ligação',descricao:'',prazo:'',concluida:false,criadoEm:'',google_event_id:'',google_link:'',duracao_seg:0,gravacao_url:'' }
+const EMPTY_NEG  = { id:'',titulo:'',etapa:'lead',nome:'',fantasia:'',cnpj:'',cpf:'',email:'',telefone:'',endereco:'',cep:'',bairro:'',cidade:'',uf:'',responsavel:'',adesao:'',mensalidade:'',modulos:'',observacoes:'',origem:'manual',criadoEm:'',atualizadoEm:'',criadoPorId:'',criadoPorNome:'',responsavelId:'',responsavelNome:'',sdrId:'',sdrNome:'' }
+const EMPTY_ATIV = { id:'',negocioId:'',tipo:'Ligação',descricao:'',prazo:'',concluida:false,criadoEm:'',google_event_id:'',google_link:'',duracao_seg:0,gravacao_url:'',usuarioId:'',usuarioNome:'' }
 const EMPTY_CLI  = { id:'',doc:'',fantasia:'',razao:'',contato:'',email:'',tel:'',cep:'',end:'',numero:'',complemento:'',bairro:'',cidade:'',uf:'',cpfContato:'',regime:'',rimpNome:'',rimpEmail:'',rimpTel:'',rfinNome:'',rfinEmail:'',rfinTel:'',updatedAt:'' }
 
 const fmt    = n => (!n&&n!==0)?'—':'R$ '+Number(n).toLocaleString('pt-BR',{minimumFractionDigits:2})
@@ -55,26 +55,6 @@ function click2call(numero, cfg3cx) {
     fetch(`https://${host}/callcontrol/calls`,{method:'POST',headers:{'Authorization':`Bearer ${token3cx}`,'Content-Type':'application/json'},body:JSON.stringify({from:ramal,to:tel,callType:'pstn'})})
       .then(r=>{ if(!r.ok)alert('Erro ao iniciar chamada via 3CX API') }).catch(()=>alert('Erro de conexão com 3CX'))
   }
-}
-
-// Registra ligação na timeline — chamado após click2call
-function registrarLigacaoTimeline(negocioId, numero, salvarFn) {
-  if (!negocioId || !salvarFn) return
-  const ativ = {
-    id: 'ativ_lig_' + Date.now(),
-    negocioId,
-    tipo: 'Ligação',
-    descricao: `📞 Ligação iniciada para ${numero}`,
-    data: new Date().toISOString(),
-    criadoEm: new Date().toISOString(),
-    concluida: false,
-    prazo: '',
-    duracao_seg: 0,
-    gravacao_url: '',
-    google_event_id: '',
-    google_link: '',
-  }
-  salvarFn(ativ)
 }
 
 // ── Google Calendar: criar/atualizar evento ─────────────────────
@@ -212,14 +192,6 @@ export default function CRM() {
   const [emailCorpo,   setEmailCorpo]   = useState('')
   const [emailSending, setEmailSending] = useState(false)
   const [visao,        setVisao]        = useState('funil')
-
-  // ── Abre negócio direto via query param (ex: vindo do sino de notificações) ──
-  useEffect(()=>{
-    const nid = router?.query?.negocioId
-    if(!nid||!negocios.length) return
-    const neg = negocios.find(n=>n.id===nid)
-    if(neg){ setNegSel(neg); setVisao('funil') }
-  },[router?.query?.negocioId, negocios.length])
   const [cfg3cx,       setCfg3cx]       = useState({})
   const [negSel,       setNegSel]       = useState(null)
   const [abaDetalhe,   setAbaDetalhe]   = useState('atividades') // atividades | documentos
@@ -402,41 +374,24 @@ export default function CRM() {
     if(!emailDest||!emailAssunto){showToast('⚠️ Preencha destinatário e assunto.');return}
     setEmailSending(true)
     try{
-      // ✅ FIX v3: funciona com smtpHost OU apenas emailApiKey (Brevo sem SMTP)
-      const _apiKey=cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.smtpPass||''
-      const _hasEmail=cfg.smtpHost||_apiKey||cfg.emailProvider==='brevo'
-      const smtpCfg=_hasEmail?{
-        smtpHost:cfg.smtpHost||'smtp-relay.brevo.com',
+      // ✅ FIX: campo correto é emailApiKey (salvo em Configurações → Empresa → API Key)
+      // Mantém fallbacks para retrocompatibilidade com instalações antigas
+      const smtpCfg=cfg.smtpHost?{
+        smtpHost:cfg.smtpHost,
         smtpPort:cfg.smtpPort||587,
-        smtpUser:cfg.smtpUser||'apikey',
+        smtpUser:cfg.smtpUser,
         smtpPass:cfg.smtpPass||'',
-        emailApiKey:_apiKey,
-        apiKey:_apiKey,
-        brevoApiKey:_apiKey,
-        emailProvider:cfg.emailProvider||'',
+        // ✅ FIX: passa emailApiKey em todos os campos — send-email.js testa cada um deles
+        emailApiKey:cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.smtpPass||'',
+        apiKey:     cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.smtpPass||'',
+        brevoApiKey:cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.smtpPass||'',
         emailRemetente:cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||cfg.emailEmp||'',
-        nomeRemetente:cfg.company||'Vivanexa',
-        company:cfg.company||'Vivanexa'
+        nomeRemetente:cfg.company||'Vivanexa'
       }:null
       const resp=await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({to:emailDest,subject:emailAssunto,html:`<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${emailCorpo.replace(/\n/g,'<br>')}</div>`,config:smtpCfg,attachments:emailAnexos,empresaId,negocioId:negSel?.id||undefined})})
+        body:JSON.stringify({to:emailDest,subject:emailAssunto,html:`<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${emailCorpo.replace(/\n/g,'<br>')}</div>`,config:smtpCfg,attachments:emailAnexos})})
       const r=await resp.json()
-      if(r.success&&!r.fallback){
-        showToast('✅ Email enviado!')
-        setShowEmailModal(false);setEmailDest('');setEmailAssunto('');setEmailCorpo('');setEmailAnexos([])
-        // Registra email na timeline do negócio ativo
-        if(negSel?.id){
-          const ativEmail={
-            id:'ativ_email_'+Date.now(),negocioId:negSel.id,tipo:'E-mail',
-            descricao:`📧 E-mail enviado para ${emailDest} — Assunto: "${emailAssunto}"`,
-            data:new Date().toISOString(),criadoEm:new Date().toISOString(),
-            concluida:true,prazo:'',duracao_seg:0,gravacao_url:'',google_event_id:'',google_link:''
-          }
-          const novasAtivs=[...atividades,ativEmail]
-          const nc2={...cfg,crm_atividades:novasAtivs}
-          save(nc2).then(()=>{setAtividades(novasAtivs);setCfg(nc2)})
-        }
-      }
+      if(r.success&&!r.fallback){showToast('✅ Email enviado!');setShowEmailModal(false);setEmailDest('');setEmailAssunto('');setEmailCorpo('');setEmailAnexos([])}
       else if(r.fallback){
         // Abre cliente de email local como fallback
         window.location.href=`mailto:${emailDest}?subject=${encodeURIComponent(emailAssunto)}&body=${encodeURIComponent(emailCorpo)}`
@@ -578,15 +533,11 @@ export default function CRM() {
     const ob=!q||
       n.titulo?.toLowerCase().includes(q)||
       n.nome?.toLowerCase().includes(q)||
-      n.razao?.toLowerCase().includes(q)||
       n.fantasia?.toLowerCase().includes(q)||
-      n.responsavel?.toLowerCase().includes(q)||
       n.cnpj?.replace(/\D/g,'').includes(q.replace(/\D/g,''))||
       n.cpf?.replace(/\D/g,'').includes(q.replace(/\D/g,''))||
       n.email?.toLowerCase().includes(q)||
-      n.telefone?.replace(/\D/g,'').includes(q.replace(/\D/g,''))||
-      n.cidade?.toLowerCase().includes(q)||
-      n.observacoes?.toLowerCase().includes(q)
+      n.telefone?.replace(/\D/g,'').includes(q.replace(/\D/g,''))
     const oe=filtroEtapa==='todas'||n.etapa===filtroEtapa
     return ob&&oe
   })
@@ -692,13 +643,8 @@ export default function CRM() {
               </>
             ) : (
               <>
-                <div style={{position:'relative',display:'flex',alignItems:'center'}}>
-                  <input value={busca} onChange={e=>{setBusca(e.target.value);if(e.target.value)setFiltroEtapa('todas')}}
-                    placeholder="🔍 Buscar negócio, razão, tel, email..."
-                    style={{background:'var(--surface2)',border:`1px solid ${busca?'var(--accent)':'var(--border)'}`,borderRadius:8,padding:'8px 32px 8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:280}}/>
-                  {busca&&<button onClick={()=>setBusca('')} style={{position:'absolute',right:8,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:13,lineHeight:1,padding:0,fontWeight:700}}>✕</button>}
-                </div>
-                <button onClick={()=>{setFormNeg({...EMPTY_NEG});setShowFormNeg(true)}}
+                <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar negócio, contato, tel..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:260}}/>
+                <button onClick={()=>{setFormNeg({...EMPTY_NEG,criadoPorId:perfil?.user_id||'',criadoPorNome:perfil?.nome||perfil?.email||'',responsavelId:perfil?.user_id||'',responsavelNome:perfil?.nome||perfil?.email||''});setShowFormNeg(true)}}
                   style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>+ Novo Negócio</button>
               </>
             )}
@@ -735,20 +681,7 @@ export default function CRM() {
                   <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)'}}>🏢 Dados do Cliente</div>
                   <div style={{display:'flex',gap:6}}>
                     {negSel.telefone&&(
-                      <button onClick={()=>{
-                        click2call(negSel.telefone,cfg3cx)
-                        // Registra ligação na timeline
-                        const ativLig={
-                          id:'ativ_lig_'+Date.now(),negocioId:negSel.id,tipo:'Ligação',
-                          descricao:`📞 Ligação iniciada para ${negSel.telefone}${negSel.nome?' ('+negSel.nome+')':''}`,
-                          data:new Date().toISOString(),criadoEm:new Date().toISOString(),
-                          concluida:false,prazo:'',duracao_seg:0,gravacao_url:'',google_event_id:'',google_link:''
-                        }
-                        const novasAtivs=[...atividades,ativLig]
-                        const nc={...cfg,crm_atividades:novasAtivs}
-                        save(nc).then(()=>{setAtividades(novasAtivs);setCfg(nc)})
-                        showToast('📞 Ligação registrada na timeline!')
-                      }}
+                      <button onClick={()=>click2call(negSel.telefone,cfg3cx)}
                         style={{padding:'5px 12px',borderRadius:8,background:'rgba(16,185,129,.12)',border:'1px solid rgba(16,185,129,.3)',color:'var(--accent3)',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace',fontWeight:600}}>
                         📞 Ligar
                       </button>
@@ -777,6 +710,14 @@ export default function CRM() {
                     ))}
                   </div>
                 </div>
+                {/* ── Usuários vinculados ── */}
+                {(negSel.criadoPorNome||negSel.responsavelNome||negSel.sdrNome)&&(
+                  <div style={{marginTop:12,padding:'10px 14px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,display:'flex',gap:16,flexWrap:'wrap'}}>
+                    {negSel.criadoPorNome&&<div style={{fontSize:11,color:'var(--muted)'}}><span style={{color:'var(--accent)',fontWeight:700}}>✍️ Criado por:</span> {negSel.criadoPorNome}</div>}
+                    {negSel.responsavelNome&&<div style={{fontSize:11,color:'var(--muted)'}}><span style={{color:'var(--accent3)',fontWeight:700}}>👤 Responsável:</span> {negSel.responsavelNome}</div>}
+                    {negSel.sdrNome&&<div style={{fontSize:11,color:'var(--muted)'}}><span style={{color:'var(--accent2)',fontWeight:700}}>🎯 SDR:</span> {negSel.sdrNome}</div>}
+                  </div>
+                )}
                 {negSel.observacoes&&<div style={{marginTop:12,padding:'10px 12px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,fontSize:12,color:'var(--muted)',lineHeight:1.6}}>{negSel.observacoes}</div>}
               </div>
 
@@ -791,7 +732,7 @@ export default function CRM() {
                     </button>
                   ))}
                   {abaDetalhe==='atividades'&&(
-                    <button onClick={()=>{setFormAtiv({...EMPTY_ATIV,negocioId:negSel.id});setGcalStatus('');setShowFormAtiv(true)}}
+                    <button onClick={()=>{setFormAtiv({...EMPTY_ATIV,negocioId:negSel.id,usuarioId:perfil?.user_id||'',usuarioNome:perfil?.nome||perfil?.email||''});setGcalStatus('');setShowFormAtiv(true)}}
                       style={{marginLeft:'auto',padding:'7px 14px',borderRadius:8,background:'rgba(0,212,255,.12)',border:'1px solid rgba(0,212,255,.25)',color:'var(--accent)',fontFamily:'DM Mono,monospace',fontSize:12,cursor:'pointer',fontWeight:600}}>
                       + Atividade
                     </button>
@@ -821,6 +762,7 @@ export default function CRM() {
                               <div style={{fontSize:13,color:a.concluida?'var(--muted)':'var(--text)',marginTop:4,fontWeight:500,textDecoration:a.concluida?'line-through':'none'}}>{a.descricao}</div>
                               {/* Duração ligação 3CX */}
                               {a.duracao_seg>0&&<div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>⏱ {Math.floor(a.duracao_seg/60)}min {a.duracao_seg%60}s{a.agente_nome?` · ${a.agente_nome}`:''}</div>}
+                              {a.usuarioNome&&a.usuarioNome!=='agente_ia'&&<div style={{fontSize:10,color:'var(--muted)',marginTop:2}}>👤 {a.usuarioNome}</div>}
                               <div style={{display:'flex',gap:8,marginTop:6,alignItems:'center',flexWrap:'wrap'}}>
                                 {a.prazo&&<span style={{fontSize:10,color:'var(--muted)'}}>{fmtDT(a.prazo)}</span>}
                                 <button onClick={()=>toggleConcluida(a)} style={{fontSize:10,background:a.concluida?'rgba(16,185,129,.1)':'rgba(0,212,255,.08)',border:`1px solid ${a.concluida?'rgba(16,185,129,.3)':'rgba(0,212,255,.2)'}`,color:a.concluida?'var(--accent3)':'var(--accent)',borderRadius:5,padding:'2px 8px',cursor:'pointer',fontFamily:'DM Mono,monospace'}}>{a.concluida?'↩ Reabrir':'✅ Concluir'}</button>
@@ -878,12 +820,11 @@ export default function CRM() {
         {/* ══════════ FUNIL ══════════ */}
         {!negSel&&visao==='funil'&&(
           <div>
-            <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
-              {busca&&<span style={{fontSize:11,color:'var(--accent)',fontFamily:'DM Mono,monospace',padding:'5px 10px',background:'rgba(0,212,255,.08)',borderRadius:20,border:'1px solid rgba(0,212,255,.3)'}}>🔍 {negFiltrados.length} resultado{negFiltrados.length!==1?'s':''} para "{busca}"</span>}
+            <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
               {[['todas','Todas'],...etapas.map(e=>[e.id,e.label])].map(([id,label])=>(
                 <button key={id} onClick={()=>setFiltroEtapa(id)}
                   style={{padding:'5px 12px',borderRadius:20,border:`1px solid ${filtroEtapa===id?'var(--accent)':'var(--border)'}`,background:filtroEtapa===id?'rgba(0,212,255,.1)':'var(--surface2)',color:filtroEtapa===id?'var(--accent)':'var(--muted)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace',whiteSpace:'nowrap'}}>
-                  {label} ({id==='todas'?negFiltrados.length:negFiltrados.filter(n=>n.etapa===id).length})
+                  {label} {id!=='todas'?`(${negocios.filter(n=>n.etapa===id).length})`:``}
                 </button>
               ))}
             </div>
@@ -1089,7 +1030,34 @@ export default function CRM() {
                 <F l="E-mail"><input type="email" value={formNeg.email} onChange={e=>setFormNeg(f=>({...f,email:e.target.value}))} style={S.ip}/></F>
                 <F l="Telefone"><input value={formNeg.telefone} onChange={e=>setFormNeg(f=>({...f,telefone:e.target.value}))} style={S.ip}/></F>
                 <F l="CPF"><input value={formNeg.cpf} onChange={e=>setFormNeg(f=>({...f,cpf:e.target.value}))} style={S.ip}/></F>
-                <F l="Responsável"><input value={formNeg.responsavel} onChange={e=>setFormNeg(f=>({...f,responsavel:e.target.value}))} style={S.ip}/></F>
+                {/* ── Usuários vinculados ao negócio ── */}
+                <F l="Criado por">
+                  <input value={formNeg.criadoPorNome||formNeg.criadoPorId||'—'} readOnly disabled
+                    style={{...S.ip,opacity:.6,cursor:'not-allowed',background:'var(--surface)'}}
+                    title="Campo não editável — definido automaticamente ao criar o negócio"/>
+                </F>
+                <F l="Responsável (Vendedor)">
+                  <select value={formNeg.responsavelId||''} onChange={e=>{
+                    const u=(cfg.users||[]).find(u=>u.id===e.target.value)
+                    setFormNeg(f=>({...f,responsavelId:e.target.value,responsavelNome:u?.nome||u?.email||''}))
+                  }} style={{...S.ip,cursor:'pointer'}}>
+                    <option value="">— Selecionar vendedor —</option>
+                    {(cfg.users||[]).filter(u=>u.ativo!==false).map(u=>(
+                      <option key={u.id} value={u.id}>{u.nome||u.email}</option>
+                    ))}
+                  </select>
+                </F>
+                <F l="SDR (Pré-venda)">
+                  <select value={formNeg.sdrId||''} onChange={e=>{
+                    const u=(cfg.users||[]).find(u=>u.id===e.target.value)
+                    setFormNeg(f=>({...f,sdrId:e.target.value,sdrNome:u?.nome||u?.email||''}))
+                  }} style={{...S.ip,cursor:'pointer'}}>
+                    <option value="">— Selecionar SDR —</option>
+                    {(cfg.users||[]).filter(u=>u.ativo!==false).map(u=>(
+                      <option key={u.id} value={u.id}>{u.nome||u.email}</option>
+                    ))}
+                  </select>
+                </F>
                 <F l="Cidade"><input value={formNeg.cidade} onChange={e=>setFormNeg(f=>({...f,cidade:e.target.value}))} style={S.ip}/></F>
                 <F l="UF"><input value={formNeg.uf} onChange={e=>setFormNeg(f=>({...f,uf:e.target.value}))} maxLength={2} style={S.ip}/></F>
               </div>
@@ -1120,6 +1088,17 @@ export default function CRM() {
                 <F l="Tipo"><select value={formAtiv.tipo} onChange={e=>setFormAtiv(f=>({...f,tipo:e.target.value}))} style={{...S.ip,cursor:'pointer'}}>{TIPO_ATIVIDADE.map(t=><option key={t} value={t}>{t}</option>)}</select></F>
                 <F l="Prazo / Data e Hora"><input type="datetime-local" value={formAtiv.prazo} onChange={e=>setFormAtiv(f=>({...f,prazo:e.target.value}))} style={S.ip}/></F>
               </div>
+              <F l="Responsável pela atividade">
+                <select value={formAtiv.usuarioId||''} onChange={e=>{
+                  const u=(cfg.users||[]).find(u=>u.id===e.target.value)
+                  setFormAtiv(f=>({...f,usuarioId:e.target.value,usuarioNome:u?.nome||u?.email||''}))
+                }} style={{...S.ip,cursor:'pointer'}}>
+                  <option value="">— Selecionar usuário —</option>
+                  {(cfg.users||[]).filter(u=>u.ativo!==false).map(u=>(
+                    <option key={u.id} value={u.id}>{u.nome||u.email}</option>
+                  ))}
+                </select>
+              </F>
               <F l="Descrição *"><textarea value={formAtiv.descricao} onChange={e=>setFormAtiv(f=>({...f,descricao:e.target.value}))} rows={3} placeholder="O que foi feito ou precisa ser feito..." style={{...S.ip,resize:'vertical'}}/></F>
               <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',fontSize:13,color:'var(--muted)',marginTop:4,padding:'10px 14px',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8}}>
                 <input type="checkbox" checked={formAtiv.concluida} onChange={e=>setFormAtiv(f=>({...f,concluida:e.target.checked}))}/>
