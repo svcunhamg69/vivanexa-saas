@@ -262,40 +262,111 @@ async function executarFluxoBot({empresaId, cfg, fluxo, conv, mensagemCliente, v
   await saveConvBot(empresaId, numero, conv)
 }
 
-async function chamarIABot(cfg, agente, mensagem, historico=[]) {
+async function chamarIABot(cfg, agente, mensagem, historico=[], mediaBase64=null, mediaTipo=null, mimetype=null) {
   if (!agente) return null
   const geminiKey = agente.geminiKey||cfg.geminiApiKey||process.env.GEMINI_API_KEY||''
   const groqKey   = agente.groqKey  ||cfg.groqApiKey  ||process.env.GROQ_API_KEY  ||''
   const openaiKey = agente.openaiKey||cfg.openaiApiKey ||process.env.OPENAI_API_KEY||''
 
   const hist = historico.slice(-8).map(m=>`${m.fromMe||m.de==='empresa'?'Assistente':'Cliente'}: ${m.texto||m.body||''}`).join('\n')
-  const prompt = `${agente.prompt||`Você é um assistente comercial da empresa ${cfg.company||'Vivanexa'}. Responda de forma cordial e objetiva em português. Máx 300 caracteres.`}\n\n${hist?`Histórico:\n${hist}\n`:''}\nCliente: ${mensagem}\nAssistente:`
+  const basePrompt = agente.prompt || `Você é um assistente comercial da empresa ${cfg.company||'Vivanexa'}. Responda de forma cordial e objetiva em português. Máx 300 caracteres.`
 
+  // Contexto de mídia para o prompt de texto
+  const mediaContexto = mediaTipo === 'audio'    ? '\n[O cliente enviou um áudio. Você não consegue ouvir diretamente, mas tente ajudar.]'
+                      : mediaTipo === 'image'    ? '\n[O cliente enviou uma imagem.]'
+                      : mediaTipo === 'video'    ? '\n[O cliente enviou um vídeo.]'
+                      : mediaTipo === 'document' ? '\n[O cliente enviou um documento.]'
+                      : ''
+
+  const promptTexto = `${basePrompt}${mediaContexto}\n\n${hist?`Histórico:\n${hist}\n`:''}\nCliente: ${mensagem||'(enviou mídia)'}\nAssistente:`
+
+  // ── OpenAI (gpt-4o suporta imagem via base64) ────────
   if (openaiKey) {
     try {
-      const r = await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${openaiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:agente.model||'gpt-4o-mini',messages:[{role:'user',content:prompt}],max_tokens:400})})
+      const model = agente.model || 'gpt-4o-mini'
+      let content
+
+      if (mediaBase64 && mediaTipo === 'image' && model.includes('gpt-4o')) {
+        // GPT-4o vision: envia imagem como base64
+        const b64 = mediaBase64.includes(',') ? mediaBase64.split(',')[1] : mediaBase64
+        const mime = mimetype || 'image/jpeg'
+        content = [
+          { type: 'text', text: `${basePrompt}\n\n${hist?`Histórico:\n${hist}\n`:''}\nCliente enviou esta imagem${mensagem?` com a mensagem: "${mensagem}"`:''}.` },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}`, detail: 'low' } }
+        ]
+      } else if (mediaBase64 && mediaTipo === 'audio' && model.includes('gpt-4o')) {
+        // GPT-4o audio
+        const b64 = mediaBase64.includes(',') ? mediaBase64.split(',')[1] : mediaBase64
+        content = [
+          { type: 'text', text: `${basePrompt}\n\n${hist?`Histórico:\n${hist}\n`:''}\nCliente enviou um áudio${mensagem?` com a mensagem: "${mensagem}"`:''}.` },
+          { type: 'input_audio', input_audio: { data: b64, format: 'mp4' } }
+        ]
+      } else {
+        content = promptTexto
+      }
+
+      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method:'POST',
+        headers:{Authorization:`Bearer ${openaiKey}`,'Content-Type':'application/json'},
+        body:JSON.stringify({model, messages:[{role:'user',content}], max_tokens:400})
+      })
       const d = await r.json()
       const txt = d.choices?.[0]?.message?.content?.trim()
       if (txt) return txt
-    } catch{}
+    } catch(e) { console.error('[IA] OpenAI:', e.message) }
   }
+
+  // ── Gemini (suporta imagem, áudio e vídeo via inlineData) ──
   if (geminiKey) {
     try {
       const model = agente.model?.includes('gemini') ? agente.model : 'gemini-2.0-flash'
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})})
+      let parts = []
+
+      if (mediaBase64) {
+        const b64clean = mediaBase64.includes(',') ? mediaBase64.split(',')[1] : mediaBase64
+        const mimeType = mimetype || (
+          mediaTipo === 'image'    ? 'image/jpeg'   :
+          mediaTipo === 'audio'    ? 'audio/ogg'    :
+          mediaTipo === 'video'    ? 'video/mp4'    :
+          mediaTipo === 'document' ? 'application/pdf' : 'application/octet-stream'
+        )
+        // Gemini aceita imagem, áudio e vídeo via inlineData
+        parts.push({ inlineData: { mimeType, data: b64clean } })
+      }
+
+      const textoParte = mediaTipo
+        ? `${basePrompt}\n\n${hist?`Histórico:\n${hist}\n`:''}\nCliente enviou ${
+            mediaTipo==='audio'?'um áudio':mediaTipo==='image'?'uma imagem':mediaTipo==='video'?'um vídeo':'um arquivo'
+          }${mensagem?` com a mensagem: "${mensagem}"`:'. Analise e responda de forma útil.'}`
+        : promptTexto
+
+      parts.push({ text: textoParte })
+
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+        {method:'POST',headers:{'Content-Type':'application/json'},
+         body:JSON.stringify({contents:[{parts}]})}
+      )
       const d = await r.json()
       const txt = d.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
       if (txt) return txt
-    } catch{}
+    } catch(e) { console.error('[IA] Gemini:', e.message) }
   }
+
+  // ── Groq (apenas texto — não suporta mídia) ──────────
   if (groqKey) {
     try {
-      const r = await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${groqKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:agente.model||'llama3-8b-8192',messages:[{role:'user',content:prompt}],max_tokens:400})})
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method:'POST',
+        headers:{Authorization:`Bearer ${groqKey}`,'Content-Type':'application/json'},
+        body:JSON.stringify({model:agente.model||'llama3-8b-8192',messages:[{role:'user',content:promptTexto}],max_tokens:400})
+      })
       const d = await r.json()
       const txt = d.choices?.[0]?.message?.content?.trim()
       if (txt) return txt
-    } catch{}
+    } catch(e) { console.error('[IA] Groq:', e.message) }
   }
+
   return null
 }
 
@@ -310,11 +381,18 @@ async function processarBot(empresaId, numero, mensagem) {
   const modoAutomacao = flowsData?.modoAutomacao||'chatbot'
   const botAtivo = flowsData?.botAtivo===true
 
+  // Extrai mídia da última mensagem recebida
+  const mensagens   = conv.mensagens || []
+  const ultimaMsg   = [...mensagens].reverse().find(m => !m.fromMe && m.de !== 'empresa')
+  const mediaBase64 = ultimaMsg?.mediaBase64 || null
+  const mediaTipo   = ultimaMsg?.tipo !== 'text' ? ultimaMsg?.tipo : null
+  const mimetype    = ultimaMsg?.mimetype || null
+
   // Modo Agente IA global
   if (modoAutomacao==='agente' && botAtivo && !conv.botPausado) {
     const agente = (cfg.wppAgentes||[]).find(a=>a.ativo)
     if (agente) {
-      const resposta = await chamarIABot(cfg, agente, mensagem, (conv.mensagens||[]).slice(-10))
+      const resposta = await chamarIABot(cfg, agente, mensagem, mensagens.slice(-10), mediaBase64, mediaTipo, mimetype)
       if (resposta) {
         const instancia = conv.instancia||cfg.wppInbox?.evolutionInstance||''
         await enviarTextoBot(cfg, instancia, numero, resposta, empresaId)
@@ -337,10 +415,10 @@ async function processarBot(empresaId, numero, mensagem) {
 
   // Agente IA de departamento (fallback)
   if (!conv.botPausado) {
-    const depto = (cfg.wppDeps||[]).find(d=>d.id===conv.departamentoId)
+    const depto  = (cfg.wppDeps||[]).find(d=>d.id===conv.departamentoId)
     const agente = depto?.agentIA ? (cfg.wppAgentes||[]).find(a=>a.id===depto.agentIA&&a.ativo) : null
     if (agente) {
-      const resposta = await chamarIABot(cfg, agente, mensagem, (conv.mensagens||[]).slice(-10))
+      const resposta = await chamarIABot(cfg, agente, mensagem, mensagens.slice(-10), mediaBase64, mediaTipo, mimetype)
       if (resposta) {
         const instancia = conv.instancia||cfg.wppInbox?.evolutionInstance||''
         await enviarTextoBot(cfg, instancia, numero, resposta, empresaId)
