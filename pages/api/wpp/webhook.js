@@ -56,7 +56,7 @@ function substituirVars(texto, vars={}, conv={}) {
     .replace(/#(\w+)/g, (_,k) => vars[k]||`#${k}`)
 }
 
-async function enviarTextoBot(cfg, instancia, numero, texto) {
+async function enviarTextoBot(cfg, instancia, numero, texto, empresaId=null) {
   const evoUrl = cfg.wppInbox?.evolutionUrl
   const evoKey = cfg.wppInbox?.evolutionKey
   if (!evoUrl || !evoKey || !texto?.trim()) return
@@ -68,6 +68,48 @@ async function enviarTextoBot(cfg, instancia, numero, texto) {
       body: JSON.stringify({number:full, text:texto})
     })
   } catch(e) { console.error('[bot] enviarTexto:', e.message) }
+
+  // ✅ Salva mensagem enviada na conversa (para aparecer no inbox)
+  if (empresaId) {
+    try {
+      const ts = new Date().toISOString()
+      const novaMensagem = {
+        id:        `bot_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        fromMe:    true,
+        de:        'empresa',
+        texto,
+        tipo:      'text',
+        timestamp: ts,
+        lida:      true,
+      }
+      const { data: convRow } = await supabase.from('vx_storage').select('value')
+        .eq('key', `wpp_conv:${empresaId}:${numero}`).maybeSingle()
+      if (convRow?.value) {
+        const c = JSON.parse(convRow.value)
+        c.mensagens   = [...(c.mensagens||[]), novaMensagem]
+        c.ultimaMensagem = texto
+        c.ultimaAt    = ts
+        c.updatedAt   = ts
+        await supabase.from('vx_storage').upsert(
+          { key: `wpp_conv:${empresaId}:${numero}`, value: JSON.stringify(c), updated_at: ts },
+          { onConflict: 'key' }
+        )
+        // Atualiza índice
+        const { data: idxRow } = await supabase.from('vx_storage').select('value')
+          .eq('key', `wpp_idx:${empresaId}`).maybeSingle()
+        if (idxRow?.value) {
+          const idx = JSON.parse(idxRow.value)
+          if (idx[numero]) {
+            idx[numero] = {...idx[numero], ultimaMensagem: texto, ultimaAt: ts, updatedAt: ts}
+            await supabase.from('vx_storage').upsert(
+              { key: `wpp_idx:${empresaId}`, value: JSON.stringify(idx), updated_at: ts },
+              { onConflict: 'key' }
+            )
+          }
+        }
+      }
+    } catch(e) { console.error('[bot] salvar mensagem enviada:', e.message) }
+  }
 }
 
 async function enviarMidiaBot(cfg, instancia, numero, mediaType, mediaUrl, caption) {
@@ -115,7 +157,7 @@ async function executarFluxoBot({empresaId, cfg, fluxo, conv, mensagemCliente, v
     const startNode = nodes.find(n=>n.type==='start')
     if (!startNode) return
     if (startNode.data?.text) {
-      await enviarTextoBot(cfg, instancia, numero, substituirVars(startNode.data.text, botVars, conv))
+      await enviarTextoBot(cfg, instancia, numero, substituirVars(startNode.data.text, botVars, conv), empresaId)
       await sleepBot(400)
     }
     currentNodeId = getNext(startNode.id)?.id||null
@@ -128,14 +170,14 @@ async function executarFluxoBot({empresaId, cfg, fluxo, conv, mensagemCliente, v
     if (!node) break
 
     if (node.type==='message') {
-      await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data?.text||'', botVars, conv))
+      await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data?.text||'', botVars, conv), empresaId)
       await sleepBot(300)
       currentNodeId = getNext(node.id)?.id||null
       continue
     }
 
     if (node.type==='question') {
-      await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data?.text||node.data?.question||'', botVars, conv))
+      await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data?.text||node.data?.question||'', botVars, conv), empresaId)
       aguardandoResposta = true
       break
     }
@@ -171,7 +213,7 @@ async function executarFluxoBot({empresaId, cfg, fluxo, conv, mensagemCliente, v
     }
 
     if (node.type==='goto') {
-      if (node.data?.text) await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data.text, botVars, conv))
+      if (node.data?.text) await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data.text, botVars, conv), empresaId)
       if (node.data?.gotoFlowId) {
         conv.botState = {currentNodeId:null, vars:botVars, aguardandoResposta:false, fluxoId:node.data.gotoFlowId}
         await saveConvBot(empresaId, numero, conv)
@@ -183,18 +225,21 @@ async function executarFluxoBot({empresaId, cfg, fluxo, conv, mensagemCliente, v
     }
 
     if (node.type==='human'||node.type==='action') {
-      if (node.data?.text) { await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data.text, botVars, conv)); await sleepBot(300) }
+      if (node.data?.text) {
+        await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data.text, botVars, conv), empresaId)
+        await sleepBot(300)
+      }
       const tipo = node.data?.actionType
       if (node.type==='action'&&tipo==='close') {
-        await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data?.closeText||'Obrigado pelo contato! 😊', botVars, conv))
+        await enviarTextoBot(cfg, instancia, numero, substituirVars(node.data?.closeText||'Obrigado pelo contato! 😊', botVars, conv), empresaId)
         conv.status='finalizado'; conv.botPausado=true; conv.finalizadoEm=new Date().toISOString()
       } else if (node.type==='action'&&tipo==='webhook'&&node.data?.webhookUrl) {
         try { await fetch(node.data.webhookUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({numero,vars:botVars})}) } catch{}
         currentNodeId = getNext(node.id)?.id||null; continue
       } else {
-        conv.status = node.data?.departamentoId ? 'aguardando' : 'aguardando'
-        conv.botPausado=true
-        if (node.data?.departamentoId) conv.departamentoId=node.data.departamentoId
+        conv.status = 'aguardando'
+        conv.botPausado = true
+        if (node.data?.departamentoId) conv.departamentoId = node.data.departamentoId
       }
       conv.botState={currentNodeId:null,vars:{},aguardandoResposta:false}
       await saveConvBot(empresaId,numero,conv)
@@ -203,7 +248,7 @@ async function executarFluxoBot({empresaId, cfg, fluxo, conv, mensagemCliente, v
 
     if (node.type==='end') {
       const txt = substituirVars(node.data?.text||'Obrigado pelo contato! Até mais. 👋', botVars, conv)
-      await enviarTextoBot(cfg, instancia, numero, txt)
+      await enviarTextoBot(cfg, instancia, numero, txt, empresaId)
       conv.status='finalizado'; conv.botPausado=true; conv.finalizadoEm=new Date().toISOString()
       conv.botState={currentNodeId:null,vars:{},aguardandoResposta:false}
       await saveConvBot(empresaId,numero,conv)
@@ -272,7 +317,7 @@ async function processarBot(empresaId, numero, mensagem) {
       const resposta = await chamarIABot(cfg, agente, mensagem, (conv.mensagens||[]).slice(-10))
       if (resposta) {
         const instancia = conv.instancia||cfg.wppInbox?.evolutionInstance||''
-        await enviarTextoBot(cfg, instancia, numero, resposta)
+        await enviarTextoBot(cfg, instancia, numero, resposta, empresaId)
       }
     }
     return
@@ -298,7 +343,7 @@ async function processarBot(empresaId, numero, mensagem) {
       const resposta = await chamarIABot(cfg, agente, mensagem, (conv.mensagens||[]).slice(-10))
       if (resposta) {
         const instancia = conv.instancia||cfg.wppInbox?.evolutionInstance||''
-        await enviarTextoBot(cfg, instancia, numero, resposta)
+        await enviarTextoBot(cfg, instancia, numero, resposta, empresaId)
       }
     }
   }
