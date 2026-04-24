@@ -476,6 +476,33 @@ export default async function handler(req, res) {
     const conv = convInput || await getConv(empresaId, numero)
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' })
 
+    // ── VERIFICA SE É RESPOSTA AO BRIEFING DO AGENTE IA ────────────────────
+    // Vendedor pode responder "1", "2" ou "3" ao briefing e o agente age automaticamente
+    // Condição: o número é de um usuário (telefone em cfg.users[]) e não é cliente
+    {
+      const users = cfg.users || []
+      const numLimpo = numero.replace(/\D/g, '')
+      const isVendedor = users.some(u => {
+        const tel = (u.telefone || '').replace(/\D/g, '')
+        return tel && (numLimpo.endsWith(tel) || tel.endsWith(numLimpo))
+      })
+      const isBriefingReply = isVendedor && /^[123]$|rodar|follow.?up|parado|fechar|briefing/i.test(mensagem.trim())
+
+      if (isBriefingReply) {
+        // Descobre o usuário correspondente
+        const usuarioTelefone = numero
+        try {
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+            || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+          await fetch(`${baseUrl}/api/agente-followup`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ acao: 'resposta_briefing', empresaId, mensagem, usuarioTelefone })
+          })
+        } catch (e) { console.error('[bot] resposta_briefing err:', e.message) }
+        return res.status(200).json({ ok: true, modo: 'resposta_briefing' })
+      }
+    }
+
     // Não processa se atendendo por humano ou finalizado
     if (conv.status === 'atendendo' || conv.status === 'finalizado') {
       return res.status(200).json({ ok: true, ignorado: true, motivo: conv.status })
