@@ -57,6 +57,26 @@ function click2call(numero, cfg3cx) {
   }
 }
 
+// Registra ligação na timeline — chamado após click2call
+function registrarLigacaoTimeline(negocioId, numero, salvarFn) {
+  if (!negocioId || !salvarFn) return
+  const ativ = {
+    id: 'ativ_lig_' + Date.now(),
+    negocioId,
+    tipo: 'Ligação',
+    descricao: `📞 Ligação iniciada para ${numero}`,
+    data: new Date().toISOString(),
+    criadoEm: new Date().toISOString(),
+    concluida: false,
+    prazo: '',
+    duracao_seg: 0,
+    gravacao_url: '',
+    google_event_id: '',
+    google_link: '',
+  }
+  salvarFn(ativ)
+}
+
 // ── Google Calendar: criar/atualizar evento ─────────────────────
 async function criarEventoGCal(atividade, negocio, accessToken) {
   const prazoDate = atividade.prazo ? new Date(atividade.prazo) : new Date()
@@ -262,7 +282,6 @@ export default function CRM() {
   const [showAgente,      setShowAgente]      = useState(false)
   const [agenteLog,       setAgenteLog]       = useState([])
   const [agenteRodando,   setAgenteRodando]   = useState('')
-  const [agenteInstancia,  setAgenteInstancia]  = useState('')  // instância WPP selecionada no modal
   const [showAutoModal,   setShowAutoModal]   = useState(false)
   const [autoEtapaId,     setAutoEtapaId]     = useState(null)
   const [automacoes,      setAutomacoes]      = useState([])
@@ -274,7 +293,7 @@ export default function CRM() {
     try {
       const resp = await fetch('/api/agente-followup', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ acao, empresaId, negocioId, instanciaOverride: agenteInstancia||undefined })
+        body: JSON.stringify({ acao, empresaId, negocioId })
       })
       const r = await resp.json()
       if (r.ok) {
@@ -375,27 +394,41 @@ export default function CRM() {
     if(!emailDest||!emailAssunto){showToast('⚠️ Preencha destinatário e assunto.');return}
     setEmailSending(true)
     try{
-      // ✅ FIX v2: sempre passa smtpCfg se houver qualquer chave de email configurada
-      // send-email.js detecta Brevo mesmo sem smtpHost, usando só emailApiKey
-      const resolvedApiKey=cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||''
-      const hasEmailConfig=cfg.smtpHost||resolvedApiKey||cfg.emailProvider==='brevo'
-      const smtpCfg=hasEmailConfig?{
+      // ✅ FIX v3: funciona com smtpHost OU apenas emailApiKey (Brevo sem SMTP)
+      const _apiKey=cfg.emailApiKey||cfg.apiKey||cfg.brevoApiKey||cfg.smtpPass||''
+      const _hasEmail=cfg.smtpHost||_apiKey||cfg.emailProvider==='brevo'
+      const smtpCfg=_hasEmail?{
         smtpHost:cfg.smtpHost||'smtp-relay.brevo.com',
         smtpPort:cfg.smtpPort||587,
         smtpUser:cfg.smtpUser||'apikey',
         smtpPass:cfg.smtpPass||'',
-        emailApiKey:resolvedApiKey,
-        apiKey:resolvedApiKey,
-        brevoApiKey:resolvedApiKey,
+        emailApiKey:_apiKey,
+        apiKey:_apiKey,
+        brevoApiKey:_apiKey,
         emailProvider:cfg.emailProvider||'',
         emailRemetente:cfg.emailRemetente||cfg.smtpFrom||cfg.emailEmpresa||cfg.emailEmp||'',
         nomeRemetente:cfg.company||'Vivanexa',
         company:cfg.company||'Vivanexa'
       }:null
       const resp=await fetch('/api/send-email',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({to:emailDest,subject:emailAssunto,html:`<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${emailCorpo.replace(/\n/g,'<br>')}</div>`,config:smtpCfg,attachments:emailAnexos})})
+        body:JSON.stringify({to:emailDest,subject:emailAssunto,html:`<div style="font-family:Arial,sans-serif;white-space:pre-wrap">${emailCorpo.replace(/\n/g,'<br>')}</div>`,config:smtpCfg,attachments:emailAnexos,empresaId,negocioId:negSel?.id||undefined})})
       const r=await resp.json()
-      if(r.success&&!r.fallback){showToast('✅ Email enviado!');setShowEmailModal(false);setEmailDest('');setEmailAssunto('');setEmailCorpo('');setEmailAnexos([])}
+      if(r.success&&!r.fallback){
+        showToast('✅ Email enviado!')
+        setShowEmailModal(false);setEmailDest('');setEmailAssunto('');setEmailCorpo('');setEmailAnexos([])
+        // Registra email na timeline do negócio ativo
+        if(negSel?.id){
+          const ativEmail={
+            id:'ativ_email_'+Date.now(),negocioId:negSel.id,tipo:'E-mail',
+            descricao:`📧 E-mail enviado para ${emailDest} — Assunto: "${emailAssunto}"`,
+            data:new Date().toISOString(),criadoEm:new Date().toISOString(),
+            concluida:true,prazo:'',duracao_seg:0,gravacao_url:'',google_event_id:'',google_link:''
+          }
+          const novasAtivs=[...atividades,ativEmail]
+          const nc2={...cfg,crm_atividades:novasAtivs}
+          save(nc2).then(()=>{setAtividades(novasAtivs);setCfg(nc2)})
+        }
+      }
       else if(r.fallback){
         // Abre cliente de email local como fallback
         window.location.href=`mailto:${emailDest}?subject=${encodeURIComponent(emailAssunto)}&body=${encodeURIComponent(emailCorpo)}`
@@ -537,11 +570,15 @@ export default function CRM() {
     const ob=!q||
       n.titulo?.toLowerCase().includes(q)||
       n.nome?.toLowerCase().includes(q)||
+      n.razao?.toLowerCase().includes(q)||
       n.fantasia?.toLowerCase().includes(q)||
+      n.responsavel?.toLowerCase().includes(q)||
       n.cnpj?.replace(/\D/g,'').includes(q.replace(/\D/g,''))||
       n.cpf?.replace(/\D/g,'').includes(q.replace(/\D/g,''))||
       n.email?.toLowerCase().includes(q)||
-      n.telefone?.replace(/\D/g,'').includes(q.replace(/\D/g,''))
+      n.telefone?.replace(/\D/g,'').includes(q.replace(/\D/g,''))||
+      n.cidade?.toLowerCase().includes(q)||
+      n.observacoes?.toLowerCase().includes(q)
     const oe=filtroEtapa==='todas'||n.etapa===filtroEtapa
     return ob&&oe
   })
@@ -647,10 +684,7 @@ export default function CRM() {
               </>
             ) : (
               <>
-                <div style={{position:'relative',display:'flex',alignItems:'center'}}>
-                  <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar negócio, contato, tel..." style={{background:'var(--surface2)',border:`1px solid ${busca?'var(--accent)':'var(--border)'}`,borderRadius:8,padding:'8px 34px 8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:270}}/>
-                  {busca&&<button onClick={()=>setBusca('')} style={{position:'absolute',right:8,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:14,lineHeight:1,padding:0}}>✕</button>}
-                </div>
+                <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar negócio, contato, tel..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:260}}/>
                 <button onClick={()=>{setFormNeg({...EMPTY_NEG});setShowFormNeg(true)}}
                   style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>+ Novo Negócio</button>
               </>
@@ -688,7 +722,20 @@ export default function CRM() {
                   <div style={{fontFamily:'Syne,sans-serif',fontSize:15,fontWeight:700,color:'var(--accent)'}}>🏢 Dados do Cliente</div>
                   <div style={{display:'flex',gap:6}}>
                     {negSel.telefone&&(
-                      <button onClick={()=>click2call(negSel.telefone,cfg3cx)}
+                      <button onClick={()=>{
+                        click2call(negSel.telefone,cfg3cx)
+                        // Registra ligação na timeline
+                        const ativLig={
+                          id:'ativ_lig_'+Date.now(),negocioId:negSel.id,tipo:'Ligação',
+                          descricao:`📞 Ligação iniciada para ${negSel.telefone}${negSel.nome?' ('+negSel.nome+')':''}`,
+                          data:new Date().toISOString(),criadoEm:new Date().toISOString(),
+                          concluida:false,prazo:'',duracao_seg:0,gravacao_url:'',google_event_id:'',google_link:''
+                        }
+                        const novasAtivs=[...atividades,ativLig]
+                        const nc={...cfg,crm_atividades:novasAtivs}
+                        save(nc).then(()=>{setAtividades(novasAtivs);setCfg(nc)})
+                        showToast('📞 Ligação registrada na timeline!')
+                      }}
                         style={{padding:'5px 12px',borderRadius:8,background:'rgba(16,185,129,.12)',border:'1px solid rgba(16,185,129,.3)',color:'var(--accent3)',fontSize:12,cursor:'pointer',fontFamily:'DM Mono,monospace',fontWeight:600}}>
                         📞 Ligar
                       </button>
@@ -1183,7 +1230,7 @@ export default function CRM() {
               <button onClick={()=>setShowEmailModal(false)} style={S.mc}>✕</button>
             </div>
             <div style={S.mb}>
-              {!cfg.smtpHost&&!cfg.emailApiKey&&!cfg.apiKey&&!cfg.brevoApiKey&&<div style={{background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#f59e0b',marginBottom:14}}>⚠️ SMTP não configurado. Configure em <strong>Config → Empresa</strong> para envio real. O botão abrirá seu cliente de e-mail como alternativa.</div>}
+              {!cfg.smtpHost&&<div style={{background:'rgba(251,191,36,.1)',border:'1px solid rgba(251,191,36,.3)',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#f59e0b',marginBottom:14}}>⚠️ SMTP não configurado. Configure em <strong>Config → Empresa</strong> para envio real. O botão abrirá seu cliente de e-mail como alternativa.</div>}
               <F l="Para"><input value={emailDest} onChange={e=>setEmailDest(e.target.value)} style={S.ip} placeholder="email@cliente.com"/></F>
               <F l="Assunto"><input value={emailAssunto} onChange={e=>setEmailAssunto(e.target.value)} style={S.ip}/></F>
               <F l="Mensagem">
@@ -1231,21 +1278,6 @@ export default function CRM() {
                 O Agente IA monitora negócios parados, faz follow-up automático via WhatsApp, envia briefing diário aos vendedores e negocia com clientes até detectar interesse de fechamento — quando retorna ao vendedor.<br/>
                 <strong style={{color:'#10b981'}}>Configure Evolution API em Config → Integrações para ativar o WhatsApp.</strong>
               </div>
-
-              {/* ── Seletor de Instância WhatsApp e Usuário ── */}
-              {(cfg.wppAgentes||[]).length>0&&(
-                <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 14px',marginBottom:16}}>
-                  <div style={{fontSize:11,color:'var(--muted)',letterSpacing:.5,fontWeight:700,marginBottom:8}}>📱 INSTÂNCIA WHATSAPP PARA ENVIO</div>
-                  <select value={agenteInstancia} onChange={e=>setAgenteInstancia(e.target.value)}
-                    style={{width:'100%',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',cursor:'pointer'}}>
-                    <option value="">— Padrão (definida nas Configurações) —</option>
-                    {(cfg.wppAgentes||[]).filter(a=>a.ativo).map(a=>(
-                      <option key={a.id||a.instancia} value={a.instancia}>{a.nome||a.instancia} ({a.instancia})</option>
-                    ))}
-                  </select>
-                  <div style={{fontSize:10,color:'var(--muted)',marginTop:6}}>Selecione qual número WhatsApp fará os envios do briefing e follow-ups.</div>
-                </div>
-              )}
 
               {/* Ações */}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20}}>
