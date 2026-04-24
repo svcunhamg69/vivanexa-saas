@@ -1,4 +1,5 @@
 // pages/api/send-email.js
+// ✅ FIX v2: suporta Brevo com apenas emailApiKey (sem smtpHost obrigatório)
 import nodemailer from 'nodemailer'
 
 export const config = { api: { bodyParser: { sizeLimit: '20mb' } } }
@@ -9,34 +10,34 @@ export default async function handler(req, res) {
   const { to, subject, html, text, from, config: cfg, attachments = [] } = req.body
   if (!to || !subject) return res.status(400).json({ error: 'Destinatário e assunto são obrigatórios' })
 
-  // ✅ FIX: não bloqueia se smtpPass vazio — Brevo usa emailApiKey, não smtpPass
-  if (!cfg?.smtpHost || !cfg?.smtpUser) {
-    return res.status(200).json({ success: true, fallback: true })
-  }
+  // ── Resolve a API key do Brevo de todos os campos possíveis ──
+  const brevoApiKey = (cfg?.emailApiKey || cfg?.apiKey || cfg?.brevoApiKey
+    || cfg?.api_key || cfg?.brevo_api_key || cfg?.smtpPass || '').trim()
 
-  const isBrevo = cfg.smtpHost.includes('brevo.com') || cfg.smtpHost.includes('sendinblue') || cfg.smtpUser === 'apikey'
+  // ── Detecta se é Brevo ──
+  const isBrevo =
+    (cfg?.smtpHost && (cfg.smtpHost.includes('brevo.com') || cfg.smtpHost.includes('sendinblue'))) ||
+    cfg?.smtpUser === 'apikey' ||
+    cfg?.emailProvider === 'brevo' ||
+    (brevoApiKey.length >= 20 && !cfg?.smtpHost)
 
-  console.log('[send-email] isBrevo:', isBrevo, '| smtpHost:', cfg.smtpHost, '| smtpUser:', cfg.smtpUser)
+  console.log('[send-email] isBrevo:', isBrevo, '| apiKey len:', brevoApiKey.length)
 
   if (isBrevo) {
-    // ✅ FIX: tenta todos os campos onde a key pode estar, incluindo smtpPass como fallback final
-    const apiKey = cfg.emailApiKey || cfg.apiKey || cfg.brevoApiKey || cfg.api_key || cfg.brevo_api_key || cfg.smtpPass || ''
-
-    console.log('[send-email] Brevo apiKey found:', !!apiKey, '| len:', apiKey.length, '| campos:', Object.keys(cfg).join(','))
-
-    if (!apiKey || apiKey.length < 10) {
+    if (!brevoApiKey || brevoApiKey.length < 10) {
       return res.status(500).json({
-        error: 'API Key do Brevo não encontrada. Acesse Configurações → Empresa → "API Key (Brevo/SendGrid)" e salve sua chave xsmtpib-...'
+        error: 'Brevo API: Key not found — acesse Configurações → Empresa → "API Key (Brevo/SendGrid)" e salve sua chave xsmtpib-...'
       })
     }
 
     try {
-      const senderEmail = cfg.emailRemetente || cfg.smtpFrom || cfg.emailEmpresa || cfg.emailEmp || cfg.smtpUser || 'noreply@vivanexa.com.br'
+      const senderEmail = cfg.emailRemetente || cfg.smtpFrom || cfg.emailEmpresa
+        || cfg.emailEmp || cfg.smtpUser || 'noreply@vivanexa.com.br'
       const senderName  = cfg.nomeRemetente || cfg.company || 'Vivanexa'
 
       const body = {
-        sender: { name: senderName, email: senderEmail },
-        to: [{ email: to }],
+        sender:      { name: senderName, email: senderEmail },
+        to:          [{ email: to }],
         subject,
         htmlContent: html || `<p style="font-family:Arial,sans-serif;white-space:pre-wrap">${(text || '').replace(/\n/g, '<br>')}</p>`,
       }
@@ -47,28 +48,30 @@ export default async function handler(req, res) {
           .map(a => ({ name: a.filename, content: a.content }))
       }
 
-      console.log('[send-email] Brevo sending to:', to, '| from:', senderEmail)
-
       const resp = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        headers: { 'Content-Type': 'application/json', 'api-key': brevoApiKey },
         body: JSON.stringify(body),
       })
 
       const result = await resp.json()
-      console.log('[send-email] Brevo result:', resp.status, JSON.stringify(result).slice(0, 200))
+      console.log('[send-email] Brevo status:', resp.status)
 
       if (resp.ok) return res.status(200).json({ success: true })
 
-      const msg = result.message || JSON.stringify(result)
+      let msg = result.message || JSON.stringify(result)
+      if (resp.status === 401) msg = 'Chave API inválida. Verifique em Configurações → Empresa → API Key (Brevo).'
       return res.status(500).json({ error: `Brevo API: ${msg}` })
     } catch (err) {
-      console.error('[send-email] Brevo exception:', err.message)
       return res.status(500).json({ error: 'Erro ao chamar API Brevo: ' + err.message })
     }
   }
 
-  // ── SMTP genérico (Gmail, Outlook, etc) ──
+  // ── SMTP genérico ──
+  if (!cfg?.smtpHost || !cfg?.smtpUser) {
+    return res.status(200).json({ success: true, fallback: true })
+  }
+
   if (!cfg.smtpPass) {
     return res.status(200).json({ success: true, fallback: true })
   }
@@ -105,8 +108,8 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true })
   } catch (err) {
     let msg = err.message
-    if (msg.includes('535') || msg.includes('Authentication')) msg = 'Falha na autenticação SMTP. Verifique usuário/senha em Configurações → Empresa.'
-    if (msg.includes('ECONNREFUSED')) msg = `Não foi possível conectar ao servidor SMTP (${cfg.smtpHost}:${cfg.smtpPort || 587}).`
+    if (msg.includes('535') || msg.includes('Authentication')) msg = 'Falha na autenticação SMTP. Verifique usuário/senha.'
+    if (msg.includes('ECONNREFUSED')) msg = `Não foi possível conectar ao servidor SMTP.`
     if (msg.includes('ETIMEDOUT')) msg = 'Timeout ao conectar ao servidor SMTP.'
     return res.status(500).json({ error: msg })
   }
