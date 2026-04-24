@@ -77,7 +77,13 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   const navRef     = useRef(null)
   const userRef    = useRef(null)
 
-  const [cfgLocal, setCfgLocal] = useState(cfg || {})
+  const [cfgLocal,      setCfgLocal]      = useState(cfg || {})
+  const [notifs,        setNotifs]        = useState([])
+  const [notifOpen,     setNotifOpen]     = useState(false)
+  const [empresaId,     setEmpresaId]     = useState(null)
+  const [notifLidas,    setNotifLidas]    = useState(() => {
+    try { return JSON.parse(localStorage.getItem('vx_notifs_lidas') || '[]') } catch { return [] }
+  })
 
   useEffect(() => {
     if (perfil) { setUser(perfil); return }
@@ -134,7 +140,75 @@ export default function Navbar({ cfg = {}, perfil = null }) {
     setOpen(null); setMobileOpen(false); setUserMenuOpen(false)
   }, [router.pathname, router.query])
 
+  // ── Busca notificações do CRM ────────────────────────────────
+  useEffect(() => {
+    async function carregarEmpresa() {
+      try {
+        let eid = null
+        const su = sessionStorage.getItem('vx_subuser') || localStorage.getItem('vx_subuser')
+        if (su) { try { eid = JSON.parse(su).empresaId } catch {} }
+        if (!eid) {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (!session) return
+          const { data: p } = await supabase.from('perfis').select('empresa_id').eq('user_id', session.user.id).maybeSingle()
+          eid = p?.empresa_id || session.user.id
+        }
+        setEmpresaId(eid)
+      } catch {}
+    }
+    carregarEmpresa()
+  }, [])
+
+  useEffect(() => {
+    if (!empresaId) return
+    async function buscarNotifs() {
+      try {
+        const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
+        if (!row?.value) return
+        const cfg = JSON.parse(row.value)
+        const todas = []
+        const atividades = cfg.crm_atividades || []
+
+        // E-mails respondidos / recebidos
+        atividades.filter(a => a.tipo === 'E-mail Recebido' || a.tipo === 'E-mail Respondido').forEach(a => {
+          todas.push({ id:'email_'+a.id, tipo:'email', icon:'📧', titulo:'E-mail respondido', descricao:a.descricao?.slice(0,80)||'', data:a.criadoEm||a.data, negocioId:a.negocioId, href:'/crm' })
+        })
+
+        // WhatsApp respondido pelo agente (cliente respondeu)
+        const wppNotifs = cfg.wppNotificacoes || []
+        wppNotifs.forEach(n => {
+          todas.push({ id:'wpp_'+n.id, tipo:'whatsapp', icon:'💬', titulo:'Resposta WhatsApp — cliente', descricao:n.descricao?.slice(0,80)||'', data:n.data, negocioId:n.negocioId, href:'/crm' })
+        })
+
+        // Lead quente — agente detectou interesse de fechamento
+        const negocios = cfg.crm_negocios || []
+        negocios.filter(n => n.agenteDetectouFechamento).forEach(n => {
+          todas.push({ id:'fech_'+n.id, tipo:'fechamento', icon:'🎯', titulo:'🔥 Lead quente — interesse de fechar!', descricao:`${n.titulo}`, data:n.atualizadoEm, negocioId:n.id, href:'/crm' })
+        })
+
+        // Follow-ups enviados pelo agente
+        const logs = cfg.agenteLog || []
+        logs.slice(0,5).forEach((l, i) => {
+          if (l.tipo === 'followup' || l.tipo === 'briefing') {
+            todas.push({ id:'log_'+i+'_'+l.data, tipo:'agente', icon:'🤖', titulo: l.tipo==='briefing' ? 'Briefing diário enviado' : 'Follow-up automático executado', descricao: l.resultados ? `${l.resultados} enviados` : '', data:l.data, href:'/crm' })
+          }
+        })
+
+        todas.sort((a, b) => new Date(b.data) - new Date(a.data))
+        setNotifs(todas.slice(0, 25))
+      } catch (e) { console.error('[notifs]', e.message) }
+    }
+    buscarNotifs()
+    const t = setInterval(buscarNotifs, 60000)
+    return () => clearInterval(t)
+  }, [empresaId])
+
   function navigate(href) { setOpen(null); setMobileOpen(false); router.push(href) }
+
+  function marcarTodasLidas() {
+    const ids = notifs.map(n => n.id)
+    setNotifLidas(prev => { const novo = [...new Set([...prev, ...ids])]; try { localStorage.setItem('vx_notifs_lidas', JSON.stringify(novo)) } catch {} return novo })
+  }
 
   function isActive(menu) {
     if (menu.directHref) return router.pathname === menu.directHref.split('?')[0]
@@ -260,8 +334,67 @@ export default function Navbar({ cfg = {}, perfil = null }) {
           })}
         </div>
 
-        {/* ── Direita — Avatar clicável ── */}
+        {/* ── Direita — Sino + Avatar clicável ── */}
         <div className="nav-right">
+          {/* 🔔 Sino de notificações */}
+          {(() => {
+            const naoLidas = notifs.filter(n => !notifLidas.includes(n.id))
+            return (
+              <div style={{ position:'relative' }}>
+                <button
+                  title="Notificações"
+                  onClick={e => { e.stopPropagation(); setNotifOpen(v => !v); if (!notifOpen) marcarTodasLidas() }}
+                  style={{ position:'relative', background: naoLidas.length > 0 ? 'rgba(245,158,11,.1)' : 'none', border:`1px solid ${naoLidas.length > 0 ? 'rgba(245,158,11,.35)' : '#18243a'}`, borderRadius:8, width:34, height:34, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:15, color: naoLidas.length > 0 ? '#f59e0b' : '#6e8099', transition:'all .15s' }}
+                >
+                  🔔
+                  {naoLidas.length > 0 && (
+                    <span style={{ position:'absolute', top:-5, right:-5, background:'#ef4444', color:'#fff', borderRadius:'50%', minWidth:16, height:16, fontSize:9, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'DM Mono',monospace", border:'2px solid #08101e', padding:'0 2px' }}>
+                      {naoLidas.length > 9 ? '9+' : naoLidas.length}
+                    </span>
+                  )}
+                </button>
+
+                {notifOpen && (
+                  <div onClick={e => e.stopPropagation()} style={{ position:'absolute', top:'calc(100% + 8px)', right:0, width:340, background:'#08101e', border:'1px solid #18243a', borderTop:'2px solid #f59e0b', borderRadius:12, boxShadow:'0 24px 64px rgba(0,0,0,.85)', zIndex:99999, overflow:'hidden' }}>
+                    <div style={{ padding:'12px 14px', borderBottom:'1px solid #18243a', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                      <span style={{ fontFamily:"'Syne',sans-serif", fontSize:11, fontWeight:700, color:'#f59e0b', letterSpacing:1, textTransform:'uppercase' }}>🔔 Notificações</span>
+                      {notifs.length > 0 && <button onClick={marcarTodasLidas} style={{ background:'none', border:'none', color:'#475569', fontSize:10, cursor:'pointer', fontFamily:"'DM Mono',monospace" }}>✓ Marcar todas lidas</button>}
+                    </div>
+                    {notifs.length === 0
+                      ? <div style={{ padding:'28px 14px', textAlign:'center', color:'#64748b', fontSize:12 }}>Nenhuma notificação no momento 🎉</div>
+                      : <div style={{ maxHeight:400, overflowY:'auto' }}>
+                          {notifs.map(n => {
+                            const lida = notifLidas.includes(n.id)
+                            const cores = { email:'#00d4ff', whatsapp:'#10b981', fechamento:'#f59e0b', agente:'#a78bfa' }
+                            const cor = cores[n.tipo] || '#64748b'
+                            return (
+                              <div key={n.id}
+                                onClick={() => { setNotifOpen(false); router.push(n.href || '/crm') }}
+                                style={{ padding:'10px 14px', borderBottom:'1px solid #0f1a2e', cursor:'pointer', background: lida ? 'transparent' : `${cor}08`, display:'flex', gap:10, alignItems:'flex-start', opacity: lida ? .6 : 1 }}
+                                onMouseOver={e => e.currentTarget.style.background='rgba(255,255,255,.04)'}
+                                onMouseOut={e => e.currentTarget.style.background = lida ? 'transparent' : `${cor}08`}
+                              >
+                                <span style={{ fontSize:18, flexShrink:0, marginTop:1 }}>{n.icon}</span>
+                                <div style={{ flex:1, minWidth:0 }}>
+                                  <div style={{ fontSize:12, fontWeight: lida ? 400 : 700, color: lida ? '#64748b' : '#e2e8f0', marginBottom:2 }}>{n.titulo}</div>
+                                  {n.descricao && <div style={{ fontSize:11, color:'#64748b', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{n.descricao}</div>}
+                                  {n.data && <div style={{ fontSize:10, color:'#334155', marginTop:3 }}>{new Date(n.data).toLocaleString('pt-BR')}</div>}
+                                </div>
+                                {!lida && <div style={{ width:7, height:7, borderRadius:'50%', background:cor, flexShrink:0, marginTop:5 }} />}
+                              </div>
+                            )
+                          })}
+                        </div>
+                    }
+                    <div style={{ padding:'8px 14px', borderTop:'1px solid #18243a', textAlign:'center' }}>
+                      <button onClick={() => { setNotifOpen(false); router.push('/crm') }} style={{ background:'none', border:'none', color:'#475569', fontSize:11, cursor:'pointer', fontFamily:"'DM Mono',monospace" }}>Ver CRM completo →</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           {user && (
             <div className="nav-user-wrap" ref={userRef} style={{ position: 'relative' }}>
               <button
@@ -298,6 +431,8 @@ export default function Navbar({ cfg = {}, perfil = null }) {
               )}
             </div>
           )}
+          )}
+
           {!user && (
             <button className="nav-sair" onClick={handleLogout}>Sair</button>
           )}
