@@ -129,7 +129,7 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   useEffect(() => {
     const handler = (e) => {
       if (navRef.current && !navRef.current.contains(e.target)) {
-        setOpen(null); setMobileOpen(false); setUserMenuOpen(false)
+        setOpen(null); setMobileOpen(false); setUserMenuOpen(false); setNotifOpen(false)
       }
     }
     document.addEventListener('mousedown', handler)
@@ -169,15 +169,21 @@ export default function Navbar({ cfg = {}, perfil = null }) {
         const todas = []
         const atividades = cfg.crm_atividades || []
 
-        // E-mails respondidos / recebidos
+        // E-mails respondidos / recebidos (registrados na timeline)
         atividades.filter(a => a.tipo === 'E-mail Recebido' || a.tipo === 'E-mail Respondido').forEach(a => {
-          todas.push({ id:'email_'+a.id, tipo:'email', icon:'📧', titulo:'E-mail respondido', descricao:a.descricao?.slice(0,80)||'', data:a.criadoEm||a.data, negocioId:a.negocioId, href:'/crm' })
+          todas.push({ id:'email_'+a.id, tipo:'email', icon:'↩️', titulo:'E-mail respondido pelo cliente', descricao:a.descricao?.slice(0,80)||'', data:a.criadoEm||a.data, negocioId:a.negocioId, href:'/crm' })
         })
 
-        // WhatsApp respondido pelo agente (cliente respondeu)
+        // Notificações diretas: emails abertos, respondidos, wpp do agente
         const wppNotifs = cfg.wppNotificacoes || []
         wppNotifs.forEach(n => {
-          todas.push({ id:'wpp_'+n.id, tipo:'whatsapp', icon:'💬', titulo:'Resposta WhatsApp — cliente', descricao:n.descricao?.slice(0,80)||'', data:n.data, negocioId:n.negocioId, href:'/crm' })
+          const tipoMap = {
+            email_reply:  { icon:'↩️', titulo:'E-mail respondido', tipo:'email' },
+            email_open:   { icon:'👁',  titulo:'E-mail aberto pelo cliente', tipo:'email' },
+            whatsapp:     { icon:'💬', titulo:'Resposta WhatsApp — cliente', tipo:'whatsapp' },
+          }
+          const meta = tipoMap[n.tipo] || { icon:'🔔', titulo:'Notificação', tipo:'geral' }
+          todas.push({ id:'wppn_'+n.id, tipo:meta.tipo, icon:n.icon||meta.icon, titulo:meta.titulo, descricao:n.descricao?.slice(0,80)||'', data:n.data, negocioId:n.negocioId, href:'/crm' })
         })
 
         // Lead quente — agente detectou interesse de fechamento
@@ -369,7 +375,11 @@ export default function Navbar({ cfg = {}, perfil = null }) {
                             const cor = cores[n.tipo] || '#64748b'
                             return (
                               <div key={n.id}
-                                onClick={() => { setNotifOpen(false); router.push(n.href || '/crm') }}
+                                onClick={() => {
+                                  setNotifOpen(false)
+                                  const url = n.negocioId ? `/crm?negocioId=${n.negocioId}` : (n.href || '/crm')
+                                  router.push(url)
+                                }}
                                 style={{ padding:'10px 14px', borderBottom:'1px solid #0f1a2e', cursor:'pointer', background: lida ? 'transparent' : `${cor}08`, display:'flex', gap:10, alignItems:'flex-start', opacity: lida ? .6 : 1 }}
                                 onMouseOver={e => e.currentTarget.style.background='rgba(255,255,255,.04)'}
                                 onMouseOut={e => e.currentTarget.style.background = lida ? 'transparent' : `${cor}08`}
