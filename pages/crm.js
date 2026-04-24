@@ -212,6 +212,14 @@ export default function CRM() {
   const [emailCorpo,   setEmailCorpo]   = useState('')
   const [emailSending, setEmailSending] = useState(false)
   const [visao,        setVisao]        = useState('funil')
+
+  // ── Abre negócio direto via query param (ex: vindo do sino de notificações) ──
+  useEffect(()=>{
+    const nid = router?.query?.negocioId
+    if(!nid||!negocios.length) return
+    const neg = negocios.find(n=>n.id===nid)
+    if(neg){ setNegSel(neg); setVisao('funil') }
+  },[router?.query?.negocioId, negocios.length])
   const [cfg3cx,       setCfg3cx]       = useState({})
   const [negSel,       setNegSel]       = useState(null)
   const [abaDetalhe,   setAbaDetalhe]   = useState('atividades') // atividades | documentos
@@ -684,7 +692,12 @@ export default function CRM() {
               </>
             ) : (
               <>
-                <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar negócio, contato, tel..." style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:260}}/>
+                <div style={{position:'relative',display:'flex',alignItems:'center'}}>
+                  <input value={busca} onChange={e=>{setBusca(e.target.value);if(e.target.value)setFiltroEtapa('todas')}}
+                    placeholder="🔍 Buscar negócio, razão, tel, email..."
+                    style={{background:'var(--surface2)',border:`1px solid ${busca?'var(--accent)':'var(--border)'}`,borderRadius:8,padding:'8px 32px 8px 12px',fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text)',outline:'none',width:280}}/>
+                  {busca&&<button onClick={()=>setBusca('')} style={{position:'absolute',right:8,background:'none',border:'none',color:'var(--muted)',cursor:'pointer',fontSize:13,lineHeight:1,padding:0,fontWeight:700}}>✕</button>}
+                </div>
                 <button onClick={()=>{setFormNeg({...EMPTY_NEG});setShowFormNeg(true)}}
                   style={{padding:'9px 18px',borderRadius:9,background:'linear-gradient(135deg,var(--accent),#0099bb)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>+ Novo Negócio</button>
               </>
@@ -865,11 +878,12 @@ export default function CRM() {
         {/* ══════════ FUNIL ══════════ */}
         {!negSel&&visao==='funil'&&(
           <div>
-            <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
+              {busca&&<span style={{fontSize:11,color:'var(--accent)',fontFamily:'DM Mono,monospace',padding:'5px 10px',background:'rgba(0,212,255,.08)',borderRadius:20,border:'1px solid rgba(0,212,255,.3)'}}>🔍 {negFiltrados.length} resultado{negFiltrados.length!==1?'s':''} para "{busca}"</span>}
               {[['todas','Todas'],...etapas.map(e=>[e.id,e.label])].map(([id,label])=>(
                 <button key={id} onClick={()=>setFiltroEtapa(id)}
                   style={{padding:'5px 12px',borderRadius:20,border:`1px solid ${filtroEtapa===id?'var(--accent)':'var(--border)'}`,background:filtroEtapa===id?'rgba(0,212,255,.1)':'var(--surface2)',color:filtroEtapa===id?'var(--accent)':'var(--muted)',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace',whiteSpace:'nowrap'}}>
-                  {label} {id!=='todas'?`(${negocios.filter(n=>n.etapa===id).length})`:``}
+                  {label} ({id==='todas'?negFiltrados.length:negFiltrados.filter(n=>n.etapa===id).length})
                 </button>
               ))}
             </div>
