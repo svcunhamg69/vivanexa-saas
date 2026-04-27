@@ -74,6 +74,10 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   const [confirmSenha,  setConfirmSenha]  = useState('')
   const [senhaMsg,      setSenhaMsg]      = useState('')
   const [senhaSaving,   setSenhaSaving]   = useState(false)
+  const [faqOpen,       setFaqOpen]       = useState(false)
+  const [faqArtigos,    setFaqArtigos]    = useState([])
+  const [faqBusca,      setFaqBusca]      = useState('')
+  const [faqArtigo,     setFaqArtigo]     = useState(null) // artigo aberto
   const navRef     = useRef(null)
   const userRef    = useRef(null)
 
@@ -84,6 +88,7 @@ export default function Navbar({ cfg = {}, perfil = null }) {
   const [notifLidas,    setNotifLidas]    = useState(() => {
     try { return JSON.parse(localStorage.getItem('vx_notifs_lidas') || '[]') } catch { return [] }
   })
+  const [suporteWpp,    setSuporteWpp]    = useState('') // número do suporte configurado
 
   useEffect(() => {
     if (perfil) { setUser(perfil); return }
@@ -123,6 +128,11 @@ export default function Navbar({ cfg = {}, perfil = null }) {
         if (logoRow?.value) cfgCarregado = { ...cfgCarregado, logob64: logoRow.value }
       }
       setCfgLocal(cfgCarregado)
+      // Carregar FAQ
+      const { data: faqRow } = await supabase.from('vx_storage').select('value').eq('key', `faq:${eid}`).maybeSingle()
+      if (faqRow?.value) { try { setFaqArtigos(JSON.parse(faqRow.value)) } catch {} }
+      // Número de suporte WhatsApp
+      if (cfgCarregado.suporteWpp) setSuporteWpp(cfgCarregado.suporteWpp)
     })
   }, [cfg])
 
@@ -340,8 +350,94 @@ export default function Navbar({ cfg = {}, perfil = null }) {
           })}
         </div>
 
-        {/* ── Direita — Sino + Avatar clicável ── */}
+        {/* ── Direita — FAQ + Sino + Avatar clicável ── */}
         <div className="nav-right">
+
+          {/* ❓ Botão FAQ */}
+          <button
+            title="Central de Ajuda"
+            onClick={e => { e.stopPropagation(); setFaqOpen(v => !v); setFaqArtigo(null); setFaqBusca('') }}
+            style={{ position:'relative', background: faqOpen ? 'rgba(124,58,237,.15)' : 'none', border:`1px solid ${faqOpen ? 'rgba(124,58,237,.5)' : '#18243a'}`, borderRadius:8, width:34, height:34, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:15, color: faqOpen ? '#a78bfa' : '#6e8099', transition:'all .15s' }}
+          >
+            ❓
+          </button>
+
+          {/* Drawer FAQ */}
+          {faqOpen && (
+            <div onClick={e => e.stopPropagation()} style={{ position:'fixed', top:52, right:0, width:400, height:'calc(100vh - 52px)', background:'#08101e', borderLeft:'1px solid #18243a', borderTop:'2px solid #a78bfa', boxShadow:'-24px 0 64px rgba(0,0,0,.7)', zIndex:99998, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+              {/* Header */}
+              <div style={{ padding:'16px 18px 12px', borderBottom:'1px solid #18243a', background:'rgba(124,58,237,.05)', flexShrink:0 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                  <span style={{ fontFamily:"'Syne',sans-serif", fontSize:13, fontWeight:700, color:'#a78bfa', letterSpacing:.5 }}>❓ Central de Ajuda</span>
+                  <button onClick={() => setFaqOpen(false)} style={{ background:'none', border:'none', color:'#475569', fontSize:18, cursor:'pointer', lineHeight:1 }}>×</button>
+                </div>
+                <input
+                  value={faqBusca} onChange={e => setFaqBusca(e.target.value)}
+                  placeholder="Buscar artigos..."
+                  style={{ width:'100%', background:'#0f1a2e', border:'1px solid #1e2d4a', borderRadius:8, padding:'8px 12px', fontFamily:"'DM Mono',monospace", fontSize:12, color:'#e2e8f0', outline:'none', boxSizing:'border-box' }}
+                />
+              </div>
+
+              {/* Conteúdo */}
+              <div style={{ flex:1, overflowY:'auto' }}>
+                {faqArtigo ? (
+                  /* Artigo aberto */
+                  <div style={{ padding:18 }}>
+                    <button onClick={() => setFaqArtigo(null)} style={{ background:'none', border:'none', color:'#a78bfa', fontFamily:"'DM Mono',monospace", fontSize:11, cursor:'pointer', marginBottom:14, display:'flex', alignItems:'center', gap:5 }}>← Voltar</button>
+                    <h2 style={{ fontSize:16, fontWeight:700, color:'#e2e8f0', marginBottom:10, lineHeight:1.4 }}>{faqArtigo.titulo}</h2>
+                    {faqArtigo.imagemUrl && <img src={faqArtigo.imagemUrl} alt="" style={{ width:'100%', borderRadius:8, marginBottom:12, objectFit:'cover', maxHeight:200 }} />}
+                    {faqArtigo.videoUrl && (
+                      <div style={{ marginBottom:12, borderRadius:8, overflow:'hidden' }}>
+                        {faqArtigo.videoUrl.includes('youtube') || faqArtigo.videoUrl.includes('youtu.be')
+                          ? <iframe width="100%" height="200" src={faqArtigo.videoUrl.replace('watch?v=','embed/').replace('youtu.be/','youtube.com/embed/')} frameBorder="0" allowFullScreen style={{ borderRadius:8 }} />
+                          : <video src={faqArtigo.videoUrl} controls style={{ width:'100%', borderRadius:8 }} />
+                        }
+                      </div>
+                    )}
+                    <div style={{ fontSize:13, color:'#94a3b8', lineHeight:1.8, whiteSpace:'pre-wrap' }}>{faqArtigo.conteudo}</div>
+                  </div>
+                ) : (
+                  /* Lista de artigos */
+                  <div style={{ padding:'8px 0' }}>
+                    {faqArtigos.length === 0 && (
+                      <div style={{ padding:'40px 18px', textAlign:'center', color:'#475569', fontSize:12 }}>
+                        Nenhum artigo publicado ainda.<br/>
+                        <span style={{ fontSize:11, color:'#334155' }}>Acesse Config → FAQ para criar artigos.</span>
+                      </div>
+                    )}
+                    {faqArtigos
+                      .filter(a => !faqBusca || a.titulo.toLowerCase().includes(faqBusca.toLowerCase()) || (a.conteudo||'').toLowerCase().includes(faqBusca.toLowerCase()))
+                      .map(a => (
+                        <div key={a.id} onClick={() => setFaqArtigo(a)}
+                          style={{ padding:'12px 18px', borderBottom:'1px solid #0f1a2e', cursor:'pointer', transition:'background .12s' }}
+                          onMouseOver={e => e.currentTarget.style.background='rgba(124,58,237,.07)'}
+                          onMouseOut={e => e.currentTarget.style.background='transparent'}>
+                          <div style={{ fontSize:12, fontWeight:600, color:'#e2e8f0', marginBottom:3 }}>{a.titulo}</div>
+                          {a.categoria && <span style={{ fontSize:10, color:'#a78bfa', background:'rgba(124,58,237,.12)', border:'1px solid rgba(124,58,237,.2)', borderRadius:10, padding:'1px 7px' }}>{a.categoria}</span>}
+                          {a.conteudo && <div style={{ fontSize:11, color:'#475569', marginTop:4, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{a.conteudo.slice(0,80)}</div>}
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+
+              {/* Footer — link para suporte */}
+              <div style={{ padding:'12px 18px', borderTop:'1px solid #18243a', background:'rgba(0,0,0,.2)', flexShrink:0 }}>
+                <div style={{ fontSize:11, color:'#475569', marginBottom:6 }}>Não encontrou o que precisava?</div>
+                <button
+                  onClick={() => {
+                    const num = suporteWpp.replace(/\D/g,'') || '5531900000000'
+                    const msg = encodeURIComponent('Olá! Preciso de suporte técnico na plataforma Vivanexa.')
+                    window.open(`https://wa.me/${num}?text=${msg}`, '_blank')
+                  }}
+                  style={{ width:'100%', padding:'9px', borderRadius:9, background:'rgba(16,185,129,.12)', border:'1px solid rgba(16,185,129,.3)', color:'#10b981', fontFamily:"'DM Mono',monospace", fontSize:12, cursor:'pointer', fontWeight:600 }}>
+                  💬 Falar com Suporte no WhatsApp
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* 🔔 Sino de notificações */}
           {(() => {
             const naoLidas = notifs.filter(n => !notifLidas.includes(n.id))
@@ -432,6 +528,15 @@ export default function Navbar({ cfg = {}, perfil = null }) {
                   <div className="user-dd-sep" />
                   <button className="user-dd-btn" onClick={() => { setUserMenuOpen(false); setShowSenhaModal(true) }}>
                     🔑 Alterar Senha
+                  </button>
+                  <div className="user-dd-sep" />
+                  <button className="user-dd-btn" onClick={() => {
+                    setUserMenuOpen(false)
+                    const num = suporteWpp.replace(/\D/g,'') || '5531900000000'
+                    const msg = encodeURIComponent('Olá! Preciso de suporte técnico na plataforma Vivanexa.')
+                    window.open(`https://wa.me/${num}?text=${msg}`, '_blank')
+                  }}>
+                    💬 Suporte Técnico
                   </button>
                   <div className="user-dd-sep" />
                   <button className="user-dd-btn user-dd-sair" onClick={handleLogout}>
