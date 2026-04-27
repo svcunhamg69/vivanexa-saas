@@ -20,6 +20,7 @@ const TABS = [
   { id: 'clientes',   label: '🗃️ Clientes' },
   { id: 'tema',       label: '🎨 Tema' },
   { id: 'whatsapp',      label: '💬 WhatsApp' },
+  { id: 'faq',           label: '❓ FAQ / Ajuda' },
   { id: 'agente_ia',     label: '🤖 Agente IA' },
   { id: 'departamentos', label: '🏢 Departamentos' },
   { id: 'integracoes',  label: '🔗 Integrações' },
@@ -1978,6 +1979,7 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   const [saving,     setSaving]     = React.useState(false)
   const [testing,    setTesting]    = React.useState(false)
   const [cnpjApiToken, setCnpjApiToken] = React.useState(cfg.cnpjApiToken || '')
+  const [suporteWpp,   setSuporteWpp]   = React.useState(cfg.suporteWpp   || '') // número WhatsApp do suporte técnico
   const [testingApi,   setTestingApi]   = React.useState(false)
   const [msg,          setMsg]          = React.useState('')
   // 3CX
@@ -2004,7 +2006,7 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
     try {
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
       const atual = row?.value ? JSON.parse(row.value) : {}
-      const novo  = { ...atual, wpp: { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo }, cnpjApiToken: cnpjApiToken.trim() }
+      const novo  = { ...atual, wpp: { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo }, cnpjApiToken: cnpjApiToken.trim(), suporteWpp: suporteWpp.replace(/\D/g,'') }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
       setCfg(novo)
       setMsg('✅ Configurações salvas!')
@@ -2122,7 +2124,39 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
         </div>
       </div>
 
-      {/* ── STATUS ── */}
+      {/* ── SUPORTE TÉCNICO ── */}
+      <div style={{ ...s.card, borderColor: suporteWpp ? 'rgba(16,185,129,.35)' : 'var(--border)' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+          <div style={{ fontFamily:'Syne, sans-serif', fontSize:14, fontWeight:700 }}>🆘 Suporte Técnico — WhatsApp</div>
+          <div style={{ ...s.badge,
+            background: suporteWpp ? 'rgba(16,185,129,.12)' : 'rgba(100,116,139,.12)',
+            color: suporteWpp ? '#10b981' : '#64748b',
+            border: `1px solid ${suporteWpp ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)'}` }}>
+            {suporteWpp ? '● Configurado' : '○ Não configurado'}
+          </div>
+        </div>
+        <div style={{ fontSize:12, color:'var(--muted)', lineHeight:1.7, marginBottom:14 }}>
+          Número que receberá os chamados de suporte iniciados pelos usuários no botão <strong style={{color:'var(--text)'}}>💬 Suporte Técnico</strong> (menu do perfil) e na <strong style={{color:'var(--text)'}}>Central de Ajuda ❓</strong>. O usuário será direcionado para o WhatsApp com uma mensagem pré-definida. O atendimento é feito pelo <strong style={{color:'var(--accent)'}}>WhatsApp Inbox</strong> da plataforma.
+        </div>
+        <label style={s.label}>Número do WhatsApp de Suporte (com DDI)</label>
+        <input
+          style={s.input}
+          value={suporteWpp}
+          onChange={e => setSuporteWpp(e.target.value)}
+          placeholder="Ex: 5531984059125"
+        />
+        <div style={{ fontSize:11, color:'var(--muted)', lineHeight:1.6, marginBottom:12 }}>
+          Formato: <strong>55</strong> (DDI Brasil) + DDD + número. Ex: <strong style={{color:'var(--accent)'}}>5531984059125</strong>
+        </div>
+        {suporteWpp && (
+          <a href={`https://wa.me/${suporteWpp.replace(/\D/g,'')}?text=${encodeURIComponent('Olá! Preciso de suporte técnico na plataforma Vivanexa.')}`} target="_blank" rel="noreferrer"
+            style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:9, background:'rgba(16,185,129,.1)', border:'1px solid rgba(16,185,129,.3)', color:'#10b981', fontFamily:'DM Mono, monospace', fontSize:12, textDecoration:'none' }}>
+            🧪 Testar link de suporte
+          </a>
+        )}
+      </div>
+
+      {/* ── STATUS WhatsApp Business ── */}
       <div style={{ ...s.card, borderColor: wppAtivo ? 'rgba(16,185,129,.4)' : 'var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700 }}>📱 WhatsApp Business</div>
@@ -3605,6 +3639,209 @@ export default function Configuracoes() {
     init()
   }, [])
 
+// ══════════════════════════════════════════════════════════════
+// TAB FAQ — Central de Ajuda (CRUD completo)
+// ══════════════════════════════════════════════════════════════
+function TabFaq({ cfg, setCfg, empresaId }) {
+  const s = {
+    card:     { background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:14, padding:'22px 24px', marginBottom:16 },
+    label:    { fontSize:11, color:'var(--muted)', display:'block', marginBottom:5, letterSpacing:.5, textTransform:'uppercase' },
+    input:    { width:'100%', background:'var(--surface)', border:'1px solid var(--border)', borderRadius:8, padding:'9px 12px', fontFamily:'DM Mono, monospace', fontSize:13, color:'var(--text)', outline:'none', marginBottom:10, boxSizing:'border-box' },
+    btn:      { padding:'10px 22px', borderRadius:9, background:'linear-gradient(135deg,#00d4ff,#0099bb)', border:'none', color:'#fff', fontFamily:'DM Mono, monospace', fontSize:13, fontWeight:600, cursor:'pointer' },
+    btnSec:   { padding:'8px 16px', borderRadius:9, background:'rgba(0,212,255,.1)', border:'1px solid rgba(0,212,255,.3)', color:'var(--accent)', fontFamily:'DM Mono, monospace', fontSize:12, cursor:'pointer' },
+    btnDanger:{ padding:'7px 14px', borderRadius:9, background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', color:'#ef4444', fontFamily:'DM Mono, monospace', fontSize:12, cursor:'pointer' },
+  }
+
+  const [artigos,  setArtigos]  = React.useState([])
+  const [carregando,setCarregando]=React.useState(true)
+  const [editando, setEditando] = React.useState(null)
+  const [saving,   setSaving]   = React.useState(false)
+  const [msg,      setMsg]      = React.useState('')
+  const [preview,  setPreview]  = React.useState(false)
+  const [titulo,   setTitulo]   = React.useState('')
+  const [categoria,setCategoria]= React.useState('')
+  const [conteudo, setConteudo] = React.useState('')
+  const [imagemUrl,setImagemUrl]= React.useState('')
+  const [videoUrl, setVideoUrl] = React.useState('')
+  const [ordem,    setOrdem]    = React.useState(0)
+
+  React.useEffect(() => { carregar() }, [])
+
+  async function carregar() {
+    setCarregando(true)
+    try {
+      const { data } = await supabase.from('vx_storage').select('value').eq('key', `faq:${empresaId}`).maybeSingle()
+      if (data?.value) setArtigos(JSON.parse(data.value))
+    } catch {}
+    setCarregando(false)
+  }
+
+  async function persistir(lista) {
+    await supabase.from('vx_storage').upsert({ key:`faq:${empresaId}`, value:JSON.stringify(lista), updated_at:new Date().toISOString() })
+    setArtigos(lista)
+  }
+
+  function abrirNovo() {
+    setTitulo(''); setCategoria(''); setConteudo(''); setImagemUrl(''); setVideoUrl(''); setOrdem(artigos.length)
+    setEditando({ _novo:true }); setMsg(''); setPreview(false)
+  }
+
+  function abrirEditar(a) {
+    setTitulo(a.titulo||''); setCategoria(a.categoria||''); setConteudo(a.conteudo||'')
+    setImagemUrl(a.imagemUrl||''); setVideoUrl(a.videoUrl||''); setOrdem(a.ordem||0)
+    setEditando(a); setMsg(''); setPreview(false)
+  }
+
+  async function salvar() {
+    if (!titulo.trim()) { setMsg('⚠️ Informe o título'); return }
+    setSaving(true); setMsg('')
+    try {
+      let lista
+      if (editando._novo) {
+        const novo = { id:Date.now().toString(), titulo:titulo.trim(), categoria:categoria.trim(), conteudo:conteudo.trim(), imagemUrl:imagemUrl.trim(), videoUrl:videoUrl.trim(), ordem, criadoEm:new Date().toISOString() }
+        lista = [...artigos, novo].sort((a,b) => a.ordem - b.ordem)
+      } else {
+        lista = artigos.map(a => a.id===editando.id
+          ? { ...a, titulo:titulo.trim(), categoria:categoria.trim(), conteudo:conteudo.trim(), imagemUrl:imagemUrl.trim(), videoUrl:videoUrl.trim(), ordem, atualizadoEm:new Date().toISOString() }
+          : a).sort((a,b) => a.ordem - b.ordem)
+      }
+      await persistir(lista)
+      setMsg('✅ Artigo salvo!'); setEditando(null)
+    } catch(e) { setMsg('❌ ' + e.message) }
+    setSaving(false)
+  }
+
+  async function excluir(id) {
+    if (!confirm('Excluir este artigo permanentemente?')) return
+    await persistir(artigos.filter(a => a.id !== id))
+    setMsg('🗑️ Artigo excluído.')
+  }
+
+  const cats = [...new Set(artigos.map(a => a.categoria).filter(Boolean))]
+
+  if (editando !== null) return (
+    <div>
+      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20, flexWrap:'wrap' }}>
+        <button onClick={() => setEditando(null)} style={s.btnSec}>← Voltar</button>
+        <h2 style={{ fontFamily:'Syne, sans-serif', fontSize:15, fontWeight:700, color:'var(--accent)' }}>
+          {editando._novo ? '➕ Novo Artigo' : '✏️ Editar Artigo'}
+        </h2>
+        <button onClick={() => setPreview(v=>!v)} style={{ ...s.btnSec, marginLeft:'auto', color:preview?'#a78bfa':'var(--accent)', borderColor:preview?'rgba(124,58,237,.4)':undefined }}>
+          {preview ? '✏️ Editar' : '👁️ Preview'}
+        </button>
+      </div>
+
+      {preview ? (
+        <div style={{ ...s.card, maxWidth:680 }}>
+          <h2 style={{ fontSize:18, fontWeight:700, color:'var(--text)', marginBottom:10 }}>{titulo||'(sem título)'}</h2>
+          {categoria && <span style={{ fontSize:11, color:'#a78bfa', background:'rgba(124,58,237,.12)', border:'1px solid rgba(124,58,237,.2)', borderRadius:10, padding:'2px 9px', marginBottom:14, display:'inline-block' }}>{categoria}</span>}
+          {imagemUrl && <img src={imagemUrl} alt="" onError={e=>e.target.style.display='none'} style={{ width:'100%', borderRadius:8, marginBottom:12, maxHeight:260, objectFit:'cover', marginTop:10 }} />}
+          {videoUrl && (
+            <div style={{ marginBottom:12, borderRadius:8, overflow:'hidden', marginTop:10 }}>
+              {videoUrl.includes('youtube')||videoUrl.includes('youtu.be')
+                ? <iframe width="100%" height="240" src={videoUrl.replace('watch?v=','embed/').replace('youtu.be/','youtube.com/embed/')} frameBorder="0" allowFullScreen />
+                : <video src={videoUrl} controls style={{ width:'100%', borderRadius:8 }} />}
+            </div>
+          )}
+          <div style={{ fontSize:13, color:'var(--muted)', lineHeight:1.9, whiteSpace:'pre-wrap', marginTop:10 }}>{conteudo||'(sem conteúdo)'}</div>
+        </div>
+      ) : (
+        <div style={s.card}>
+          <label style={s.label}>Título *</label>
+          <input style={s.input} value={titulo} onChange={e=>setTitulo(e.target.value)} placeholder="Ex: Como configurar o WhatsApp?" />
+
+          <label style={s.label}>Categoria</label>
+          <input style={s.input} value={categoria} onChange={e=>setCategoria(e.target.value)} placeholder="Ex: WhatsApp, CRM, Financeiro..." list="faq-cats" />
+          <datalist id="faq-cats">{cats.map(c=><option key={c} value={c}/>)}</datalist>
+
+          <label style={s.label}>Conteúdo / Texto</label>
+          <textarea value={conteudo} onChange={e=>setConteudo(e.target.value)}
+            placeholder="Descreva passo a passo, dicas e informações importantes..."
+            style={{ ...s.input, minHeight:180, resize:'vertical', lineHeight:1.8 }} />
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:4 }}>
+            <div>
+              <label style={s.label}>🖼️ URL da Imagem (opcional)</label>
+              <input style={s.input} value={imagemUrl} onChange={e=>setImagemUrl(e.target.value)} placeholder="https://..." />
+              {imagemUrl && <img src={imagemUrl} alt="" onError={e=>e.target.style.display='none'} style={{ width:'100%', borderRadius:6, maxHeight:110, objectFit:'cover', marginBottom:8 }} />}
+            </div>
+            <div>
+              <label style={s.label}>🎬 Vídeo (YouTube ou MP4)</label>
+              <input style={s.input} value={videoUrl} onChange={e=>setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." />
+              {videoUrl && <div style={{ fontSize:11, color:'#10b981' }}>✓ Vídeo configurado</div>}
+            </div>
+          </div>
+
+          <label style={s.label}>Ordem de exibição</label>
+          <input type="number" min={0} style={{ ...s.input, maxWidth:100 }} value={ordem} onChange={e=>setOrdem(Number(e.target.value))} />
+        </div>
+      )}
+
+      {msg && <div style={{ fontSize:12, color:msg.startsWith('✅')?'#10b981':'#ef4444', margin:'12px 0' }}>{msg}</div>}
+      <div style={{ display:'flex', gap:10 }}>
+        <button onClick={salvar} disabled={saving} style={s.btn}>{saving?'⏳ Salvando...':'💾 Salvar Artigo'}</button>
+        <button onClick={() => setEditando(null)} style={s.btnSec}>Cancelar</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+        <div>
+          <h2 style={{ fontFamily:'Syne, sans-serif', fontSize:16, fontWeight:700, color:'var(--accent)', marginBottom:4 }}>❓ Central de Ajuda — FAQ</h2>
+          <div style={{ fontSize:12, color:'var(--muted)' }}>{artigos.length} artigo{artigos.length!==1?'s':''} publicado{artigos.length!==1?'s':''}</div>
+        </div>
+        <button onClick={abrirNovo} style={s.btn}>➕ Novo Artigo</button>
+      </div>
+
+      {msg && <div style={{ fontSize:12, color:'#10b981', marginBottom:12 }}>{msg}</div>}
+
+      {carregando ? (
+        <div style={{ textAlign:'center', padding:40, color:'var(--muted)', fontSize:12 }}>Carregando...</div>
+      ) : artigos.length === 0 ? (
+        <div style={{ ...s.card, textAlign:'center', padding:52 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>📭</div>
+          <div style={{ fontSize:14, color:'var(--text)', fontWeight:600, marginBottom:6 }}>Nenhum artigo ainda</div>
+          <div style={{ fontSize:12, color:'var(--muted)', marginBottom:20 }}>Crie artigos de ajuda — textos, imagens e vídeos.</div>
+          <button onClick={abrirNovo} style={s.btn}>➕ Criar primeiro artigo</button>
+        </div>
+      ) : (
+        <div>
+          {[...new Set(['', ...cats])].map(cat => {
+            const grupo = artigos.filter(a => cat==='' ? !a.categoria : a.categoria===cat)
+            if (!grupo.length) return null
+            return (
+              <div key={cat||'__sem__'} style={{ marginBottom:20 }}>
+                {cat && <div style={{ fontSize:10, color:'#a78bfa', textTransform:'uppercase', letterSpacing:1.5, fontWeight:700, marginBottom:8, padding:'0 2px' }}>{cat}</div>}
+                {grupo.map(a => (
+                  <div key={a.id} style={{ ...s.card, padding:'13px 18px', display:'flex', alignItems:'center', gap:14, marginBottom:8, cursor:'pointer', transition:'border-color .15s' }}
+                    onMouseOver={e=>e.currentTarget.style.borderColor='rgba(0,212,255,.3)'}
+                    onMouseOut={e=>e.currentTarget.style.borderColor='var(--border)'}>
+                    <div style={{ flex:1 }} onClick={() => abrirEditar(a)}>
+                      <div style={{ fontSize:13, fontWeight:600, color:'var(--text)', marginBottom:3 }}>{a.titulo}</div>
+                      <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                        {a.categoria && <span style={{ fontSize:10, color:'#a78bfa', background:'rgba(124,58,237,.1)', border:'1px solid rgba(124,58,237,.2)', borderRadius:10, padding:'1px 7px' }}>{a.categoria}</span>}
+                        {a.imagemUrl && <span style={{ fontSize:10, color:'#64748b' }}>🖼️</span>}
+                        {a.videoUrl  && <span style={{ fontSize:10, color:'#64748b' }}>🎬</span>}
+                        {a.conteudo  && <span style={{ fontSize:11, color:'#475569' }}>{a.conteudo.slice(0,70)}{a.conteudo.length>70?'...':''}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+                      <button onClick={() => abrirEditar(a)} style={s.btnSec}>✏️ Editar</button>
+                      <button onClick={() => excluir(a.id)} style={s.btnDanger}>🗑️</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
   function renderAba() {
     const props = { cfg, setCfg, empresaId }
     switch (abaAtiva) {
@@ -3624,6 +3861,7 @@ export default function Configuracoes() {
       case 'departamentos': return <TabDepartamentos {...props} />
       case 'integracoes':  return <TabIntegracoes {...props} />
       case 'google_meta':  return <TabGoogleMeta  {...props} />
+      case 'faq':          return <TabFaq         {...props} />
       default:           return null
     }
   }
