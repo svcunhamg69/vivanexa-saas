@@ -158,6 +158,13 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [openaiApiKey, setOpenaiApiKey] = useState(cfg.openaiApiKey || '')
   const [saving,       setSaving]       = useState(false)
 
+  // ── Paleta de cores da empresa ────────────────────────────────────
+  const [corPrimaria,   setCorPrimaria]   = useState(cfg.cores?.primaria   || '#00d4ff')
+  const [corSecundaria, setCorSecundaria] = useState(cfg.cores?.secundaria || '#7c3aed')
+  const [corAcento,     setCorAcento]     = useState(cfg.cores?.acento     || '#10b981')
+  const [corTexto,      setCorTexto]      = useState(cfg.cores?.texto      || '#e2e8f0')
+  const [corFundo,      setCorFundo]      = useState(cfg.cores?.fundo      || '#0a0f1e')
+
 
   // Carrega logo da chave separada ao montar/mudar empresaId
   useEffect(() => {
@@ -188,6 +195,14 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setSignEmail(cfg.signConfig?.email || '')
     setSignWpp(cfg.signConfig?.wpp || '')
     setSignUrl(cfg.signConfig?.url || '')
+    // paleta de cores
+    if (cfg.cores) {
+      setCorPrimaria(cfg.cores.primaria   || '#00d4ff')
+      setCorSecundaria(cfg.cores.secundaria || '#7c3aed')
+      setCorAcento(cfg.cores.acento       || '#10b981')
+      setCorTexto(cfg.cores.texto         || '#e2e8f0')
+      setCorFundo(cfg.cores.fundo         || '#0a0f1e')
+    }
   }, [cfg])
 
   function handleLogo(e) {
@@ -209,6 +224,13 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
       geminiApiKey, groqApiKey, openaiApiKey,
       razaoSocial, cnpjEmpresa, telefoneEmp, emailEmp, responsavel, enderecoEmp,
       signConfig: { email: signEmail, wpp: signWpp, url: signUrl },
+      cores: {
+        primaria:   corPrimaria,
+        secundaria: corSecundaria,
+        acento:     corAcento,
+        texto:      corTexto,
+        fundo:      corFundo,
+      },
     }
     // salvarStorage já separa a logo automaticamente
     const { error } = await salvarStorage(empresaId, novoCfg)
@@ -264,6 +286,60 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
         ) : (
           <div style={{ marginTop: 10, padding: '14px 18px', background: 'var(--surface2)', border: '1px dashed var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>Nenhuma logomarca carregada</div>
         )}
+      </div>
+
+      {/* ── Paleta de Cores da Empresa ── */}
+      <div style={s.sec}>
+        <div style={s.secTitle}>🎨 Paleta de Cores da Empresa</div>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+          Cores usadas automaticamente na geração de materiais de marketing, criativos e campanhas com IA.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 12, marginBottom: 16 }}>
+          {[
+            ['Cor Primária',   corPrimaria,   setCorPrimaria,   'Botões, destaques principais'],
+            ['Cor Secundária', corSecundaria, setCorSecundaria, 'Ícones, detalhes, links'],
+            ['Cor de Acento',  corAcento,     setCorAcento,     'CTAs, badges, alertas'],
+            ['Cor do Texto',   corTexto,      setCorTexto,      'Texto sobre fundos escuros'],
+            ['Cor de Fundo',   corFundo,      setCorFundo,      'Background dos materiais'],
+          ].map(([label, val, setter, desc]) => (
+            <div key={label} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
+              <label style={{ ...s.label, marginBottom: 8 }}>{label}</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <input
+                  type="color"
+                  value={val}
+                  onChange={e => setter(e.target.value)}
+                  style={{ width: 42, height: 34, border: 'none', borderRadius: 6, cursor: 'pointer', background: 'none', padding: 0, flexShrink: 0 }}
+                />
+                <input
+                  value={val}
+                  onChange={e => setter(e.target.value)}
+                  maxLength={7}
+                  placeholder="#000000"
+                  style={{ ...s.input, marginBottom: 0, fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: 1 }}
+                />
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.4 }}>{desc}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Preview ao vivo da paleta */}
+        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
+          <div style={{ background: corFundo, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[corPrimaria, corSecundaria, corAcento].map((c, i) => (
+                <div key={i} style={{ width: 32, height: 32, borderRadius: 8, background: c, border: '2px solid rgba(255,255,255,.15)' }} title={c} />
+              ))}
+            </div>
+            <span style={{ color: corTexto, fontSize: 13, fontWeight: 600, fontFamily: 'DM Mono, monospace' }}>
+              Preview — {corPrimaria} · {corSecundaria} · {corAcento}
+            </span>
+            <span style={{ marginLeft: 'auto', background: corPrimaria, color: corFundo, padding: '6px 18px', borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: 'DM Mono, monospace', cursor: 'default' }}>
+              Botão
+            </span>
+          </div>
+        </div>
       </div>
 
       <div style={s.sec}>
@@ -1980,6 +2056,7 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   const [cnpjApiToken, setCnpjApiToken] = React.useState(cfg.cnpjApiToken || '')
   const [testingApi,   setTestingApi]   = React.useState(false)
   const [msg,          setMsg]          = React.useState('')
+  const [suporteWpp,   setSuporteWpp]   = React.useState(cfg.suporteWpp   || '')
   // 3CX
   const [tcxUrl,          setTcxUrl]          = React.useState(cfg.tcx?.url          || '')
   const [tcxClientId,     setTcxClientId]     = React.useState(cfg.tcx?.clientId     || '')
@@ -2004,10 +2081,17 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
     try {
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
       const atual = row?.value ? JSON.parse(row.value) : {}
-      const novo  = { ...atual, wpp: { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo }, cnpjApiToken: cnpjApiToken.trim() }
-      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() }, { onConflict: 'key' })
+      const novo  = {
+        ...atual,
+        wpp:          { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo },
+        cnpjApiToken: cnpjApiToken.trim(),
+        suporteWpp:   suporteWpp.replace(/\D/g, ''),
+      }
+      // Usa salvarStorage para merge correto (não sobrescreve logo nem outros campos)
+      const { error } = await salvarStorage(empresaId, novo)
+      if (error) throw new Error(error.message)
       setCfg(novo)
-      setMsg('✅ Configurações salvas!')
+      setMsg('✅ Configurações salvas com sucesso!')
     } catch (e) {
       setMsg('❌ Erro ao salvar: ' + e.message)
     }
@@ -2139,6 +2223,40 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
         <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
           Acesse <strong>cnpj-api.com</strong>, crie sua conta, vá em "API" e copie o token.
         </div>
+      </div>
+
+      {/* ── SUPORTE TÉCNICO WHATSAPP ── */}
+      <div style={{ ...s.card, borderColor: suporteWpp ? 'rgba(16,185,129,.35)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700 }}>🆘 Suporte Técnico — WhatsApp</div>
+          <div style={{ ...s.badge,
+            background:  suporteWpp ? 'rgba(16,185,129,.12)' : 'rgba(100,116,139,.12)',
+            color:       suporteWpp ? '#10b981' : '#64748b',
+            border: `1px solid ${suporteWpp ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)'}` }}>
+            {suporteWpp ? '● Configurado' : '○ Não configurado'}
+          </div>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 14 }}>
+          Número que receberá os chamados de suporte iniciados pelos usuários no botão <strong style={{ color: 'var(--text)' }}>💬 Suporte Técnico</strong> (menu do perfil) e na <strong style={{ color: 'var(--text)' }}>Central de Ajuda ❓</strong>. O usuário é direcionado ao WhatsApp com mensagem pré-definida.
+        </p>
+        <label style={s.label}>Número do WhatsApp de Suporte (com DDI)</label>
+        <input
+          style={s.input}
+          value={suporteWpp}
+          onChange={e => setSuporteWpp(e.target.value)}
+          placeholder="Ex: 5531984059125"
+        />
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>
+          Formato: <strong>55</strong> (DDI Brasil) + DDD + número. Ex: <strong style={{ color: 'var(--accent)' }}>5531984059125</strong>
+        </div>
+        {suporteWpp && (
+          <a
+            href={`https://wa.me/${suporteWpp.replace(/\D/g,'')}?text=${encodeURIComponent('Olá! Preciso de suporte técnico na plataforma.')}`}
+            target="_blank" rel="noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.3)', color: '#10b981', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'none' }}>
+            🧪 Testar link de suporte
+          </a>
+        )}
       </div>
 
       {/* ── STATUS ── */}
