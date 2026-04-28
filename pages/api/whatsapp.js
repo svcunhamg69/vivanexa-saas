@@ -1,9 +1,69 @@
 // pages/api/whatsapp.js
 // ✅ WhatsApp Cloud API (Meta) — Vivanexa SaaS
-// Funcionalidades:
-//   GET  → verificação do webhook (Meta exige isso na configuração)
-//   POST → receber mensagens (chatbot automático)
-//   POST com action → enviar mensagem, disparo em massa, notificação interna
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY  // service role para escrever server-side
+)
+
+// ── Persiste uma mensagem no inbox (tabela wpp_inbox) ──────────────────────
+// Cria a conversa se não existir, insere a mensagem e atualiza last_message
+async function persistirMensagem({ empresaId, from, nome, texto, direcao, phoneId }) {
+  try {
+    // 1. Upsert conversa
+    const { data: conv } = await supabase
+      .from('wpp_inbox')
+      .upsert({
+        empresa_id:   empresaId,
+        numero:       from,
+        nome:         nome || from,
+        phone_id:     phoneId,
+        last_message: texto?.slice(0, 120),
+        last_at:      new Date().toISOString(),
+        status:       'aguardando',
+        updated_at:   new Date().toISOString(),
+      }, { onConflict: 'empresa_id,numero' })
+      .select('id')
+      .maybeSingle()
+
+    const convId = conv?.id
+    if (!convId) return
+
+    // 2. Inserir mensagem
+    await supabase.from('wpp_mensagens').insert({
+      conversa_id: convId,
+      empresa_id:  empresaId,
+      numero:      from,
+      texto,
+      direcao,     // 'entrada' | 'saida'
+      criado_em:   new Date().toISOString(),
+    })
+  } catch (e) {
+    console.error('[inbox] erro ao persistir mensagem:', e.message)
+  }
+}
+
+// ── Busca empresaId pelo phoneId ───────────────────────────────────────────
+async function getEmpresaIdPorPhoneId(phoneId) {
+  try {
+    // Busca em vx_storage todas as configs que tenham este phoneId
+    const { data } = await supabase
+      .from('vx_storage')
+      .select('key, value')
+      .like('key', 'cfg:%')
+    if (!data) return null
+    for (const row of data) {
+      try {
+        const cfg = JSON.parse(row.value)
+        if (cfg?.wpp?.phoneId === phoneId) {
+          return row.key.replace('cfg:', '')
+        }
+      } catch {}
+    }
+  } catch {}
+  return null
+}
 
 export default async function handler(req, res) {
 
@@ -46,17 +106,45 @@ export default async function handler(req, res) {
       if (!message) return res.status(200).json({ status: 'no_message' })
 
       const from    = message.from                          // número do remetente
-      const msgText = message.text?.body?.toLowerCase() || ''
+      const msgText = message.text?.body || ''
       const phoneId = value.metadata?.phone_number_id
-
-      // Credenciais do ambiente
       const token   = process.env.WHATSAPP_TOKEN
 
+      // Nome do contato (vem no value.contacts quando disponível)
+      const nomeContato = value.contacts?.[0]?.profile?.name || from
+
+      // Busca empresa pelo phoneId
+      const empresaId = await getEmpresaIdPorPhoneId(phoneId)
+
+      // ── Persiste mensagem de ENTRADA no inbox ──
+      if (empresaId) {
+        await persistirMensagem({
+          empresaId,
+          from,
+          nome:     nomeContato,
+          texto:    msgText,
+          direcao:  'entrada',
+          phoneId,
+        })
+      }
+
       // ── Lógica do Chatbot Automático ──
-      const resposta = gerarRespostaChatbot(msgText)
+      const resposta = gerarRespostaChatbot(msgText.toLowerCase())
 
       if (resposta && token && phoneId) {
         await enviarMensagem({ phoneId, token, para: from, texto: resposta })
+
+        // Persiste mensagem de SAÍDA do bot no inbox
+        if (empresaId) {
+          await persistirMensagem({
+            empresaId,
+            from,
+            nome:     nomeContato,
+            texto:    resposta,
+            direcao:  'saida',
+            phoneId,
+          })
+        }
       }
 
       return res.status(200).json({ status: 'ok' })
