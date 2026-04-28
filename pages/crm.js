@@ -561,6 +561,22 @@ export default function CRM() {
 
   if(loading) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#0a0f1e',color:'#64748b',fontFamily:'DM Mono,monospace'}}>Carregando CRM...</div>
 
+  // ── Cron client-side — garante briefing/followup automático ──
+  useEffect(()=>{
+    async function triggerCron(){ try{ await fetch('/api/cron-agente') }catch{} }
+    triggerCron()
+    const t = setInterval(triggerCron, 30*60*1000)
+    return ()=>clearInterval(t)
+  },[])
+
+  // ── Abre negócio via ?negocioId= (link do sino de notificações) ──
+  useEffect(()=>{
+    const nid = router?.query?.negocioId
+    if(!nid||!negocios.length) return
+    const neg = negocios.find(n=>n.id===nid)
+    if(neg){ setNegSel(neg); router.replace('/crm',undefined,{shallow:true}) }
+  },[router?.query?.negocioId, negocios.length])
+
   return (
     <>
       <style>{`
