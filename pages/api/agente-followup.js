@@ -127,7 +127,7 @@ async function chamarIA(prompt, cfg) {
   return null
 }
 
-async function enviarWhatsApp(numero, mensagem, wppToken, instanceName) {
+async function enviarWhatsApp(numero, mensagem, wppToken, instanceName, opts = {}) {
   if (!numero || !mensagem || !wppToken) return false
   try {
     const num = numero.replace(/\D/g, '')
@@ -139,6 +139,46 @@ async function enviarWhatsApp(numero, mensagem, wppToken, instanceName) {
       headers: { 'Content-Type': 'application/json', apikey: token },
       body: JSON.stringify({ number: full, text: mensagem })
     })
+
+    // ── Salva mensagem na conversa do WhatsApp Inbox para o usuário acompanhar ──
+    if (resp.ok && opts.empresaId) {
+      try {
+        const msgObj = {
+          id: 'agente_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+          de: 'empresa', fromMe: true, texto: mensagem,
+          at: new Date().toISOString(), tipo: 'text',
+          agente: opts.origemAgente || 'IA Follow-up', isAgente: true,
+        }
+        const convKey = `wpp_conv:${opts.empresaId}:${full}`
+        const { data: convRow } = await supabase.from('vx_storage').select('value').eq('key', convKey).maybeSingle()
+        const convData = convRow?.value ? JSON.parse(convRow.value) : {
+          numero: full, nome: opts.nomeContato || '', status: 'automacao',
+          mensagens: [], criadoEm: new Date().toISOString(),
+          instancia: instanceName || 'default',
+        }
+        convData.mensagens = [...(convData.mensagens || []).slice(-199), msgObj]
+        convData.ultimaMensagem = mensagem.slice(0, 60)
+        convData.ultimaAt = new Date().toISOString()
+        convData.ultimaDe = 'empresa'
+        convData.instancia = instanceName || convData.instancia || 'default'
+        await supabase.from('vx_storage').upsert(
+          { key: convKey, value: JSON.stringify(convData), updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+        // Atualiza índice de conversas
+        const idxKey = `wpp_idx:${opts.empresaId}`
+        const { data: idxRow } = await supabase.from('vx_storage').select('value').eq('key', idxKey).maybeSingle()
+        const idx = idxRow?.value ? JSON.parse(idxRow.value) : {}
+        idx[full] = { numero: full, nome: opts.nomeContato || '', ultimaMensagem: mensagem.slice(0,60),
+          ultimaAt: new Date().toISOString(), status: 'automacao',
+          instancia: instanceName || 'default', isAgente: true, updatedAt: new Date().toISOString() }
+        await supabase.from('vx_storage').upsert(
+          { key: idxKey, value: JSON.stringify(idx), updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+      } catch (saveErr) { console.error('[inbox save]', saveErr.message) }
+    }
+
     return resp.ok
   } catch (e) {
     console.error('Erro WhatsApp:', e.message)
@@ -303,7 +343,8 @@ ${tarefasHojeDetalhes ? 'Tarefas:\n' + tarefasHojeDetalhes : ''}
       enviado = await enviarWhatsApp(
         telefone,
         `🤖 *BRIEFING DO DIA — ${hoje.toLocaleDateString('pt-BR')}*\n\nOlá, ${nome}! 👋\n\n${texto}`,
-        wppToken, wppInstancia
+        wppToken, wppInstancia,
+        { empresaId, nomeContato: nome, origemAgente: '🤖 Briefing Diário' }
       )
     }
     resultados.push({ nome, telefone, enviado, texto: texto.slice(0, 100) + '...' })
@@ -621,7 +662,7 @@ Responda APENAS com a mensagem melhorada, sem aspas ou explicações.
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' })
 
-  const { acao, empresaId, negocioId, etapaId, mensagemCliente, retornarParaVendedor } = req.body
+  const { acao, empresaId, negocioId, etapaId, mensagemCliente, retornarParaVendedor, instanciaOverride } = req.body
 
   if (!acao || !empresaId) return res.status(400).json({ error: 'acao e empresaId são obrigatórios' })
 
@@ -631,10 +672,10 @@ export default async function handler(req, res) {
         return res.json(await briefingDiario(empresaId, instanciaOverride))
 
       case 'followup_parado':
-        return res.json(await followupParado(empresaId, negocioId))
+        return res.json(await followupParado(empresaId, negocioId, instanciaOverride))
 
       case 'followup_tarefas':
-        return res.json(await followupTarefas(empresaId))
+        return res.json(await followupTarefas(empresaId, instanciaOverride))
 
       case 'negociar':
         return res.json(await negociar(empresaId, negocioId, mensagemCliente, retornarParaVendedor))
