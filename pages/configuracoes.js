@@ -157,6 +157,13 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [groqApiKey,   setGroqApiKey]   = useState(cfg.groqApiKey   || '')
   const [openaiApiKey, setOpenaiApiKey] = useState(cfg.openaiApiKey || '')
   const [saving,       setSaving]       = useState(false)
+  const [cores,        setCoresLocal]   = useState({
+    primaria:   cfg.cores?.primaria   || '#00d4ff',
+    secundaria: cfg.cores?.secundaria || '#7c3aed',
+    acento:     cfg.cores?.acento     || '#10b981',
+    texto:      cfg.cores?.texto      || '#e2e8f0',
+    fundo:      cfg.cores?.fundo      || '#0a0f1e',
+  })
 
 
   // Carrega logo da chave separada ao montar/mudar empresaId
@@ -209,6 +216,7 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
       geminiApiKey, groqApiKey, openaiApiKey,
       razaoSocial, cnpjEmpresa, telefoneEmp, emailEmp, responsavel, enderecoEmp,
       signConfig: { email: signEmail, wpp: signWpp, url: signUrl },
+      cores,
     }
     // salvarStorage já separa a logo automaticamente
     const { error } = await salvarStorage(empresaId, novoCfg)
@@ -250,6 +258,22 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
         <div style={s.row2}>
           <div style={s.field}><label style={s.label}>Nome da Empresa</label><input style={s.input} value={company} onChange={e => setCompany(e.target.value)} placeholder="Ex: Vivanexa" /></div>
           <div style={s.field}><label style={s.label}>Slogan / Subtítulo</label><input style={s.input} value={slogan} onChange={e => setSlogan(e.target.value)} placeholder="Assistente Comercial" /></div>
+
+          {/* 🎨 Paleta de cores — aplicada no módulo Marketing IA */}
+          <div style={{ background:'rgba(124,58,237,.06)', border:'1px solid rgba(124,58,237,.2)', borderRadius:10, padding:'12px 14px', marginBottom:12 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'#a78bfa', letterSpacing:.5, marginBottom:10 }}>🎨 PALETA DE CORES DA MARCA</div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:10 }}>
+              {[['Primária','primaria'],['Secundária','secundaria'],['Acento','acento'],['Texto','texto'],['Fundo','fundo']].map(([label,key]) => (
+                <div key={key} style={{ textAlign:'center' }}>
+                  <label style={{ fontSize:10, color:'#64748b', display:'block', marginBottom:4 }}>{label}</label>
+                  <input type="color" value={cores[key] || '#000000'} onChange={e => setCoresLocal(prev => ({ ...prev, [key]: e.target.value }))}
+                    style={{ width:'100%', height:36, borderRadius:6, border:'1px solid #1e2d4a', cursor:'pointer', padding:2 }} />
+                  <div style={{ fontSize:9, color:'#475569', marginTop:2 }}>{cores[key]}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize:10, color:'#475569', marginTop:8 }}>Cores aplicadas automaticamente nas peças geradas pelo módulo Marketing IA.</div>
+          </div>
         </div>
         <div style={s.field}>
           <label style={s.label}>Logomarca (PNG/JPG — máx 500kb)</label>
