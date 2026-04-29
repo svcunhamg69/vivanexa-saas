@@ -8,7 +8,7 @@
 // ✅ NOVO: Publicação orgânica Instagram via Graph API
 // ✅ NOVO: Publicação orgânica Facebook via Graph API
 // ✅ NOVO: Publicação orgânica TikTok via Content Posting API
-// ✅ NOVO: Fluxo completo Aprovar / Recriar / Editar em todas as etapas 
+// ✅ NOVO: Fluxo completo Aprovar / Recriar / Editar em todas as etapas
 // ✅ NOVO: Campanhas exibem imagem gerada + todos os dados
 // ✅ NOVO: Agenda integrada com campanhas e imagens geradas
 // ✅ Agente Gestor de Marketing IA em todas as abas
@@ -287,7 +287,7 @@ function AgenteChat({ cfg, contexto='', cores }) {
       <div className="chat-area">
         {msgs.map((m,i) => <div key={i} className={`chat-msg ${m.role}`}>{m.content}</div>)}
         {thinking && <div className="chat-msg bot"><div className="thinking"><span/><span/><span/></div></div>}
-        <div ref={endRef}/>
+        <div ref={endRef}></div>
       </div>
       <div className="chat-input-row">
         <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&enviar()}
@@ -1338,7 +1338,7 @@ Responda SOMENTE em JSON sem markdown:
         .tab-btn.active { background: ${cores.secundaria}22 !important; border-color: ${cores.secundaria}80 !important; color: ${cores.secundaria} !important; }
         .stat-val { color: ${cores.secundaria} !important; }
       `}</style>
-      <div className="orb orb1"/><div className="orb orb2"/>
+      <div className="orb orb1"></div><div className="orb orb2"></div>
       <Navbar cfg={cfg} perfil={perfil}/>
 
       <div className="page-wrap">
@@ -1356,8 +1356,6 @@ Responda SOMENTE em JSON sem markdown:
             <div className="page-title">📣 Marketing{cfg.company ? ` — ${cfg.company}` : ''}</div>
             <div className="page-sub">Campanhas IA, criação de conteúdo e agenda de publicação</div>
           </div>
-        </div>
-
         </div>
 
         {/* Stats */}
@@ -1630,7 +1628,7 @@ Responda SOMENTE em JSON sem markdown:
                   <div className="chat-area">
                     {campRefineMsgs.map((m,i) => <div key={i} className={`chat-msg ${m.role}`}>{m.content}</div>)}
                     {campRefinando && <div className="chat-msg bot"><div className="thinking"><span/><span/><span/></div></div>}
-                    <div ref={campRefineEndRef}/>
+                    <div ref={campRefineEndRef}></div>
                   </div>
                   <div className="chat-input-row">
                     <input value={campRefineInput} onChange={e=>setCampRefineInput(e.target.value)}
@@ -1904,7 +1902,7 @@ Responda SOMENTE em JSON sem markdown:
                   <div className="card-title">🤖 Refinar Conteúdo com o Agente</div>
                   <div className="chat-area">
                     {imgRefineMsgs.map((m,i) => <div key={i} className={`chat-msg ${m.role}`}>{m.content}</div>)}
-                    <div ref={imgRefineEndRef}/>
+                    <div ref={imgRefineEndRef}></div>
                   </div>
                   <div className="chat-input-row">
                     <input value={imgRefineInput} onChange={e=>setImgRefineInput(e.target.value)}
@@ -1953,7 +1951,7 @@ Responda SOMENTE em JSON sem markdown:
                     {l}
                   </button>
                 ))}
-                <div style={{ width:1,background:'#1e2d4a',margin:'0 2px' }}/>
+                <div style={{ width:1,background:'#1e2d4a',margin:'0 2px' }}></div>
                 {vistaAgenda==='semana' && <>
                   <button className="btn btn-secondary" style={{ fontSize:11,padding:'6px 12px' }} onClick={()=>setOffsetSemana(s=>s-1)}>← Anterior</button>
                   <button className="btn btn-secondary" style={{ fontSize:11,padding:'6px 12px' }} onClick={()=>setOffsetSemana(0)}>Hoje</button>
@@ -2049,7 +2047,7 @@ Responda SOMENTE em JSON sem markdown:
                 </div>
                 <div style={{ display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3 }}>
                   {diasMes.map((dia,i) => {
-                    if (!dia) return <div key={i}/>
+                    if (!dia) return <div key={i}></div>
                     const pd = getPostsDoDia(dia)
                     const isHoje = dia.toDateString()===new Date().toDateString()
                     return (
@@ -2216,7 +2214,7 @@ Responda SOMENTE em JSON sem markdown:
         onEditar={(c)=>{ recriarCampanhaAnterior(c); }}
       />
 
-      <div id="mkt-toast" className="toast"/>
+      <div id="mkt-toast" className="toast"></div>
     </>
   )
 }
