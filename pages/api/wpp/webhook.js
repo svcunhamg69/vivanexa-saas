@@ -421,6 +421,8 @@ async function enviarAudioBot(cfg, instancia, numero, audioBase64, mimeType = 'a
     return false
   }
 }
+
+async function chamarIABot(cfg, agente, mensagem, historico=[], mediaBase64=null, mediaTipo=null, mimetype=null, empresaId=null) {
   if (!agente) return null
   const geminiKey = agente.geminiKey||cfg.geminiApiKey||process.env.GEMINI_API_KEY||''
   const groqKey   = agente.groqKey  ||cfg.groqApiKey  ||process.env.GROQ_API_KEY  ||''
