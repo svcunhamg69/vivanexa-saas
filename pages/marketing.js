@@ -963,14 +963,15 @@ export default function Marketing() {
       const eid = perf?.empresa_id||session.user.id
       setEmpresaId(eid)
       const { data:row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
+      // ✅ FIX: declara 'c' fora do if para não ficar undefined depois
+      let c = {}
       if (row?.value) {
-        const c = JSON.parse(row.value)
+        c = JSON.parse(row.value)
         setCfg(c)
         setPosts(c.mktPosts||[])
         setNicho(c.nicho||'')
         setNichoImg(c.nicho||'')
         setProduto(c.company||'')
-        // Aplicar paleta de cores da empresa
         // ── Paleta de cores: suporta cfg.cores{} e campos individuais ──
         const coresBase = {
           primaria:   c.cores?.primaria   || c.corPrimaria   || c.cor_primaria   || '#00d4ff',
