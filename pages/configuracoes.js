@@ -158,13 +158,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
   const [openaiApiKey, setOpenaiApiKey] = useState(cfg.openaiApiKey || '')
   const [saving,       setSaving]       = useState(false)
 
-  // ── Paleta de cores da empresa ────────────────────────────────────
-  const [corPrimaria,   setCorPrimaria]   = useState(cfg.cores?.primaria   || '#00d4ff')
-  const [corSecundaria, setCorSecundaria] = useState(cfg.cores?.secundaria || '#7c3aed')
-  const [corAcento,     setCorAcento]     = useState(cfg.cores?.acento     || '#10b981')
-  const [corTexto,      setCorTexto]      = useState(cfg.cores?.texto      || '#e2e8f0')
-  const [corFundo,      setCorFundo]      = useState(cfg.cores?.fundo      || '#0a0f1e')
-
 
   // Carrega logo da chave separada ao montar/mudar empresaId
   useEffect(() => {
@@ -195,14 +188,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
     setSignEmail(cfg.signConfig?.email || '')
     setSignWpp(cfg.signConfig?.wpp || '')
     setSignUrl(cfg.signConfig?.url || '')
-    // paleta de cores
-    if (cfg.cores) {
-      setCorPrimaria(cfg.cores.primaria   || '#00d4ff')
-      setCorSecundaria(cfg.cores.secundaria || '#7c3aed')
-      setCorAcento(cfg.cores.acento       || '#10b981')
-      setCorTexto(cfg.cores.texto         || '#e2e8f0')
-      setCorFundo(cfg.cores.fundo         || '#0a0f1e')
-    }
   }, [cfg])
 
   function handleLogo(e) {
@@ -224,13 +209,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
       geminiApiKey, groqApiKey, openaiApiKey,
       razaoSocial, cnpjEmpresa, telefoneEmp, emailEmp, responsavel, enderecoEmp,
       signConfig: { email: signEmail, wpp: signWpp, url: signUrl },
-      cores: {
-        primaria:   corPrimaria,
-        secundaria: corSecundaria,
-        acento:     corAcento,
-        texto:      corTexto,
-        fundo:      corFundo,
-      },
     }
     // salvarStorage já separa a logo automaticamente
     const { error } = await salvarStorage(empresaId, novoCfg)
@@ -286,60 +264,6 @@ function TabEmpresa({ cfg, setCfg, empresaId }) {
         ) : (
           <div style={{ marginTop: 10, padding: '14px 18px', background: 'var(--surface2)', border: '1px dashed var(--border)', borderRadius: 10, fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>Nenhuma logomarca carregada</div>
         )}
-      </div>
-
-      {/* ── Paleta de Cores da Empresa ── */}
-      <div style={s.sec}>
-        <div style={s.secTitle}>🎨 Paleta de Cores da Empresa</div>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
-          Cores usadas automaticamente na geração de materiais de marketing, criativos e campanhas com IA.
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 12, marginBottom: 16 }}>
-          {[
-            ['Cor Primária',   corPrimaria,   setCorPrimaria,   'Botões, destaques principais'],
-            ['Cor Secundária', corSecundaria, setCorSecundaria, 'Ícones, detalhes, links'],
-            ['Cor de Acento',  corAcento,     setCorAcento,     'CTAs, badges, alertas'],
-            ['Cor do Texto',   corTexto,      setCorTexto,      'Texto sobre fundos escuros'],
-            ['Cor de Fundo',   corFundo,      setCorFundo,      'Background dos materiais'],
-          ].map(([label, val, setter, desc]) => (
-            <div key={label} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
-              <label style={{ ...s.label, marginBottom: 8 }}>{label}</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <input
-                  type="color"
-                  value={val}
-                  onChange={e => setter(e.target.value)}
-                  style={{ width: 42, height: 34, border: 'none', borderRadius: 6, cursor: 'pointer', background: 'none', padding: 0, flexShrink: 0 }}
-                />
-                <input
-                  value={val}
-                  onChange={e => setter(e.target.value)}
-                  maxLength={7}
-                  placeholder="#000000"
-                  style={{ ...s.input, marginBottom: 0, fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: 1 }}
-                />
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.4 }}>{desc}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Preview ao vivo da paleta */}
-        <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
-          <div style={{ background: corFundo, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {[corPrimaria, corSecundaria, corAcento].map((c, i) => (
-                <div key={i} style={{ width: 32, height: 32, borderRadius: 8, background: c, border: '2px solid rgba(255,255,255,.15)' }} title={c} />
-              ))}
-            </div>
-            <span style={{ color: corTexto, fontSize: 13, fontWeight: 600, fontFamily: 'DM Mono, monospace' }}>
-              Preview — {corPrimaria} · {corSecundaria} · {corAcento}
-            </span>
-            <span style={{ marginLeft: 'auto', background: corPrimaria, color: corFundo, padding: '6px 18px', borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: 'DM Mono, monospace', cursor: 'default' }}>
-              Botão
-            </span>
-          </div>
-        </div>
       </div>
 
       <div style={s.sec}>
@@ -2056,7 +1980,6 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   const [cnpjApiToken, setCnpjApiToken] = React.useState(cfg.cnpjApiToken || '')
   const [testingApi,   setTestingApi]   = React.useState(false)
   const [msg,          setMsg]          = React.useState('')
-  const [suporteWpp,   setSuporteWpp]   = React.useState(cfg.suporteWpp   || '')
   // 3CX
   const [tcxUrl,          setTcxUrl]          = React.useState(cfg.tcx?.url          || '')
   const [tcxClientId,     setTcxClientId]     = React.useState(cfg.tcx?.clientId     || '')
@@ -2081,17 +2004,10 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
     try {
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
       const atual = row?.value ? JSON.parse(row.value) : {}
-      const novo  = {
-        ...atual,
-        wpp:          { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo },
-        cnpjApiToken: cnpjApiToken.trim(),
-        suporteWpp:   suporteWpp.replace(/\D/g, ''),
-      }
-      // Usa salvarStorage para merge correto (não sobrescreve logo nem outros campos)
-      const { error } = await salvarStorage(empresaId, novo)
-      if (error) throw new Error(error.message)
+      const novo  = { ...atual, wpp: { token: wppToken, phoneId: wppPhoneId, numero: wppNumero, ativo: wppAtivo }, cnpjApiToken: cnpjApiToken.trim() }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() }, { onConflict: 'key' })
       setCfg(novo)
-      setMsg('✅ Configurações salvas com sucesso!')
+      setMsg('✅ Configurações salvas!')
     } catch (e) {
       setMsg('❌ Erro ao salvar: ' + e.message)
     }
@@ -2223,40 +2139,6 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
         <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
           Acesse <strong>cnpj-api.com</strong>, crie sua conta, vá em "API" e copie o token.
         </div>
-      </div>
-
-      {/* ── SUPORTE TÉCNICO WHATSAPP ── */}
-      <div style={{ ...s.card, borderColor: suporteWpp ? 'rgba(16,185,129,.35)' : 'var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700 }}>🆘 Suporte Técnico — WhatsApp</div>
-          <div style={{ ...s.badge,
-            background:  suporteWpp ? 'rgba(16,185,129,.12)' : 'rgba(100,116,139,.12)',
-            color:       suporteWpp ? '#10b981' : '#64748b',
-            border: `1px solid ${suporteWpp ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.3)'}` }}>
-            {suporteWpp ? '● Configurado' : '○ Não configurado'}
-          </div>
-        </div>
-        <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 14 }}>
-          Número que receberá os chamados de suporte iniciados pelos usuários no botão <strong style={{ color: 'var(--text)' }}>💬 Suporte Técnico</strong> (menu do perfil) e na <strong style={{ color: 'var(--text)' }}>Central de Ajuda ❓</strong>. O usuário é direcionado ao WhatsApp com mensagem pré-definida.
-        </p>
-        <label style={s.label}>Número do WhatsApp de Suporte (com DDI)</label>
-        <input
-          style={s.input}
-          value={suporteWpp}
-          onChange={e => setSuporteWpp(e.target.value)}
-          placeholder="Ex: 5531984059125"
-        />
-        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>
-          Formato: <strong>55</strong> (DDI Brasil) + DDD + número. Ex: <strong style={{ color: 'var(--accent)' }}>5531984059125</strong>
-        </div>
-        {suporteWpp && (
-          <a
-            href={`https://wa.me/${suporteWpp.replace(/\D/g,'')}?text=${encodeURIComponent('Olá! Preciso de suporte técnico na plataforma.')}`}
-            target="_blank" rel="noreferrer"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 9, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.3)', color: '#10b981', fontFamily: 'DM Mono, monospace', fontSize: 12, textDecoration: 'none' }}>
-            🧪 Testar link de suporte
-          </a>
-        )}
       </div>
 
       {/* ── STATUS ── */}
@@ -3196,16 +3078,41 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
   const pdfInputRef = React.useRef(null)
 
   const MODELOS = {
-    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
-    groq:   ['llama3-70b-8192', 'llama3-8b-8192', 'mixtral-8x7b-32768'],
-    gemini: ['gemini-1.5-pro', 'gemini-1.5-flash'],
+    openai: [
+      'gpt-4o-mini',            // ✅ texto + imagem (grátis limitado)
+      'gpt-4o',                 // ✅ texto + imagem + áudio
+      'gpt-4o-2024-11-20',      // ✅ versão mais recente gpt-4o
+      'gpt-3.5-turbo',          // ✅ só texto (mais barato)
+    ],
+    groq: [
+      'llama3-70b-8192',
+      'llama3-8b-8192',
+      'llama-3.3-70b-versatile',
+      'llama-3.2-90b-vision-preview', // ✅ texto + imagem
+      'llama-3.2-11b-vision-preview', // ✅ texto + imagem (leve)
+      'mixtral-8x7b-32768',
+      'gemma2-9b-it',
+    ],
+    gemini: [
+      'gemini-2.5-flash',         // ✅ texto + imagem + áudio + vídeo (grátis) ⭐
+      'gemini-2.5-flash-lite',    // ✅ texto + imagem + áudio (grátis, leve)
+      'gemini-2.0-flash',         // ✅ texto + imagem + áudio + vídeo (grátis)
+      'gemini-2.0-flash-lite',    // ✅ texto + imagem (grátis, leve)
+      'gemini-1.5-flash',         // ✅ texto + imagem + áudio + vídeo (grátis)
+      'gemini-1.5-pro',           // ✅ texto + imagem + áudio + vídeo (contexto 1M)
+    ],
+    grok: [
+      'grok-2-vision',            // ✅ texto + imagem (xAI)
+      'grok-2-mini',              // ✅ texto
+      'grok-3-mini',              // ✅ texto
+    ],
   }
 
   const AGENTE_VAZIO = {
     id: '', nome: 'Agente Vendas', ativo: true,
     prompt: `Você é um assistente comercial da empresa ${cfg.company || 'Vivanexa'}.\n\nSeu objetivo é qualificar leads, responder dúvidas e conduzir o cliente até o consultor humano.\n\nTOM: Profissional, amigável e objetivo.\nRESPOSTAS: Curtas, máximo 3 linhas por mensagem.`,
     provider: cfg.openaiApiKey ? 'openai' : cfg.groqApiKey ? 'groq' : 'openai',
-    openaiKey: '', groqKey: '', geminiKey: '',
+    openaiKey: '', groqKey: '', geminiKey: '', grokKey: '',
     model: 'gpt-4o-mini', maxTokens: 300,
     conhecimento: [],
     siteUrl: '',
@@ -3213,6 +3120,8 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
     departamentos: [],
     gcalEnabled: false,
     reconheceMidia: true,
+    responderEmAudio: false,
+    ttsVoz: 'Aoede',
   }
 
   // Departamentos cadastrados
@@ -3491,8 +3400,9 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
               <label style={st.label}>Provedor de IA</label>
               <select value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value, model: MODELOS[e.target.value]?.[0] || '' }))} style={{ ...st.input, appearance: 'auto' }}>
                 <option value="openai">OpenAI (GPT)</option>
-                <option value="groq">Groq (Llama)</option>
-                <option value="gemini">Google Gemini</option>
+                <option value="groq">Groq (Llama) 🆓</option>
+                <option value="gemini">Google Gemini 🔥🆓</option>
+                <option value="grok">xAI Grok</option>
               </select>
             </div>
             <div>
@@ -3511,12 +3421,36 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
           <div>
             <label style={st.label}>API Key específica (opcional — usa a global de Config → Empresa se vazio)</label>
             <input style={{ ...st.input, fontFamily: 'monospace' }} type="password"
-              value={form.provider === 'openai' ? (form.openaiKey || '') : form.provider === 'groq' ? (form.groqKey || '') : (form.geminiKey || '')}
+              value={form.provider === 'openai' ? (form.openaiKey || '') : form.provider === 'groq' ? (form.groqKey || '') : form.provider === 'grok' ? (form.grokKey || '') : (form.geminiKey || '')}
               onChange={e => {
-                const k = form.provider === 'openai' ? 'openaiKey' : form.provider === 'groq' ? 'groqKey' : 'geminiKey'
+                const k = form.provider === 'openai' ? 'openaiKey' : form.provider === 'groq' ? 'groqKey' : form.provider === 'grok' ? 'grokKey' : 'geminiKey'
                 setForm(f => ({ ...f, [k]: e.target.value }))
               }}
-              placeholder={form.provider === 'openai' ? 'sk-...' : form.provider === 'groq' ? 'gsk_...' : 'AIza...'} />
+              placeholder={form.provider === 'openai' ? 'sk-...' : form.provider === 'groq' ? 'gsk_...' : form.provider === 'grok' ? 'xai-...' : 'AIza...'} />
+
+          {/* Badges de capacidade do modelo */}
+          {form.model && (() => {
+            const m = form.model
+            const img = m.includes('gpt-4o') || m.includes('gemini') || m.includes('vision') || m.includes('grok-2-vision')
+            const aud = (m.includes('gpt-4o') && !m.includes('mini')) || m.includes('gemini-2') || m.includes('gemini-1.5')
+            const vid = m.includes('gemini')
+            const gratis = form.provider === 'gemini' || form.provider === 'groq'
+            return (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                {[
+                  { icon: '💬', label: 'Texto', ok: true },
+                  { icon: '🖼', label: 'Imagem', ok: img },
+                  { icon: '🎵', label: 'Áudio', ok: aud },
+                  { icon: '🎬', label: 'Vídeo', ok: vid },
+                ].map(c => (
+                  <span key={c.label} style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: c.ok ? 'rgba(16,185,129,.12)' : 'rgba(100,116,139,.08)', color: c.ok ? '#10b981' : '#475569', border: `1px solid ${c.ok ? 'rgba(16,185,129,.3)' : 'rgba(100,116,139,.2)'}` }}>
+                    {c.icon} {c.label} {c.ok ? '✓' : '✗'}
+                  </span>
+                ))}
+                {gratis && <span style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: 'rgba(0,212,255,.1)', color: '#00d4ff', border: '1px solid rgba(0,212,255,.2)' }}>🆓 Grátis</span>}
+              </div>
+            )
+          })()}
           </div>
 
           {/* Prompt */}
@@ -3728,6 +3662,72 @@ function TabAgenteIA({ cfg, setCfg, empresaId }) {
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Consulta agenda Google e oferece horários ao cliente</div>
               </div>
             </label>
+          </div>
+
+          {/* ── Responder em áudio ── */}
+          <div style={{ marginTop: 12, padding: '14px 16px', background: 'rgba(124,58,237,.05)', border: '1px solid rgba(124,58,237,.2)', borderRadius: 10 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!form.responderEmAudio} onChange={e => setForm(f => ({ ...f, responderEmAudio: e.target.checked }))} style={{ width: 15, height: 15, accentColor: '#a78bfa' }} />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#a78bfa' }}>🎵 Responder em áudio quando cliente enviar áudio</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  Gemini TTS (grátis) · OpenAI TTS (pago) · ElevenLabs (grátis limitado)
+                </div>
+              </div>
+            </label>
+            {form.responderEmAudio && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(124,58,237,.2)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div>
+                  <label style={{ ...st.label, marginBottom: 4 }}>Provedor de TTS</label>
+                  <select value={form.ttsProvider || 'gemini'} onChange={e => setForm(f => ({ ...f, ttsProvider: e.target.value }))} style={{ ...st.input, marginBottom: 0, appearance: 'auto' }}>
+                    <option value="gemini">Google Gemini TTS 🆓 (recomendado)</option>
+                    <option value="openai">OpenAI TTS (usa mesma chave da IA)</option>
+                    <option value="elevenlabs">ElevenLabs 🆓 (10k chars/mês grátis)</option>
+                  </select>
+                </div>
+                {(form.ttsProvider || 'gemini') === 'gemini' && (
+                  <div>
+                    <label style={{ ...st.label, marginBottom: 4 }}>Voz (Gemini TTS)</label>
+                    <select value={form.ttsVoz || 'Aoede'} onChange={e => setForm(f => ({ ...f, ttsVoz: e.target.value }))} style={{ ...st.input, marginBottom: 0, appearance: 'auto' }}>
+                      <option value="Aoede">Aoede — Feminina, suave ⭐</option>
+                      <option value="Charon">Charon — Masculina, grave</option>
+                      <option value="Fenrir">Fenrir — Masculina, dinâmica</option>
+                      <option value="Kore">Kore — Feminina, clara</option>
+                      <option value="Puck">Puck — Masculina, jovem</option>
+                      <option value="Zephyr">Zephyr — Feminina, brilhante</option>
+                      <option value="Leda">Leda — Feminina, jovem</option>
+                      <option value="Orus">Orus — Masculina, firme</option>
+                    </select>
+                  </div>
+                )}
+                {(form.ttsProvider || 'gemini') === 'openai' && (
+                  <div>
+                    <label style={{ ...st.label, marginBottom: 4 }}>Voz (OpenAI TTS)</label>
+                    <select value={form.ttsVoz || 'nova'} onChange={e => setForm(f => ({ ...f, ttsVoz: e.target.value }))} style={{ ...st.input, marginBottom: 0, appearance: 'auto' }}>
+                      <option value="nova">Nova — Feminina, amigável ⭐</option>
+                      <option value="alloy">Alloy — Neutra</option>
+                      <option value="echo">Echo — Masculina</option>
+                      <option value="fable">Fable — Masculina, expressiva</option>
+                      <option value="onyx">Onyx — Masculina, profunda</option>
+                      <option value="shimmer">Shimmer — Feminina, clara</option>
+                    </select>
+                  </div>
+                )}
+                {(form.ttsProvider || 'gemini') === 'elevenlabs' && (
+                  <div>
+                    <label style={{ ...st.label, marginBottom: 4 }}>API Key ElevenLabs</label>
+                    <input value={form.elevenLabsKey || ''} onChange={e => setForm(f => ({ ...f, elevenLabsKey: e.target.value }))}
+                      style={{ ...st.input, marginBottom: 0, fontFamily: 'monospace' }} type="password" placeholder="sk_..." />
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      Obtenha grátis em <a href="https://elevenlabs.io" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>elevenlabs.io</a> · 10.000 chars/mês grátis
+                    </div>
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: '#a78bfa', lineHeight: 1.6, padding: '8px 10px', background: 'rgba(124,58,237,.06)', borderRadius: 8 }}>
+                  ⚠️ Se o TTS falhar por qualquer motivo, o agente responde em texto automaticamente.
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Botões */}
