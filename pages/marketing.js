@@ -8,7 +8,7 @@
 // ✅ NOVO: Publicação orgânica Instagram via Graph API
 // ✅ NOVO: Publicação orgânica Facebook via Graph API
 // ✅ NOVO: Publicação orgânica TikTok via Content Posting API
-// ✅ NOVO: Fluxo completo Aprovar / Recriar / Editar em todas as etapas
+// ✅ NOVO: Fluxo completo Aprovar / Recriar / Editar em todas as etapas 
 // ✅ NOVO: Campanhas exibem imagem gerada + todos os dados
 // ✅ NOVO: Agenda integrada com campanhas e imagens geradas
 // ✅ Agente Gestor de Marketing IA em todas as abas
