@@ -849,6 +849,7 @@ const ESTILO_RECOMENDADO_POR_NICHO = {
 }
 
 
+export default function Marketing() {
   const router = useRouter()
   const { aba: abaQuery } = router.query
   const [aba, setAba]         = useState('campanhas')
