@@ -242,7 +242,10 @@ async function gerarImagemHF(prompt, cfg) {
 }
 
 // System prompt do Agente Gestor de Marketing
-function gestorPrompt(cfg) {
+function gestorPrompt(cfg, cores) {
+  const paleta = cores
+    ? `Paleta de cores da marca: Primária ${cores.primaria}, Secundária ${cores.secundaria}, Acento ${cores.acento}.`
+    : ''
   return `Você é um Gestor de Marketing Digital Sênior e especialista em:
 - Growth Hacking e alta conversão em vendas
 - Gestão de tráfego pago (Meta Ads, Google Ads, TikTok Ads)
@@ -252,13 +255,15 @@ function gestorPrompt(cfg) {
 - Análise de métricas e ROI
 
 Empresa: ${cfg.company||'Vivanexa'} | Nicho: ${cfg.nicho||'Tecnologia'}
+${paleta}
+Sempre use a identidade visual e paleta de cores da empresa nos criativos sugeridos.
 Responda sempre em português, de forma prática e orientada a resultados.`
 }
 
 // ─────────────────────────────────────────────────────────────────
 // Componente: Chat com Agente IA de Marketing
 // ─────────────────────────────────────────────────────────────────
-function AgenteChat({ cfg, contexto='' }) {
+function AgenteChat({ cfg, contexto='', cores }) {
   const [msgs, setMsgs] = useState([{ role:'bot', content:`Olá! Sou seu Gestor de Marketing IA 🚀\n\n${contexto||'Como posso ajudar com sua estratégia hoje?'}` }])
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
@@ -271,7 +276,7 @@ function AgenteChat({ cfg, contexto='' }) {
     setThinking(true)
     const hist = msgs.slice(-8).map(m => ({ role:m.role==='user'?'user':'assistant', content:m.content }))
     try {
-      const r = await callAI(msg, cfg, { temperature:0.75, systemPrompt:gestorPrompt(cfg), history:hist })
+      const r = await callAI(msg, cfg, { temperature:0.75, systemPrompt:gestorPrompt(cfg, cores), history:hist })
       setMsgs(p => [...p, { role:'bot', content:r }])
     } catch(e) { setMsgs(p => [...p, { role:'bot', content:`❌ ${e.message}` }]) }
     setThinking(false)
@@ -777,7 +782,73 @@ function ImageUploadField({ value, onChange, cfg }) {
 // ─────────────────────────────────────────────────────────────────
 // COMPONENTE PRINCIPAL
 // ─────────────────────────────────────────────────────────────────
-export default function Marketing() {
+// ── Estilos visuais disponíveis para geração de imagem ──────────────────────
+const ESTILOS_VISUAIS = [
+  {
+    id: 'ia_decide',
+    label: '🤖 IA Decide',
+    desc: 'A IA escolhe o estilo ideal para o nicho e plataforma',
+    promptSuffix: '',
+    color: '#7c3aed',
+  },
+  {
+    id: 'realista',
+    label: '📸 Realista',
+    desc: 'Fotografia profissional, pessoas reais, cenários autênticos',
+    promptSuffix: 'photorealistic, professional photography, Canon EOS R5, 85mm lens, natural lighting, authentic scene, high detail, 8k resolution',
+    color: '#0ea5e9',
+  },
+  {
+    id: '3d',
+    label: '🎲 3D / CGI',
+    desc: 'Renderização 3D profissional, produto em destaque, luxuoso',
+    promptSuffix: '3D render, CGI, octane render, studio lighting, product visualization, cinematic quality, ultra realistic materials, depth of field, 8k',
+    color: '#10b981',
+  },
+  {
+    id: 'animacao',
+    label: '🎨 Animação / Ilustração',
+    desc: 'Estilo cartoon, ilustração digital, personagens, didático',
+    promptSuffix: 'digital illustration, flat design animation style, vibrant colors, character design, clean lines, modern graphic design, vector art style',
+    color: '#f59e0b',
+  },
+  {
+    id: 'minimalista',
+    label: '◻️ Minimalista',
+    desc: 'Limpo, tipografia forte, espaço em branco, premium',
+    promptSuffix: 'minimalist design, clean white background, bold typography, simple geometric shapes, premium look, luxury branding, negative space, sophisticated',
+    color: '#e2e8f0',
+  },
+  {
+    id: 'infografico',
+    label: '📊 Infográfico',
+    desc: 'Dados visuais, comparações, listas, educativo',
+    promptSuffix: 'infographic design, data visualization, modern chart layout, icons and numbers, educational content, clean grid layout, professional business design',
+    color: '#00d4ff',
+  },
+]
+
+// Recomendação de estilo por nicho — o que gera mais engajamento
+const ESTILO_RECOMENDADO_POR_NICHO = {
+  'Contabilidade':    { estilo: 'infografico', motivo: 'Infográficos com dados e listas geram +40% de engajamento no nicho contábil' },
+  'Advocacia':        { estilo: 'minimalista', motivo: 'Visual premium e limpo transmite autoridade e confiança jurídica' },
+  'Saúde / Medicina': { estilo: 'realista',    motivo: 'Fotos reais de profissionais e consultórios geram mais confiança' },
+  'Odontologia':      { estilo: 'realista',    motivo: 'Antes/depois e fotos reais têm alto engajamento no nicho odontológico' },
+  'Imobiliário':      { estilo: '3d',          motivo: 'Renderização 3D de imóveis gera desejo e visualização do espaço' },
+  'Tecnologia':       { estilo: '3d',          motivo: 'CGI e 3D transmitem inovação e modernidade para produtos tech' },
+  'Educação':         { estilo: 'animacao',    motivo: 'Ilustrações e personagens aumentam 60% o engajamento em conteúdo educacional' },
+  'Restaurante':      { estilo: 'realista',    motivo: 'Fotografia gastronômica realista desperta desejo e gera compartilhamentos' },
+  'Beleza / Estética':{ estilo: 'realista',    motivo: 'Fotos de transformação e resultados reais são o conteúdo que mais converte' },
+  'Moda / Vestuário': { estilo: 'realista',    motivo: 'Editorial de moda com fotografia profissional gera maior conversão' },
+  'Fitness / Academia':{ estilo: 'realista',   motivo: 'Fotos de transformação e treinos reais geram alta identificação' },
+  'Financeiro':       { estilo: 'infografico', motivo: 'Dados, gráficos e comparativos educam o público e viralizam no LinkedIn' },
+  'E-commerce':       { estilo: '3d',          motivo: 'Visualização 3D do produto aumenta a taxa de clique em até 50%' },
+  'Construção Civil': { estilo: '3d',          motivo: 'Renderização 3D de projetos gera desejo e visualização do resultado final' },
+  'Pet':              { estilo: 'animacao',    motivo: 'Ilustrações fofas e personagens pet geram enorme engajamento orgânico' },
+  'Marketing / Agências':{ estilo: 'minimalista', motivo: 'Visual clean e criativo demonstra expertise e atrai clientes B2B' },
+}
+
+
   const router = useRouter()
   const { aba: abaQuery } = router.query
   const [aba, setAba]         = useState('campanhas')
@@ -785,6 +856,14 @@ export default function Marketing() {
   const [cfg, setCfg]         = useState({})
   const [empresaId, setEmpresaId] = useState(null)
   const [perfil, setPerfil]   = useState(null)
+  const [logoB64, setLogoB64] = useState('')   // logo da empresa (base64)
+  const [cores, setCores]     = useState({     // paleta de cores da empresa
+    primaria:   '#00d4ff',
+    secundaria: '#7c3aed',
+    acento:     '#10b981',
+    texto:      '#e2e8f0',
+    fundo:      '#0a0f1e',
+  })
 
   // ── Campanhas IA ──────────────────────────────────────────────
   const [produto, setProduto]           = useState('')
@@ -815,6 +894,8 @@ export default function Marketing() {
   const [nichoImg, setNichoImg]           = useState('')
   const [plataformaImg, setPlataformaImg] = useState('instagram')
   const [tipoConteudo, setTipoConteudo]   = useState('ia_decide')
+  const [estiloVisual, setEstiloVisual]   = useState('ia_decide')
+  const [recEstilo,    setRecEstilo]      = useState(null) // recomendação automática por nicho
   const [gerandoImg, setGerandoImg]       = useState(false)
   const [gerandoImagemReal, setGerandoImagemReal] = useState(false)
   const [imgResultado, setImgResultado]   = useState(null)
@@ -862,14 +943,34 @@ export default function Marketing() {
       const { data:row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
       if (row?.value) {
         const c = JSON.parse(row.value)
-        setCfg(c); setPosts(c.mktPosts||[]); setNicho(c.nicho||''); setNichoImg(c.nicho||''); setProduto(c.company||'')
+        setCfg(c)
+        setPosts(c.mktPosts||[])
+        setNicho(c.nicho||'')
+        setNichoImg(c.nicho||'')
+        setProduto(c.company||'')
+        // Aplicar paleta de cores da empresa
+        if (c.cores) setCores(prev => ({ ...prev, ...c.cores }))
       }
+      // Carregar logomarca separada (chave logo:{eid})
+      const { data: logoRow } = await supabase.from('vx_storage').select('value').eq('key', `logo:${eid}`).maybeSingle()
+      if (logoRow?.value) setLogoB64(logoRow.value)
       setLoading(false)
     }
     init()
   }, [router])
 
-  useEffect(() => { if (abaQuery) setAba(abaQuery) }, [abaQuery])
+  // Recomendação automática de estilo ao trocar o nicho
+  useEffect(() => {
+    if (!nichoImg) { setRecEstilo(null); return }
+    const rec = ESTILO_RECOMENDADO_POR_NICHO[nichoImg]
+    if (rec) {
+      setRecEstilo(rec)
+      // Aplica automaticamente se usuário ainda não escolheu
+      if (estiloVisual === 'ia_decide') setEstiloVisual(rec.estilo)
+    } else {
+      setRecEstilo(null)
+    }
+  }, [nichoImg])
 
   async function salvarStorage(novoCfg) {
     await supabase.from('vx_storage').upsert({ key:`cfg:${empresaId}`, value:JSON.stringify(novoCfg), updated_at:new Date().toISOString() }, { onConflict:'key' })
@@ -886,7 +987,8 @@ export default function Marketing() {
     setCampRefineMsgs([])
 
     const platsInfo = plataformasCamp.map(pid => PLATAFORMAS.find(p=>p.id===pid)?.label||pid).join(', ')
-    const sysPr = gestorPrompt(cfg)
+    const sysPr = gestorPrompt(cfg, cores)
+    const identidadeVisual = `Identidade Visual: empresa "${cfg.company||'empresa'}", cores primária ${cores.primaria}, secundária ${cores.secundaria}, acento ${cores.acento}. ${logoB64 ? 'A empresa possui logomarca cadastrada — mencione para incluí-la no criativo.' : ''}`
     const prompt = `Crie um plano COMPLETO de campanha digital de alta conversão para:
 
 DADOS:
@@ -897,6 +999,7 @@ DADOS:
 - Plataformas: ${platsInfo}
 - Público-alvo: ${publicoAlvo||'Definir automaticamente'}
 - Faixa etária: ${idadeMin}-${idadeMax} anos | Gênero: ${genero}
+- ${identidadeVisual}
 
 Responda SOMENTE em JSON sem markdown:
 {
@@ -909,7 +1012,7 @@ Responda SOMENTE em JSON sem markdown:
   "copies":[{"titulo":"","texto":"","plataforma":""},{"titulo":"","texto":"","plataforma":""},{"titulo":"","texto":"","plataforma":""}],
   "calendario":[{"semana":1,"acoes":["a1","a2"]},{"semana":2,"acoes":["a1","a2"]},{"semana":3,"acoes":["a1","a2"]},{"semana":4,"acoes":["a1","a2"]}],
   "kpis":[{"metrica":"CTR esperado","valor":"","benchmark":""},{"metrica":"CPC estimado","valor":"","benchmark":""},{"metrica":"CPL estimado","valor":"","benchmark":""},{"metrica":"ROAS esperado","valor":"","benchmark":""}],
-  "promptImagem": "prompt detalhado em inglês para gerar o criativo da campanha via Stable Diffusion (inclua estilo, cores, composição, formato quadrado)",
+  "promptImagem": "prompt detalhado em inglês para gerar o criativo da campanha via Stable Diffusion (inclua estilo, cores da marca: ${cores.primaria} primária e ${cores.secundaria} secundária, composição, formato quadrado)",
   "tipoMidia": "imagem"
 }`
     try {
@@ -942,7 +1045,7 @@ Responda SOMENTE em JSON sem markdown:
     const hist = campRefineMsgs.slice(-6).map(m => ({ role:m.role==='user'?'user':'assistant', content:m.content }))
     const ctx = campResultado?.resumo ? `Campanha atual: ${campResultado.resumo}` : ''
     try {
-      const r = await callAI(msg, cfg, { temperature:0.7, systemPrompt:gestorPrompt(cfg)+'\n\n'+ctx, history:hist })
+      const r = await callAI(msg, cfg, { temperature:0.7, systemPrompt:gestorPrompt(cfg, cores)+'\n\n'+ctx, history:hist })
       setCampRefineMsgs(p => [...p, { role:'bot', content:r }])
     } catch(e) { setCampRefineMsgs(p => [...p, { role:'bot', content:'❌ '+e.message }]) }
     setCampRefinando(false)
@@ -1024,44 +1127,58 @@ Responda SOMENTE em JSON sem markdown:
   async function gerarConteudo() {
     if (!promptImg) { toast('Descreva o conteúdo', 'err'); return }
     setGerandoImg(true); setImgResultado(null); setImgUrl(''); setImgStatus('rascunho'); setOrgResultados([])
-    const platInfo = PLATAFORMAS.find(p=>p.id===plataformaImg)
-    const prompt = `Você é um gestor de marketing digital sênior.
+    const platInfo   = PLATAFORMAS.find(p=>p.id===plataformaImg)
+    const estiloInfo = ESTILOS_VISUAIS.find(e=>e.id===estiloVisual) || ESTILOS_VISUAIS[0]
+    const estiloDesc = estiloVisual === 'ia_decide'
+      ? 'Escolha o estilo visual mais impactante para este nicho e plataforma (realista, 3D, ilustração, minimalista ou infográfico). Justifique com base em dados de engajamento do nicho.'
+      : `Estilo visual obrigatório: ${estiloInfo.label} — ${estiloInfo.desc}`
+    const proporcao = plataformaImg==='tiktok' ? '9:16 vertical' : plataformaImg==='instagram' ? '1:1 quadrado' : '16:9 paisagem'
+    const estiloSuffix = estiloVisual === 'ia_decide' ? 'choose the most engaging visual style for this specific niche' : estiloInfo.promptSuffix
+
+    const prompt = `Você é um gestor de marketing digital sênior especialista em criação de conteúdo viral.
 
 DADOS:
 - Plataforma: ${platInfo?.label||plataformaImg}
 - Nicho: ${nichoImg||'Geral'}
 - Tema/Produto: ${promptImg}
-- Tipo de mídia: ${tipoConteudo==='ia_decide'?'Decida você':tipoConteudo}
+- Tipo de mídia: ${tipoConteudo==='ia_decide'?'Decida você (analise o que performa melhor neste nicho)':tipoConteudo}
+- ${estiloDesc}
+- Empresa: ${cfg.company||'empresa'}
+- Identidade Visual: cor primária ${cores.primaria}, secundária ${cores.secundaria}, acento ${cores.acento}${logoB64?' (possui logomarca — inclua referência no criativo)':''}
+
+ANÁLISE: Analise quais formatos e abordagens geram mais engajamento neste nicho no ${platInfo?.label||plataformaImg} e use esse conhecimento no conteúdo.
 
 Responda SOMENTE em JSON sem markdown:
 {
   "tipoMidia": "imagem ou video",
-  "justificativa": "por que escolheu este tipo",
+  "estiloVisual": "${estiloVisual==='ia_decide'?'o estilo escolhido por você':estiloVisual}",
+  "justificativa": "por que este estilo/tipo gera mais engajamento neste nicho",
   "titulo": "título chamativo max 80 chars",
-  "legenda": "legenda completa com emojis e CTA para ${plataformaImg}",
-  "cta": "call to action específico",
+  "legenda": "legenda completa com emojis e CTA forte para ${plataformaImg}",
+  "cta": "call to action específico e urgente",
   "hashtags": ["#hash1","#hash2","#hash3","#hash4","#hash5","#hash6","#hash7","#hash8","#hash9","#hash10"],
   "melhorHorario": "ex: 18h-20h terça ou quinta",
-  "promptImagem": "prompt detalhado em inglês para Stable Diffusion: estilo, cores, composição, proporção ${plataformaImg==='tiktok'?'9:16 vertical':plataformaImg==='instagram'?'1:1 quadrado':'16:9 paisagem'}, high quality, professional marketing",
-  "roteiro": "${plataformaImg==='tiktok'||tipoConteudo==='video'?'roteiro completo do vídeo com timecodes':'null'}",
-  "seo": "palavras-chave SEO para a legenda"
+  "promptImagem": "prompt DETALHADO em inglês para Stable Diffusion, específico para nicho ${nichoImg||'general'}, ${estiloSuffix}, brand colors hex (primary: ${cores.primaria}, secondary: ${cores.secundaria}, accent: ${cores.acento}), proporção ${proporcao}, ultra high quality, professional marketing material, highly engaging, trending on social media",
+  "roteiro": "${plataformaImg==='tiktok'||tipoConteudo==='video'?'roteiro completo com timecodes e indicações de cena':'null'}",
+  "seo": "palavras-chave SEO relevantes para a legenda",
+  "dica_engajamento": "dica específica do que fazer/evitar para maximizar engajamento neste nicho"
 }`
     try {
-      const raw = await callAI(prompt, cfg, { temperature:0.75, maxTokens:1800, systemPrompt:gestorPrompt(cfg) })
+      const raw = await callAI(prompt, cfg, { temperature:0.8, maxTokens:2000, systemPrompt:gestorPrompt(cfg, cores) })
       let parsed
       try { parsed = JSON.parse(raw.replace(/```json|```/g,'').trim()) }
-      catch { parsed = { titulo:promptImg, legenda:raw, hashtags:[], cta:'', tipoMidia:'imagem', promptImagem:`Professional marketing image for ${promptImg}, ${nichoImg} industry, high quality`, melhorHorario:'', roteiro:'null', seo:'' } }
+      catch { parsed = { titulo:promptImg, legenda:raw, hashtags:[], cta:'', tipoMidia:'imagem', estiloVisual:estiloVisual, promptImagem:`Professional ${estiloSuffix} marketing image for ${promptImg}, ${nichoImg} industry, ${cores.primaria} primary color, high quality`, melhorHorario:'', roteiro:'null', seo:'', dica_engajamento:'' } }
       parsed._plataforma = plataformaImg; parsed._nicho = nichoImg; parsed._tema = promptImg; parsed._criadoEm = new Date().toISOString()
       setImgResultado(parsed)
-      setImgRefineMsgs([{ role:'bot', content:`Conteúdo criado para ${platInfo?.label}! ${parsed.tipoMidia==='video'?'🎥':'🖼️'}\n\nVou gerar a imagem agora. Você pode refinar o conteúdo aqui enquanto aguarda.` }])
+      const estiloLabel = ESTILOS_VISUAIS.find(e=>e.id===(parsed.estiloVisual||estiloVisual))?.label || estiloVisual
+      setImgRefineMsgs([{ role:'bot', content:`Conteúdo criado para ${platInfo?.label}! ${parsed.tipoMidia==='video'?'🎥':'🖼️'}\n\n🎨 Estilo: **${estiloLabel}**\n${parsed.justificativa?`> ${parsed.justificativa}`:''}\n${parsed.dica_engajamento?`\n💡 **Dica:** ${parsed.dica_engajamento}`:''}\n\nGerando imagem agora...` }])
       toast('Conteúdo gerado!')
 
-      // Gerar imagem real via HuggingFace
       if (parsed.promptImagem && parsed.tipoMidia !== 'video') {
         setGerandoImagemReal(true)
         const url = await gerarImagemHF(parsed.promptImagem, cfg)
         if (url) { setImgUrl(url); toast('🖼️ Imagem gerada com sucesso!') }
-        else { toast('⚠️ Não foi possível gerar a imagem automaticamente. O prompt está disponível para uso externo.', 'warn') }
+        else { toast('⚠️ Não foi possível gerar a imagem. O prompt está disponível para uso externo.', 'warn') }
         setGerandoImagemReal(false)
       }
     } catch(e) { toast('Erro: '+e.message, 'err') }
@@ -1075,7 +1192,7 @@ Responda SOMENTE em JSON sem markdown:
     const hist = imgRefineMsgs.slice(-6).map(m => ({ role:m.role==='user'?'user':'assistant', content:m.content }))
     const ctx = imgResultado?.titulo ? `Conteúdo atual para ${imgResultado._plataforma}: ${imgResultado.titulo}` : ''
     try {
-      const r = await callAI(msg, cfg, { temperature:0.75, systemPrompt:gestorPrompt(cfg)+'\n\n'+ctx, history:hist })
+      const r = await callAI(msg, cfg, { temperature:0.75, systemPrompt:gestorPrompt(cfg, cores)+'\n\n'+ctx, history:hist })
       setImgRefineMsgs(p => [...p, { role:'bot', content:r }])
     } catch(e) { setImgRefineMsgs(p => [...p, { role:'bot', content:'❌ '+e.message }]) }
   }
@@ -1207,12 +1324,41 @@ Responda SOMENTE em JSON sem markdown:
         <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
       </Head>
       <style>{CSS}</style>
+      {/* CSS vars dinâmicos com paleta da empresa */}
+      <style>{`
+        :root {
+          --accent:   ${cores.primaria};
+          --accent2:  ${cores.secundaria};
+          --accent3:  ${cores.acento};
+          --text:     ${cores.texto};
+        }
+        .btn-primary  { background: linear-gradient(135deg, ${cores.primaria}, ${cores.primaria}bb) !important; }
+        .btn-purple   { background: linear-gradient(135deg, ${cores.secundaria}, ${cores.secundaria}bb) !important; }
+        .btn-green    { background: linear-gradient(135deg, ${cores.acento}, ${cores.acento}bb) !important; }
+        .tab-btn.active { background: ${cores.secundaria}22 !important; border-color: ${cores.secundaria}80 !important; color: ${cores.secundaria} !important; }
+        .stat-val { color: ${cores.secundaria} !important; }
+      `}</style>
       <div className="orb orb1"/><div className="orb orb2"/>
       <Navbar cfg={cfg} perfil={perfil}/>
 
       <div className="page-wrap">
-        <div className="page-title">📣 Marketing</div>
-        <div className="page-sub">Campanhas IA, criação de conteúdo e agenda de publicação</div>
+        {/* Cabeçalho com logo e nome da empresa */}
+        <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:16 }}>
+          {logoB64 && (
+            <img
+              src={`data:image/png;base64,${logoB64}`}
+              alt={cfg.company||'Logo'}
+              style={{ height:44, maxWidth:120, objectFit:'contain', borderRadius:8, border:`1px solid ${cores.primaria}33`, padding:4, background:'rgba(255,255,255,.04)' }}
+              onError={e => e.target.style.display='none'}
+            />
+          )}
+          <div>
+            <div className="page-title">📣 Marketing{cfg.company ? ` — ${cfg.company}` : ''}</div>
+            <div className="page-sub">Campanhas IA, criação de conteúdo e agenda de publicação</div>
+          </div>
+        </div>
+
+        </div>
 
         {/* Stats */}
         <div className="stat-row">
@@ -1244,6 +1390,15 @@ Responda SOMENTE em JSON sem markdown:
             {/* Formulário */}
             <div className="card">
               <div className="card-title">🎯 Criar Campanha com IA</div>
+              {/* Badge de identidade visual ativa */}
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14, padding:'8px 12px', background:`${cores.primaria}0d`, border:`1px solid ${cores.primaria}33`, borderRadius:8, flexWrap:'wrap' }}>
+                {logoB64 && <img src={`data:image/png;base64,${logoB64}`} alt="logo" style={{ height:24, maxWidth:60, objectFit:'contain', borderRadius:4 }} onError={e=>e.target.style.display='none'} />}
+                <span style={{ fontSize:11, color: cores.primaria, fontFamily:'DM Mono, monospace' }}>🎨 Identidade visual aplicada:</span>
+                {[cores.primaria, cores.secundaria, cores.acento].map((c,i) => (
+                  <span key={i} style={{ display:'inline-block', width:18, height:18, borderRadius:'50%', background:c, border:'2px solid rgba(255,255,255,.15)', title:c }} />
+                ))}
+                <span style={{ fontSize:10, color:'#64748b', marginLeft:4 }}>{cores.primaria} · {cores.secundaria} · {cores.acento}</span>
+              </div>
               <div className="grid3">
                 <div className="field"><label>Produto / Serviço</label><input value={produto} onChange={e=>setProduto(e.target.value)} placeholder="Ex: Software contábil"/></div>
                 <div className="field"><label>Nicho de Mercado</label>
@@ -1543,6 +1698,44 @@ Responda SOMENTE em JSON sem markdown:
                 </div>
               </div>
 
+              {/* ── Seletor de Estilo Visual ── */}
+              <div className="field">
+                <label>Estilo Visual da Imagem</label>
+
+                {/* Recomendação automática por nicho */}
+                {recEstilo && (
+                  <div style={{ display:'flex',alignItems:'center',gap:8,marginBottom:8,padding:'7px 12px',background:'rgba(16,185,129,.07)',border:'1px solid rgba(16,185,129,.25)',borderRadius:8 }}>
+                    <span style={{ fontSize:13 }}>💡</span>
+                    <span style={{ fontSize:11,color:'#10b981',lineHeight:1.5 }}>
+                      <strong>Recomendado para {nichoImg}:</strong> {ESTILOS_VISUAIS.find(e=>e.id===recEstilo.estilo)?.label} — {recEstilo.motivo}
+                    </span>
+                    <button onClick={()=>setEstiloVisual(recEstilo.estilo)}
+                      style={{ marginLeft:'auto',padding:'3px 10px',borderRadius:6,border:'1px solid rgba(16,185,129,.4)',background:'rgba(16,185,129,.12)',color:'#10b981',fontFamily:'DM Mono,monospace',fontSize:10,cursor:'pointer',whiteSpace:'nowrap' }}>
+                      Aplicar
+                    </button>
+                  </div>
+                )}
+
+                <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(155px,1fr))',gap:8 }}>
+                  {ESTILOS_VISUAIS.map(e => {
+                    const ativo = estiloVisual === e.id
+                    const isRec = recEstilo?.estilo === e.id
+                    return (
+                      <button key={e.id} onClick={()=>setEstiloVisual(e.id)}
+                        style={{ padding:'10px 12px',borderRadius:10,cursor:'pointer',fontFamily:'DM Mono,monospace',textAlign:'left',transition:'all .15s',
+                          border:`1.5px solid ${ativo ? e.color : isRec ? e.color+'55' : '#1e2d4a'}`,
+                          background: ativo ? `${e.color}18` : isRec ? `${e.color}08` : 'rgba(255,255,255,.02)',
+                          boxShadow: ativo ? `0 0 12px ${e.color}30` : 'none' }}>
+                        <div style={{ fontSize:12,fontWeight:ativo?700:400,color:ativo?e.color:isRec?e.color+'cc':'#94a3b8',marginBottom:3 }}>
+                          {ativo?'✓ ':''}{e.label}{isRec&&!ativo?' ⭐':''}
+                        </div>
+                        <div style={{ fontSize:10,color:'#475569',lineHeight:1.4 }}>{e.desc}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
               <div className="field"><label>Descreva o conteúdo / tema</label>
                 <textarea value={promptImg} onChange={e=>setPromptImg(e.target.value)} style={{ minHeight:80 }}
                   placeholder="Ex: Post mostrando os 5 benefícios de contratar um contador, linguagem descontraída, foco em PMEs..."/>
@@ -1637,12 +1830,25 @@ Responda SOMENTE em JSON sem markdown:
 
                     {/* Conteúdo textual */}
                     <div>
-                      <div style={{ display:'flex',gap:6,flexWrap:'wrap',marginBottom:12 }}>
-                        {(() => { const p=PLATAFORMAS.find(pl=>pl.id===imgResultado._plataforma); return p?<span style={{ padding:'3px 9px',borderRadius:20,fontSize:10,fontWeight:700,background:p.color+'22',color:p.color,border:`1px solid ${p.color}44` }}>{p.icon} {p.label}</span>:null })()}
+                      <div style={{ display:'flex',gap:6,flexWrap:'wrap',marginBottom:10 }}>
+                        {(()=>{ const p=PLATAFORMAS.find(pl=>pl.id===imgResultado._plataforma); return p?<span style={{ padding:'3px 9px',borderRadius:20,fontSize:10,fontWeight:700,background:p.color+'22',color:p.color,border:`1px solid ${p.color}44` }}>{p.icon} {p.label}</span>:null })()}
                         <span className="badge badge-purple">{imgResultado.tipoMidia==='video'?'🎥 Vídeo':'🖼️ Imagem'}</span>
-                        {imgResultado.justificativa && <span style={{ fontSize:11,color:'#64748b' }}>({imgResultado.justificativa})</span>}
+                        {imgResultado.estiloVisual && (()=>{
+                          const est = ESTILOS_VISUAIS.find(e=>e.id===imgResultado.estiloVisual)
+                          return est
+                            ? <span style={{ padding:'3px 9px',borderRadius:20,fontSize:10,fontWeight:600,background:`${est.color}18`,color:est.color,border:`1px solid ${est.color}44` }}>{est.label}</span>
+                            : <span className="badge badge-blue">{imgResultado.estiloVisual}</span>
+                        })()}
                         {imgResultado.melhorHorario && <span className="badge badge-yellow">⏰ {imgResultado.melhorHorario}</span>}
                       </div>
+
+                      {/* Justificativa + dica de engajamento */}
+                      {(imgResultado.justificativa||imgResultado.dica_engajamento) && (
+                        <div style={{ marginBottom:12,padding:'9px 13px',background:'rgba(16,185,129,.06)',border:'1px solid rgba(16,185,129,.2)',borderRadius:9 }}>
+                          {imgResultado.justificativa && <div style={{ fontSize:11,color:'#10b981',marginBottom:imgResultado.dica_engajamento?5:0 }}>🎯 {imgResultado.justificativa}</div>}
+                          {imgResultado.dica_engajamento && <div style={{ fontSize:11,color:'#64748b' }}>💡 {imgResultado.dica_engajamento}</div>}
+                        </div>
+                      )}
 
                       <div style={{ fontSize:11,color:'#64748b',textTransform:'uppercase',letterSpacing:1,marginBottom:6 }}>📝 Legenda</div>
                       <div style={{ background:'rgba(0,0,0,.2)',borderRadius:8,padding:'12px 14px',fontSize:13,color:'#e2e8f0',lineHeight:1.7,whiteSpace:'pre-wrap',maxHeight:180,overflowY:'auto',marginBottom:10 }}>
@@ -1710,7 +1916,7 @@ Responda SOMENTE em JSON sem markdown:
               </div>
             )}
 
-            {!imgResultado && <AgenteChat cfg={cfg} contexto={`Aba de criação de conteúdo. Nicho: ${nichoImg||'não definido'}. Plataforma: ${plataformaImg}.`}/>}
+            {!imgResultado && <AgenteChat cfg={cfg} cores={cores} contexto={`Aba de criação de conteúdo. Nicho: ${nichoImg||'não definido'}. Plataforma: ${plataformaImg}.`}/>}
 
             {/* Conteúdos anteriores */}
             {(cfg.mktConteudos||[]).length > 0 && (
