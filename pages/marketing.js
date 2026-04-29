@@ -242,6 +242,15 @@ async function gerarImagemHF(prompt, cfg) {
 }
 
 // System prompt do Agente Gestor de Marketing
+function hexToRgb(hex) {
+  try {
+    const r = parseInt((hex||'#7c3aed').slice(1,3),16)
+    const g = parseInt((hex||'#7c3aed').slice(3,5),16)
+    const b = parseInt((hex||'#7c3aed').slice(5,7),16)
+    return `${r},${g},${b}`
+  } catch { return '124,58,237' }
+}
+
 function gestorPrompt(cfg, cores) {
   const paleta = cores
     ? `Paleta de cores da marca: Primária ${cores.primaria}, Secundária ${cores.secundaria}, Acento ${cores.acento}.`
@@ -853,6 +862,13 @@ export default function Marketing() {
   const router = useRouter()
   const { aba: abaQuery } = router.query
   const [aba, setAba]         = useState('campanhas')
+
+  // ── Sincroniza aba com query param da URL (?aba=campanhas/imagens/agenda)
+  useEffect(() => {
+    if (abaQuery && ['campanhas','imagens','agenda'].includes(abaQuery)) {
+      setAba(abaQuery)
+    }
+  }, [abaQuery])
   const [loading, setLoading] = useState(true)
   const [cfg, setCfg]         = useState({})
   const [empresaId, setEmpresaId] = useState(null)
@@ -924,6 +940,11 @@ export default function Marketing() {
   useEffect(() => { campRefineEndRef.current?.scrollIntoView({ behavior:'smooth' }) }, [campRefineMsgs])
   useEffect(() => { imgRefineEndRef.current?.scrollIntoView({ behavior:'smooth' }) }, [imgRefineMsgs])
 
+  // ── Abre aba correta via query param da URL (?aba=campanhas/imagens/agenda) ──
+  useEffect(() => {
+    if (abaQuery && ['campanhas','imagens','agenda'].includes(abaQuery)) setAba(abaQuery)
+  }, [abaQuery])
+
   function getFormPostVazio() {
     return { id:'', titulo:'', descricao:'', plataforma:'instagram', data:new Date().toISOString().slice(0,10), horario:'09:00', status:'Pendente', tipo:'organico', hashtags:'', imagemUrl:'', cta:'', tipoMidia:'imagem' }
   }
@@ -950,11 +971,23 @@ export default function Marketing() {
         setNichoImg(c.nicho||'')
         setProduto(c.company||'')
         // Aplicar paleta de cores da empresa
-        if (c.cores) setCores(prev => ({ ...prev, ...c.cores }))
+        // ── Paleta de cores: suporta cfg.cores{} e campos individuais ──
+        const coresBase = {
+          primaria:   c.cores?.primaria   || c.corPrimaria   || c.cor_primaria   || '#00d4ff',
+          secundaria: c.cores?.secundaria || c.corSecundaria || c.cor_secundaria || '#7c3aed',
+          acento:     c.cores?.acento     || c.corAcento     || c.cor_acento     || '#10b981',
+          texto:      c.cores?.texto      || c.corTexto      || '#e2e8f0',
+          fundo:      c.cores?.fundo      || c.corFundo      || '#0a0f1e',
+        }
+        setCores(coresBase)
       }
-      // Carregar logomarca separada (chave logo:{eid})
-      const { data: logoRow } = await supabase.from('vx_storage').select('value').eq('key', `logo:${eid}`).maybeSingle()
-      if (logoRow?.value) setLogoB64(logoRow.value)
+      // Carregar logomarca: tenta cfg.logob64 primeiro (inline), depois chave logo:{eid}
+      if (c.logob64) {
+        setLogoB64(c.logob64.startsWith('data:') ? c.logob64.split(',')[1] : c.logob64)
+      } else {
+        const { data: logoRow } = await supabase.from('vx_storage').select('value').eq('key', `logo:${eid}`).maybeSingle()
+        if (logoRow?.value) setLogoB64(logoRow.value.startsWith('data:') ? logoRow.value.split(',')[1] : logoRow.value)
+      }
       setLoading(false)
     }
     init()
@@ -990,7 +1023,8 @@ export default function Marketing() {
     const platsInfo = plataformasCamp.map(pid => PLATAFORMAS.find(p=>p.id===pid)?.label||pid).join(', ')
     const sysPr = gestorPrompt(cfg, cores)
     const identidadeVisual = `Identidade Visual: empresa "${cfg.company||'empresa'}", cores primária ${cores.primaria}, secundária ${cores.secundaria}, acento ${cores.acento}. ${logoB64 ? 'A empresa possui logomarca cadastrada — mencione para incluí-la no criativo.' : ''}`
-    const prompt = `Crie um plano COMPLETO de campanha digital de alta conversão para:
+    const prompt = `Crie um plano COMPLETO de campanha digital de alta conversão para.
+Todos os textos, copies, legendas, headlines e CTAs devem estar em PORTUGUÊS DO BRASIL.
 
 DADOS:
 - Produto/Serviço: ${produto}
@@ -1013,8 +1047,10 @@ Responda SOMENTE em JSON sem markdown:
   "copies":[{"titulo":"","texto":"","plataforma":""},{"titulo":"","texto":"","plataforma":""},{"titulo":"","texto":"","plataforma":""}],
   "calendario":[{"semana":1,"acoes":["a1","a2"]},{"semana":2,"acoes":["a1","a2"]},{"semana":3,"acoes":["a1","a2"]},{"semana":4,"acoes":["a1","a2"]}],
   "kpis":[{"metrica":"CTR esperado","valor":"","benchmark":""},{"metrica":"CPC estimado","valor":"","benchmark":""},{"metrica":"CPL estimado","valor":"","benchmark":""},{"metrica":"ROAS esperado","valor":"","benchmark":""}],
-  "promptImagem": "prompt detalhado em inglês para gerar o criativo da campanha via Stable Diffusion (inclua estilo, cores da marca: ${cores.primaria} primária e ${cores.secundaria} secundária, composição, formato quadrado)",
-  "tipoMidia": "imagem"
+  "promptImagem": "detailed prompt for Stable Diffusion image generation: professional marketing creative for ${cfg.company||produto} brand, ${nicho||'general'} industry, color palette hex primary=${cores.primaria} secondary=${cores.secundaria} accent=${cores.acento}, square format 1:1, ultra high quality, photorealistic, commercial advertising style, prominently featuring brand logo and visual identity, clean layout, modern design",
+  "tipoMidia": "imagem",
+  "legendaPT": "legenda em português do Brasil para postar nas redes sociais, com emojis e CTA forte",
+  "headlinesPT": ["headline 1 em português","headline 2 em português","headline 3 em português"]
 }`
     try {
       const raw = await callAI(prompt, cfg, { temperature:0.6, maxTokens:3000, systemPrompt:sysPr })
@@ -1147,7 +1183,13 @@ DADOS:
 - Empresa: ${cfg.company||'empresa'}
 - Identidade Visual: cor primária ${cores.primaria}, secundária ${cores.secundaria}, acento ${cores.acento}${logoB64?' (possui logomarca — inclua referência no criativo)':''}
 
+IMPORTANTE: Todos os textos devem ser escritos em PORTUGUÊS DO BRASIL (legendas, CTAs, hashtags, títulos, roteiros).
+
+IMPORTANTE: Todos os textos devem ser escritos em PORTUGUÊS DO BRASIL (legendas, CTAs, hashtags, títulos, roteiros).
+
 ANÁLISE: Analise quais formatos e abordagens geram mais engajamento neste nicho no ${platInfo?.label||plataformaImg} e use esse conhecimento no conteúdo.
+
+IMPORTANTE: Todos os textos, legendas, hashtags, CTAs e conteúdos devem ser escritos em PORTUGUÊS DO BRASIL.
 
 Responda SOMENTE em JSON sem markdown:
 {
@@ -1159,7 +1201,8 @@ Responda SOMENTE em JSON sem markdown:
   "cta": "call to action específico e urgente",
   "hashtags": ["#hash1","#hash2","#hash3","#hash4","#hash5","#hash6","#hash7","#hash8","#hash9","#hash10"],
   "melhorHorario": "ex: 18h-20h terça ou quinta",
-  "promptImagem": "prompt DETALHADO em inglês para Stable Diffusion, específico para nicho ${nichoImg||'general'}, ${estiloSuffix}, brand colors hex (primary: ${cores.primaria}, secondary: ${cores.secundaria}, accent: ${cores.acento}), proporção ${proporcao}, ultra high quality, professional marketing material, highly engaging, trending on social media",
+  "promptImagem": "detailed Stable Diffusion prompt: professional social media post for ${cfg.company||'brand'} in ${nichoImg||'general'} industry, visual style: ${estiloSuffix}, MANDATORY color palette hex (primary: ${cores.primaria}, secondary: ${cores.secundaria}, accent: ${cores.acento}), aspect ratio ${proporcao}, ultra high quality, ${logoB64?'featuring brand logo prominently placed':'professional brand typography'}, modern marketing design, trending social media aesthetic, highly engaging${plataformaImg==='instagram'?', Instagram-optimized':plataformaImg==='tiktok'?', TikTok vertical format':''}, commercial grade",
+  "textoImagem": "OBRIGATÓRIO: texto curto em PORTUGUÊS DO BRASIL para sobrepor na imagem (ex: slogan, oferta, chamada)",",
   "roteiro": "${plataformaImg==='tiktok'||tipoConteudo==='video'?'roteiro completo com timecodes e indicações de cena':'null'}",
   "seo": "palavras-chave SEO relevantes para a legenda",
   "dica_engajamento": "dica específica do que fazer/evitar para maximizar engajamento neste nicho"
@@ -1325,7 +1368,7 @@ Responda SOMENTE em JSON sem markdown:
         <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
       </Head>
       <style>{CSS}</style>
-      {/* CSS vars dinâmicos com paleta da empresa */}
+      {/* CSS vars dinâmicos com paleta da empresa — sobrescreve o padrão com as cores reais */}
       <style>{`
         :root {
           --accent:   ${cores.primaria};
