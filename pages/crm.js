@@ -559,8 +559,6 @@ export default function CRM() {
   const ativsDeNeg = id => atividades.filter(a=>a.negocioId===id).sort((a,b)=>new Date(b.criadoEm)-new Date(a.criadoEm))
   const docsDeNeg  = id => documentos.filter(d=>d.negocioId===id).sort((a,b)=>new Date(b.criadoEm)-new Date(a.criadoEm))
 
-  if(loading) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#0a0f1e',color:'#64748b',fontFamily:'DM Mono,monospace'}}>Carregando CRM...</div>
-
   // ── Cron client-side — garante briefing/followup automático ──
   useEffect(()=>{
     async function triggerCron(){ try{ await fetch('/api/cron-agente') }catch{} }
@@ -576,6 +574,8 @@ export default function CRM() {
     const neg = negocios.find(n=>n.id===nid)
     if(neg){ setNegSel(neg); router.replace('/crm',undefined,{shallow:true}) }
   },[router?.query?.negocioId, negocios.length])
+
+  if(loading) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#0a0f1e',color:'#64748b',fontFamily:'DM Mono,monospace'}}>Carregando CRM...</div>
 
   return (
     <>
