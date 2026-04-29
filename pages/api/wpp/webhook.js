@@ -262,7 +262,165 @@ async function executarFluxoBot({empresaId, cfg, fluxo, conv, mensagemCliente, v
   await saveConvBot(empresaId, numero, conv)
 }
 
-async function chamarIABot(cfg, agente, mensagem, historico=[], mediaBase64=null, mediaTipo=null, mimetype=null, empresaId=null) {
+// ── Converte texto em áudio via Gemini TTS ────────────
+async function gerarAudioGemini(texto, geminiKey, voz = 'Aoede') {
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: texto }] }],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voz } } }
+          }
+        })
+      }
+    )
+    const d = await r.json()
+    const audioData = d.candidates?.[0]?.content?.parts?.[0]?.inlineData
+    if (audioData?.data) return { base64: audioData.data, mimeType: audioData.mimeType || 'audio/wav' }
+    console.warn('[TTS] Gemini não retornou áudio:', JSON.stringify(d).slice(0, 200))
+    return null
+  } catch (e) {
+    console.error('[TTS] Gemini TTS erro:', e.message)
+    return null
+  }
+}
+
+// ── OpenAI TTS ────────────────────────────────────────
+async function gerarAudioOpenAI(texto, openaiKey, voz = 'nova') {
+  try {
+    const r = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'tts-1', input: texto, voice: voz, response_format: 'mp3' })
+    })
+    if (!r.ok) return null
+    const buffer = await r.arrayBuffer()
+    return { base64: Buffer.from(buffer).toString('base64'), mimeType: 'audio/mp3' }
+  } catch (e) {
+    console.error('[TTS] OpenAI TTS erro:', e.message)
+    return null
+  }
+}
+
+// ── ElevenLabs TTS ────────────────────────────────────
+async function gerarAudioElevenLabs(texto, apiKey, voiceId = '21m00Tcm4TlvDq8ikWAM') {
+  // voiceId padrão: Rachel (voz feminina natural em pt-BR)
+  try {
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+      body: JSON.stringify({ text: texto, model_id: 'eleven_multilingual_v2', voice_settings: { stability: 0.5, similarity_boost: 0.75 } })
+    })
+    if (!r.ok) return null
+    const buffer = await r.arrayBuffer()
+    return { base64: Buffer.from(buffer).toString('base64'), mimeType: 'audio/mpeg' }
+  } catch (e) {
+    console.error('[TTS] ElevenLabs TTS erro:', e.message)
+    return null
+  }
+}
+
+// ── Roteador de TTS (tenta provedores em ordem) ───────
+async function gerarAudioTTS(texto, agente, cfg) {
+  const provider  = agente.ttsProvider || 'gemini'
+  const voz       = agente.ttsVoz || 'Aoede'
+  const geminiKey = agente.geminiKey || cfg.geminiApiKey || process.env.GEMINI_API_KEY || ''
+  const openaiKey = agente.openaiKey || cfg.openaiApiKey || process.env.OPENAI_API_KEY || ''
+  const elevenKey = agente.elevenLabsKey || cfg.elevenLabsKey || ''
+
+  if (provider === 'gemini' && geminiKey) {
+    const audio = await gerarAudioGemini(texto, geminiKey, voz)
+    if (audio) return audio
+  }
+
+  if (provider === 'openai' && openaiKey) {
+    const audio = await gerarAudioOpenAI(texto, openaiKey, voz || 'nova')
+    if (audio) return audio
+  }
+
+  if (provider === 'elevenlabs' && elevenKey) {
+    const audio = await gerarAudioElevenLabs(texto, elevenKey)
+    if (audio) return audio
+  }
+
+  // Fallback: tenta Gemini se tiver chave independente do provedor
+  if (provider !== 'gemini' && geminiKey) {
+    const audio = await gerarAudioGemini(texto, geminiKey, 'Aoede')
+    if (audio) return audio
+  }
+
+  return null
+}
+
+// ── Envia áudio via Evolution API ────────────────────
+async function enviarAudioBot(cfg, instancia, numero, audioBase64, mimeType = 'audio/ogg', empresaId = null, texto = '') {
+  const evoUrl = cfg.wppInbox?.evolutionUrl
+  const evoKey = cfg.wppInbox?.evolutionKey
+  if (!evoUrl || !evoKey || !audioBase64) return false
+
+  const num  = numero.replace(/\D/g, '')
+  const full = num.startsWith('55') ? num : `55${num}`
+
+  // Detecta a extensão correta do áudio
+  const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('mp3') ? 'mp3' : 'ogg'
+  const mediaType = `audio/${ext}`
+
+  try {
+    // Evolution API v2: envia áudio como base64
+    const resp = await fetch(`${evoUrl}/message/sendMedia/${instancia}`, {
+      method: 'POST',
+      headers: { apikey: evoKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        number: full,
+        mediatype: 'audio',
+        mimetype: mediaType,
+        media: `data:${mediaType};base64,${audioBase64}`,
+        fileName: `resposta.${ext}`,
+        caption: '',
+      })
+    })
+    const result = await resp.json()
+    console.log('[TTS] Áudio enviado:', resp.ok, JSON.stringify(result).slice(0, 100))
+
+    // Salva no inbox como mensagem de áudio enviada
+    if (empresaId && texto) {
+      const ts = new Date().toISOString()
+      const novaMensagem = {
+        id:         `bot_audio_${Date.now()}`,
+        fromMe:     true,
+        de:         'empresa',
+        texto:      '[Áudio]',
+        tipo:       'audio',
+        mediaBase64: audioBase64,
+        mimetype:   mediaType,
+        timestamp:  ts,
+        lida:       true,
+      }
+      const { data: convRow } = await supabase.from('vx_storage').select('value')
+        .eq('key', `wpp_conv:${empresaId}:${numero}`).maybeSingle()
+      if (convRow?.value) {
+        const c = JSON.parse(convRow.value)
+        c.mensagens      = [...(c.mensagens || []), novaMensagem]
+        c.ultimaMensagem = '[Áudio]'
+        c.ultimaAt       = ts
+        c.updatedAt      = ts
+        await supabase.from('vx_storage').upsert(
+          { key: `wpp_conv:${empresaId}:${numero}`, value: JSON.stringify(c), updated_at: ts },
+          { onConflict: 'key' }
+        )
+      }
+    }
+    return resp.ok
+  } catch (e) {
+    console.error('[TTS] enviarAudio erro:', e.message)
+    return false
+  }
+}
   if (!agente) return null
   const geminiKey = agente.geminiKey||cfg.geminiApiKey||process.env.GEMINI_API_KEY||''
   const groqKey   = agente.groqKey  ||cfg.groqApiKey  ||process.env.GROQ_API_KEY  ||''
@@ -559,29 +717,38 @@ async function processarBot(empresaId, numero, mensagem) {
     if (agente) {
       const resposta = await chamarIABot(cfg, agente, mensagem, mensagens.slice(-10), mediaBase64, mediaTipo, mimetype, empresaId)
       if (resposta) {
-        // Detecta intenção de agendamento: AGENDAR:[nome]|[data hora]
         const agendarMatch = resposta.match(/AGENDAR:([^|]+)\|(.+)/i)
         let respostaFinal = resposta.replace(/AGENDAR:[^\n]+/gi, '').trim()
 
         if (agendarMatch && agente.gcalEnabled) {
-          const nomeCliente  = agendarMatch[1]?.trim() || conv.nome || 'Cliente'
-          const dataHoraStr  = agendarMatch[2]?.trim() || ''
-          // Tenta parsear a data em português (ex: "quinta-feira 24/04 às 10:00")
           try {
-            const dataMatch = dataHoraStr.match(/(\d{1,2})\/(\d{1,2}).*?(\d{1,2}):(\d{2})/)
+            const dataMatch = agendarMatch[2]?.trim().match(/(\d{1,2})\/(\d{1,2}).*?(\d{1,2}):(\d{2})/)
             if (dataMatch) {
               const ano = new Date().getFullYear()
               const dataHora = new Date(`${ano}-${dataMatch[2].padStart(2,'0')}-${dataMatch[1].padStart(2,'0')}T${dataMatch[3].padStart(2,'0')}:${dataMatch[4]}:00-03:00`)
-              const criado = await criarEventoGcal(empresaId, cfg, `Atendimento — ${nomeCliente}`, dataHora, 60, `Agendado via WhatsApp. Número: ${numero}`)
-              if (criado && !respostaFinal) {
-                respostaFinal = `✅ Agendamento confirmado! ${nomeCliente}, te esperamos no dia ${dataMatch[1]}/${dataMatch[2]} às ${dataMatch[3]}:${dataMatch[4]}. Até lá! 😊`
-              }
+              const criado = await criarEventoGcal(empresaId, cfg, `Atendimento — ${conv.nome||'Cliente'}`, dataHora, 60, `Agendado via WhatsApp. Número: ${numero}`)
+              if (criado && !respostaFinal) respostaFinal = `✅ Agendado! Te esperamos no dia ${dataMatch[1]}/${dataMatch[2]} às ${dataMatch[3]}:${dataMatch[4]}. 😊`
             }
           } catch(e) { console.error('[gcal] criarEvento:', e.message) }
         }
 
         const instancia = conv.instancia||cfg.wppInbox?.evolutionInstance||''
-        await enviarTextoBot(cfg, instancia, numero, respostaFinal||resposta, empresaId)
+        const textoParaEnviar = respostaFinal || resposta
+
+        // ✅ Responde em áudio se: cliente mandou áudio E agente tem responderEmAudio ativo
+        const deveResponderEmAudio = agente.responderEmAudio && mediaTipo === 'audio'
+
+        if (deveResponderEmAudio) {
+          const audio = await gerarAudioTTS(textoParaEnviar, agente, cfg)
+          if (audio) {
+            await enviarAudioBot(cfg, instancia, numero, audio.base64, audio.mimeType, empresaId, textoParaEnviar)
+          } else {
+            // Fallback para texto se TTS falhar
+            await enviarTextoBot(cfg, instancia, numero, textoParaEnviar, empresaId)
+          }
+        } else {
+          await enviarTextoBot(cfg, instancia, numero, textoParaEnviar, empresaId)
+        }
       }
     }
     return
