@@ -76,6 +76,42 @@ async function saveConv(empresaId, numero, conv) {
 
 // ── Envio de mensagem via Evolution API ──────────────
 
+async function salvarMsgSaida(empresaId, numero, texto, instancia) {
+  try {
+    const { data: row } = await supabase.from('vx_storage').select('value')
+      .eq('key', `wpp_conv:${empresaId}:${numero}`).maybeSingle()
+    if (!row?.value) return
+    const conv = JSON.parse(row.value)
+    const ts = new Date().toISOString()
+    const msg = {
+      id: 'bot_' + Date.now() + '_' + Math.random().toString(36).slice(2,5),
+      de: 'empresa', fromMe: true, texto, at: ts, tipo: 'text', isBot: true,
+    }
+    // Evita duplicata
+    const jaExiste = (conv.mensagens||[]).some(m => m.texto === texto && Math.abs(new Date(m.at) - new Date(ts)) < 3000)
+    if (!jaExiste) {
+      conv.mensagens = [...(conv.mensagens||[]).slice(-199), msg]
+      conv.ultimaMensagem = texto.slice(0, 60)
+      conv.ultimaAt = ts
+      conv.ultimaDe = 'empresa'
+      conv.updatedAt = ts
+      await supabase.from('vx_storage').upsert(
+        { key: `wpp_conv:${empresaId}:${numero}`, value: JSON.stringify(conv), updated_at: ts },
+        { onConflict: 'key' }
+      )
+      // Atualiza índice também
+      const { data: idxRow } = await supabase.from('vx_storage').select('value')
+        .eq('key', `wpp_idx:${empresaId}`).maybeSingle()
+      const idx = idxRow?.value ? JSON.parse(idxRow.value) : {}
+      idx[numero] = { ...(idx[numero]||{}), ultimaMensagem: texto.slice(0,60), ultimaAt: ts, ultimaDe: 'empresa', updatedAt: ts }
+      await supabase.from('vx_storage').upsert(
+        { key: `wpp_idx:${empresaId}`, value: JSON.stringify(idx), updated_at: ts },
+        { onConflict: 'key' }
+      )
+    }
+  } catch(e) { console.error('[salvarMsgSaida]', e.message) }
+}
+
 async function enviarTexto(cfg, instancia, numero, texto) {
   const evoUrl = cfg.wppInbox?.evolutionUrl
   const evoKey = cfg.wppInbox?.evolutionKey
@@ -167,8 +203,16 @@ async function executarFluxo({ empresaId, cfg, fluxo, conv, mensagemCliente, var
   let currentNodeId = botState.currentNodeId || null
   let botVars = { ...(botState.vars || {}), ...vars }
   let aguardandoResposta = botState.aguardandoResposta || false
+  const mensagensEnviadas = []  // ✅ Rastreia msgs enviadas para salvar na conversa
   const instancia = conv.instancia || cfg.wppInbox?.evolutionInstance || ''
   const numero = conv.numero
+
+  // ✅ Helper local que envia E registra a mensagem para salvar depois
+  async function enviar(txt) {
+    const t = substituirVars(txt, botVars, conv)
+    await enviarTexto(cfg, instancia, numero, t)
+    mensagensEnviadas.push(t)
+  }
 
   function getNode(id) { return nodes.find(n => n.id === id) }
   function getNextNode(fromId, portName = 'main') {
@@ -393,7 +437,7 @@ async function executarFluxo({ empresaId, cfg, fluxo, conv, mensagemCliente, var
   // Salva estado atual
   conv.botState = { currentNodeId, vars: botVars, aguardandoResposta, fluxoId: fluxo.id }
   await saveConv(empresaId, numero, conv)
-  return { parou: false, aguardandoResposta }
+  return { parou: false, aguardandoResposta, mensagensEnviadas }
 }
 
 // ── Agente IA de departamento ─────────────────────────
@@ -523,6 +567,7 @@ export default async function handler(req, res) {
         if (resposta) {
           const instancia = conv.instancia || cfg.wppInbox?.evolutionInstance || ''
           await enviarTexto(cfg, instancia, numero, resposta)
+          await salvarMsgSaida(empresaId, numero, resposta, instancia)
           return res.status(200).json({ ok: true, modo: 'agente_ia' })
         }
       }
@@ -538,6 +583,12 @@ export default async function handler(req, res) {
 
       if (fluxo) {
         const resultado = await executarFluxo({ empresaId, cfg, fluxo, conv, mensagemCliente: mensagem })
+        // ✅ Salva mensagens enviadas pelo chatbot na conversa
+        if (resultado?.mensagensEnviadas?.length) {
+          for (const txt of resultado.mensagensEnviadas) {
+            await salvarMsgSaida(empresaId, numero, txt, conv.instancia || cfg.wppInbox?.evolutionInstance || '')
+          }
+        }
         return res.status(200).json({ ok: true, modo: 'chatbot', resultado })
       }
     }
@@ -551,6 +602,7 @@ export default async function handler(req, res) {
         if (resposta) {
           const instancia = conv.instancia || cfg.wppInbox?.evolutionInstance || ''
           await enviarTexto(cfg, instancia, numero, resposta)
+          await salvarMsgSaida(empresaId, numero, resposta, instancia)
           return res.status(200).json({ ok: true, modo: 'agente_depto' })
         }
       }
