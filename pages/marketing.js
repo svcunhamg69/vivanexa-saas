@@ -203,7 +203,38 @@ async function callAI(prompt, cfg, { temperature=0.7, maxTokens=2500, history=[]
 // Modelo padrão: FLUX.1 schnell (rápido e grátis)
 // Fallback: OpenAI DALL-E 3 (se houver openaiApiKey)
 // ─────────────────────────────────────────────────────────────────
-async function gerarImagemHF(prompt, cfg) {
+// Enriquece o prompt de imagem com identidade visual da empresa e garante PT-BR
+function enriquecerPromptImagem(prompt, cores, logoB64, empresa) {
+  const coresInfo = cores
+    ? `brand color palette: primary ${cores.primaria}, secondary ${cores.secundaria}, accent ${cores.acento}`
+    : ''
+  const logoInfo = logoB64
+    ? 'include company logo watermark in the corner, professional branding'
+    : ''
+  const empresaInfo = empresa ? `brand: ${empresa}` : ''
+
+  // Instruções obrigatórias: textos em PT-BR, cores e logo
+  const suffix = [
+    'all text overlays and labels MUST be written in Brazilian Portuguese (PT-BR)',
+    'use ONLY Portuguese words for any visible text in the image',
+    coresInfo,
+    logoInfo,
+    empresaInfo,
+    'professional marketing quality, high resolution',
+  ].filter(Boolean).join(', ')
+
+  return `${prompt}, ${suffix}`
+}
+
+async function gerarImagemHF(prompt, cfg, cores, logoB64) {
+  // Sempre enriquecer o prompt com identidade visual e PT-BR
+  const promptFinal = enriquecerPromptImagem(
+    prompt,
+    cores,
+    logoB64,
+    cfg.company || cfg.razaoSocial || ''
+  )
+
   // ── 1. Cloudflare Workers AI (preferencial — sem CORS) ────────
   const workerUrl = (cfg.cloudflareImageWorkerUrl || '').trim()
   if (workerUrl) {
@@ -214,22 +245,22 @@ async function gerarImagemHF(prompt, cfg) {
       const res = await fetch(workerUrl, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ prompt, model: 'flux', steps: 6 })
+        body: JSON.stringify({ prompt: promptFinal, model: 'flux', steps: 6 })
       })
       if (res.ok) {
         const d = await res.json()
-        if (d?.image) return d.image   // data:image/png;base64,...
+        if (d?.image) return d.image
       }
     } catch { /* tenta próximo */ }
   }
-  // ── 2. OpenAI DALL-E 3 (fallback, usa créditos da conta) ──────
+  // ── 2. OpenAI DALL-E 3 (fallback) ────────────────────────────
   const openaiKey = cfg.openaiApiKey || cfg.openaiKey || ''
   if (openaiKey) {
     try {
       const res = await fetch('https://api.openai.com/v1/images/generations', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'dall-e-3', prompt: prompt.slice(0, 1000), n: 1, size: '1024x1024', response_format: 'b64_json' })
+        body: JSON.stringify({ model: 'dall-e-3', prompt: promptFinal.slice(0, 1000), n: 1, size: '1024x1024', response_format: 'b64_json' })
       })
       if (res.ok) {
         const d = await res.json()
@@ -238,19 +269,10 @@ async function gerarImagemHF(prompt, cfg) {
       }
     } catch { /* sem fallback */ }
   }
-  return null   // nenhum gerador disponível
+  return null
 }
 
 // System prompt do Agente Gestor de Marketing
-function hexToRgb(hex) {
-  try {
-    const r = parseInt((hex||'#7c3aed').slice(1,3),16)
-    const g = parseInt((hex||'#7c3aed').slice(3,5),16)
-    const b = parseInt((hex||'#7c3aed').slice(5,7),16)
-    return `${r},${g},${b}`
-  } catch { return '124,58,237' }
-}
-
 function gestorPrompt(cfg, cores) {
   const paleta = cores
     ? `Paleta de cores da marca: Primária ${cores.primaria}, Secundária ${cores.secundaria}, Acento ${cores.acento}.`
@@ -863,10 +885,11 @@ export default function Marketing() {
   const { aba: abaQuery } = router.query
   const [aba, setAba]         = useState('campanhas')
 
-  // ── Sincroniza aba com query param da URL (?aba=campanhas/imagens/agenda)
+  // Troca de aba via query string — funciona mesmo quando já está na página /marketing
   useEffect(() => {
     if (abaQuery && ['campanhas','imagens','agenda'].includes(abaQuery)) {
       setAba(abaQuery)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }, [abaQuery])
   const [loading, setLoading] = useState(true)
@@ -940,11 +963,6 @@ export default function Marketing() {
   useEffect(() => { campRefineEndRef.current?.scrollIntoView({ behavior:'smooth' }) }, [campRefineMsgs])
   useEffect(() => { imgRefineEndRef.current?.scrollIntoView({ behavior:'smooth' }) }, [imgRefineMsgs])
 
-  // ── Abre aba correta via query param da URL (?aba=campanhas/imagens/agenda) ──
-  useEffect(() => {
-    if (abaQuery && ['campanhas','imagens','agenda'].includes(abaQuery)) setAba(abaQuery)
-  }, [abaQuery])
-
   function getFormPostVazio() {
     return { id:'', titulo:'', descricao:'', plataforma:'instagram', data:new Date().toISOString().slice(0,10), horario:'09:00', status:'Pendente', tipo:'organico', hashtags:'', imagemUrl:'', cta:'', tipoMidia:'imagem' }
   }
@@ -963,32 +981,19 @@ export default function Marketing() {
       const eid = perf?.empresa_id||session.user.id
       setEmpresaId(eid)
       const { data:row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${eid}`).single()
-      // ✅ FIX: declara 'c' fora do if para não ficar undefined depois
-      let c = {}
       if (row?.value) {
-        c = JSON.parse(row.value)
+        const c = JSON.parse(row.value)
         setCfg(c)
         setPosts(c.mktPosts||[])
         setNicho(c.nicho||'')
         setNichoImg(c.nicho||'')
         setProduto(c.company||'')
-        // ── Paleta de cores: suporta cfg.cores{} e campos individuais ──
-        const coresBase = {
-          primaria:   c.cores?.primaria   || c.corPrimaria   || c.cor_primaria   || '#00d4ff',
-          secundaria: c.cores?.secundaria || c.corSecundaria || c.cor_secundaria || '#7c3aed',
-          acento:     c.cores?.acento     || c.corAcento     || c.cor_acento     || '#10b981',
-          texto:      c.cores?.texto      || c.corTexto      || '#e2e8f0',
-          fundo:      c.cores?.fundo      || c.corFundo      || '#0a0f1e',
-        }
-        setCores(coresBase)
+        // Aplicar paleta de cores da empresa
+        if (c.cores) setCores(prev => ({ ...prev, ...c.cores }))
       }
-      // Carregar logomarca: tenta cfg.logob64 primeiro (inline), depois chave logo:{eid}
-      if (c.logob64) {
-        setLogoB64(c.logob64.startsWith('data:') ? c.logob64.split(',')[1] : c.logob64)
-      } else {
-        const { data: logoRow } = await supabase.from('vx_storage').select('value').eq('key', `logo:${eid}`).maybeSingle()
-        if (logoRow?.value) setLogoB64(logoRow.value.startsWith('data:') ? logoRow.value.split(',')[1] : logoRow.value)
-      }
+      // Carregar logomarca separada (chave logo:{eid})
+      const { data: logoRow } = await supabase.from('vx_storage').select('value').eq('key', `logo:${eid}`).maybeSingle()
+      if (logoRow?.value) setLogoB64(logoRow.value)
       setLoading(false)
     }
     init()
@@ -1024,8 +1029,7 @@ export default function Marketing() {
     const platsInfo = plataformasCamp.map(pid => PLATAFORMAS.find(p=>p.id===pid)?.label||pid).join(', ')
     const sysPr = gestorPrompt(cfg, cores)
     const identidadeVisual = `Identidade Visual: empresa "${cfg.company||'empresa'}", cores primária ${cores.primaria}, secundária ${cores.secundaria}, acento ${cores.acento}. ${logoB64 ? 'A empresa possui logomarca cadastrada — mencione para incluí-la no criativo.' : ''}`
-    const prompt = `Crie um plano COMPLETO de campanha digital de alta conversão para.
-Todos os textos, copies, legendas, headlines e CTAs devem estar em PORTUGUÊS DO BRASIL.
+    const prompt = `Crie um plano COMPLETO de campanha digital de alta conversão para:
 
 DADOS:
 - Produto/Serviço: ${produto}
@@ -1048,10 +1052,8 @@ Responda SOMENTE em JSON sem markdown:
   "copies":[{"titulo":"","texto":"","plataforma":""},{"titulo":"","texto":"","plataforma":""},{"titulo":"","texto":"","plataforma":""}],
   "calendario":[{"semana":1,"acoes":["a1","a2"]},{"semana":2,"acoes":["a1","a2"]},{"semana":3,"acoes":["a1","a2"]},{"semana":4,"acoes":["a1","a2"]}],
   "kpis":[{"metrica":"CTR esperado","valor":"","benchmark":""},{"metrica":"CPC estimado","valor":"","benchmark":""},{"metrica":"CPL estimado","valor":"","benchmark":""},{"metrica":"ROAS esperado","valor":"","benchmark":""}],
-  "promptImagem": "detailed prompt for Stable Diffusion image generation: professional marketing creative for ${cfg.company||produto} brand, ${nicho||'general'} industry, color palette hex primary=${cores.primaria} secondary=${cores.secundaria} accent=${cores.acento}, square format 1:1, ultra high quality, photorealistic, commercial advertising style, prominently featuring brand logo and visual identity, clean layout, modern design",
-  "tipoMidia": "imagem",
-  "legendaPT": "legenda em português do Brasil para postar nas redes sociais, com emojis e CTA forte",
-  "headlinesPT": ["headline 1 em português","headline 2 em português","headline 3 em português"]
+  "promptImagem": "prompt detalhado em inglês para o criativo da campanha via Stable Diffusion — REGRA OBRIGATÓRIA: qualquer texto visível DEVE estar em Português do Brasil (PT-BR). Cores da marca: ${cores.primaria} primária, ${cores.secundaria} secundária. ${logoB64?'Reserve espaço para logomarca no canto.':''} Estilo profissional, formato quadrado 1:1, alta qualidade",
+  "tipoMidia": "imagem"
 }`
     try {
       const raw = await callAI(prompt, cfg, { temperature:0.6, maxTokens:3000, systemPrompt:sysPr })
@@ -1067,7 +1069,7 @@ Responda SOMENTE em JSON sem markdown:
       // Gerar imagem automaticamente se houver prompt
       if (parsed.promptImagem) {
         setGerandoImgCamp(true)
-        const imgUrl = await gerarImagemHF(parsed.promptImagem, cfg)
+        const imgUrl = await gerarImagemHF(parsed.promptImagem, cfg, cores, logoB64)
         if (imgUrl) { setCampImagemUrl(imgUrl); toast('🖼️ Criativo gerado!') }
         setGerandoImgCamp(false)
       }
@@ -1184,13 +1186,7 @@ DADOS:
 - Empresa: ${cfg.company||'empresa'}
 - Identidade Visual: cor primária ${cores.primaria}, secundária ${cores.secundaria}, acento ${cores.acento}${logoB64?' (possui logomarca — inclua referência no criativo)':''}
 
-IMPORTANTE: Todos os textos devem ser escritos em PORTUGUÊS DO BRASIL (legendas, CTAs, hashtags, títulos, roteiros).
-
-IMPORTANTE: Todos os textos devem ser escritos em PORTUGUÊS DO BRASIL (legendas, CTAs, hashtags, títulos, roteiros).
-
 ANÁLISE: Analise quais formatos e abordagens geram mais engajamento neste nicho no ${platInfo?.label||plataformaImg} e use esse conhecimento no conteúdo.
-
-IMPORTANTE: Todos os textos, legendas, hashtags, CTAs e conteúdos devem ser escritos em PORTUGUÊS DO BRASIL.
 
 Responda SOMENTE em JSON sem markdown:
 {
@@ -1202,8 +1198,7 @@ Responda SOMENTE em JSON sem markdown:
   "cta": "call to action específico e urgente",
   "hashtags": ["#hash1","#hash2","#hash3","#hash4","#hash5","#hash6","#hash7","#hash8","#hash9","#hash10"],
   "melhorHorario": "ex: 18h-20h terça ou quinta",
-  "promptImagem": "detailed Stable Diffusion prompt: professional social media post for ${cfg.company||'brand'} in ${nichoImg||'general'} industry, visual style: ${estiloSuffix}, MANDATORY color palette hex (primary: ${cores.primaria}, secondary: ${cores.secundaria}, accent: ${cores.acento}), aspect ratio ${proporcao}, ultra high quality, ${logoB64?'featuring brand logo prominently placed':'professional brand typography'}, modern marketing design, trending social media aesthetic, highly engaging${plataformaImg==='instagram'?', Instagram-optimized':plataformaImg==='tiktok'?', TikTok vertical format':''}, commercial grade",
-  "textoImagem": "OBRIGATÓRIO: texto curto em PORTUGUÊS DO BRASIL para sobrepor na imagem (ex: slogan, oferta, chamada)",",
+  "promptImagem": "prompt DETALHADO em inglês para Stable Diffusion — REGRA OBRIGATÓRIA: qualquer texto visível na imagem DEVE estar em Português do Brasil (PT-BR), nunca em inglês. Use as cores da marca (primary: ${cores.primaria}, secondary: ${cores.secundaria}, accent: ${cores.acento}). ${logoB64?'Inclua espaço reservado para logomarca da empresa no canto inferior direito.':''} Nicho: ${nichoImg||'general'}. Estilo: ${estiloSuffix}. Proporção: ${proporcao}. ultra high quality, professional marketing material, highly engaging",
   "roteiro": "${plataformaImg==='tiktok'||tipoConteudo==='video'?'roteiro completo com timecodes e indicações de cena':'null'}",
   "seo": "palavras-chave SEO relevantes para a legenda",
   "dica_engajamento": "dica específica do que fazer/evitar para maximizar engajamento neste nicho"
@@ -1221,7 +1216,7 @@ Responda SOMENTE em JSON sem markdown:
 
       if (parsed.promptImagem && parsed.tipoMidia !== 'video') {
         setGerandoImagemReal(true)
-        const url = await gerarImagemHF(parsed.promptImagem, cfg)
+        const url = await gerarImagemHF(parsed.promptImagem, cfg, cores, logoB64)
         if (url) { setImgUrl(url); toast('🖼️ Imagem gerada com sucesso!') }
         else { toast('⚠️ Não foi possível gerar a imagem. O prompt está disponível para uso externo.', 'warn') }
         setGerandoImagemReal(false)
@@ -1369,7 +1364,7 @@ Responda SOMENTE em JSON sem markdown:
         <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
       </Head>
       <style>{CSS}</style>
-      {/* CSS vars dinâmicos com paleta da empresa — sobrescreve o padrão com as cores reais */}
+      {/* CSS vars dinâmicos com paleta da empresa */}
       <style>{`
         :root {
           --accent:   ${cores.primaria};
@@ -1530,7 +1525,7 @@ Responda SOMENTE em JSON sem markdown:
                       <img src={campImagemUrl} alt="criativo" className="img-preview" onError={e=>e.target.style.display='none'}/>
                       <div style={{ display:'flex',gap:6,marginTop:8,flexWrap:'wrap' }}>
                         <a href={campImagemUrl} download="criativo-campanha.jpg" className="btn btn-secondary" style={{ fontSize:10,padding:'4px 10px',textDecoration:'none' }}>⬇️ Baixar</a>
-                        <button onClick={async()=>{ setGerandoImgCamp(true); const u=await gerarImagemHF(campResultado.promptImagem,cfg); if(u)setCampImagemUrl(u); setGerandoImgCamp(false) }}
+                        <button onClick={async()=>{ setGerandoImgCamp(true); const u=await gerarImagemHF(campResultado.promptImagem, cfg, cores, logoB64); if(u)setCampImagemUrl(u); setGerandoImgCamp(false) }}
                           style={{ padding:'4px 10px',borderRadius:7,background:'rgba(255,255,255,.04)',border:'1px solid #1e2d4a',color:'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>
                           🔄 Regenerar
                         </button>
@@ -1561,7 +1556,7 @@ Responda SOMENTE em JSON sem markdown:
                         style={{ width:'100%',background:'rgba(0,0,0,.3)',border:'1px solid rgba(245,158,11,.25)',borderRadius:8,padding:'8px 12px',fontFamily:'DM Mono, monospace',fontSize:12,color:'#94a3b8',outline:'none',resize:'vertical',minHeight:70,lineHeight:1.6 }}/>
                       <div style={{ display:'flex',gap:8,marginTop:8 }}>
                         <button className="btn btn-gold" style={{ fontSize:10,padding:'5px 14px' }}
-                          onClick={async()=>{ setGerandoImgCamp(true); const u=await gerarImagemHF(campResultado.promptImagem,cfg); if(u){setCampImagemUrl(u);toast('🖼️ Criativo gerado!')} else toast('⚠️ Falha na geração. Use o prompt em DALL-E ou Midjourney.','warn'); setGerandoImgCamp(false) }}>
+                          onClick={async()=>{ setGerandoImgCamp(true); const u=await gerarImagemHF(campResultado.promptImagem, cfg, cores, logoB64); if(u){setCampImagemUrl(u);toast('🖼️ Criativo gerado!')} else toast('⚠️ Falha na geração. Use o prompt em DALL-E ou Midjourney.','warn'); setGerandoImgCamp(false) }}>
                           ✨ Gerar Imagem
                         </button>
                         <button onClick={()=>navigator.clipboard.writeText(campResultado.promptImagem)} style={{ padding:'5px 12px',borderRadius:7,background:'none',border:'1px solid rgba(245,158,11,.25)',color:'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>📋 Copiar prompt</button>
@@ -1826,7 +1821,7 @@ Responda SOMENTE em JSON sem markdown:
                           <img src={imgUrl} alt="gerado" className="img-preview"/>
                           <div style={{ display:'flex',gap:6,marginTop:8,flexWrap:'wrap' }}>
                             <a href={imgUrl} download="conteudo.jpg" className="btn btn-secondary" style={{ fontSize:10,padding:'4px 10px',textDecoration:'none' }}>⬇️ Baixar</a>
-                            <button onClick={()=>{ setImgUrl(''); setGerandoImagemReal(true); gerarImagemHF(imgResultado.promptImagem,cfg).then(url=>{ if(url)setImgUrl(url); setGerandoImagemReal(false) }) }}
+                            <button onClick={()=>{ setImgUrl(''); setGerandoImagemReal(true); gerarImagemHF(imgResultado.promptImagem, cfg, cores, logoB64).then(url=>{ if(url)setImgUrl(url); setGerandoImagemReal(false) }) }}
                               style={{ padding:'4px 10px',borderRadius:7,background:'rgba(255,255,255,.04)',border:'1px solid #1e2d4a',color:'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>
                               🔄 Regenerar
                             </button>
@@ -1860,7 +1855,7 @@ Responda SOMENTE em JSON sem markdown:
                                 style={{ width:'100%',background:'rgba(0,0,0,.3)',border:'1px solid rgba(245,158,11,.2)',borderRadius:7,padding:'7px 10px',fontFamily:'DM Mono',fontSize:11,color:'#94a3b8',outline:'none',resize:'vertical',minHeight:60,lineHeight:1.6 }}/>
                               <div style={{ display:'flex',gap:6,marginTop:6 }}>
                                 <button className="btn btn-gold" style={{ fontSize:10,padding:'4px 12px' }}
-                                  onClick={()=>{ setGerandoImagemReal(true); gerarImagemHF(imgResultado.promptImagem,cfg).then(url=>{ if(url)setImgUrl(url); else toast('⚠️ Falha na geração','warn'); setGerandoImagemReal(false) }) }}>
+                                  onClick={()=>{ setGerandoImagemReal(true); gerarImagemHF(imgResultado.promptImagem, cfg, cores, logoB64).then(url=>{ if(url)setImgUrl(url); else toast('⚠️ Falha na geração','warn'); setGerandoImagemReal(false) }) }}>
                                   ✨ Gerar Imagem
                                 </button>
                                 <button onClick={()=>navigator.clipboard.writeText(imgResultado.promptImagem)} style={{ padding:'4px 10px',borderRadius:7,background:'none',border:'1px solid rgba(245,158,11,.2)',color:'#64748b',fontFamily:'DM Mono',fontSize:10,cursor:'pointer' }}>📋 Copiar</button>
