@@ -800,7 +800,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
             <div key={u.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14 }}>{u.nome}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · {u.tipo || 'vendedor'}{u.telefone ? ` · ${u.telefone}` : ''}{u.tcxRamal ? <span style={{ marginLeft: 8, color: '#00d4ff' }}>📞 Ramal: {u.tcxRamal}</span> : null}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · {u.tipo || 'vendedor'}{u.telefone ? ` · ${u.telefone}` : ''}</div>
                 {u.comissao && (u.comissao.adesao?.valor > 0 || u.comissao.mensalidade?.valor > 0) && (
                   <div style={{ fontSize: 11, color: 'var(--accent3)', marginTop: 3 }}>💰 Comissão: {fmtComissao(u)}</div>
                 )}
@@ -824,13 +824,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
           </div>
           <div style={s.row2}>
             <div style={s.field}><label style={s.label}>Telefone / WhatsApp</label><input style={s.input} value={form.telefone || ''} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" /></div>
-            <div style={s.field}>
-              <label style={s.label}>Ramal 3CX (Extensão)</label>
-              <input style={s.input} value={form.tcxRamal || ''} onChange={e => setForm(f => ({ ...f, tcxRamal: e.target.value.trim() }))} placeholder="Ex: 1001" />
-              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: -6, marginBottom: 8 }}>
-                Número da extensão no 3CX. Ao fazer login o usuário usa a telefonia automaticamente.
-              </div>
-            </div>
+            <div style={s.field}></div>
           </div>
           <div style={s.field}>
             <label style={s.label}>Perfil de Acesso</label>
@@ -2061,14 +2055,17 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
   }
 
   async function salvarTcx() {
+    if (!tcxUrl.trim()) { setMsg('⚠️ Informe a URL do servidor 3CX'); return }
     setSaving(true); setMsg('')
     try {
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
       const atual = row?.value ? JSON.parse(row.value) : {}
-      const novo = { ...atual, tcx: { url: tcxUrl.trim(), clientId: tcxClientId.trim(), clientSecret: tcxClientSecret.trim() } }
+      // Preserva clientId/Secret globais caso existam, atualiza só a URL
+      const tcxAtual = atual.tcx || {}
+      const novo = { ...atual, tcx: { ...tcxAtual, url: tcxUrl.trim() } }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() }, { onConflict: 'key' })
       setCfg(novo)
-      setMsg('✅ Integração 3CX salva!')
+      setMsg('✅ URL do servidor 3CX salva! Adicione os ramais abaixo.')
     } catch(e) { setMsg('❌ Erro: ' + e.message) }
     setSaving(false)
   }
@@ -2276,22 +2273,23 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
         <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.7, marginBottom: 14 }}>
           Conecte o <strong style={{ color: 'var(--text)' }}>3CX</strong> para identificar clientes ao receber chamadas (pop-up automático no CRM) e registrar histórico de ligações. Requer 3CX Pro ou Enterprise com a <strong style={{ color: 'var(--accent)' }}>Call Control API v20</strong> ativada.
         </div>
-        <label style={s.label}>URL da 3CX (ex: https://suaempresa.3cx.com.br)</label>
+
+        <label style={s.label}>URL do servidor 3CX</label>
         <input style={s.input} value={tcxUrl} onChange={e => setTcxUrl(e.target.value)} placeholder="https://suaempresa.3cx.com.br" />
-        <label style={s.label}>Client ID (gerado em Integrações → API no painel 3CX)</label>
-        <input style={s.input} value={tcxClientId} onChange={e => setTcxClientId(e.target.value)} placeholder="vivanexa-crm" />
-        <label style={s.label}>Client Secret</label>
-        <input style={{ ...s.input, fontFamily: 'monospace', fontSize: 11 }} type="password" value={tcxClientSecret} onChange={e => setTcxClientSecret(e.target.value)} placeholder="••••••••••••" />
-        <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 12 }}>
-          No painel 3CX: <strong>Configurações → Integrações → API</strong> → clique em "+ Novo" → copie Client ID e Secret.
+
+        <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.12)', borderRadius: 8, fontSize: 11, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.7 }}>
+          <strong style={{ color: 'var(--text)' }}>Como configurar:</strong><br/>
+          No painel 3CX: <strong>Configurações → Integrações → API</strong> → clique em <strong>"+ Novo"</strong> → crie uma integração por usuário/ramal → copie Client ID e Secret de cada um.<br/>
+          Depois adicione cada ramal na seção <strong style={{ color: 'var(--accent)' }}>"Ramais do Time"</strong> abaixo com seu próprio Client ID e Client Secret.
         </div>
+
         <button onClick={salvarTcx} disabled={saving} style={s.btnSec}>
-          {saving ? '⏳ Salvando...' : '💾 Salvar 3CX'}
+          {saving ? '⏳ Salvando...' : '💾 Salvar URL do servidor'}
         </button>
       </div>
 
       {/* ── RAMAIS DO TIME 3CX ── */}
-      <Tcx3CxRamais cfg={cfg} setCfg={setCfg} empresaId={empresaId} tcxUrl={tcxUrl} tcxClientId={tcxClientId} tcxClientSecret={tcxClientSecret} />
+      <Tcx3CxRamais cfg={cfg} setCfg={setCfg} empresaId={empresaId} tcxUrl={tcxUrl} />
 
       {/* ── CLOUDFLARE IMAGE WORKER ── */}
       <div style={{ ...s.card, borderColor: cfg.cloudflareImageWorkerUrl ? 'rgba(124,58,237,.4)' : 'var(--border)' }}>
@@ -2360,21 +2358,27 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
 }
 
 // ──────────────────────────────────────────────
-// SUB-COMPONENTE: formulário Google Agenda
-// Separado para manter estado de campos sem re-renderizar tudo
-// ──────────────────────────────────────────────
+// SUB-COMPONENTE: Google Agenda — credenciais globais + agenda por usuário
+// ══════════════════════════════════════════════════════════════════════════
 function GoogleAgendaForm({ cfg, setCfg, empresaId, s, setMsg }) {
   const [clientId,     setClientId]     = React.useState(cfg.gcal?.clientId     || cfg.googleClientId     || '')
   const [clientSecret, setClientSecret] = React.useState(cfg.gcal?.clientSecret || cfg.googleClientSecret || '')
   const [saving,       setSaving]       = React.useState(false)
   const [gcalToken,    setGcalToken]    = React.useState(null)
+  const [statusUsr,    setStatusUsr]    = React.useState({}) // { [userId]: 'ok'|'none'|'checking' }
 
-  // Escutar retorno do popup OAuth
+  const usuarios = cfg.users || []
+
   React.useEffect(() => {
     function onMsg(e) {
       if (e.data?.type === 'GCAL_TOKEN') {
-        setGcalToken(e.data.token)
-        setMsg('✅ Google Agenda conectado com sucesso!')
+        if (e.data.userId) {
+          setStatusUsr(prev => ({ ...prev, [e.data.userId]: 'ok' }))
+          setMsg('✅ Agenda do usuário conectada com sucesso!')
+        } else {
+          setGcalToken(e.data.token)
+          setMsg('✅ Google Agenda da empresa conectada!')
+        }
       }
     }
     window.addEventListener('message', onMsg)
@@ -2390,62 +2394,113 @@ function GoogleAgendaForm({ cfg, setCfg, empresaId, s, setMsg }) {
       const novo = { ...atual, gcal: { clientId: clientId.trim(), clientSecret: clientSecret.trim() }, googleClientId: clientId.trim(), googleClientSecret: clientSecret.trim() }
       await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
       setCfg(novo)
-      setMsg('✅ Credenciais Google salvas! Clique em "Conectar conta" para autorizar.')
-    } catch (e) { setMsg('❌ Erro ao salvar: ' + e.message) }
+      setMsg('✅ Credenciais salvas! Agora conecte a agenda de cada usuário abaixo.')
+    } catch (e) { setMsg('❌ Erro: ' + e.message) }
     setSaving(false)
   }
 
-  function conectarGoogle() {
-    if (!clientId.trim()) { setMsg('⚠️ Salve o Client ID primeiro'); return }
+  function abrirOAuth(state) {
+    if (!clientId.trim()) { setMsg('⚠️ Salve as credenciais Google primeiro'); return }
     const redirectUri = window.location.origin + '/api/auth/google/callback'
-    const scope = 'https://www.googleapis.com/auth/calendar.events'
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${encodeURIComponent(empresaId)}`
+    const scope = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly'
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`
     window.open(url, '_blank', 'width=500,height=620,scrollbars=yes')
   }
 
-  async function verificarToken() {
-    try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `gcal_token:${empresaId}`).maybeSingle()
-      if (row?.value) {
-        const tk = JSON.parse(row.value)
-        setGcalToken(tk)
-        setMsg(`✅ Token ativo! Expira em: ${tk.expires_in ? new Date(tk.obtained_at + tk.expires_in * 1000).toLocaleString('pt-BR') : 'não definido'}`)
-      } else {
-        setMsg('⚠️ Nenhum token encontrado. Clique em "Conectar conta" para autorizar.')
-      }
-    } catch (e) { setMsg('❌ Erro ao verificar token: ' + e.message) }
+  async function verificarStatusUsr(uid) {
+    setStatusUsr(prev => ({ ...prev, [uid]: 'checking' }))
+    const { data } = await supabase.from('vx_storage').select('value').eq('key', `gcal_token:${empresaId}:user:${uid}`).maybeSingle()
+    setStatusUsr(prev => ({ ...prev, [uid]: data?.value ? 'ok' : 'none' }))
+  }
+
+  async function desconectarUsr(uid) {
+    await supabase.from('vx_storage').delete().eq('key', `gcal_token:${empresaId}:user:${uid}`)
+    setStatusUsr(prev => ({ ...prev, [uid]: 'none' }))
+    setMsg('🗑 Agenda do usuário desconectada.')
+  }
+
+  async function verificarTokenEmpresa() {
+    const { data } = await supabase.from('vx_storage').select('value').eq('key', `gcal_token:${empresaId}`).maybeSingle()
+    if (data?.value) { setGcalToken(JSON.parse(data.value)); setMsg('✅ Token da empresa ativo!') }
+    else setMsg('⚠️ Empresa sem agenda conectada. Clique em "Conectar agenda da empresa".')
+  }
+
+  const stIcon = (uid) => {
+    const v = statusUsr[uid]
+    if (v === 'ok')       return { label: '✅ Conectada',    cor: '#10b981', bg: 'rgba(16,185,129,.1)',  bd: 'rgba(16,185,129,.3)' }
+    if (v === 'checking') return { label: '⏳ Verificando', cor: '#f59e0b', bg: 'rgba(245,158,11,.08)', bd: 'rgba(245,158,11,.25)' }
+    if (v === 'none')     return { label: '○ Não conectada', cor: '#64748b', bg: 'rgba(100,116,139,.06)', bd: 'rgba(100,116,139,.2)' }
+    return null
   }
 
   return (
     <div>
       <label style={s.label}>Client ID (Google OAuth)</label>
       <input style={s.input} value={clientId} onChange={e => setClientId(e.target.value)} placeholder="XXXXXXXX.apps.googleusercontent.com" />
-
       <label style={s.label}>Client Secret</label>
       <input style={{ ...s.input, fontFamily: 'monospace', fontSize: 11 }} type="password" value={clientSecret} onChange={e => setClientSecret(e.target.value)} placeholder="GOCSPX-XXXXXXXXXX" />
-
-      <div style={{ marginBottom: 10, fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
-        <strong style={{ color: 'var(--text)' }}>Redirect URI para configurar no Google Cloud:</strong><br />
+      <div style={{ marginBottom: 12, fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
+        <strong style={{ color: 'var(--text)' }}>Redirect URI:</strong><br />
         <code style={{ color: 'var(--accent)', wordBreak: 'break-all' }}>
           {typeof window !== 'undefined' ? window.location.origin : 'https://seu-dominio.vercel.app'}/api/auth/google/callback
         </code>
       </div>
-
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: gcalToken ? 12 : 0 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
         <button onClick={salvarGoogleCfg} disabled={saving} style={{ ...s.btnSec, borderColor: 'rgba(16,185,129,.3)', color: '#10b981', background: 'rgba(16,185,129,.08)' }}>
-          {saving ? '⏳ Salvando...' : '💾 Salvar credenciais Google'}
+          {saving ? '⏳...' : '💾 Salvar credenciais Google'}
         </button>
-        <button onClick={conectarGoogle} style={{ ...s.btnSec }}>
-          🔗 Conectar conta Google
-        </button>
-        <button onClick={verificarToken} style={{ ...s.btnSec, fontSize: 12 }}>
-          🔍 Verificar token
-        </button>
+        <button onClick={() => abrirOAuth(empresaId)} style={{ ...s.btnSec }}>🔗 Conectar agenda da empresa</button>
+        <button onClick={verificarTokenEmpresa} style={{ ...s.btnSec, fontSize: 12 }}>🔍 Verificar token empresa</button>
       </div>
-
       {gcalToken && (
-        <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 8, background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.25)', fontSize: 12, color: '#10b981' }}>
-          ✅ Google Agenda autorizado — a integração está ativa.
+        <div style={{ marginBottom: 16, padding: '8px 14px', borderRadius: 8, background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.25)', fontSize: 12, color: '#10b981' }}>
+          ✅ Agenda da empresa autorizada — usada como fallback.
+        </div>
+      )}
+
+      {/* ── Agendas individuais ── */}
+      {usuarios.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', letterSpacing: .5, textTransform: 'uppercase', fontWeight: 700, marginBottom: 10 }}>
+            📅 Agenda por Usuário
+          </div>
+          <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.1)', borderRadius: 8, fontSize: 11, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.7 }}>
+            O Agente IA consultará a agenda do usuário responsável pelo atendimento/departamento para propor horários. Se não houver agenda individual, usa a da empresa como fallback.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {usuarios.map(u => {
+              const st = stIcon(u.id)
+              return (
+                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', background: 'var(--surface)', border: `1px solid ${st?.bd || 'var(--border)'}`, borderRadius: 10 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Syne,sans-serif', fontWeight: 700, fontSize: 13, color: 'var(--accent)', flexShrink: 0 }}>
+                    {(u.nome || u.email || '?').slice(0, 2).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{u.nome || u.username || u.email}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{u.email}{u.tcxRamal ? ` · 📞 ${u.tcxRamal}` : ''}</div>
+                  </div>
+                  {st && <span style={{ padding: '2px 9px', borderRadius: 12, fontSize: 10, fontWeight: 700, background: st.bg, color: st.cor, border: `1px solid ${st.bd}`, flexShrink: 0 }}>{st.label}</span>}
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    {!statusUsr[u.id] && (
+                      <button onClick={() => verificarStatusUsr(u.id)} style={{ padding: '5px 9px', borderRadius: 7, background: 'rgba(100,116,139,.1)', border: '1px solid rgba(100,116,139,.25)', color: 'var(--muted)', fontSize: 11, cursor: 'pointer' }}>🔍</button>
+                    )}
+                    <button onClick={() => abrirOAuth(`${empresaId}__user:${u.id}`)}
+                      style={{ padding: '5px 12px', borderRadius: 7, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.3)', color: '#10b981', fontSize: 11, cursor: 'pointer', fontFamily: 'DM Mono,monospace', fontWeight: 600 }}>
+                      {statusUsr[u.id] === 'ok' ? '🔄' : '🔗'} {statusUsr[u.id] === 'ok' ? 'Reconectar' : 'Conectar'}
+                    </button>
+                    {statusUsr[u.id] === 'ok' && (
+                      <button onClick={() => desconectarUsr(u.id)} style={{ padding: '5px 9px', borderRadius: 7, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', fontSize: 11, cursor: 'pointer' }}>🗑</button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      {usuarios.length === 0 && (
+        <div style={{ padding: '12px 16px', background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.2)', borderRadius: 8, fontSize: 12, color: '#f59e0b', marginTop: 8 }}>
+          ⚠️ Nenhum usuário cadastrado. Acesse <strong>Configurações → Usuários</strong> para adicionar o time.
         </div>
       )}
     </div>
@@ -3995,16 +4050,19 @@ function TabDepartamentos({ cfg, setCfg, empresaId }) {
   )
 }
 
+
 // ══════════════════════════════════════════════════════════════════
-// COMPONENTE: Gestão de Ramais 3CX
+// COMPONENTE: Ramais do Time (3CX)
+// Cada ramal tem seu próprio Client ID e Secret do painel 3CX.
+// Permite múltiplos ramais com Add / Edit / Delete.
 // ══════════════════════════════════════════════════════════════════
-function Tcx3CxRamais({ cfg, setCfg, empresaId, tcxUrl, tcxClientId, tcxClientSecret }) {
+function Tcx3CxRamais({ cfg, setCfg, empresaId, tcxUrl }) {
   const [ramais,     setRamais]     = React.useState(cfg.tcxRamais || [])
-  const [formRamal,  setFormRamal]  = React.useState(null)
+  const [formRamal,  setFormRamal]  = React.useState(null)  // null = fechado
   const [saving,     setSaving]     = React.useState(false)
   const [msg,        setMsg]        = React.useState('')
   const [buscando,   setBuscando]   = React.useState(false)
-  const [ramaisLive, setRamaisLive] = React.useState([])
+  const [ramaisLive, setRamaisLive] = React.useState([])    // extensões importadas do 3CX
 
   const usuarios = cfg.users || []
 
@@ -4017,195 +4075,279 @@ function Tcx3CxRamais({ cfg, setCfg, empresaId, tcxUrl, tcxClientId, tcxClientSe
     row2:   { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
   }
 
+  // ── Salva lista de ramais no banco e sincroniza tcxRamal de cada usuário ──
   async function salvarRamais(novos) {
     setSaving(true); setMsg('')
     try {
-      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
       const atual = row?.value ? JSON.parse(row.value) : {}
-      const novo  = { ...atual, tcxRamais: novos }
-      // Sincroniza tcxRamal em cada usuário com base no vínculo
+      // Sincroniza campo tcxRamal em cada usuário com base nos vínculos
       const usersAtualizados = (atual.users || []).map(u => {
-        const ramalDoUser = novos.find(r => r.usuarioId === u.id)
-        return ramalDoUser ? { ...u, tcxRamal: ramalDoUser.ramal } : u
+        const ramalVinculado = novos.find(r => r.usuarioId === u.id && r.ativo !== false)
+        return ramalVinculado ? { ...u, tcxRamal: ramalVinculado.ramal } : u
       })
-      novo.users = usersAtualizados
-      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      const novo = { ...atual, tcxRamais: novos, users: usersAtualizados }
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() }, { onConflict: 'key' })
       setCfg(novo); setRamais(novos)
-      setMsg('✅ Ramais salvos e sincronizados com os usuários!')
+      setMsg('✅ Ramais salvos!')
     } catch(e) { setMsg('❌ Erro: ' + e.message) }
     setSaving(false)
   }
 
+  // ── Salva o formulário (novo ou edição) ──
   function salvarForm() {
-    if (!formRamal.ramal.trim()) { setMsg('⚠️ Informe o número do ramal'); return }
-    const id = formRamal.id || `ramal_${Date.now()}`
+    if (!formRamal.ramal.trim())     { setMsg('⚠️ Informe o número do ramal (Extension)'); return }
+    if (!formRamal.clientId.trim())  { setMsg('⚠️ Informe o Client ID do ramal'); return }
+    if (!formRamal.clientSecret.trim()) { setMsg('⚠️ Informe o Client Secret do ramal'); return }
+    const id   = formRamal.id || `ramal_${Date.now()}`
     const novo = { ...formRamal, id }
     const novos = formRamal.id
       ? ramais.map(r => r.id === formRamal.id ? novo : r)
       : [...ramais, novo]
-    setFormRamal(null)
+    setFormRamal(null); setMsg('')
     salvarRamais(novos)
   }
 
+  function excluir(id) {
+    if (!confirm('Remover este ramal?')) return
+    salvarRamais(ramais.filter(r => r.id !== id))
+  }
+
+  // ── Importar extensões do 3CX via API ──
   async function importarDo3CX() {
-    if (!tcxUrl) { setMsg('⚠️ Configure a URL do 3CX primeiro e salve.'); return }
+    if (!tcxUrl) { setMsg('⚠️ Salve a URL do servidor 3CX primeiro'); return }
+    // Pega client ID/Secret do primeiro ramal como credencial de admin
+    const ramalAdmin = ramais.find(r => r.clientId && r.clientSecret)
+    if (!ramalAdmin) { setMsg('⚠️ Adicione pelo menos um ramal com Client ID e Secret para importar'); return }
     setBuscando(true); setMsg('⏳ Buscando extensões no 3CX...')
     try {
       const r = await fetch('/api/3cx-extensions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tcxUrl, tcxClientId, tcxClientSecret })
+        body: JSON.stringify({ tcxUrl, tcxClientId: ramalAdmin.clientId, tcxClientSecret: ramalAdmin.clientSecret })
       })
       const data = await r.json()
       if (data.extensions?.length) {
         setRamaisLive(data.extensions)
-        setMsg(`✅ ${data.extensions.length} extensões encontradas. Clique em uma para adicionar.`)
+        setMsg(`✅ ${data.extensions.length} extensões encontradas. Clique para pré-preencher o formulário.`)
       } else {
         setMsg('⚠️ Nenhuma extensão encontrada. ' + (data.error || ''))
       }
-    } catch(e) {
-      setMsg('⚠️ Não foi possível importar automaticamente. Cadastre os ramais manualmente abaixo.')
-    }
+    } catch { setMsg('⚠️ Não foi possível importar. Cadastre manualmente.') }
     setBuscando(false)
   }
 
-  function adicionarRamalLive(ext) {
-    const jaExiste = ramais.find(r => r.ramal === String(ext.number))
-    if (jaExiste) { setMsg(`⚠️ Ramal ${ext.number} já cadastrado`); return }
-    setFormRamal({ id: '', nome: ext.displayName || String(ext.number), ramal: String(ext.number), usuarioId: '', ativo: true })
+  function selecionarRamalLive(ext) {
+    // Pré-preenche o formulário com os dados importados — o usuário preenche Client ID/Secret manualmente
+    setFormRamal({
+      id: '', nome: ext.displayName || String(ext.number),
+      ramal: String(ext.number), clientId: '', clientSecret: '',
+      usuarioId: '', ativo: true
+    })
     setRamaisLive([])
   }
 
-  const nomeUsuario = (uid) => usuarios.find(u => u.id === uid)?.nome || '—'
+  const nomeUsuario = uid => {
+    const u = usuarios.find(u => u.id === uid)
+    return u ? (u.nome || u.username || u.email) : '—'
+  }
 
   return (
     <div style={si.card}>
+
+      {/* ── Cabeçalho ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div>
-          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>📱 Ramais do Time (3CX)</div>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            📱 Ramais do Time (3CX)
+            {ramais.length > 0 && (
+              <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 11, background: 'rgba(0,212,255,.12)', color: 'var(--accent)', border: '1px solid rgba(0,212,255,.25)' }}>
+                {ramais.length} ramal{ramais.length !== 1 ? 'is' : ''}
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-            Cadastre os ramais e vincule a cada usuário. Ao fazer login, a telefonia é identificada automaticamente.
+            Cada membro do time tem seu próprio ramal com Client ID e Secret do painel 3CX.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          {tcxUrl && (
+          {tcxUrl && ramais.length > 0 && (
             <button onClick={importarDo3CX} disabled={buscando}
               style={{ ...si.btnSec, borderColor: 'rgba(16,185,129,.3)', color: '#10b981', background: 'rgba(16,185,129,.08)' }}>
-              {buscando ? '⏳...' : '📥 Importar do 3CX'}
+              {buscando ? '⏳...' : '📥 Importar extensões'}
             </button>
           )}
-          <button onClick={() => setFormRamal({ id: '', nome: '', ramal: '', usuarioId: '', ativo: true })} style={si.btnSec}>
+          <button onClick={() => setFormRamal({ id: '', nome: '', ramal: '', clientId: '', clientSecret: '', usuarioId: '', ativo: true })}
+            style={si.btn}>
             + Adicionar Ramal
           </button>
         </div>
       </div>
 
-      {/* Guia rápido */}
-      <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.12)', borderRadius: 8, fontSize: 11, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.7 }}>
-        <strong style={{ color: 'var(--accent)' }}>Como encontrar o ramal no 3CX:</strong><br/>
-        Painel 3CX → <strong>Usuários</strong> → clique no usuário → campo <strong>"Extension"</strong> (ex: 1001).<br/>
-        O <strong>Client ID</strong> de cada extensão fica em <strong>Configurações → Integrações → API → Extensões</strong>.
+      {/* ── Guia ── */}
+      <div style={{ padding: '12px 16px', background: 'rgba(0,212,255,.04)', border: '1px solid rgba(0,212,255,.1)', borderRadius: 8, fontSize: 11, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.8 }}>
+        <strong style={{ color: 'var(--accent)' }}>Como obter Client ID e Secret de cada ramal:</strong><br/>
+        Painel 3CX → <strong>Configurações → Integrações → API</strong> → <strong>"+ Novo"</strong> → crie uma integração para cada usuário →
+        em <strong>"Permissões de extensão"</strong> selecione o ramal do usuário → copie o <strong>Client ID</strong> e <strong>Client Secret</strong> gerados.<br/>
+        O número do <strong>Ramal (Extension)</strong> está em: Painel 3CX → <strong>Usuários</strong> → clique no usuário → campo <strong>"Extension"</strong>.
       </div>
 
-      {/* Chips de extensões importadas do 3CX */}
+      {/* ── Chips importados ── */}
       {ramaisLive.length > 0 && (
         <div style={{ marginBottom: 14, padding: 14, background: 'rgba(16,185,129,.05)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 10 }}>
-          <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: .5 }}>
-            📥 Extensões encontradas — clique para adicionar
-          </div>
+          <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700, marginBottom: 10 }}>📥 Selecione para pré-preencher o formulário (ainda precisará do Client ID/Secret de cada um):</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {ramaisLive.map(ext => (
-              <button key={ext.number} onClick={() => adicionarRamalLive(ext)}
+              <button key={ext.number} onClick={() => selecionarRamalLive(ext)}
                 style={{ padding: '6px 14px', borderRadius: 20, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.3)', color: '#10b981', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>
                 {ext.number}{ext.displayName ? ` — ${ext.displayName}` : ''}
               </button>
             ))}
           </div>
+          <button onClick={() => setRamaisLive([])} style={{ marginTop: 8, background: 'none', border: 'none', color: 'var(--muted)', fontSize: 11, cursor: 'pointer' }}>✕ Fechar</button>
         </div>
       )}
 
-      {/* Lista de ramais cadastrados */}
-      {ramais.length === 0 && !formRamal ? (
-        <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--muted)', fontSize: 13 }}>
-          Nenhum ramal cadastrado. Use "+ Adicionar Ramal" ou "Importar do 3CX".
+      {/* ── Lista de ramais cadastrados ── */}
+      {ramais.length === 0 && !formRamal && (
+        <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--border)', borderRadius: 10 }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>📞</div>
+          Nenhum ramal cadastrado ainda.<br/>
+          <span style={{ fontSize: 12 }}>Clique em <strong style={{ color: 'var(--accent)' }}>+ Adicionar Ramal</strong> para começar.</span>
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+      )}
+
+      {ramais.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: formRamal ? 14 : 0 }}>
           {ramais.map(r => (
-            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', background: 'var(--surface)', border: `1px solid ${r.ativo !== false ? 'rgba(0,212,255,.2)' : 'var(--border)'}`, borderRadius: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: r.ativo !== false ? 'rgba(0,212,255,.1)' : 'rgba(100,116,139,.1)', border: `1.5px solid ${r.ativo !== false ? 'rgba(0,212,255,.3)' : 'rgba(100,116,139,.2)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: 'var(--surface)', border: `1px solid ${r.ativo !== false ? 'rgba(0,212,255,.2)' : 'var(--border)'}`, borderRadius: 10 }}>
+
+              {/* Ícone */}
+              <div style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
+                background: r.ativo !== false ? 'rgba(0,212,255,.1)' : 'rgba(100,116,139,.08)',
+                border: `1.5px solid ${r.ativo !== false ? 'rgba(0,212,255,.3)' : 'rgba(100,116,139,.2)'}` }}>
                 📞
               </div>
-              <div style={{ flex: 1 }}>
+
+              {/* Infos */}
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>{r.nome || r.ramal}</span>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{r.nome || `Ramal ${r.ramal}`}</span>
                   <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: 'rgba(0,212,255,.12)', color: 'var(--accent)', border: '1px solid rgba(0,212,255,.25)' }}>
-                    Ramal {r.ramal}
+                    Ext. {r.ramal}
                   </span>
-                  {r.ativo === false && <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 10, color: 'var(--muted)', border: '1px solid var(--border)' }}>Inativo</span>}
+                  {r.clientId && (
+                    <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 10, background: 'rgba(16,185,129,.1)', color: '#10b981', border: '1px solid rgba(16,185,129,.25)' }}>
+                      ✅ Client ID configurado
+                    </span>
+                  )}
+                  {r.ativo === false && (
+                    <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 10, color: 'var(--muted)', border: '1px solid var(--border)' }}>Inativo</span>
+                  )}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
                   {r.usuarioId
-                    ? <span>👤 <strong style={{ color: 'var(--accent)' }}>{nomeUsuario(r.usuarioId)}</strong></span>
+                    ? <span>👤 <strong style={{ color: '#00d4ff' }}>{nomeUsuario(r.usuarioId)}</strong></span>
                     : <span style={{ color: '#f59e0b' }}>⚠️ Sem usuário vinculado</span>}
+                  {r.clientId && <span style={{ marginLeft: 10, fontFamily: 'monospace', fontSize: 10 }}>ID: {r.clientId.slice(0, 14)}…</span>}
                 </div>
               </div>
-              <button onClick={() => setFormRamal({ ...r })} style={{ ...si.btnSec, padding: '5px 10px', fontSize: 12 }}>✏️</button>
-              <button onClick={() => { if (confirm('Remover este ramal?')) salvarRamais(ramais.filter(x => x.id !== r.id)) }}
-                style={{ padding: '5px 10px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>🗑</button>
+
+              {/* Ações */}
+              <button onClick={() => setFormRamal({ ...r })}
+                style={{ ...si.btnSec, padding: '6px 12px', fontSize: 12, flexShrink: 0 }}>✏️ Editar</button>
+              <button onClick={() => excluir(r.id)}
+                style={{ padding: '6px 10px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12, flexShrink: 0 }}>
+                🗑
+              </button>
             </div>
           ))}
         </div>
       )}
 
-      {/* Formulário adicionar/editar ramal */}
+      {/* ── Formulário Adicionar / Editar ── */}
       {formRamal && (
-        <div style={{ background: 'rgba(0,212,255,.03)', border: '1px solid rgba(0,212,255,.25)', borderRadius: 12, padding: '18px 20px', marginBottom: 14 }}>
-          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>
+        <div style={{ background: 'rgba(0,212,255,.03)', border: '1px solid rgba(0,212,255,.3)', borderRadius: 12, padding: '20px 22px', marginTop: ramais.length > 0 ? 14 : 0 }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 16 }}>
             {formRamal.id ? '✏️ Editar Ramal' : '➕ Novo Ramal'}
           </div>
+
+          {/* Linha 1: Nome + Extensão */}
           <div style={si.row2}>
             <div>
               <label style={si.label}>Nome / Descrição</label>
               <input style={si.input} value={formRamal.nome} onChange={e => setFormRamal(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: João — Vendas" />
             </div>
             <div>
-              <label style={si.label}>Número do Ramal *</label>
+              <label style={si.label}>Número do Ramal (Extension) *</label>
               <input style={si.input} value={formRamal.ramal} onChange={e => setFormRamal(f => ({ ...f, ramal: e.target.value.trim() }))} placeholder="Ex: 1001" />
               <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: -8, marginBottom: 12 }}>
-                Campo "Extension" no perfil do usuário no painel 3CX
+                Painel 3CX → Usuários → Extension
               </div>
             </div>
           </div>
+
+          {/* Linha 2: Client ID + Client Secret */}
+          <div style={{ padding: '14px 16px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.15)', borderRadius: 10, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: .5 }}>
+              🔑 Credenciais do ramal (geradas no painel 3CX)
+            </div>
+            <div style={si.row2}>
+              <div>
+                <label style={si.label}>Client ID *</label>
+                <input style={{ ...si.input, fontFamily: 'monospace', fontSize: 12 }} value={formRamal.clientId} onChange={e => setFormRamal(f => ({ ...f, clientId: e.target.value.trim() }))} placeholder="Ex: vivanexa-joao" />
+              </div>
+              <div>
+                <label style={si.label}>Client Secret *</label>
+                <input type="password" style={{ ...si.input, fontFamily: 'monospace', fontSize: 12 }} value={formRamal.clientSecret} onChange={e => setFormRamal(f => ({ ...f, clientSecret: e.target.value.trim() }))} placeholder="••••••••••••" />
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
+              Painel 3CX → <strong>Configurações → Integrações → API → "+ Novo"</strong> → selecione este ramal em "Permissões de extensão" → copie Client ID e Secret.
+            </div>
+          </div>
+
+          {/* Linha 3: Vincular usuário */}
           <div>
-            <label style={si.label}>Vincular ao Usuário do Sistema *</label>
+            <label style={si.label}>Vincular ao Usuário do Sistema</label>
             <select style={{ ...si.input, cursor: 'pointer' }} value={formRamal.usuarioId} onChange={e => setFormRamal(f => ({ ...f, usuarioId: e.target.value }))}>
               <option value="">— Selecione um usuário —</option>
               {usuarios.map(u => (
                 <option key={u.id} value={u.id}>
-                  {u.nome}{u.email ? ` (${u.email})` : ''}{u.tcxRamal && u.tcxRamal !== formRamal.ramal ? ` · ramal atual: ${u.tcxRamal}` : ''}
+                  {u.nome || u.username || u.email}
+                  {u.email && u.nome ? ` (${u.email})` : ''}
+                  {u.tcxRamal ? ` · ramal atual: ${u.tcxRamal}` : ''}
                 </option>
               ))}
             </select>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: -8, marginBottom: 12 }}>
-              O campo "Ramal 3CX" do usuário será atualizado automaticamente ao salvar.
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: -8, marginBottom: 14 }}>
+              Ao salvar, o campo "Ramal 3CX" do usuário é atualizado automaticamente.
             </div>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text)', marginBottom: 14 }}>
+
+          {/* Linha 4: Ativo */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text)', marginBottom: 16 }}>
             <input type="checkbox" checked={formRamal.ativo !== false} onChange={e => setFormRamal(f => ({ ...f, ativo: e.target.checked }))} style={{ width: 15, height: 15, accentColor: '#00d4ff' }} />
             Ramal ativo (recebe e origina chamadas)
           </label>
+
+          {/* Botões */}
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={salvarForm} disabled={saving} style={si.btn}>{saving ? '⏳...' : '💾 Salvar Ramal'}</button>
-            <button onClick={() => setFormRamal(null)} style={{ ...si.btnSec, borderColor: 'rgba(100,116,139,.3)', color: 'var(--muted)' }}>Cancelar</button>
+            <button onClick={salvarForm} disabled={saving} style={si.btn}>
+              {saving ? '⏳ Salvando...' : '💾 Salvar Ramal'}
+            </button>
+            <button onClick={() => { setFormRamal(null); setMsg('') }} style={{ ...si.btnSec, borderColor: 'rgba(100,116,139,.3)', color: 'var(--muted)' }}>
+              Cancelar
+            </button>
           </div>
         </div>
       )}
 
+      {/* Mensagem de feedback */}
       {msg && (
-        <div style={{ padding: '8px 14px', borderRadius: 8, marginTop: 8, fontSize: 12,
-          background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : msg.startsWith('❌') ? 'rgba(239,68,68,.1)' : 'rgba(245,158,11,.1)',
-          border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : msg.startsWith('❌') ? 'rgba(239,68,68,.3)' : 'rgba(245,158,11,.3)'}`,
+        <div style={{ padding: '9px 14px', borderRadius: 8, marginTop: 12, fontSize: 12,
+          background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : msg.startsWith('❌') ? 'rgba(239,68,68,.1)' : 'rgba(245,158,11,.08)',
+          border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : msg.startsWith('❌') ? 'rgba(239,68,68,.3)' : 'rgba(245,158,11,.25)'}`,
           color: msg.startsWith('✅') ? '#10b981' : msg.startsWith('❌') ? '#ef4444' : '#f59e0b' }}>
           {msg}
         </div>
