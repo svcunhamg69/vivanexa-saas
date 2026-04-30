@@ -721,17 +721,32 @@ export default function WhatsappInbox() {
 
   // ✅ FIX AUTO-SCROLL: função utilitária reutilizável
   const scrollParaBaixo = useCallback((behavior = 'smooth') => {
-    setTimeout(() => {
+    // Força scroll para o final com múltiplas tentativas em cascade
+    const forcarScroll = (beh) => {
       if (msgEndRef.current) {
-        msgEndRef.current.scrollIntoView({ behavior, block: 'end' })
+        msgEndRef.current.scrollIntoView({ behavior: beh, block: 'end' })
       } else if (mensagensRef.current) {
-        mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight + 9999
+        mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight + 99999
       }
-    }, 50)
+    }
+    // As 2 primeiras tentativas sem animação (mais confiável)
+    forcarScroll('instant')
+    const t1 = setTimeout(() => forcarScroll('instant'), 80)
+    const t2 = setTimeout(() => forcarScroll(behavior), 300)
+    const t3 = setTimeout(() => forcarScroll(behavior), 700)
+    // Não retorna cleanup aqui pois useCallback não suporta — os timeouts são curtos
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [])
 
   useEffect(() => {
-    scrollParaBaixo('instant')
+    // Ao trocar de conversa: scroll DEPOIS que as mensagens carregarem
+    // Delay maior para aguardar setConv + renderização do DOM
+    if (convAtiva) {
+      const t1 = setTimeout(() => scrollParaBaixo('instant'), 150)
+      const t2 = setTimeout(() => scrollParaBaixo('instant'), 400)
+      const t3 = setTimeout(() => scrollParaBaixo('instant'), 800)
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
+    }
   }, [convAtiva])
 
   useEffect(() => {
@@ -842,18 +857,20 @@ export default function WhatsappInbox() {
       if (instanciaConv) {
         // Sincroniza em background (não bloqueia a UI)
         sincronizarEvo(eid, numero, instanciaConv).then(convEvo => {
+          // ✅ FIX: só atualiza a tela se a versão sincronizada tem MAIS msgs
+          // Evita que sincronização sobrescreva estado mais recente da tela
           if (convEvo?.mensagens?.length) {
-            // Se a sincronização trouxe msgs novas, recarrega do Supabase
-            supabase.from('vx_storage').select('value').eq('key',`wpp_conv:${eid}:${numero}`).maybeSingle()
-              .then(({ data: rowAtual }) => {
-                if (rowAtual?.value) {
-                  const cAtual = JSON.parse(rowAtual.value)
-                  setConv(cAtual)
-                  setTimeout(() => {
-                    if (msgEndRef.current) msgEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
-                  }, 100)
-                }
-              })
+            setConv(prev => {
+              // Merge com mensagens da Evolution — nunca descarta msgs da tela
+              const mapaIds = new Map()
+              for (const m of (prev?.mensagens || [])) { if (m?.id) mapaIds.set(m.id, m) }
+              for (const m of (convEvo.mensagens || [])) { if (m?.id) mapaIds.set(m.id, m) }
+              const merged = Array.from(mapaIds.values())
+                .sort((a,b) => new Date(a.at||a.timestamp||0) - new Date(b.at||b.timestamp||0))
+              const temNova = merged.length > (prev?.mensagens||[]).length
+              if (temNova) setTimeout(() => scrollParaBaixo('smooth'), 100)
+              return { ...(prev||convEvo), mensagens: merged }
+            })
           }
         })
       }
@@ -874,7 +891,22 @@ export default function WhatsappInbox() {
           await supabase.from('vx_storage').upsert({ key:`wpp_idx:${eid}`, value:JSON.stringify(novoIdx), updated_at:new Date().toISOString() }, { onConflict:'key' })
         }
 
-        setConv(c)
+        // ✅ ROOT FIX: merge de mensagens — nunca perde msgs que já estão na tela
+        // Evita race condition onde polling traz versão mais antiga do Supabase
+        setConv(prev => {
+          if (!prev) return c
+          // Unifica mensagens: IDs de ambas, sem duplicatas
+          const mapaIds = new Map()
+          // Mensagens anteriores (tela) ficam como base
+          for (const m of (prev.mensagens || [])) { if (m?.id) mapaIds.set(m.id, m) }
+          // Mensagens novas do Supabase sobrescrevem por ID (versão mais atualizada)
+          for (const m of (c.mensagens || [])) { if (m?.id) mapaIds.set(m.id, m) }
+          const merged = Array.from(mapaIds.values())
+            .sort((a,b) => new Date(a.at||a.timestamp||0) - new Date(b.at||b.timestamp||0))
+          const temNova = merged.length > (prev.mensagens||[]).length
+          if (temNova) setTimeout(() => scrollParaBaixo('smooth'), 80)
+          return { ...c, mensagens: merged }
+        })
         if (c.protocolo) setProtocolo(c.protocolo)
         // ✅ FIX: Zera naoLidas sempre ao abrir a conversa (não só se > 0)
         // e salva no Supabase e no estado local de forma consistente
@@ -1199,7 +1231,7 @@ export default function WhatsappInbox() {
               {conv.agenteNome&&conv.status!=='automacao'&&<div style={{padding:'5px 16px',background:'rgba(0,212,255,.05)',borderBottom:'1px solid rgba(0,212,255,.1)',fontSize:11,color:'#64748b'}}>👤 Atendido por: <span style={{color:'#00d4ff'}}>{conv.agenteNome}</span></div>}
               {deptoAtual&&<div style={{padding:'5px 16px',background:'rgba(124,58,237,.05)',borderBottom:'1px solid rgba(124,58,237,.15)',fontSize:11,color:'#64748b'}}>🏢 Departamento: <span style={{color:'#7c3aed'}}>{deptoAtual.nome}</span>{conv.departamentoIA&&<span style={{marginLeft:8,color:'#00d4ff'}}>· Agente IA ativo</span>}</div>}
 
-              <div className="mensagens" ref={mensagensRef}>
+              <div className="mensagens" ref={mensagensRef} style={{overflowAnchor:'none'}}>
                 {(conv.mensagens||[]).map((m,idx)=>{
                   if (!m) return null
                   // Compatibilidade: campo 'de' ou 'fromMe', campo 'at' ou 'timestamp'
@@ -1277,7 +1309,7 @@ export default function WhatsappInbox() {
                   </div>
                   )
                 })}
-                <div ref={msgEndRef}/>
+                <div ref={msgEndRef} style={{height:1,paddingTop:8,display:"block"}}/>
               </div>
 
               {conv.status!=='finalizado' ? (
