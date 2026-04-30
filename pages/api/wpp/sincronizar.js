@@ -1,180 +1,178 @@
-// pages/api/wpp/sincronizar.js
-// Importa conversas existentes da Evolution API para o Supabase
-// Chamada via POST { empresaId }
+// pages/api/wpp/sincronizar-msgs.js
+// ═══════════════════════════════════════════════════════════════
+// Busca mensagens históricas diretamente da Evolution API v2
+// e sincroniza com o wpp_conv no Supabase
+//
+// POST { empresaId, numero, instancia, limite? }
+// ═══════════════════════════════════════════════════════════════
 
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
-
-export const config = { api: { bodyParser: true, responseLimit: false } }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' })
 
-  const { empresaId } = req.body
-  if (!empresaId) return res.status(400).json({ error: 'empresaId obrigatório' })
+  const { empresaId, numero, instancia, limite = 50 } = req.body
+  if (!empresaId || !numero || !instancia) {
+    return res.status(400).json({ error: 'empresaId, numero e instancia são obrigatórios' })
+  }
 
   try {
-    const { data: row } = await supabase
+    // Busca configuração da empresa
+    const { data: cfgRow } = await supabase
       .from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).maybeSingle()
-    const cfg = row?.value ? JSON.parse(row.value) : {}
+    if (!cfgRow?.value) return res.status(404).json({ error: 'Empresa não encontrada' })
 
-    const wppCfg   = cfg.wppInbox || {}
-    const baseUrl  = wppCfg.evolutionUrl      || process.env.EVOLUTION_API_URL || ''
-    const apiKey   = wppCfg.evolutionKey      || process.env.EVOLUTION_API_KEY || ''
-    const instance = wppCfg.evolutionInstance || ''
+    const cfg = JSON.parse(cfgRow.value)
+    const evoUrl = cfg.wppInbox?.evolutionUrl || cfg.evolutionApiUrl || ''
+    const evoKey = cfg.wppInbox?.evolutionKey || cfg.evolutionApiToken || ''
 
-    if (!baseUrl || !apiKey || !instance) {
-      return res.status(400).json({ error: 'Evolution API não configurada em Config → WhatsApp' })
+    if (!evoUrl || !evoKey) {
+      return res.status(400).json({ error: 'Evolution API não configurada' })
     }
 
-    // 1. Buscar lista de chats
-    const chatsRes = await fetch(`${baseUrl}/chat/findChats/${instance}`, {
-      headers: { apikey: apiKey },
-      signal: AbortSignal.timeout(20000),
+    // Normaliza o número para formato JID da Evolution
+    const numLimpo = numero.replace(/\D/g, '')
+    const numFull  = numLimpo.startsWith('55') ? numLimpo : `55${numLimpo}`
+    const jid      = numFull.includes('@') ? numFull : `${numFull}@s.whatsapp.net`
+
+    // ── Busca mensagens via Evolution API v2 ─────────────────────────
+    // POST /chat/findMessages/{instance}
+    const evoResp = await fetch(`${evoUrl}/chat/findMessages/${instancia}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: evoKey },
+      body: JSON.stringify({
+        where: { key: { remoteJid: jid } },
+        limit: limite,
+      }),
+      signal: AbortSignal.timeout(10000),
     })
 
-    if (!chatsRes.ok) {
-      const txt = await chatsRes.text()
-      return res.status(502).json({ error: `Evolution API: ${chatsRes.status} ${txt.slice(0, 300)}` })
+    if (!evoResp.ok) {
+      const errText = await evoResp.text()
+      console.error('[sincronizar-msgs] Evolution error:', evoResp.status, errText.slice(0, 200))
+      return res.status(200).json({ ok: false, sincronizadas: 0, erro: `Evolution retornou ${evoResp.status}` })
     }
 
-    const chatsData = await chatsRes.json()
-    const lista = Array.isArray(chatsData)
-      ? chatsData
-      : (chatsData?.chats || chatsData?.data || Object.values(chatsData || {}))
+    const evoData = await evoResp.json()
 
-    // Filtrar apenas contatos individuais (não grupos)
-    const individuais = lista.filter(c => {
-      const jid = c?.id || c?.remoteJid || ''
-      return jid && !jid.includes('@g.us') && jid.includes('@')
-    })
+    // A resposta pode ser array direto ou { messages: [...] }
+    const rawMsgs = Array.isArray(evoData)
+      ? evoData
+      : (evoData?.messages?.records || evoData?.messages || evoData?.data || [])
 
-    let importados = 0, atualizados = 0, erros = 0
+    if (!rawMsgs.length) {
+      return res.status(200).json({ ok: true, sincronizadas: 0, total: 0 })
+    }
 
-    for (const chat of individuais.slice(0, 200)) {
-      try {
-        const remoteJid   = chat?.id || chat?.remoteJid || ''
-        const numero      = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
-        const nome        = chat?.name || chat?.pushName || chat?.verifiedBizName || numero
-        const convKey     = `wpp_conv:${empresaId}:${numero}`
+    // ── Converte mensagens do formato Evolution → formato Vivanexa ────
+    const mensagens = rawMsgs.map(m => {
+      const fromMe = m.key?.fromMe === true
+      const ts = m.messageTimestamp
+        ? new Date(Number(m.messageTimestamp) * 1000).toISOString()
+        : (m.updatedAt || new Date().toISOString())
 
-        // Buscar mensagens desse chat
-        let mensagens = []
-        try {
-          const mRes = await fetch(
-            `${baseUrl}/chat/findMessages/${instance}?remoteJid=${encodeURIComponent(remoteJid)}&limit=30`,
-            { headers: { apikey: apiKey }, signal: AbortSignal.timeout(8000) }
-          )
-          if (mRes.ok) {
-            const mData = await mRes.json()
-            const rawMsgs = Array.isArray(mData)
-              ? mData
-              : (mData?.messages?.records || mData?.data || [])
+      // Extrai texto
+      const texto = m.message?.conversation
+        || m.message?.extendedTextMessage?.text
+        || m.message?.imageMessage?.caption
+        || m.message?.videoMessage?.caption
+        || m.message?.documentMessage?.caption
+        || m.message?.audioMessage?.url
+        || m.pushName || ''
 
-            mensagens = rawMsgs.map(m => {
-              const msgBody = m?.message || {}
-              const texto = (
-                msgBody?.conversation ||
-                msgBody?.extendedTextMessage?.text ||
-                msgBody?.imageMessage?.caption ||
-                msgBody?.videoMessage?.caption ||
-                msgBody?.documentMessage?.fileName ||
-                '[Mídia]'
-              )
-              return {
-                id:   `msg_evo_${m?.key?.id || Math.random().toString(36).slice(2)}`,
-                de:   m?.key?.fromMe ? 'empresa' : 'cliente',
-                para: m?.key?.fromMe ? numero : 'empresa',
-                texto,
-                tipo: msgBody?.imageMessage ? 'image'
-                    : msgBody?.audioMessage  ? 'audio'
-                    : msgBody?.videoMessage  ? 'video'
-                    : 'text',
-                mediaUrl: msgBody?.imageMessage?.url || msgBody?.audioMessage?.url || null,
-                at: m?.messageTimestamp
-                  ? new Date(Number(m.messageTimestamp) * 1000).toISOString()
-                  : new Date().toISOString(),
-                lida: true,
-              }
-            }).filter(m => m.texto && m.texto !== '[Mídia]' || m.tipo !== 'text')
-          }
-        } catch {}
+      // Tipo de mensagem
+      const tipo = m.message?.imageMessage    ? 'image'
+                 : m.message?.videoMessage    ? 'video'
+                 : m.message?.audioMessage    ? 'audio'
+                 : m.message?.documentMessage ? 'document'
+                 : m.message?.stickerMessage  ? 'sticker'
+                 : m.message?.locationMessage ? 'location'
+                 : 'text'
 
-        const ultimaMsg = mensagens[mensagens.length - 1]
-        const ultimaMensagem = ultimaMsg?.texto || ''
-        const ultimaAt = ultimaMsg?.at || new Date().toISOString()
-        const naoLidas = mensagens.filter(m => m.de === 'cliente').length
-
-        // Verificar se já existe
-        const { data: existente } = await supabase
-          .from('vx_storage').select('value').eq('key', convKey).maybeSingle()
-
-        if (existente?.value) {
-          // Atualizar: mesclar mensagens sem duplicar
-          const conv = JSON.parse(existente.value)
-          const idsExist = new Set((conv.mensagens || []).map(m => m.id))
-          const novas = mensagens.filter(m => !idsExist.has(m.id))
-          if (novas.length > 0) {
-            conv.mensagens = [...(conv.mensagens || []), ...novas]
-              .sort((a, b) => new Date(a.at) - new Date(b.at))
-              .slice(-200)
-            conv.ultimaMensagem = ultimaMensagem || conv.ultimaMensagem
-            conv.ultimaAt = ultimaAt
-            if (!conv.nome || conv.nome === conv.numero) conv.nome = nome
-            await supabase.from('vx_storage').upsert({
-              key: convKey, value: JSON.stringify(conv), updated_at: new Date().toISOString()
-            }, { onConflict: 'key' })
-            atualizados++
-          }
-        } else {
-          // Criar nova conversa
-          const conv = {
-            id: convKey, numero, nome, empresaId,
-            status: 'automacao', botPausado: false,
-            filaId: null, agenteId: null, agenteNome: null,
-            tags: [], naoLidas, ultimaMensagem, ultimaAt, mensagens,
-          }
-          await supabase.from('vx_storage').upsert({
-            key: convKey, value: JSON.stringify(conv), updated_at: new Date().toISOString()
-          }, { onConflict: 'key' })
-          importados++
-        }
-
-        // Atualizar índice
-        await atualizarIndice(empresaId, numero, { nome, ultimaMensagem, ultimaAt, status: 'automacao', naoLidas, tags: [] })
-
-      } catch (e) {
-        console.warn('[sincronizar] chat error:', e.message)
-        erros++
+      return {
+        id:          m.key?.id || 'evo_' + Math.random().toString(36).slice(2),
+        de:          fromMe ? 'empresa' : 'cliente',
+        fromMe,
+        texto,
+        at:          ts,
+        tipo,
+        mediaId:     m.key?.id || null,
+        mimetype:    m.message?.imageMessage?.mimetype
+                  || m.message?.videoMessage?.mimetype
+                  || m.message?.audioMessage?.mimetype
+                  || m.message?.documentMessage?.mimetype
+                  || null,
+        nomeArquivo: m.message?.documentMessage?.fileName || null,
+        origem:      'evolution',
       }
+    }).filter(m => m.texto || m.tipo !== 'text') // remove msgs vazias de texto
+
+    // Ordena por data (mais antigas primeiro)
+    mensagens.sort((a, b) => new Date(a.at) - new Date(b.at))
+
+    // ── Carrega conversa existente do Supabase ──────────────────────
+    const convKey = `wpp_conv:${empresaId}:${numFull}`
+    const { data: convRow } = await supabase
+      .from('vx_storage').select('value').eq('key', convKey).maybeSingle()
+
+    let conv = convRow?.value ? JSON.parse(convRow.value) : {
+      numero: numFull, nome: '', status: 'automacao',
+      mensagens: [], criadoEm: new Date().toISOString(),
+      instancia,
+    }
+
+    // ── Merge: adiciona mensagens que ainda não existem (por ID) ─────
+    const idsExistentes = new Set((conv.mensagens || []).map(m => m.id))
+    const novas = mensagens.filter(m => !idsExistentes.has(m.id))
+
+    if (novas.length > 0) {
+      conv.mensagens = [...(conv.mensagens || []), ...novas]
+        .sort((a, b) => new Date(a.at) - new Date(b.at))
+        .slice(-200) // mantém últimas 200 mensagens
+
+      const ultima = conv.mensagens[conv.mensagens.length - 1]
+      conv.ultimaMensagem = ultima?.texto?.slice(0, 60) || ''
+      conv.ultimaAt       = ultima?.at || new Date().toISOString()
+      conv.ultimaDe       = ultima?.fromMe ? 'empresa' : 'cliente'
+      conv.updatedAt      = new Date().toISOString()
+      conv.instancia      = conv.instancia || instancia
+
+      // Salva conversa atualizada
+      await supabase.from('vx_storage').upsert(
+        { key: convKey, value: JSON.stringify(conv), updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
+      )
+
+      // Atualiza índice
+      const idxKey = `wpp_idx:${empresaId}`
+      const { data: idxRow } = await supabase.from('vx_storage').select('value').eq('key', idxKey).maybeSingle()
+      const idx = idxRow?.value ? JSON.parse(idxRow.value) : {}
+      idx[numFull] = {
+        ...(idx[numFull] || {}), numero: numFull,
+        ultimaMensagem: conv.ultimaMensagem, ultimaAt: conv.ultimaAt,
+        updatedAt: new Date().toISOString(), status: conv.status || 'automacao',
+        instancia: conv.instancia,
+      }
+      await supabase.from('vx_storage').upsert(
+        { key: idxKey, value: JSON.stringify(idx), updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
+      )
     }
 
     return res.status(200).json({
-      success: true,
-      importados,
-      atualizados,
-      erros,
-      total: individuais.length,
-      mensagem: `✅ ${importados} novas + ${atualizados} atualizadas de ${individuais.length} conversas.`,
+      ok: true,
+      sincronizadas: novas.length,
+      total: rawMsgs.length,
+      conv: { ...conv, mensagens: conv.mensagens }, // retorna conv completa
     })
 
   } catch (err) {
-    console.error('[sincronizar] error:', err)
+    console.error('[sincronizar-msgs]', err.message)
     return res.status(500).json({ error: err.message })
   }
-}
-
-async function atualizarIndice(empresaId, numero, dados) {
-  const idxKey = `wpp_idx:${empresaId}`
-  const { data: row } = await supabase
-    .from('vx_storage').select('value').eq('key', idxKey).maybeSingle()
-  const idx = row?.value ? JSON.parse(row.value) : {}
-  idx[numero] = { ...(idx[numero] || {}), numero, ...dados, updatedAt: new Date().toISOString() }
-  await supabase.from('vx_storage').upsert({
-    key: idxKey, value: JSON.stringify(idx), updated_at: new Date().toISOString()
-  }, { onConflict: 'key' })
 }
