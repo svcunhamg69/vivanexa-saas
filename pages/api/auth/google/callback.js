@@ -51,9 +51,27 @@ export default async function handler(req, res) {
 
     const token = await tokenRes.json()
 
+    // Decodifica o state: pode ser empresaId simples, ou "empresaId__user:userId" ou "empresaId__dep:depId"
+    const stateParts   = userId.split('__')
+    const empresaIdReal = stateParts[0]
+    const extraPart     = stateParts[1] || ''
+    const userMatch     = extraPart.match(/^user:(.+)$/)
+    const depMatch      = extraPart.match(/^dep:(.+)$/)
+
+    let storageKey = `gcal_token:${empresaIdReal}`
+    let postMessageExtra = {}
+
+    if (userMatch) {
+      storageKey = `gcal_token:${empresaIdReal}:user:${userMatch[1]}`
+      postMessageExtra = { userId: userMatch[1] }
+    } else if (depMatch) {
+      storageKey = `gcal_token:${empresaIdReal}:dep:${depMatch[1]}`
+      postMessageExtra = { depId: depMatch[1] }
+    }
+
     // Salvar token no Supabase
     await supabase.from('vx_storage').upsert({
-      key:        `gcal_token:${userId}`,
+      key:        storageKey,
       value:      JSON.stringify({ ...token, obtained_at: Date.now() }),
       updated_at: new Date().toISOString(),
     }, { onConflict: 'key' })
@@ -64,15 +82,16 @@ export default async function handler(req, res) {
 <head><meta charset="UTF-8"><title>Google Agenda Conectado</title></head>
 <body style="font-family:sans-serif;text-align:center;padding:40px;background:#0a0f1e;color:#e2e8f0">
   <div style="font-size:48px;margin-bottom:16px">✅</div>
-  <h2 style="color:#10b981">Google Agenda conectado!</h2>
+  <h2 style="color:#10b981">Google Agenda conectada!</h2>
   <p style="color:#64748b">Esta janela fechará em instantes...</p>
   <script>
     const token = ${JSON.stringify(token)};
+    const extra = ${JSON.stringify(postMessageExtra)};
     if (window.opener) {
-      window.opener.postMessage({ type: 'GCAL_TOKEN', token }, '*');
+      window.opener.postMessage({ type: 'GCAL_TOKEN', token, ...extra }, '*');
       setTimeout(() => window.close(), 1500);
     } else {
-      setTimeout(() => { window.location.href = '/crm?gcal_ok=1'; }, 2000);
+      setTimeout(() => { window.location.href = '/configuracoes?tab=integracoes&gcal_ok=1'; }, 2000);
     }
   </script>
 </body>
