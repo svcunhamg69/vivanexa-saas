@@ -148,10 +148,41 @@ function baixar(blob,nome){
 }
 
 function LoginMaster({onAuth}){
+  const [tela,setTela]=useState('login') // 'login' | 'recuperar' | 'novaSenha'
   const [email,setEmail]=useState('')
   const [senha,setSenha]=useState('')
+  const [novaSenha,setNovaSenha]=useState('')
+  const [confSenha,setConfSenha]=useState('')
   const [erro,setErro]=useState('')
+  const [msg,setMsg]=useState('')
   const [loading,setLoading]=useState(false)
+  const [showSenha,setShowSenha]=useState(false)
+  const [showNova,setShowNova]=useState(false)
+
+  // Detecta token de recuperacao na URL (Supabase envia #access_token=...)
+  useEffect(()=>{
+    const hash=window.location.hash
+    if(hash.includes('access_token')&&hash.includes('type=recovery')){
+      setTela('novaSenha')
+      // Supabase ja processou o token automaticamente via onAuthStateChange
+    }
+    // Limpa o hash da URL sem recarregar
+    if(hash.includes('access_token')){
+      window.history.replaceState(null,'',window.location.pathname)
+    }
+  },[])
+
+  // Escuta evento PASSWORD_RECOVERY do Supabase
+  useEffect(()=>{
+    const {data:l}=supabaseAdmin.auth.onAuthStateChange((event,session)=>{
+      if(event==='PASSWORD_RECOVERY'){
+        setTela('novaSenha')
+        setMsg('✅ Link validado! Defina sua nova senha abaixo.')
+      }
+    })
+    return()=>l.subscription.unsubscribe()
+  },[])
+
   async function entrar(e){
     e.preventDefault()
     if(!email||!senha){setErro('Preencha e-mail e senha.');return}
@@ -176,31 +207,164 @@ function LoginMaster({onAuth}){
     }catch(err){setErro(err.message||'Erro ao autenticar.')}
     setLoading(false)
   }
+
+  async function recuperar(e){
+    e.preventDefault()
+    if(!email.trim()){setErro('Informe o e-mail cadastrado.');return}
+    setLoading(true);setErro('');setMsg('')
+    try{
+      // Monta URL de redirect para esta mesma pagina /admin
+      const redirectTo=window.location.origin+'/admin'
+      const {error}=await supabaseAdmin.auth.resetPasswordForEmail(email.trim(),{redirectTo})
+      if(error)throw new Error(error.message)
+      setMsg('✅ Link de recuperacao enviado para '+email.trim()+'. Verifique sua caixa de entrada (e o spam).')
+    }catch(err){setErro(err.message||'Erro ao enviar e-mail.')}
+    setLoading(false)
+  }
+
+  async function salvarNovaSenha(e){
+    e.preventDefault()
+    if(!novaSenha||novaSenha.length<6){setErro('A senha deve ter pelo menos 6 caracteres.');return}
+    if(novaSenha!==confSenha){setErro('As senhas nao coincidem.');return}
+    setLoading(true);setErro('');setMsg('')
+    try{
+      const {error}=await supabaseAdmin.auth.updateUser({password:novaSenha})
+      if(error)throw new Error(error.message)
+      setMsg('✅ Senha alterada com sucesso! Redirecionando para o login...')
+      setTimeout(()=>{setTela('login');setNovaSenha('');setConfSenha('');setMsg('')},2500)
+    }catch(err){setErro(err.message||'Erro ao alterar senha.')}
+    setLoading(false)
+  }
+
+  const inputStyle={width:'100%',background:'#111827',border:'1px solid #1e2d4a',borderRadius:8,padding:'10px 12px',color:'#e2e8f0',fontFamily:'DM Mono,monospace',fontSize:13,outline:'none'}
+
   return(
     <div style={{minHeight:'100vh',background:'#060c1a',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'DM Mono,monospace',padding:20}}>
-      <div style={{width:'100%',maxWidth:380,background:'#0d1526',border:'1px solid #1e2d4a',borderRadius:16,padding:'36px 32px',boxShadow:'0 4px 32px rgba(0,0,0,.5)'}}>
+      <div style={{width:'100%',maxWidth:400,background:'#0d1526',border:'1px solid #1e2d4a',borderRadius:16,padding:'36px 32px',boxShadow:'0 4px 32px rgba(0,0,0,.5)'}}>
+
+        {/* Header */}
         <div style={{textAlign:'center',marginBottom:28}}>
-          <div style={{fontSize:40,marginBottom:12}}>🛡️</div>
-          <div style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:18,color:'#e2e8f0'}}>MASTER ADMIN</div>
+          <div style={{fontSize:40,marginBottom:12}}>{tela==='novaSenha'?'🔑':'🛡️'}</div>
+          <div style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:18,color:'#e2e8f0'}}>
+            {tela==='login'?'MASTER ADMIN':tela==='recuperar'?'RECUPERAR SENHA':'NOVA SENHA'}
+          </div>
           <div style={{fontSize:11,color:'#475569',marginTop:4,letterSpacing:1}}>VIVANEXA SaaS</div>
         </div>
-        <form onSubmit={entrar}>
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:11,color:'#64748b',display:'block',marginBottom:5}}>E-MAIL</label>
-            <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="admin@vivanexa.com.br"
-              style={{width:'100%',background:'#111827',border:'1px solid #1e2d4a',borderRadius:8,padding:'10px 12px',color:'#e2e8f0',fontFamily:'DM Mono,monospace',fontSize:13,outline:'none'}}/>
-          </div>
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:11,color:'#64748b',display:'block',marginBottom:5}}>SENHA</label>
-            <input value={senha} onChange={e=>setSenha(e.target.value)} type="password" placeholder="••••••••"
-              style={{width:'100%',background:'#111827',border:'1px solid #1e2d4a',borderRadius:8,padding:'10px 12px',color:'#e2e8f0',fontFamily:'DM Mono,monospace',fontSize:13,outline:'none'}}/>
-          </div>
-          {erro&&<div style={{fontSize:12,color:'#ef4444',marginBottom:12}}>{erro}</div>}
-          <button type="submit" disabled={loading} style={{width:'100%',padding:12,borderRadius:8,background:'linear-gradient(135deg,#00d4ff,#0099bb)',border:'none',color:'#000',fontFamily:'DM Mono,monospace',fontWeight:700,fontSize:14,cursor:loading?'not-allowed':'pointer',opacity:loading?.6:1}}>
-            {loading?'Autenticando...':'🔐 Entrar'}
-          </button>
-        </form>
-        <div style={{marginTop:16,fontSize:11,color:'#1e2d4a',textAlign:'center'}}>Sessao isolada — nao afeta o sistema principal.</div>
+
+        {/* TELA: LOGIN */}
+        {tela==='login'&&(
+          <form onSubmit={entrar}>
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:11,color:'#64748b',display:'block',marginBottom:5}}>E-MAIL</label>
+              <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="admin@vivanexa.com.br" style={inputStyle}/>
+            </div>
+            <div style={{marginBottom:6}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+                <label style={{fontSize:11,color:'#64748b'}}>SENHA</label>
+                <button type="button" onClick={()=>setShowSenha(!showSenha)}
+                  style={{background:'none',border:'none',color:'#475569',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>
+                  {showSenha?'🙈 ocultar':'👁️ mostrar'}
+                </button>
+              </div>
+              <input value={senha} onChange={e=>setSenha(e.target.value)} type={showSenha?'text':'password'} placeholder="••••••••" style={inputStyle}/>
+            </div>
+            <div style={{textAlign:'right',marginBottom:16}}>
+              <button type="button" onClick={()=>{setTela('recuperar');setErro('');setMsg('')}}
+                style={{background:'none',border:'none',color:'#475569',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace',textDecoration:'underline'}}>
+                Esqueci minha senha
+              </button>
+            </div>
+            {erro&&<div style={{fontSize:12,color:'#ef4444',marginBottom:12,padding:'8px 12px',background:'rgba(239,68,68,.08)',borderRadius:6,border:'1px solid rgba(239,68,68,.2)'}}>{erro}</div>}
+            <button type="submit" disabled={loading} style={{width:'100%',padding:12,borderRadius:8,background:'linear-gradient(135deg,#00d4ff,#0099bb)',border:'none',color:'#000',fontFamily:'DM Mono,monospace',fontWeight:700,fontSize:14,cursor:loading?'not-allowed':'pointer',opacity:loading?.6:1}}>
+              {loading?'Autenticando...':'🔐 Entrar'}
+            </button>
+          </form>
+        )}
+
+        {/* TELA: RECUPERAR SENHA */}
+        {tela==='recuperar'&&(
+          <form onSubmit={recuperar}>
+            <p style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:20}}>
+              Informe o e-mail da conta master. Enviaremos um link para redefinir a senha. Funciona apenas para contas Supabase (e-mails master).
+            </p>
+            <div style={{marginBottom:16}}>
+              <label style={{fontSize:11,color:'#64748b',display:'block',marginBottom:5}}>E-MAIL DA CONTA MASTER</label>
+              <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="admin@vivanexa.com.br" style={inputStyle}/>
+            </div>
+            {erro&&<div style={{fontSize:12,color:'#ef4444',marginBottom:12,padding:'8px 12px',background:'rgba(239,68,68,.08)',borderRadius:6,border:'1px solid rgba(239,68,68,.2)'}}>{erro}</div>}
+            {msg&&<div style={{fontSize:12,color:'#10b981',marginBottom:12,padding:'10px 12px',background:'rgba(16,185,129,.08)',borderRadius:6,border:'1px solid rgba(16,185,129,.2)',lineHeight:1.6}}>{msg}</div>}
+            {!msg&&(
+              <button type="submit" disabled={loading} style={{width:'100%',padding:12,borderRadius:8,background:'linear-gradient(135deg,#7c3aed,#5b21b6)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontWeight:700,fontSize:14,cursor:loading?'not-allowed':'pointer',opacity:loading?.6:1}}>
+                {loading?'Enviando...':'📧 Enviar link de recuperacao'}
+              </button>
+            )}
+            <button type="button" onClick={()=>{setTela('login');setErro('');setMsg('')}}
+              style={{width:'100%',marginTop:10,padding:'10px',borderRadius:8,background:'transparent',border:'1px solid #1e2d4a',color:'#64748b',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>
+              ← Voltar ao login
+            </button>
+          </form>
+        )}
+
+        {/* TELA: DEFINIR NOVA SENHA (chegou pelo link do email) */}
+        {tela==='novaSenha'&&(
+          <form onSubmit={salvarNovaSenha}>
+            <p style={{fontSize:12,color:'#64748b',lineHeight:1.7,marginBottom:20}}>
+              Defina sua nova senha. Ela deve ter pelo menos 6 caracteres.
+            </p>
+            {msg&&<div style={{fontSize:12,color:'#10b981',marginBottom:12,padding:'10px 12px',background:'rgba(16,185,129,.08)',borderRadius:6,border:'1px solid rgba(16,185,129,.2)',lineHeight:1.6}}>{msg}</div>}
+            <div style={{marginBottom:14}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+                <label style={{fontSize:11,color:'#64748b'}}>NOVA SENHA</label>
+                <button type="button" onClick={()=>setShowNova(!showNova)}
+                  style={{background:'none',border:'none',color:'#475569',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>
+                  {showNova?'🙈 ocultar':'👁️ mostrar'}
+                </button>
+              </div>
+              <input value={novaSenha} onChange={e=>setNovaSenha(e.target.value)} type={showNova?'text':'password'} placeholder="Min. 6 caracteres" style={inputStyle}/>
+            </div>
+            <div style={{marginBottom:16}}>
+              <label style={{fontSize:11,color:'#64748b',display:'block',marginBottom:5}}>CONFIRMAR NOVA SENHA</label>
+              <input value={confSenha} onChange={e=>setConfSenha(e.target.value)} type={showNova?'text':'password'} placeholder="Repita a senha" style={inputStyle}/>
+            </div>
+            {/* Indicador de forca da senha */}
+            {novaSenha&&(
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:10,color:'#64748b',marginBottom:4}}>FORCA DA SENHA</div>
+                <div style={{background:'#1a2540',borderRadius:4,height:4,overflow:'hidden'}}>
+                  <div style={{
+                    height:'100%',borderRadius:4,transition:'width .3s',
+                    width:novaSenha.length>=12&&/[A-Z]/.test(novaSenha)&&/[0-9]/.test(novaSenha)&&/[^A-Za-z0-9]/.test(novaSenha)?'100%':
+                          novaSenha.length>=8&&(/[A-Z]/.test(novaSenha)||/[0-9]/.test(novaSenha))?'66%':
+                          novaSenha.length>=6?'33%':'10%',
+                    background:novaSenha.length>=12&&/[A-Z]/.test(novaSenha)&&/[0-9]/.test(novaSenha)?'#10b981':
+                               novaSenha.length>=8?'#f59e0b':'#ef4444'
+                  }}/>
+                </div>
+                <div style={{fontSize:10,color:'#475569',marginTop:4}}>
+                  {novaSenha.length>=12&&/[A-Z]/.test(novaSenha)&&/[0-9]/.test(novaSenha)&&/[^A-Za-z0-9]/.test(novaSenha)?'🟢 Forte':
+                   novaSenha.length>=8?'🟡 Media':'🔴 Fraca — use pelo menos 6 caracteres'}
+                </div>
+              </div>
+            )}
+            {confSenha&&novaSenha!==confSenha&&(
+              <div style={{fontSize:11,color:'#ef4444',marginBottom:10}}>⚠️ As senhas nao coincidem.</div>
+            )}
+            {confSenha&&novaSenha===confSenha&&novaSenha.length>=6&&(
+              <div style={{fontSize:11,color:'#10b981',marginBottom:10}}>✅ Senhas coincidem.</div>
+            )}
+            {erro&&<div style={{fontSize:12,color:'#ef4444',marginBottom:12,padding:'8px 12px',background:'rgba(239,68,68,.08)',borderRadius:6,border:'1px solid rgba(239,68,68,.2)'}}>{erro}</div>}
+            <button type="submit" disabled={loading||novaSenha!==confSenha||novaSenha.length<6}
+              style={{width:'100%',padding:12,borderRadius:8,background:'linear-gradient(135deg,#10b981,#059669)',border:'none',color:'#fff',fontFamily:'DM Mono,monospace',fontWeight:700,fontSize:14,cursor:(loading||novaSenha!==confSenha||novaSenha.length<6)?'not-allowed':'pointer',opacity:(novaSenha!==confSenha||novaSenha.length<6)?.5:1}}>
+              {loading?'Salvando...':'✅ Salvar Nova Senha'}
+            </button>
+            <button type="button" onClick={()=>{setTela('login');setErro('');setMsg('');setNovaSenha('');setConfSenha('')}}
+              style={{width:'100%',marginTop:10,padding:'10px',borderRadius:8,background:'transparent',border:'1px solid #1e2d4a',color:'#64748b',fontFamily:'DM Mono,monospace',fontSize:13,cursor:'pointer'}}>
+              ← Voltar ao login
+            </button>
+          </form>
+        )}
+
+        <div style={{marginTop:20,fontSize:11,color:'#1e2d4a',textAlign:'center'}}>Sessao isolada — nao afeta o sistema principal.</div>
       </div>
     </div>
   )
