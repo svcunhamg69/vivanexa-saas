@@ -699,6 +699,8 @@ export default function WhatsappInbox() {
       setAgentes(perfis||[])
       await carregarIndice(eid)
       setLoading(false)
+      // Sincroniza lista de chats da Evolution em background
+      sincronizarIndiceEvo(eid)
     })
     return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
   }, [router])
@@ -755,9 +757,107 @@ export default function WhatsappInbox() {
     return {}
   }
 
+  // ── Sincroniza lista de chats da Evolution API → índice do Supabase ──
+  async function sincronizarIndiceEvo(eid) {
+    try {
+      const { data: cfgRow } = await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).maybeSingle()
+      if (!cfgRow?.value) return
+      const cfgData = JSON.parse(cfgRow.value)
+      const instancias = cfgData.wppInbox?.instancias || []
+      const evoUrl = cfgData.wppInbox?.evolutionUrl || cfgData.evolutionApiUrl || ''
+      const evoKey = cfgData.wppInbox?.evolutionKey || cfgData.evolutionApiToken || ''
+      if (!evoUrl || !evoKey || !instancias.length) return
+
+      for (const inst of instancias.filter(i => i.ativo !== false)) {
+        try {
+          const r = await fetch(`${evoUrl}/chat/findChats/${inst.instance}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: evoKey },
+            body: JSON.stringify({}),
+          })
+          if (!r.ok) continue
+          const data = await r.json()
+          const lista = Array.isArray(data) ? data : (data?.chats || data?.data || [])
+
+          const { data: idxRow } = await supabase.from('vx_storage').select('value').eq('key',`wpp_idx:${eid}`).maybeSingle()
+          const idx = idxRow?.value ? JSON.parse(idxRow.value) : {}
+          let atualizado = false
+
+          for (const chat of lista.slice(0, 150)) {
+            const jid = chat.id || chat.remoteJid || ''
+            if (!jid || jid.includes('@g.us')) continue // ignora grupos
+            const num = jid.replace(/@s\.whatsapp\.net|@c\.us/g, '')
+            if (!num) continue
+            // Só adiciona se ainda não existe — não sobrescreve conversas existentes
+            if (!idx[num]) {
+              const tsRaw = chat.updatedAt || chat.timestamp || 0
+              const ts = tsRaw
+                ? new Date(String(tsRaw).length <= 10 ? Number(tsRaw) * 1000 : Number(tsRaw)).toISOString()
+                : new Date().toISOString()
+              idx[num] = {
+                numero: num, nome: chat.name || chat.pushName || num,
+                ultimaMensagem: chat.lastMessage?.message?.conversation || chat.lastMessage?.message?.extendedTextMessage?.text || '',
+                ultimaAt: ts, updatedAt: new Date().toISOString(),
+                status: 'automacao', instancia: inst.instance, instanciaId: inst.id,
+                naoLidas: chat.unreadCount || 0,
+              }
+              atualizado = true
+            }
+          }
+
+          if (atualizado) {
+            await supabase.from('vx_storage').upsert(
+              { key: `wpp_idx:${eid}`, value: JSON.stringify(idx), updated_at: new Date().toISOString() },
+              { onConflict: 'key' }
+            )
+            idxRef.current = idx; setIdx({...idx})
+          }
+        } catch (e) { console.error('[sincronizarIndice]', inst.instance, e.message) }
+      }
+    } catch (e) { console.error('[sincronizarIndice]', e.message) }
+  }
+
+  async function sincronizarEvo(eid, numero, instancia) {
+    // Busca mensagens históricas da Evolution API e faz merge no Supabase
+    if (!instancia) return null
+    try {
+      const r = await fetch('/api/wpp/sincronizar-msgs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresaId: eid, numero, instancia, limite: 50 })
+      })
+      const d = await r.json()
+      return d.ok ? d.conv : null
+    } catch { return null }
+  }
+
   async function carregarConv(eid, numero, silencioso=false) {
     if (!silencioso) setLoadingConv(true)
     try {
+      // ✅ Primeiro sincroniza com Evolution API (busca históricas)
+      const instanciaConv = idxRef.current?.[numero]?.instancia
+        || (cfg.wppInbox?.instancias||[])[0]?.instance
+        || cfg.wppInbox?.evolutionInstance || ''
+
+      if (instanciaConv) {
+        // Sincroniza em background (não bloqueia a UI)
+        sincronizarEvo(eid, numero, instanciaConv).then(convEvo => {
+          if (convEvo?.mensagens?.length) {
+            // Se a sincronização trouxe msgs novas, recarrega do Supabase
+            supabase.from('vx_storage').select('value').eq('key',`wpp_conv:${eid}:${numero}`).maybeSingle()
+              .then(({ data: rowAtual }) => {
+                if (rowAtual?.value) {
+                  const cAtual = JSON.parse(rowAtual.value)
+                  setConv(cAtual)
+                  setTimeout(() => {
+                    if (msgEndRef.current) msgEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+                  }, 100)
+                }
+              })
+          }
+        })
+      }
+
       const { data: row } = await supabase.from('vx_storage').select('value').eq('key',`wpp_conv:${eid}:${numero}`).maybeSingle()
       if (row?.value) {
         const c = JSON.parse(row.value)
