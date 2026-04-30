@@ -706,13 +706,14 @@ export default function WhatsappInbox() {
   useEffect(() => {
     if (!empresaId) return
     pollingRef.current = setInterval(async () => {
+      // ✅ FIX: Sempre recarrega índice para atualizar badges
       const novo = await carregarIndice(empresaId, true)
       if (convAtiva) {
-        const novAt = novo?.[convAtiva]?.updatedAt
-        if (!idxRef.current?.[convAtiva]?.updatedAt || novAt !== idxRef.current[convAtiva].updatedAt)
-          await carregarConv(empresaId, convAtiva, true)
+        // ✅ FIX: Sempre recarrega a conversa ativa — não depende apenas do updatedAt
+        // porque o bot pode adicionar mensagens sem atualizar o índice corretamente
+        await carregarConv(empresaId, convAtiva, true)
       }
-    }, 4000)
+    }, 2500)  // reduzido para 2.5s para resposta mais rápida
     return () => clearInterval(pollingRef.current)
   }, [empresaId, convAtiva])
 
@@ -732,8 +733,9 @@ export default function WhatsappInbox() {
   }, [convAtiva])
 
   useEffect(() => {
+    // ✅ FIX: Scroll sempre que chegarem novas mensagens ou hora da última mensagem mudar
     scrollParaBaixo('smooth')
-  }, [conv?.mensagens?.length, conv?.ultimaAt])
+  }, [conv?.mensagens?.length, conv?.ultimaAt, conv?.ultimaDe])
 
   // Atalho teclado: Ctrl+K para busca global
   useEffect(() => {
@@ -774,16 +776,33 @@ export default function WhatsappInbox() {
 
         setConv(c)
         if (c.protocolo) setProtocolo(c.protocolo)
-        if (c.naoLidas > 0) {
+        // ✅ FIX: Zera naoLidas sempre ao abrir a conversa (não só se > 0)
+        // e salva no Supabase e no estado local de forma consistente
+        if ((c.naoLidas || 0) > 0 || !silencioso) {
           c.naoLidas = 0
-          await supabase.from('vx_storage').upsert({key:`wpp_conv:${eid}:${numero}`,value:JSON.stringify(c),updated_at:new Date().toISOString()},{onConflict:'key'})
-          setIdx(prev => { const n={...prev,[numero]:{...(prev[numero]||{}),naoLidas:0}}; idxRef.current=n; return n })
+          // Salva conversa com naoLidas=0
+          await supabase.from('vx_storage').upsert(
+            { key:`wpp_conv:${eid}:${numero}`, value:JSON.stringify(c), updated_at:new Date().toISOString() },
+            { onConflict:'key' }
+          )
+          // ✅ FIX: Atualiza TAMBÉM o índice no Supabase (não só o state local)
+          const idxAtual = { ...idxRef.current }
+          idxAtual[numero] = { ...(idxAtual[numero]||{}), naoLidas: 0, updatedAt: new Date().toISOString() }
+          idxRef.current = idxAtual
+          setIdx(idxAtual)
+          await supabase.from('vx_storage').upsert(
+            { key:`wpp_idx:${eid}`, value:JSON.stringify(idxAtual), updated_at:new Date().toISOString() },
+            { onConflict:'key' }
+          )
         }
-        // ✅ Scroll imediato para última mensagem
+        // ✅ FIX: Scroll sempre para última mensagem, independente de silencioso
         setTimeout(() => {
-          if (msgEndRef.current) msgEndRef.current.scrollIntoView({ behavior: silencioso ? 'smooth' : 'instant', block: 'end' })
-          else if (mensagensRef.current) mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight + 9999
-        }, 60)
+          if (msgEndRef.current) {
+            msgEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+          } else if (mensagensRef.current) {
+            mensagensRef.current.scrollTop = mensagensRef.current.scrollHeight + 9999
+          }
+        }, 80)
       }
     } catch {}
     if (!silencioso) setLoadingConv(false)
@@ -1021,7 +1040,7 @@ export default function WhatsappInbox() {
                     </div>
                   )}
                 </div>
-                {(c.naoLidas||0)>0 && <span className="badge-naoLidas">{c.naoLidas}</span>}
+                {(c.naoLidas||0)>0 && convAtiva!==c.numero && <span className="badge-naoLidas">{c.naoLidas}</span>}
               </div>
             ))}
           </div>
@@ -1047,7 +1066,7 @@ export default function WhatsappInbox() {
                 <button className="btn-back" onClick={()=>setConvAtiva(null)}>←</button>
                 <Avatar nome={conv.nome} size={34} />
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontWeight:700,fontSize:14,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{conv.nome||conv.numero}</div>
+                  <div style={{fontWeight:700,fontSize:14,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:6}}>{conv.nome||conv.numero}<span title="Atualizando em tempo real" style={{width:7,height:7,borderRadius:'50%',background:'#10b981',flexShrink:0,animation:'pulse 2s infinite'}}/></div>
                   <div style={{fontSize:11,color:'var(--muted)',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                     <span>{conv.numero}</span>
                     {/* Número/instância de origem */}
@@ -1256,6 +1275,7 @@ const CSS = `
   .conv-preview{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
   .tag-chip{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;border:1px solid;white-space:nowrap}
   .badge-naoLidas{position:absolute;top:12px;right:12px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;min-width:18px;text-align:center}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
   .empty-list{text-align:center;padding:40px 20px;color:var(--muted);font-size:13px}
   .chat-area{flex:1;display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--bg);min-width:0}
   .chat-vazio{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--muted);font-size:13px;padding:40px}
