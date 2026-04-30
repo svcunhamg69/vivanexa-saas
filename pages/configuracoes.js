@@ -800,7 +800,7 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
             <div key={u.id} style={{ padding: '12px 16px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 14 }}>{u.nome}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · {u.tipo || 'vendedor'}{u.telefone ? ` · ${u.telefone}` : ''}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{u.email} · {u.tipo || 'vendedor'}{u.telefone ? ` · ${u.telefone}` : ''}{u.tcxRamal ? <span style={{ marginLeft: 8, color: '#00d4ff' }}>📞 Ramal: {u.tcxRamal}</span> : null}</div>
                 {u.comissao && (u.comissao.adesao?.valor > 0 || u.comissao.mensalidade?.valor > 0) && (
                   <div style={{ fontSize: 11, color: 'var(--accent3)', marginTop: 3 }}>💰 Comissão: {fmtComissao(u)}</div>
                 )}
@@ -824,7 +824,13 @@ function TabUsuarios({ cfg, setCfg, empresaId }) {
           </div>
           <div style={s.row2}>
             <div style={s.field}><label style={s.label}>Telefone / WhatsApp</label><input style={s.input} value={form.telefone || ''} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} placeholder="(00) 00000-0000" /></div>
-            <div style={s.field}></div>
+            <div style={s.field}>
+              <label style={s.label}>Ramal 3CX (Extensão)</label>
+              <input style={s.input} value={form.tcxRamal || ''} onChange={e => setForm(f => ({ ...f, tcxRamal: e.target.value.trim() }))} placeholder="Ex: 1001" />
+              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: -6, marginBottom: 8 }}>
+                Número da extensão no 3CX. Ao fazer login o usuário usa a telefonia automaticamente.
+              </div>
+            </div>
           </div>
           <div style={s.field}>
             <label style={s.label}>Perfil de Acesso</label>
@@ -2283,6 +2289,9 @@ function TabIntegracoes({ cfg, setCfg, empresaId }) {
           {saving ? '⏳ Salvando...' : '💾 Salvar 3CX'}
         </button>
       </div>
+
+      {/* ── RAMAIS DO TIME 3CX ── */}
+      <Tcx3CxRamais cfg={cfg} setCfg={setCfg} empresaId={empresaId} tcxUrl={tcxUrl} tcxClientId={tcxClientId} tcxClientSecret={tcxClientSecret} />
 
       {/* ── CLOUDFLARE IMAGE WORKER ── */}
       <div style={{ ...s.card, borderColor: cfg.cloudflareImageWorkerUrl ? 'rgba(124,58,237,.4)' : 'var(--border)' }}>
@@ -3979,6 +3988,225 @@ function TabDepartamentos({ cfg, setCfg, empresaId }) {
 
       {msg && (
         <div style={{ marginTop: 12, padding: '12px 16px', borderRadius: 10, background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.3)'}`, color: msg.startsWith('✅') ? '#10b981' : '#ef4444', fontSize: 13 }}>
+          {msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════
+// COMPONENTE: Gestão de Ramais 3CX
+// ══════════════════════════════════════════════════════════════════
+function Tcx3CxRamais({ cfg, setCfg, empresaId, tcxUrl, tcxClientId, tcxClientSecret }) {
+  const [ramais,     setRamais]     = React.useState(cfg.tcxRamais || [])
+  const [formRamal,  setFormRamal]  = React.useState(null)
+  const [saving,     setSaving]     = React.useState(false)
+  const [msg,        setMsg]        = React.useState('')
+  const [buscando,   setBuscando]   = React.useState(false)
+  const [ramaisLive, setRamaisLive] = React.useState([])
+
+  const usuarios = cfg.users || []
+
+  const si = {
+    card:   { background: 'var(--surface2)', border: '1px solid rgba(0,212,255,.2)', borderRadius: 14, padding: '22px 24px', marginBottom: 16 },
+    label:  { fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: .5, textTransform: 'uppercase' },
+    input:  { width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--text)', outline: 'none', marginBottom: 12 },
+    btn:    { padding: '10px 22px', borderRadius: 9, background: 'linear-gradient(135deg,#00d4ff,#0099bb)', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
+    btnSec: { padding: '8px 16px', borderRadius: 9, background: 'rgba(0,212,255,.1)', border: '1px solid rgba(0,212,255,.25)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' },
+    row2:   { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
+  }
+
+  async function salvarRamais(novos) {
+    setSaving(true); setMsg('')
+    try {
+      const { data: row } = await supabase.from('vx_storage').select('value').eq('key', `cfg:${empresaId}`).single()
+      const atual = row?.value ? JSON.parse(row.value) : {}
+      const novo  = { ...atual, tcxRamais: novos }
+      // Sincroniza tcxRamal em cada usuário com base no vínculo
+      const usersAtualizados = (atual.users || []).map(u => {
+        const ramalDoUser = novos.find(r => r.usuarioId === u.id)
+        return ramalDoUser ? { ...u, tcxRamal: ramalDoUser.ramal } : u
+      })
+      novo.users = usersAtualizados
+      await supabase.from('vx_storage').upsert({ key: `cfg:${empresaId}`, value: JSON.stringify(novo), updated_at: new Date().toISOString() })
+      setCfg(novo); setRamais(novos)
+      setMsg('✅ Ramais salvos e sincronizados com os usuários!')
+    } catch(e) { setMsg('❌ Erro: ' + e.message) }
+    setSaving(false)
+  }
+
+  function salvarForm() {
+    if (!formRamal.ramal.trim()) { setMsg('⚠️ Informe o número do ramal'); return }
+    const id = formRamal.id || `ramal_${Date.now()}`
+    const novo = { ...formRamal, id }
+    const novos = formRamal.id
+      ? ramais.map(r => r.id === formRamal.id ? novo : r)
+      : [...ramais, novo]
+    setFormRamal(null)
+    salvarRamais(novos)
+  }
+
+  async function importarDo3CX() {
+    if (!tcxUrl) { setMsg('⚠️ Configure a URL do 3CX primeiro e salve.'); return }
+    setBuscando(true); setMsg('⏳ Buscando extensões no 3CX...')
+    try {
+      const r = await fetch('/api/3cx-extensions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tcxUrl, tcxClientId, tcxClientSecret })
+      })
+      const data = await r.json()
+      if (data.extensions?.length) {
+        setRamaisLive(data.extensions)
+        setMsg(`✅ ${data.extensions.length} extensões encontradas. Clique em uma para adicionar.`)
+      } else {
+        setMsg('⚠️ Nenhuma extensão encontrada. ' + (data.error || ''))
+      }
+    } catch(e) {
+      setMsg('⚠️ Não foi possível importar automaticamente. Cadastre os ramais manualmente abaixo.')
+    }
+    setBuscando(false)
+  }
+
+  function adicionarRamalLive(ext) {
+    const jaExiste = ramais.find(r => r.ramal === String(ext.number))
+    if (jaExiste) { setMsg(`⚠️ Ramal ${ext.number} já cadastrado`); return }
+    setFormRamal({ id: '', nome: ext.displayName || String(ext.number), ramal: String(ext.number), usuarioId: '', ativo: true })
+    setRamaisLive([])
+  }
+
+  const nomeUsuario = (uid) => usuarios.find(u => u.id === uid)?.nome || '—'
+
+  return (
+    <div style={si.card}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>📱 Ramais do Time (3CX)</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+            Cadastre os ramais e vincule a cada usuário. Ao fazer login, a telefonia é identificada automaticamente.
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          {tcxUrl && (
+            <button onClick={importarDo3CX} disabled={buscando}
+              style={{ ...si.btnSec, borderColor: 'rgba(16,185,129,.3)', color: '#10b981', background: 'rgba(16,185,129,.08)' }}>
+              {buscando ? '⏳...' : '📥 Importar do 3CX'}
+            </button>
+          )}
+          <button onClick={() => setFormRamal({ id: '', nome: '', ramal: '', usuarioId: '', ativo: true })} style={si.btnSec}>
+            + Adicionar Ramal
+          </button>
+        </div>
+      </div>
+
+      {/* Guia rápido */}
+      <div style={{ padding: '10px 14px', background: 'rgba(0,212,255,.05)', border: '1px solid rgba(0,212,255,.12)', borderRadius: 8, fontSize: 11, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.7 }}>
+        <strong style={{ color: 'var(--accent)' }}>Como encontrar o ramal no 3CX:</strong><br/>
+        Painel 3CX → <strong>Usuários</strong> → clique no usuário → campo <strong>"Extension"</strong> (ex: 1001).<br/>
+        O <strong>Client ID</strong> de cada extensão fica em <strong>Configurações → Integrações → API → Extensões</strong>.
+      </div>
+
+      {/* Chips de extensões importadas do 3CX */}
+      {ramaisLive.length > 0 && (
+        <div style={{ marginBottom: 14, padding: 14, background: 'rgba(16,185,129,.05)', border: '1px solid rgba(16,185,129,.2)', borderRadius: 10 }}>
+          <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: .5 }}>
+            📥 Extensões encontradas — clique para adicionar
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {ramaisLive.map(ext => (
+              <button key={ext.number} onClick={() => adicionarRamalLive(ext)}
+                style={{ padding: '6px 14px', borderRadius: 20, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.3)', color: '#10b981', fontFamily: 'DM Mono, monospace', fontSize: 12, cursor: 'pointer' }}>
+                {ext.number}{ext.displayName ? ` — ${ext.displayName}` : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lista de ramais cadastrados */}
+      {ramais.length === 0 && !formRamal ? (
+        <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--muted)', fontSize: 13 }}>
+          Nenhum ramal cadastrado. Use "+ Adicionar Ramal" ou "Importar do 3CX".
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+          {ramais.map(r => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', background: 'var(--surface)', border: `1px solid ${r.ativo !== false ? 'rgba(0,212,255,.2)' : 'var(--border)'}`, borderRadius: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: r.ativo !== false ? 'rgba(0,212,255,.1)' : 'rgba(100,116,139,.1)', border: `1.5px solid ${r.ativo !== false ? 'rgba(0,212,255,.3)' : 'rgba(100,116,139,.2)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                📞
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>{r.nome || r.ramal}</span>
+                  <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: 'rgba(0,212,255,.12)', color: 'var(--accent)', border: '1px solid rgba(0,212,255,.25)' }}>
+                    Ramal {r.ramal}
+                  </span>
+                  {r.ativo === false && <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 10, color: 'var(--muted)', border: '1px solid var(--border)' }}>Inativo</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  {r.usuarioId
+                    ? <span>👤 <strong style={{ color: 'var(--accent)' }}>{nomeUsuario(r.usuarioId)}</strong></span>
+                    : <span style={{ color: '#f59e0b' }}>⚠️ Sem usuário vinculado</span>}
+                </div>
+              </div>
+              <button onClick={() => setFormRamal({ ...r })} style={{ ...si.btnSec, padding: '5px 10px', fontSize: 12 }}>✏️</button>
+              <button onClick={() => { if (confirm('Remover este ramal?')) salvarRamais(ramais.filter(x => x.id !== r.id)) }}
+                style={{ padding: '5px 10px', borderRadius: 8, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)', color: '#ef4444', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>🗑</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Formulário adicionar/editar ramal */}
+      {formRamal && (
+        <div style={{ background: 'rgba(0,212,255,.03)', border: '1px solid rgba(0,212,255,.25)', borderRadius: 12, padding: '18px 20px', marginBottom: 14 }}>
+          <div style={{ fontFamily: 'Syne, sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 14 }}>
+            {formRamal.id ? '✏️ Editar Ramal' : '➕ Novo Ramal'}
+          </div>
+          <div style={si.row2}>
+            <div>
+              <label style={si.label}>Nome / Descrição</label>
+              <input style={si.input} value={formRamal.nome} onChange={e => setFormRamal(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: João — Vendas" />
+            </div>
+            <div>
+              <label style={si.label}>Número do Ramal *</label>
+              <input style={si.input} value={formRamal.ramal} onChange={e => setFormRamal(f => ({ ...f, ramal: e.target.value.trim() }))} placeholder="Ex: 1001" />
+              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: -8, marginBottom: 12 }}>
+                Campo "Extension" no perfil do usuário no painel 3CX
+              </div>
+            </div>
+          </div>
+          <div>
+            <label style={si.label}>Vincular ao Usuário do Sistema *</label>
+            <select style={{ ...si.input, cursor: 'pointer' }} value={formRamal.usuarioId} onChange={e => setFormRamal(f => ({ ...f, usuarioId: e.target.value }))}>
+              <option value="">— Selecione um usuário —</option>
+              {usuarios.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.nome}{u.email ? ` (${u.email})` : ''}{u.tcxRamal && u.tcxRamal !== formRamal.ramal ? ` · ramal atual: ${u.tcxRamal}` : ''}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: -8, marginBottom: 12 }}>
+              O campo "Ramal 3CX" do usuário será atualizado automaticamente ao salvar.
+            </div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text)', marginBottom: 14 }}>
+            <input type="checkbox" checked={formRamal.ativo !== false} onChange={e => setFormRamal(f => ({ ...f, ativo: e.target.checked }))} style={{ width: 15, height: 15, accentColor: '#00d4ff' }} />
+            Ramal ativo (recebe e origina chamadas)
+          </label>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={salvarForm} disabled={saving} style={si.btn}>{saving ? '⏳...' : '💾 Salvar Ramal'}</button>
+            <button onClick={() => setFormRamal(null)} style={{ ...si.btnSec, borderColor: 'rgba(100,116,139,.3)', color: 'var(--muted)' }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {msg && (
+        <div style={{ padding: '8px 14px', borderRadius: 8, marginTop: 8, fontSize: 12,
+          background: msg.startsWith('✅') ? 'rgba(16,185,129,.1)' : msg.startsWith('❌') ? 'rgba(239,68,68,.1)' : 'rgba(245,158,11,.1)',
+          border: `1px solid ${msg.startsWith('✅') ? 'rgba(16,185,129,.3)' : msg.startsWith('❌') ? 'rgba(239,68,68,.3)' : 'rgba(245,158,11,.3)'}`,
+          color: msg.startsWith('✅') ? '#10b981' : msg.startsWith('❌') ? '#ef4444' : '#f59e0b' }}>
           {msg}
         </div>
       )}
