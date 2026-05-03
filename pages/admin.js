@@ -1032,30 +1032,217 @@ function AbaMetricas({tenants,planos,stats}){
 // ══════════ GERENCIAR PLANOS ══════════
 function GerenciarPlanos({planos,setPlanos,onSave}){
   const [saving,setSaving]=useState(false)
-  function upd(id,k,v){setPlanos(prev=>prev.map(p=>p.id===id?{...p,[k]:v}:p))}
-  async function salvar(){setSaving(true);await onSave(planos);setSaving(false)}
+  const [modal,setModal]=useState(null) // null | 'novo' | objeto_plano
+  const [confirmDel,setConfirmDel]=useState(null)
+
+  // Form fields
+  const vazio={id:'',name:'',cor:'#00d4ff',maxUsuarios:5,adesao:0,mensalidade:0,descricao:'',destaque:false,modulos:[]}
+  const [form,setForm]=useState(vazio)
+  const upd=(k,v)=>setForm(f=>({...f,[k]:v}))
+  function toggleModForm(id){setForm(f=>({...f,modulos:f.modulos.includes(id)?f.modulos.filter(m=>m!==id):[...f.modulos,id]}))}
+  function toggleGrupoForm(grupo){
+    const ids=TODOS_MODULOS.filter(m=>m.grupo===grupo).map(m=>m.id)
+    const all=ids.every(id=>form.modulos.includes(id))
+    setForm(f=>({...f,modulos:all?f.modulos.filter(m=>!ids.includes(m)):[...new Set([...f.modulos,...ids])]}))
+  }
+
+  const CORES_PRESET=['#00d4ff','#7c3aed','#10b981','#f59e0b','#ec4899','#ef4444','#64748b','#06b6d4','#8b5cf6','#f97316']
+
+  async function salvarTodos(){setSaving(true);await onSave(planos);setSaving(false);toast('✅ Planos salvos!')}
+
+  async function salvarModal(){
+    if(!form.name.trim()){alert('Informe o nome do plano.');return}
+    const idFinal=form.id||form.name.toLowerCase().replace(/[^a-z0-9]/g,'_').slice(0,20)
+    const novo={...form,id:idFinal}
+    let nl
+    if(modal==='novo'){
+      if(planos.find(p=>p.id===idFinal)){alert('Ja existe um plano com este ID: '+idFinal);return}
+      nl=[...planos,novo]
+    } else {
+      nl=planos.map(p=>p.id===modal.id?novo:p)
+    }
+    setPlanos(nl)
+    await onSave(nl)
+    setModal(null)
+    toast('✅ Plano '+(modal==='novo'?'criado':'atualizado')+'!')
+  }
+
+  async function excluirPlano(id){
+    const nl=planos.filter(p=>p.id!==id)
+    setPlanos(nl)
+    await onSave(nl)
+    setConfirmDel(null)
+    toast('🗑️ Plano removido.')
+  }
+
+  const clientesNoPlan=id=>0 // placeholder — seria contado dos tenants se passado como prop
+
   return(
     <div>
       <div className="page-header">
-        <div><h1 className="page-title">Planos</h1><p className="page-sub">Configure valores e limites por plano</p></div>
-        <button className="btn-primary" disabled={saving} onClick={salvar}>{saving?'Salvando...':'💾 Salvar'}</button>
+        <div><h1 className="page-title">Planos</h1><p className="page-sub">Crie, edite e exclua planos — cada cliente tem seu plano atribuido</p></div>
+        <div style={{display:'flex',gap:8}}>
+          <button className="btn-secondary" disabled={saving} onClick={salvarTodos} style={{fontSize:13}}>💾 Salvar todos</button>
+          <button className="btn-primary" onClick={()=>{setForm(vazio);setModal('novo')}}>+ Novo Plano</button>
+        </div>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16}}>
+
+      {/* Grid de planos */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:16}}>
         {planos.map(p=>(
-          <div key={p.id} className="card" style={{borderTop:'3px solid '+p.cor}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-              <h3 style={{fontFamily:'Syne,sans-serif',color:p.cor,fontSize:16,fontWeight:800}}>{p.name}</h3>
-              <span style={{fontSize:10,color:'#475569',background:'#1a2540',padding:'2px 8px',borderRadius:4}}>{p.id}</span>
+          <div key={p.id} className="card" style={{borderTop:'3px solid '+p.cor,position:'relative'}}>
+            {p.destaque&&<div style={{position:'absolute',top:-1,right:16,background:p.cor,color:'#000',fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:'0 0 6px 6px',letterSpacing:.5}}>DESTAQUE</div>}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+              <div>
+                <h3 style={{fontFamily:'Syne,sans-serif',color:p.cor,fontSize:17,fontWeight:800}}>{p.name}</h3>
+                <span style={{fontSize:10,color:'#475569',background:'#0d1526',padding:'1px 6px',borderRadius:3,marginTop:4,display:'inline-block'}}>{p.id}</span>
+              </div>
+              <div style={{display:'flex',gap:6}}>
+                <button className="btn-icon" title="Editar" onClick={()=>{setForm({...vazio,...p,modulos:p.modulos||[]});setModal(p)}}>✏️</button>
+                <button className="btn-icon danger" title="Excluir" onClick={()=>setConfirmDel(p)}>🗑️</button>
+              </div>
             </div>
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <div className="field"><label>Max. Usuarios</label><input type="number" value={p.maxUsuarios} onChange={e=>upd(p.id,'maxUsuarios',Number(e.target.value))}/></div>
-              <div className="field"><label>Adesao padrao (R$)</label><input type="number" step="0.01" value={p.adesao||0} onChange={e=>upd(p.id,'adesao',Number(e.target.value))}/></div>
-              <div className="field"><label>Mensalidade padrao (R$)</label><input type="number" step="0.01" value={p.mensalidade||0} onChange={e=>upd(p.id,'mensalidade',Number(e.target.value))}/></div>
-              <div style={{fontSize:11,color:'#475569'}}>Modulos incluidos: <strong style={{color:'#e2e8f0'}}>{(MODULOS_POR_PLANO[p.id]||[]).length}</strong></div>
+
+            {p.descricao&&<p style={{fontSize:12,color:'#64748b',marginBottom:12,lineHeight:1.5}}>{p.descricao}</p>}
+
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+              <div style={{padding:'8px 12px',background:'#0d1526',borderRadius:8}}>
+                <div style={{fontSize:10,color:'#475569',marginBottom:3}}>ADESAO</div>
+                <div style={{color:'#94a3b8',fontWeight:700,fontSize:14}}>{p.adesao>0?fmt(p.adesao):'Gratis'}</div>
+              </div>
+              <div style={{padding:'8px 12px',background:'#0d1526',borderRadius:8}}>
+                <div style={{fontSize:10,color:'#475569',marginBottom:3}}>MENSALIDADE</div>
+                <div style={{color:p.cor,fontWeight:700,fontSize:14}}>{p.mensalidade>0?fmt(p.mensalidade)+'/mes':'Gratis'}</div>
+              </div>
+            </div>
+
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#64748b'}}>
+              <span>👥 Ate {p.maxUsuarios===999?'ilimitados':p.maxUsuarios+' usuario(s)'}</span>
+              <span>🔐 {(p.modulos||[]).length} modulo(s)</span>
             </div>
           </div>
         ))}
+
+        {/* Card + novo */}
+        <div onClick={()=>{setForm(vazio);setModal('novo')}}
+          style={{border:'2px dashed #1e2d4a',borderRadius:12,padding:24,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:10,cursor:'pointer',minHeight:160,transition:'all .2s'}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor='#00d4ff';e.currentTarget.style.background='rgba(0,212,255,.03)'}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor='#1e2d4a';e.currentTarget.style.background='transparent'}}>
+          <div style={{fontSize:32,opacity:.4}}>＋</div>
+          <div style={{fontSize:13,color:'#475569'}}>Novo Plano</div>
+        </div>
       </div>
+
+      {/* Modal criar/editar plano */}
+      {modal&&(
+        <div className="modal-overlay" onClick={()=>setModal(null)}>
+          <div className="modal-box" style={{maxWidth:700,maxHeight:'92vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+              <h2 style={{fontFamily:'Syne,sans-serif',fontSize:17,color:'#00d4ff'}}>{modal==='novo'?'📦 Novo Plano':'✏️ Editar Plano: '+modal.name}</h2>
+              <button onClick={()=>setModal(null)} style={{background:'none',border:'none',color:'#64748b',fontSize:20,cursor:'pointer'}}>✕</button>
+            </div>
+
+            {/* Dados basicos */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:20}}>
+              <div className="field">
+                <label>Nome do plano *</label>
+                <input value={form.name} onChange={e=>{upd('name',e.target.value);if(modal==='novo')upd('id',e.target.value.toLowerCase().replace(/[^a-z0-9]/g,'_').slice(0,20))}} placeholder="Ex: Profissional"/>
+              </div>
+              <div className="field">
+                <label>ID interno (gerado automaticamente)</label>
+                <input value={form.id} onChange={e=>upd('id',e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20))} placeholder="ex: profissional" readOnly={modal!=='novo'} style={{opacity:modal!=='novo'?.6:1}}/>
+                <span>Usado internamente. Nao pode ser alterado apos criar.</span>
+              </div>
+              <div className="field" style={{gridColumn:'1/-1'}}>
+                <label>Descricao (exibida para o cliente)</label>
+                <input value={form.descricao} onChange={e=>upd('descricao',e.target.value)} placeholder="Ex: Ideal para equipes de ate 8 pessoas"/>
+              </div>
+              <div className="field"><label>Adesao padrao (R$)</label><input type="number" step="0.01" min="0" value={form.adesao} onChange={e=>upd('adesao',Number(e.target.value))}/></div>
+              <div className="field"><label>Mensalidade padrao (R$)</label><input type="number" step="0.01" min="0" value={form.mensalidade} onChange={e=>upd('mensalidade',Number(e.target.value))}/></div>
+              <div className="field">
+                <label>Max. usuarios (999 = ilimitado)</label>
+                <input type="number" min="1" value={form.maxUsuarios} onChange={e=>upd('maxUsuarios',Number(e.target.value))}/>
+              </div>
+              <div>
+                <label style={{fontSize:11,color:'#64748b',display:'block',marginBottom:8,letterSpacing:.5}}>COR DO PLANO</label>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+                  {CORES_PRESET.map(c=>(
+                    <div key={c} onClick={()=>upd('cor',c)}
+                      style={{width:28,height:28,borderRadius:'50%',background:c,cursor:'pointer',border:'3px solid '+(form.cor===c?'#fff':'transparent'),transition:'all .15s'}}/>
+                  ))}
+                  <input type="color" value={form.cor} onChange={e=>upd('cor',e.target.value)}
+                    style={{width:28,height:28,borderRadius:'50%',border:'none',cursor:'pointer',background:'none',padding:0}}
+                    title="Cor personalizada"/>
+                </div>
+                <div style={{marginTop:8,display:'flex',alignItems:'center',gap:10}}>
+                  <div style={{width:40,height:4,borderRadius:2,background:form.cor}}/>
+                  <span style={{fontSize:11,color:form.cor,fontWeight:700}}>{form.name||'Preview'}</span>
+                </div>
+              </div>
+              <div style={{display:'flex',alignItems:'center'}}>
+                <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',fontSize:13,color:'#94a3b8'}}>
+                  <input type="checkbox" checked={form.destaque||false} onChange={e=>upd('destaque',e.target.checked)}/>
+                  ⭐ Marcar como plano em destaque
+                </label>
+              </div>
+            </div>
+
+            {/* Modulos do plano */}
+            <div style={{padding:'14px 16px',background:'rgba(0,212,255,.04)',border:'1px solid rgba(0,212,255,.15)',borderRadius:10,marginBottom:20}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+                <div style={{fontSize:12,color:'#00d4ff',fontWeight:700}}>🔐 MODULOS INCLUIDOS NESTE PLANO</div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>setForm(f=>({...f,modulos:TODOS_MODULOS.map(m=>m.id)}))} style={{padding:'3px 10px',background:'#10b98122',border:'1px solid #10b98144',borderRadius:5,color:'#10b981',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>Todos</button>
+                  <button onClick={()=>setForm(f=>({...f,modulos:[]}))} style={{padding:'3px 10px',background:'#ef444422',border:'1px solid #ef444444',borderRadius:5,color:'#ef4444',fontSize:11,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>Nenhum</button>
+                  <span style={{fontSize:11,color:'#475569',padding:'3px 6px'}}>{form.modulos.length}/{TODOS_MODULOS.length}</span>
+                </div>
+              </div>
+              {GRUPOS.map(grupo=>{
+                const gMs=TODOS_MODULOS.filter(m=>m.grupo===grupo)
+                const allG=gMs.every(m=>form.modulos.includes(m.id))
+                return(
+                  <div key={grupo} style={{marginBottom:16}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                      <span style={{fontSize:11,color:'#94a3b8',fontWeight:700}}>{grupo}</span>
+                      <button onClick={()=>toggleGrupoForm(grupo)} style={{padding:'1px 7px',background:allG?'#00d4ff22':'#1a2540',border:'1px solid '+(allG?'#00d4ff44':'#1e2d4a'),borderRadius:4,color:allG?'#00d4ff':'#475569',fontSize:10,cursor:'pointer',fontFamily:'DM Mono,monospace'}}>{allG?'desmarcar':'marcar'}</button>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
+                      {gMs.map(mod=>{const at=form.modulos.includes(mod.id);return(
+                        <div key={mod.id} onClick={()=>toggleModForm(mod.id)} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:6,border:'1px solid '+(at?'#00d4ff44':'#1e2d4a'),background:at?'#00d4ff0d':'#111827',cursor:'pointer'}}>
+                          <div style={{width:13,height:13,borderRadius:2,border:'2px solid '+(at?'#00d4ff':'#334155'),background:at?'#00d4ff':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{at&&<span style={{fontSize:8,color:'#000',fontWeight:900}}>✓</span>}</div>
+                          <span style={{fontSize:11,color:at?'#e2e8f0':'#64748b'}}>{mod.label}</span>
+                        </div>
+                      )})}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn-secondary" onClick={()=>setModal(null)}>Cancelar</button>
+              <button className="btn-primary" onClick={salvarModal} disabled={saving}>{saving?'Salvando...':modal==='novo'?'✅ Criar Plano':'✅ Salvar Alteracoes'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal confirmar exclusao */}
+      {confirmDel&&(
+        <div className="modal-overlay" onClick={()=>setConfirmDel(null)}>
+          <div className="modal-box" style={{maxWidth:440}} onClick={e=>e.stopPropagation()}>
+            <h2 style={{fontFamily:'Syne,sans-serif',color:'#ef4444',fontSize:18,marginBottom:12}}>🗑️ Excluir Plano</h2>
+            <p style={{color:'#94a3b8',fontSize:13,lineHeight:1.7}}>
+              Tem certeza que deseja excluir o plano <strong style={{color:confirmDel.cor}}>{confirmDel.name}</strong>?<br/>
+              <span style={{color:'#f59e0b',fontSize:12}}>⚠️ Clientes ja atribuidos a este plano continuarao com ele ate voce reatribuir manualmente.</span>
+            </p>
+            <div style={{display:'flex',gap:10,marginTop:24,justifyContent:'flex-end'}}>
+              <button className="btn-secondary" onClick={()=>setConfirmDel(null)}>Cancelar</button>
+              <button className="btn-danger" onClick={()=>excluirPlano(confirmDel.id)}>Sim, excluir plano</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
