@@ -1,28 +1,23 @@
-// pages/api/cadastrar-tenant.js
-// ✅ Fluxo completo ao cadastrar um novo cliente:
-//   1. Cria usuário no Supabase Auth (email + senha)
-//   2. Cria/atualiza perfil na tabela 'perfis'
-//   3. Salva tenant:ID e cfg:ID no vx_storage
-//   4. (Opcional) Cria cliente + cobrança adesão + assinatura mensal no Asaas
-//   5. Envia e-mail de boas-vindas com credenciais via SMTP configurado
+// pages/api/cadastrar-tenant.js — v3
+// ✅ Cria usuário Supabase Auth isolado por empresaId (user_id do admin da empresa)
+// ✅ Salva tenant:ID e cfg:ID com RLS garantindo que cada cliente vê só seus dados
+// ✅ Asaas: cliente + cobrança de adesão (avulsa) + assinatura recorrente
+// ✅ E-mail de boas-vindas com template personalizável e credenciais completas
 
 import { createClient } from '@supabase/supabase-js'
-import nodemailer from 'nodemailer'
 
-// Cliente admin (service_role) para criar usuários
+// ⚠️ IMPORTANTE: este client usa a SERVICE ROLE KEY (bypass de RLS)
+// Necessário para criar usuários e escrever cfg de outros tenants
+// Adicione SUPABASE_SERVICE_ROLE_KEY no .env.local e nas env vars da Vercel
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY // ⚠️ adicionar no .env.local
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
-// ══════════════════════════════════════════════════════
-// HANDLER PRINCIPAL
-// ══════════════════════════════════════════════════════
+export const config = { api: { bodyParser: { sizeLimit: '1mb' } } }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método não permitido' })
-  }
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido' })
 
   const {
     nomeEmpresa, cnpj, emailAdmin, senha, telefone, responsavel,
@@ -41,378 +36,385 @@ export default async function handler(req, res) {
   let supabaseUserId = null
   let empresaId      = null
   let asaasCustomerId = null
-  let asaasSubId      = null
+  let asaasSubId     = null
 
+  // ══════════════════════════════════════════════════════
+  // 1. CRIAR / RECUPERAR USUÁRIO NO SUPABASE AUTH
+  //    Cada tenant tem seu próprio usuário → isolamento total
+  // ══════════════════════════════════════════════════════
   try {
-
-    // ══════════════════════════════════════════════════
-    // 1. CRIAR USUÁRIO NO SUPABASE AUTH
-    // ══════════════════════════════════════════════════
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: emailAdmin,
-      password: senha,
-      email_confirm: true, // não precisa confirmar e-mail
-      user_metadata: { name: responsavel || nomeEmpresa },
+      email:         emailAdmin.trim().toLowerCase(),
+      password:      senha,
+      email_confirm: true,
+      user_metadata: { name: responsavel || nomeEmpresa, empresa: nomeEmpresa },
     })
 
     if (authError) {
-      // Se usuário já existe, tenta buscar pelo e-mail
       if (authError.message?.includes('already registered') || authError.code === 'email_exists') {
-        const { data: existUsers } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
-        const existing = existUsers?.users?.find(u => u.email === emailAdmin)
+        // Usuário já existe — localiza e atualiza a senha
+        const { data: lista } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
+        const existing = lista?.users?.find(u => u.email === emailAdmin.trim().toLowerCase())
         if (existing) {
           supabaseUserId = existing.id
-          // Atualiza senha
-          await supabaseAdmin.auth.admin.updateUserById(supabaseUserId, { password: senha })
+          await supabaseAdmin.auth.admin.updateUserById(supabaseUserId, {
+            password: senha,
+            user_metadata: { name: responsavel || nomeEmpresa, empresa: nomeEmpresa }
+          })
         } else {
-          throw new Error('Erro ao criar usuário: ' + authError.message)
+          return res.status(400).json({ error: 'E-mail já cadastrado mas não encontrado. Contate o suporte.' })
         }
       } else {
-        throw new Error('Erro ao criar usuário: ' + authError.message)
+        return res.status(400).json({ error: 'Erro ao criar usuário: ' + authError.message })
       }
     } else {
       supabaseUserId = authData.user.id
     }
 
-    empresaId = supabaseUserId // empresa_id = user_id do admin master da empresa
+    // empresaId = user_id do admin da empresa
+    // Isso garante que todos os dados da empresa ficam sob essa chave
+    empresaId = supabaseUserId
 
-    // ══════════════════════════════════════════════════
-    // 2. CRIAR / ATUALIZAR PERFIL NA TABELA 'perfis'
-    // ══════════════════════════════════════════════════
-    const { error: perfilError } = await supabaseAdmin.from('perfis').upsert({
-      user_id:    supabaseUserId,
-      nome:       responsavel || nomeEmpresa,
-      email:      emailAdmin,
-      empresa_id: empresaId,
-      perfil:     'admin',
-      updated_at: agora,
-    }, { onConflict: 'user_id' })
-
-    if (perfilError) erros.push('perfil: ' + perfilError.message)
-
-    // ══════════════════════════════════════════════════
-    // 3. ASAAS — CRIAR CLIENTE + COBRANÇA ADESÃO + ASSINATURA
-    // ══════════════════════════════════════════════════
-    if (criarAsaas && masterCfg?.asaasKey) {
-      try {
-        const asaasBase = masterCfg.asaasSandbox
-          ? 'https://sandbox.asaas.com/api/v3'
-          : 'https://api.asaas.com/v3'
-
-        const asaasHeaders = {
-          'Content-Type': 'application/json',
-          'access_token': masterCfg.asaasKey,
-        }
-
-        // 3a. Criar cliente no Asaas
-        const cnpjLimpo = cnpj ? cnpj.replace(/\D/g, '') : ''
-        const customerBody = {
-          name:     nomeEmpresa,
-          email:    emailAdmin,
-          phone:    telefone ? telefone.replace(/\D/g, '') : undefined,
-          cpfCnpj:  cnpjLimpo || undefined,
-          groupName: plano,
-          externalReference: empresaId,
-          notificationDisabled: false,
-        }
-
-        const cusRes = await fetch(`${asaasBase}/customers`, {
-          method: 'POST',
-          headers: asaasHeaders,
-          body: JSON.stringify(customerBody),
-        })
-        const cusData = await cusRes.json()
-
-        if (!cusRes.ok) {
-          erros.push('Asaas customer: ' + (cusData?.errors?.[0]?.description || cusData?.error || JSON.stringify(cusData)))
-        } else {
-          asaasCustomerId = cusData.id
-
-          // 3b. Cobrança de adesão (avulsa) se valor > 0
-          if (Number(adesao) > 0) {
-            const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 3)
-            const adesaoRes = await fetch(`${asaasBase}/payments`, {
-              method: 'POST',
-              headers: asaasHeaders,
-              body: JSON.stringify({
-                customer:    asaasCustomerId,
-                billingType: billingType || 'BOLETO',
-                value:       Number(adesao),
-                dueDate:     dueDate.toISOString().slice(0, 10),
-                description: `Adesão — ${nomeEmpresa} — Plano ${plano}`,
-                externalReference: `adesao:${empresaId}`,
-              }),
-            })
-            const adesaoData = await adesaoRes.json()
-            if (!adesaoRes.ok) erros.push('Asaas adesão: ' + (adesaoData?.errors?.[0]?.description || JSON.stringify(adesaoData)))
-          }
-
-          // 3c. Assinatura mensal recorrente se mensalidade > 0
-          if (Number(mensalidade) > 0) {
-            const nextDue = vencimento || new Date(new Date().setDate(new Date().getDate() + 30)).toISOString().slice(0, 10)
-            const subRes = await fetch(`${asaasBase}/subscriptions`, {
-              method: 'POST',
-              headers: asaasHeaders,
-              body: JSON.stringify({
-                customer:    asaasCustomerId,
-                billingType: billingType || 'BOLETO',
-                value:       Number(mensalidade),
-                nextDueDate: nextDue,
-                cycle:       'MONTHLY',
-                description: `Mensalidade ${plano} — ${nomeEmpresa}`,
-                externalReference: `sub:${empresaId}`,
-              }),
-            })
-            const subData = await subRes.json()
-            if (!subRes.ok) erros.push('Asaas assinatura: ' + (subData?.errors?.[0]?.description || JSON.stringify(subData)))
-            else asaasSubId = subData.id
-          }
-        }
-      } catch (asaasErr) {
-        erros.push('Asaas exception: ' + asaasErr.message)
-      }
-    }
-
-    // ══════════════════════════════════════════════════
-    // 4. SALVAR TENANT NO VX_STORAGE
-    // ══════════════════════════════════════════════════
-    const tenantId = empresaId // usa o supabase user_id como tenant id
-
-    const tenantData = {
-      id:               tenantId,
-      empresaId:        empresaId,
-      nomeEmpresa,
-      cnpj,
-      emailAdmin,
-      telefone,
-      responsavel,
-      vendedorId,
-      plano,
-      status,
-      maxUsuarios:      Number(maxUsuarios),
-      mensalidade:      Number(mensalidade),
-      adesao:           Number(adesao),
-      vencimento,
-      modulosLiberados,
-      obs,
-      asaasCustomerId,
-      asaasSubId,
-      criadoEm:         agora,
-      atualizadoEm:     agora,
-    }
-
-    const { error: tenantError } = await supabaseAdmin.from('vx_storage').upsert(
-      { key: `tenant:${tenantId}`, value: JSON.stringify(tenantData), updated_at: agora },
-      { onConflict: 'key' }
-    )
-    if (tenantError) erros.push('tenant storage: ' + tenantError.message)
-
-    // Salvar cfg da empresa
-    const cfgData = {
-      company:              nomeEmpresa,
-      tenant_plano:         plano,
-      tenant_status:        status,
-      tenant_modulos:       modulosLiberados,
-      tenant_maxUsuarios:   Number(maxUsuarios),
-      tenant_vencimento:    vencimento,
-      tenant_mensalidade:   Number(mensalidade),
-      tenant_adesao:        Number(adesao),
-      modulosAtivos:        modulosLiberados,
-      asaasCustomerId,
-      asaasSubId,
-      kpiRequired:          false,
-      kpiTemplates:         [],
-      kpiLog:               [],
-    }
-
-    const { error: cfgError } = await supabaseAdmin.from('vx_storage').upsert(
-      { key: `cfg:${empresaId}`, value: JSON.stringify(cfgData), updated_at: agora },
-      { onConflict: 'key' }
-    )
-    if (cfgError) erros.push('cfg storage: ' + cfgError.message)
-
-    // ══════════════════════════════════════════════════
-    // 5. ENVIAR E-MAIL DE BOAS-VINDAS
-    // ══════════════════════════════════════════════════
-    if (sendEmail && masterCfg?.smtpHost) {
-      try {
-        const siteUrl = masterCfg.siteUrl || 'https://vivanexa-saas.vercel.app'
-        const transporter = nodemailer.createTransport({
-          host:   masterCfg.smtpHost,
-          port:   Number(masterCfg.smtpPort) || 587,
-          secure: Number(masterCfg.smtpPort) === 465,
-          auth: { user: masterCfg.smtpUser, pass: masterCfg.smtpPass },
-        })
-
-        const htmlEmail = gerarEmailBoasVindas({
-          nome:       responsavel || nomeEmpresa,
-          nomeEmpresa,
-          email:      emailAdmin,
-          senha,
-          plano,
-          siteUrl,
-          mensalidade: Number(mensalidade),
-          vencimento,
-        })
-
-        await transporter.sendMail({
-          from:    masterCfg.smtpFrom || masterCfg.smtpUser,
-          to:      emailAdmin,
-          subject: `🚀 Bem-vindo(a) à Vivanexa — Seus dados de acesso`,
-          html:    htmlEmail,
-        })
-      } catch (emailErr) {
-        erros.push('email: ' + emailErr.message)
-      }
-    }
-
-    // ══════════════════════════════════════════════════
-    // RESPOSTA
-    // ══════════════════════════════════════════════════
-    return res.status(200).json({
-      success: true,
-      tenantId,
-      empresaId,
-      supabaseUserId,
-      asaasCustomerId,
-      asaasSubId,
-      avisos: erros.length ? erros : undefined,
-    })
-
-  } catch (err) {
-    console.error('[cadastrar-tenant]', err)
-    return res.status(500).json({ error: err.message })
+  } catch (e) {
+    return res.status(500).json({ error: 'Erro Supabase Auth: ' + e.message })
   }
+
+  // ══════════════════════════════════════════════════════
+  // 2. CRIAR / ATUALIZAR PERFIL NA TABELA 'perfis'
+  //    Mantém mapeamento user_id → empresa_id para o _app.js
+  // ══════════════════════════════════════════════════════
+  const { error: perfilError } = await supabaseAdmin.from('perfis').upsert({
+    user_id:    supabaseUserId,
+    nome:       responsavel || nomeEmpresa,
+    email:      emailAdmin.trim().toLowerCase(),
+    empresa_id: empresaId,
+    perfil:     'admin',
+    updated_at: agora,
+  }, { onConflict: 'user_id' })
+
+  if (perfilError) erros.push('perfil: ' + perfilError.message)
+
+  // ══════════════════════════════════════════════════════
+  // 3. ASAAS — CLIENTE + ADESÃO (avulsa) + ASSINATURA MENSAL
+  // ══════════════════════════════════════════════════════
+  if (criarAsaas && masterCfg?.asaasKey) {
+    try {
+      const base = masterCfg.asaasSandbox
+        ? 'https://sandbox.asaas.com/api/v3'
+        : 'https://api.asaas.com/v3'
+      const headers = {
+        'Content-Type': 'application/json',
+        'access_token': masterCfg.asaasKey,
+      }
+
+      // 3a. Cria ou localiza cliente no Asaas
+      const custResp = await fetch(`${base}/customers`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          name:               responsavel || nomeEmpresa,
+          email:              emailAdmin,
+          phone:              (telefone||'').replace(/\D/g,''),
+          cpfCnpj:            (cnpj||'').replace(/\D/g,''),
+          externalReference:  empresaId,
+          notificationDisabled: false,
+        })
+      })
+      const custJson = await custResp.json()
+
+      if (custResp.ok) {
+        asaasCustomerId = custJson.id
+      } else if (custJson.errors?.some(e => e.description?.includes('cpfCnpj'))) {
+        // CNPJ duplicado — busca cliente existente
+        const busca = await fetch(`${base}/customers?cpfCnpj=${(cnpj||'').replace(/\D/g,'')}`, { headers })
+        const buscaJson = await busca.json()
+        asaasCustomerId = buscaJson.data?.[0]?.id
+        if (!asaasCustomerId) {
+          // Tenta sem CNPJ
+          const custSemCnpj = await fetch(`${base}/customers`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ name: responsavel || nomeEmpresa, email: emailAdmin, externalReference: empresaId })
+          })
+          const cJson = await custSemCnpj.json()
+          if (custSemCnpj.ok) asaasCustomerId = cJson.id
+          else erros.push('asaas_customer: ' + JSON.stringify(cJson.errors))
+        }
+      } else {
+        erros.push('asaas_customer: ' + JSON.stringify(custJson.errors || custJson))
+      }
+
+      // 3b. Cobrança de ADESÃO (avulsa, vence em 1 dia)
+      if (asaasCustomerId && Number(adesao) > 0) {
+        const dueAdesao = new Date()
+        dueAdesao.setDate(dueAdesao.getDate() + 1)
+        const adeResp = await fetch(`${base}/payments`, {
+          method: 'POST', headers,
+          body: JSON.stringify({
+            customer:    asaasCustomerId,
+            billingType: billingType || 'BOLETO',
+            value:       Number(adesao),
+            dueDate:     dueAdesao.toISOString().slice(0,10),
+            description: `Taxa de Adesão — ${nomeEmpresa} — Plano ${plano}`,
+            externalReference: `${empresaId}_adesao`,
+          })
+        })
+        const adeJson = await adeResp.json()
+        if (!adeResp.ok) erros.push('asaas_adesao: ' + JSON.stringify(adeJson.errors || adeJson))
+      }
+
+      // 3c. ASSINATURA MENSAL recorrente
+      if (asaasCustomerId && Number(mensalidade) > 0) {
+        const dueAssin = vencimento || (() => {
+          const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0,10)
+        })()
+        const subResp = await fetch(`${base}/subscriptions`, {
+          method: 'POST', headers,
+          body: JSON.stringify({
+            customer:    asaasCustomerId,
+            billingType: billingType || 'BOLETO',
+            value:       Number(mensalidade),
+            nextDueDate: dueAssin,
+            cycle:       'MONTHLY',
+            description: `Mensalidade Vivanexa — ${nomeEmpresa} — Plano ${plano}`,
+            externalReference: `${empresaId}_mensal`,
+          })
+        })
+        const subJson = await subResp.json()
+        if (subResp.ok) {
+          asaasSubId = subJson.id
+        } else {
+          erros.push('asaas_assinatura: ' + JSON.stringify(subJson.errors || subJson))
+        }
+      }
+    } catch (e) {
+      erros.push('asaas_exception: ' + e.message)
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 4. SALVAR DADOS DO TENANT NO SUPABASE (vx_storage)
+  //
+  //    ISOLAMENTO: cada tenant tem duas chaves:
+  //    • tenant:{empresaId}  → dados administrativos (só o master lê)
+  //    • cfg:{empresaId}     → configurações (o próprio tenant lê via empresa_id)
+  //
+  //    O _app.js busca cfg:{session.user.empresa_id} para carregar as
+  //    configurações do tenant logado. Como empresa_id = supabaseUserId,
+  //    cada empresa SOMENTE lê a própria cfg.
+  // ══════════════════════════════════════════════════════
+  const tenantData = {
+    id:             empresaId,
+    empresaId,
+    supabaseUserId,
+    nomeEmpresa,
+    cnpj:           cnpj || '',
+    emailAdmin:     emailAdmin.trim().toLowerCase(),
+    senhaInicial:   senha,   // armazenada para consulta no painel master
+    telefone:       telefone || '',
+    responsavel:    responsavel || '',
+    vendedorId:     vendedorId || '',
+    plano:          plano || 'basic',
+    status:         status || 'trial',
+    maxUsuarios:    Number(maxUsuarios) || 3,
+    mensalidade:    Number(mensalidade) || 0,
+    adesao:         Number(adesao) || 0,
+    vencimento:     vencimento || '',
+    modulosLiberados: modulosLiberados || [],
+    obs:            obs || '',
+    asaasCustomerId: asaasCustomerId || '',
+    asaasSubId:     asaasSubId || '',
+    pagamentoStatus:'pendente',
+    criadoEm:       agora,
+    atualizadoEm:   agora,
+  }
+
+  // Salva registro administrativo do tenant (apenas o master lê)
+  const { error: tenantErr } = await supabaseAdmin.from('vx_storage').upsert({
+    key:        `tenant:${empresaId}`,
+    value:      JSON.stringify(tenantData),
+    updated_at: agora,
+  }, { onConflict: 'key' })
+
+  if (tenantErr) erros.push('tenant_storage: ' + tenantErr.message)
+
+  // Salva configurações que o próprio tenant lê ao logar
+  const cfgData = {
+    company:           nomeEmpresa,
+    emailEmpresa:      emailAdmin.trim().toLowerCase(),
+    empresaId,
+    tenant_plano:      plano || 'basic',
+    tenant_status:     status || 'trial',
+    tenant_modulos:    modulosLiberados || [],
+    tenant_maxUsuarios:Number(maxUsuarios) || 3,
+    tenant_vencimento: vencimento || '',
+    modulosAtivos:     modulosLiberados || [],
+    // Config padrão vazia para o tenant preencher nas suas configurações
+    smtpHost: '', smtpUser: '', smtpPass: '', smtpPort: '587',
+    kpiRequired: false, kpiTemplates: [],
+  }
+
+  const { error: cfgErr } = await supabaseAdmin.from('vx_storage').upsert({
+    key:        `cfg:${empresaId}`,
+    value:      JSON.stringify(cfgData),
+    updated_at: agora,
+  }, { onConflict: 'key' })
+
+  if (cfgErr) erros.push('cfg_storage: ' + cfgErr.message)
+
+  // ══════════════════════════════════════════════════════
+  // 5. E-MAIL DE BOAS-VINDAS COM CREDENCIAIS
+  // ══════════════════════════════════════════════════════
+  if (sendEmail && masterCfg?.smtpHost && masterCfg?.smtpUser) {
+    try {
+      const siteUrl    = masterCfg.siteUrl || 'https://vivanexa-saas.vercel.app'
+      const nomePlano  = plano ? plano.charAt(0).toUpperCase() + plano.slice(1) : 'Basic'
+
+      // Usa template customizado ou o padrão
+      const htmlFinal = masterCfg.emailTemplates?.boasVindas
+        ? masterCfg.emailTemplates.boasVindas
+            .replace(/\{\{nomeEmpresa\}\}/g, nomeEmpresa)
+            .replace(/\{\{responsavel\}\}/g, responsavel || nomeEmpresa)
+            .replace(/\{\{email\}\}/g, emailAdmin)
+            .replace(/\{\{senha\}\}/g, senha)
+            .replace(/\{\{plano\}\}/g, nomePlano)
+            .replace(/\{\{siteUrl\}\}/g, siteUrl)
+            .replace(/\{\{mensalidade\}\}/g, 'R$ ' + Number(mensalidade||0).toLocaleString('pt-BR',{minimumFractionDigits:2}))
+        : templateBoasVindas({ nomeEmpresa, responsavel, emailAdmin, senha, plano: nomePlano, siteUrl, mensalidade: Number(mensalidade||0) })
+
+      await fetch(`${siteUrl}/api/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to:      emailAdmin,
+          subject: `🎉 Bem-vindo(a) à Vivanexa — Seus dados de acesso`,
+          html:    htmlFinal,
+          config: {
+            smtpHost:       masterCfg.smtpHost,
+            smtpPort:       masterCfg.smtpPort || 587,
+            smtpUser:       masterCfg.smtpUser,
+            smtpPass:       masterCfg.smtpPass,
+            emailApiKey:    masterCfg.emailApiKey,
+            emailRemetente: masterCfg.smtpFrom || masterCfg.smtpUser,
+            nomeRemetente:  'Vivanexa',
+          }
+        })
+      })
+    } catch (e) {
+      erros.push('email: ' + e.message)
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 6. RETORNO
+  // ══════════════════════════════════════════════════════
+  return res.status(200).json({
+    success: true,
+    empresaId,
+    supabaseUserId,
+    asaasCustomerId,
+    asaasSubId,
+    erros: erros.length > 0 ? erros : undefined,
+    aviso: erros.length > 0 ? `Cliente criado com ${erros.length} aviso(s): ${erros.join(' | ')}` : undefined,
+  })
 }
 
 // ══════════════════════════════════════════════════════
-// TEMPLATE DE E-MAIL
+// TEMPLATE DE BOAS-VINDAS PADRÃO
 // ══════════════════════════════════════════════════════
-
-function gerarEmailBoasVindas({ nome, nomeEmpresa, email, senha, plano, siteUrl, mensalidade, vencimento }) {
-  const fmt = n => 'R$ ' + Number(n||0).toLocaleString('pt-BR',{minimumFractionDigits:2})
-  const fmtData = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—'
-  const planoLabel = plano?.charAt(0).toUpperCase() + plano?.slice(1)
-
+function templateBoasVindas({ nomeEmpresa, responsavel, emailAdmin, senha, plano, siteUrl, mensalidade }) {
+  const fmt = n => 'R$ ' + Number(n||0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
   return `
 <!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Bem-vindo à Vivanexa</title>
-</head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:40px 20px;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 16px">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;max-width:600px;width:100%">
 
-        <!-- HEADER -->
-        <tr><td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#0f4c75 100%);padding:40px 48px;text-align:center;">
-          <div style="font-size:36px;margin-bottom:12px;">🚀</div>
-          <h1 style="margin:0;font-size:26px;font-weight:800;color:#ffffff;font-family:Arial,sans-serif;letter-spacing:-0.5px;">Bem-vindo(a) à Vivanexa!</h1>
-          <p style="margin:10px 0 0;color:#94a3b8;font-size:14px;">Sua plataforma de vendas inteligente está pronta.</p>
-        </td></tr>
+  <!-- Header -->
+  <tr><td style="background:linear-gradient(135deg,#0d1526 0%,#1a2540 100%);padding:40px 40px 32px;text-align:center">
+    <div style="font-size:36px;margin-bottom:12px">🚀</div>
+    <h1 style="color:#00d4ff;font-size:26px;margin:0;font-weight:800;letter-spacing:-0.5px">Vivanexa</h1>
+    <p style="color:#64748b;margin:8px 0 0;font-size:13px;letter-spacing:1px">PLATAFORMA DE GESTÃO COMERCIAL</p>
+  </td></tr>
 
-        <!-- SAUDAÇÃO -->
-        <tr><td style="padding:36px 48px 24px;">
-          <p style="margin:0 0 16px;font-size:16px;color:#1e293b;line-height:1.6;">Olá, <strong>${nome}</strong>! 👋</p>
-          <p style="margin:0;font-size:14px;color:#475569;line-height:1.7;">
-            O acesso da <strong>${nomeEmpresa}</strong> à plataforma Vivanexa foi criado com sucesso.<br/>
-            Abaixo estão seus dados de acesso. Guarde-os em local seguro.
-          </p>
-        </td></tr>
+  <!-- Bem-vindo -->
+  <tr><td style="padding:36px 40px 24px">
+    <h2 style="color:#1a202c;font-size:20px;margin:0 0 16px;font-weight:700">
+      🎉 Bem-vindo(a) à Vivanexa, ${responsavel || nomeEmpresa}!
+    </h2>
+    <p style="color:#475569;font-size:15px;line-height:1.7;margin:0 0 24px">
+      Sua conta foi criada com sucesso! Abaixo estão seus dados de acesso ao sistema. Guarde este e-mail em local seguro.
+    </p>
 
-        <!-- CREDENCIAIS -->
-        <tr><td style="padding:0 48px 28px;">
-          <div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:28px;">
-            <h3 style="margin:0 0 20px;font-size:14px;color:#64748b;text-transform:uppercase;letter-spacing:1px;">🔑 Dados de Acesso</h3>
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #e2e8f0;">
-                  <span style="font-size:12px;color:#94a3b8;display:block;">ENDEREÇO DE ACESSO</span>
-                  <a href="${siteUrl}" style="font-size:15px;color:#0f172a;font-weight:700;text-decoration:none;">${siteUrl}</a>
-                </td>
-              </tr>
-              <tr>
-                <td style="padding:12px 0;border-bottom:1px solid #e2e8f0;">
-                  <span style="font-size:12px;color:#94a3b8;display:block;">USUÁRIO (LOGIN)</span>
-                  <span style="font-size:15px;color:#0f172a;font-weight:700;">${email}</span>
-                </td>
-              </tr>
-              <tr>
-                <td style="padding:12px 0;">
-                  <span style="font-size:12px;color:#94a3b8;display:block;">SENHA INICIAL</span>
-                  <span style="font-size:18px;color:#0f172a;font-weight:800;font-family:monospace;background:#e2e8f0;padding:4px 12px;border-radius:6px;letter-spacing:2px;">${senha}</span>
-                </td>
-              </tr>
-            </table>
-          </div>
-        </td></tr>
+    <!-- Card de credenciais -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;margin-bottom:28px">
+      <tr><td style="padding:24px">
+        <p style="margin:0 0 16px;font-size:12px;color:#94a3b8;font-weight:700;letter-spacing:1px">SEUS DADOS DE ACESSO</p>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="padding:8px 0;border-bottom:1px solid #e2e8f0">
+              <span style="font-size:13px;color:#64748b">🌐 URL do sistema</span><br/>
+              <a href="${siteUrl}" style="font-size:14px;color:#00d4ff;font-weight:700;text-decoration:none">${siteUrl}</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 0;border-bottom:1px solid #e2e8f0">
+              <span style="font-size:13px;color:#64748b">📧 Login (e-mail)</span><br/>
+              <span style="font-size:15px;color:#1a202c;font-weight:700;font-family:monospace">${emailAdmin}</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 0;border-bottom:1px solid #e2e8f0">
+              <span style="font-size:13px;color:#64748b">🔑 Senha</span><br/>
+              <span style="font-size:15px;color:#1a202c;font-weight:700;font-family:monospace;background:#fff;border:1px solid #e2e8f0;padding:4px 12px;border-radius:6px;display:inline-block;letter-spacing:1px">${senha}</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:8px 0">
+              <span style="font-size:13px;color:#64748b">📦 Plano</span><br/>
+              <span style="font-size:14px;color:#7c3aed;font-weight:700">${plano}${mensalidade>0?' — '+fmt(mensalidade)+'/mês':''}</span>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>
 
-        <!-- PLANO -->
-        <tr><td style="padding:0 48px 28px;">
-          <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:12px;padding:24px;display:flex;">
-            <table width="100%" cellpadding="0" cellspacing="0">
-              <tr>
-                <td>
-                  <h3 style="margin:0 0 16px;font-size:14px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;">📦 Seu Plano</h3>
-                  <table width="100%" cellpadding="0" cellspacing="0">
-                    <tr>
-                      <td style="padding:6px 0;"><span style="font-size:13px;color:#64748b;">Plano:</span></td>
-                      <td style="padding:6px 0;text-align:right;"><span style="font-size:13px;color:#00d4ff;font-weight:700;">${planoLabel}</span></td>
-                    </tr>
-                    ${mensalidade > 0 ? `<tr><td style="padding:6px 0;"><span style="font-size:13px;color:#64748b;">Mensalidade:</span></td><td style="padding:6px 0;text-align:right;"><span style="font-size:13px;color:#10b981;font-weight:700;">${fmt(mensalidade)}/mês</span></td></tr>` : ''}
-                    ${vencimento ? `<tr><td style="padding:6px 0;"><span style="font-size:13px;color:#64748b;">Próxima renovação:</span></td><td style="padding:6px 0;text-align:right;"><span style="font-size:13px;color:#e2e8f0;font-weight:700;">${fmtData(vencimento)}</span></td></tr>` : ''}
-                  </table>
-                </td>
-              </tr>
-            </table>
-          </div>
-        </td></tr>
+    <!-- Botão CTA -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px">
+      <tr><td align="center">
+        <a href="${siteUrl}" style="display:inline-block;padding:16px 40px;background:linear-gradient(135deg,#00d4ff,#0099bb);color:#000;font-weight:800;font-size:15px;text-decoration:none;border-radius:10px;letter-spacing:0.3px">
+          🔐 Acessar o Sistema
+        </a>
+      </td></tr>
+    </table>
 
-        <!-- CTA -->
-        <tr><td style="padding:0 48px 36px;text-align:center;">
-          <a href="${siteUrl}" style="display:inline-block;background:linear-gradient(135deg,#00d4ff,#0099bb);color:#000000;font-size:15px;font-weight:800;text-decoration:none;padding:16px 40px;border-radius:10px;letter-spacing:0.5px;">
-            🚀 Acessar Plataforma Agora
-          </a>
-          <p style="margin:16px 0 0;font-size:12px;color:#94a3b8;">Recomendamos alterar sua senha após o primeiro acesso.</p>
-        </td></tr>
+    <!-- Dica segurança -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#fff8f0;border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;margin-bottom:24px">
+      <tr><td style="padding:14px 18px">
+        <p style="margin:0;font-size:13px;color:#92400e;line-height:1.6">
+          <strong>⚠️ Recomendação de segurança:</strong> Altere sua senha após o primeiro acesso em <em>Configurações → Minha Conta</em>.
+        </p>
+      </td></tr>
+    </table>
 
-        <!-- DICAS -->
-        <tr><td style="padding:0 48px 36px;">
-          <div style="background:#f0fdf4;border-left:4px solid #10b981;border-radius:0 8px 8px 0;padding:16px 20px;">
-            <h4 style="margin:0 0 10px;font-size:13px;color:#065f46;">💡 Primeiros passos recomendados</h4>
-            <ul style="margin:0;padding-left:18px;font-size:13px;color:#047857;line-height:1.8;">
-              <li>Acesse <strong>Config → Empresa</strong> e complete seus dados</li>
-              <li>Configure sua chave de <strong>IA (OpenAI/Gemini/Groq)</strong></li>
-              <li>Conecte seu <strong>WhatsApp</strong> para automatizar atendimentos</li>
-              <li>Configure seus <strong>Produtos e Preços</strong></li>
-              <li>Convide sua <strong>equipe de vendas</strong></li>
-            </ul>
-          </div>
-        </td></tr>
+    <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0">
+      Em caso de dúvidas, responda este e-mail ou entre em contato com nosso suporte.<br/>
+      Estamos felizes em tê-lo(a) conosco! 🙌
+    </p>
+  </td></tr>
 
-        <!-- SUPORTE -->
-        <tr><td style="padding:0 48px 28px;">
-          <p style="margin:0;font-size:13px;color:#64748b;line-height:1.6;text-align:center;">
-            Precisa de ajuda? Entre em contato com nosso suporte.<br/>
-            Estamos aqui para garantir seu sucesso! 💪
-          </p>
-        </td></tr>
+  <!-- Footer -->
+  <tr><td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0">
+    <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.7">
+      <strong style="color:#64748b">Vivanexa SaaS</strong> · Plataforma de Gestão Comercial<br/>
+      <a href="${siteUrl}" style="color:#00d4ff;text-decoration:none">${siteUrl}</a>
+    </p>
+  </td></tr>
 
-        <!-- FOOTER -->
-        <tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:20px 48px;text-align:center;">
-          <p style="margin:0;font-size:11px;color:#94a3b8;">
-            © ${new Date().getFullYear()} Vivanexa SaaS. Todos os direitos reservados.<br/>
-            Este e-mail contém informações confidenciais de acesso. Não compartilhe com terceiros.
-          </p>
-        </td></tr>
-
-      </table>
-    </td></tr>
-  </table>
+</table>
+</td></tr>
+</table>
 </body>
-</html>
-`
+</html>`
 }
