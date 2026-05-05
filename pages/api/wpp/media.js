@@ -1,66 +1,58 @@
 // pages/api/wpp/media.js
-// Proxy server-side para buscar mídia da Evolution API
-// Evita CORS ao chamar Evolution diretamente do browser
+// Busca mídia (imagem, áudio, vídeo) de uma mensagem salva no Supabase
+// Corrige os erros 404 em /api/wpp/media
 
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-export const config = { api: { responseLimit: '50mb', bodyParser: { sizeLimit: '1mb' } } }
-
 export default async function handler(req, res) {
-  const { empresaId, instancia, mediaId } = req.query
-  if (!empresaId || !instancia || !mediaId) {
-    return res.status(400).json({ error: 'Parâmetros inválidos' })
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const { empresaId, numero, msgId } = req.method === 'GET' ? req.query : req.body
+
+  if (!empresaId || !numero || !msgId) {
+    return res.status(400).json({ ok: false, error: 'empresaId, numero e msgId são obrigatórios' })
   }
 
   try {
+    // Busca a conversa
     const { data: row } = await supabase
-      .from('vx_storage').select('value')
-      .eq('key', `cfg:${empresaId}`).maybeSingle()
+      .from('vx_storage')
+      .select('value')
+      .eq('key', `wpp_conv:${empresaId}:${numero}`)
+      .maybeSingle()
 
-    if (!row?.value) return res.status(404).json({ error: 'Empresa não encontrada' })
-
-    const cfg = JSON.parse(row.value)
-    const evoUrl = cfg.wppInbox?.evolutionUrl
-    const evoKey = cfg.wppInbox?.evolutionKey
-
-    if (!evoUrl || !evoKey) return res.status(400).json({ error: 'Evolution API não configurada' })
-
-    // Evolution API v2: POST /chat/getBase64FromMediaMessage/{instance}
-    const r = await fetch(`${evoUrl}/chat/getBase64FromMediaMessage/${instancia}`, {
-      method: 'POST',
-      headers: { apikey: evoKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: { key: { id: mediaId } },
-        convertToMp4: false
-      })
-    })
-
-    if (!r.ok) {
-      console.error('[media proxy] Evolution retornou:', r.status)
-      return res.status(r.status).json({ error: 'Mídia não encontrada na Evolution' })
+    if (!row?.value) {
+      return res.status(404).json({ ok: false, error: 'Conversa não encontrada' })
     }
 
-    const data = await r.json()
-    const base64 = data?.base64 || data?.mediaBase64 || ''
-    const mimetype = data?.mimetype || 'application/octet-stream'
+    const conv = JSON.parse(row.value)
+    const msg  = (conv.mensagens || []).find(m => m.id === msgId)
 
-    if (!base64) return res.status(404).json({ error: 'Base64 não retornado pela Evolution' })
+    if (!msg) {
+      return res.status(404).json({ ok: false, error: 'Mensagem não encontrada' })
+    }
 
-    // Remove prefixo data:... se presente
-    const b64clean = base64.includes(',') ? base64.split(',')[1] : base64
-    const buffer = Buffer.from(b64clean, 'base64')
+    if (!msg.midia) {
+      return res.status(404).json({ ok: false, error: 'Mensagem sem mídia' })
+    }
 
-    res.setHeader('Content-Type', mimetype)
-    res.setHeader('Content-Length', buffer.length)
-    res.setHeader('Cache-Control', 'public, max-age=3600')
-    return res.send(buffer)
-  } catch (err) {
-    console.error('[media proxy]', err.message)
-    return res.status(500).json({ error: err.message })
+    // Retorna a mídia em base64
+    return res.json({
+      ok:       true,
+      base64:   msg.midia.base64,
+      mimetype: msg.midia.mimetype,
+      filename: msg.midia.filename,
+    })
+
+  } catch (e) {
+    console.error('[API /wpp/media]', e.message)
+    return res.status(500).json({ ok: false, error: e.message })
   }
 }
