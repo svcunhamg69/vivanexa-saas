@@ -895,7 +895,7 @@ export default function WhatsappInbox() {
         // ✅ ROOT FIX: merge de mensagens — nunca perde msgs que já estão na tela
         // Evita race condition onde polling traz versão mais antiga do Supabase
         setConv(prev => {
-          if (!prev) return c
+          if (!prev || prev.numero !== numero) return c  // ← não mistura conversas diferentes
           // Unifica mensagens: IDs de ambas, sem duplicatas
           const mapaIds = new Map()
           // Mensagens anteriores (tela) ficam como base
@@ -944,6 +944,7 @@ export default function WhatsappInbox() {
   async function abrirConv(numero, statusHint) {
     // Se vier de busca global e a aba não bater, troca a aba
     if (statusHint && statusHint !== abaAtiva) setAbaAtiva(statusHint)
+    setConv(null) // ← Limpa conversa anterior para não misturar mensagens
     setConvAtiva(numero); setProtocolo(null); setSidebarAberta(false)
     await carregarConv(empresaId, numero)
   }
