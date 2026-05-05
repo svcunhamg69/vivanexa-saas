@@ -774,6 +774,7 @@ export default function WhatsappInbox() {
 
   // ── Sincroniza lista de chats da Evolution API → índice do Supabase ──
   async function sincronizarIndiceEvo(eid) {
+    return
     try {
       const { data: cfgRow } = await supabase.from('vx_storage').select('value').eq('key',`cfg:${eid}`).maybeSingle()
       if (!cfgRow?.value) return
