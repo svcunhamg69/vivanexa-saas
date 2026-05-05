@@ -1,8 +1,5 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// pages/api/wpp/sincronizar-msgs.js
-// Retorna o histórico de mensagens de uma conversa do Supabase
-// (antes buscava na Evolution API — agora busca direto do Supabase)
-// ─────────────────────────────────────────────────────────────────────────────
+// pages/api/wpp/sincronizar-msgs.js — CORRIGIDO v2
+// Busca histórico completo de uma conversa + índice de todas as conversas
 
 import { createClient } from '@supabase/supabase-js'
 
@@ -14,31 +11,46 @@ const supabase = createClient(
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const { empresaId, numero, limite = 50 } = req.body
+  const { empresaId, numero, limite = 100 } = req.body
 
-  if (!empresaId || !numero) {
-    return res.status(400).json({ ok: false, error: 'empresaId e numero são obrigatórios' })
-  }
+  if (!empresaId) return res.status(400).json({ ok: false, error: 'empresaId é obrigatório' })
 
   try {
-    const { data: row } = await supabase
+    // Se veio número → busca conversa específica
+    if (numero) {
+      const { data: row } = await supabase
+        .from('vx_storage')
+        .select('value')
+        .eq('key', `wpp_conv:${empresaId}:${numero}`)
+        .maybeSingle()
+
+      if (!row?.value) return res.json({ ok: true, conv: null })
+
+      const conv = JSON.parse(row.value)
+
+      // Retorna as últimas N mensagens
+      if (conv.mensagens?.length > limite) {
+        conv.mensagens = conv.mensagens.slice(-limite)
+      }
+
+      return res.json({ ok: true, conv })
+    }
+
+    // Se não veio número → busca o índice (lista de conversas)
+    const { data: idxRow } = await supabase
       .from('vx_storage')
       .select('value')
-      .eq('key', `wpp_conv:${empresaId}:${numero}`)
+      .eq('key', `wpp_idx:${empresaId}`)
       .maybeSingle()
 
-    if (!row?.value) {
-      return res.json({ ok: true, conv: null })
-    }
+    const idx = idxRow?.value ? JSON.parse(idxRow.value) : {}
 
-    const conv = JSON.parse(row.value)
+    // Converte para array ordenado por data
+    const lista = Object.values(idx).sort((a, b) =>
+      new Date(b.ultimaAt || b.updatedAt || 0) - new Date(a.ultimaAt || a.updatedAt || 0)
+    )
 
-    // Retorna apenas as últimas N mensagens para não sobrecarregar
-    if (conv.mensagens?.length > limite) {
-      conv.mensagens = conv.mensagens.slice(-limite)
-    }
-
-    return res.json({ ok: true, conv })
+    return res.json({ ok: true, conversas: lista })
 
   } catch (e) {
     console.error('[API /sincronizar-msgs]', e.message)
