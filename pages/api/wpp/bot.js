@@ -194,7 +194,7 @@ async function enviarTexto(cfg, instancia, numero, texto) {
       }
     }
   } catch(e) { console.error('[bot] salvar msg err:', e.message) }
-}
+
 
 async function enviarMidia(cfg, instancia, numero, mediaType, mediaUrl, caption) {
   // Mídia via Evolution API se disponível, senão ignora
