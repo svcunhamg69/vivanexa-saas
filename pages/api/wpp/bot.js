@@ -116,6 +116,14 @@ async function enviarTexto(cfg, instancia, numero, texto) {
   if (!texto?.trim()) return
   const num = numero.replace(/\D/g, '')
   const WPP_SERVER = process.env.WPP_SERVER_URL || 'http://localhost:3001'
+  try {
+    await fetch(`${WPP_SERVER}/api/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numero: num, mensagem: texto, salvar: true })
+    })
+  } catch(e) { console.error('[bot] enviarTexto err:', e.message) }
+}
 
   // 1. Envia pelo servidor WhatsApp
   try {
