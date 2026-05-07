@@ -113,70 +113,37 @@ async function salvarMsgSaida(empresaId, numero, texto, instancia) {
 }
 
 async function enviarTexto(cfg, instancia, numero, texto) {
-  const evoUrl = cfg.wppInbox?.evolutionUrl
-  const evoKey = cfg.wppInbox?.evolutionKey
-  if (!evoUrl || !evoKey || !texto?.trim()) return
-
+  if (!texto?.trim()) return
   const num = numero.replace(/\D/g, '')
-  const full = num.startsWith('55') ? num : `55${num}`
-
-  await fetch(`${evoUrl}/message/sendText/${instancia}`, {
-    method: 'POST',
-    headers: { apikey: evoKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ number: full, text: texto })
-  })
+  const WPP_SERVER = process.env.WPP_SERVER_URL || 'http://localhost:3001'
+  try {
+    const r = await fetch(`${WPP_SERVER}/api/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ numero: num, mensagem: texto, empresaId: process.env.DEFAULT_EMPRESA_ID })
+    })
+    if (!r.ok) console.error('[bot] enviarTexto status:', r.status)
+  } catch(e) { console.error('[bot] enviarTexto err:', e.message) }
 }
 
 async function enviarMidia(cfg, instancia, numero, mediaType, mediaUrl, caption) {
+  // Mídia via Evolution API se disponível, senão ignora
   const evoUrl = cfg.wppInbox?.evolutionUrl
   const evoKey = cfg.wppInbox?.evolutionKey
   if (!evoUrl || !evoKey || !mediaUrl) return
-
   const num = numero.replace(/\D/g, '')
   const full = num.startsWith('55') ? num : `55${num}`
-
-  const endpoints = {
-    image:    'sendMedia',
-    video:    'sendMedia',
-    audio:    'sendMedia',
-    document: 'sendMedia',
-  }
-
-  const mediaTypes = {
-    image:    'image',
-    video:    'video',
-    audio:    'audio',
-    document: 'document',
-  }
-
-  await fetch(`${evoUrl}/message/${endpoints[mediaType] || 'sendMedia'}/${instancia}`, {
-    method: 'POST',
-    headers: { apikey: evoKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      number: full,
-      mediatype: mediaTypes[mediaType] || 'image',
-      media: mediaUrl,
-      caption: caption || '',
-      fileName: caption || 'arquivo',
+  try {
+    await fetch(`${evoUrl}/message/sendMedia/${instancia}`, {
+      method: 'POST',
+      headers: { apikey: evoKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number: full, mediatype: mediaType||'image', media: mediaUrl, caption: caption||'' })
     })
-  })
+  } catch(e) { console.error('[bot] enviarMidia err:', e.message) }
 }
 
 async function enviarDigitando(cfg, instancia, numero, segundos = 2) {
-  const evoUrl = cfg.wppInbox?.evolutionUrl
-  const evoKey = cfg.wppInbox?.evolutionKey
-  if (!evoUrl || !evoKey) return
-
-  const num = (numero.replace(/\D/g, ''))
-  const full = (num.startsWith('55') ? num : `55${num}`) + '@s.whatsapp.net'
-
-  try {
-    await fetch(`${evoUrl}/chat/sendPresence/${instancia}`, {
-      method: 'POST',
-      headers: { apikey: evoKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ number: full, options: { presence: 'composing', delay: segundos * 1000 } })
-    })
-  } catch {}
+  // Digitando não suportado no servidor próprio — ignora silenciosamente
 }
 
 function sleep(ms) {
