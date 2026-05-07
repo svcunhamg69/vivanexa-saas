@@ -116,14 +116,76 @@ async function enviarTexto(cfg, instancia, numero, texto) {
   if (!texto?.trim()) return
   const num = numero.replace(/\D/g, '')
   const WPP_SERVER = process.env.WPP_SERVER_URL || 'http://localhost:3001'
+
+  // 1. Envia pelo servidor WhatsApp
   try {
-    const r = await fetch(`${WPP_SERVER}/api/send`, {
+    await fetch(`${WPP_SERVER}/api/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ numero: num, mensagem: texto, empresaId: process.env.DEFAULT_EMPRESA_ID })
+      body: JSON.stringify({ numero: num, mensagem: texto })
     })
-    if (!r.ok) console.error('[bot] enviarTexto status:', r.status)
   } catch(e) { console.error('[bot] enviarTexto err:', e.message) }
+
+  // 2. Salva a mensagem no histórico do Supabase
+  try {
+    const empresaId = process.env.DEFAULT_EMPRESA_ID || process.env.NEXT_PUBLIC_SUPABASE_EMPRESA_ID
+    if (!empresaId) return
+
+    const { createClient } = require('@supabase/supabase-js')
+    const sb = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    )
+
+    const ts = new Date().toISOString()
+    const msgBot = {
+      id:        `bot_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+      texto,
+      de:        'empresa',
+      at:        ts,
+      timestamp: ts,
+      tipo:      'texto',
+      isBot:     true,
+    }
+
+    const { data: row } = await sb.from('vx_storage').select('value')
+      .eq('key', `wpp_conv:${empresaId}:${num}`).maybeSingle()
+
+    if (row?.value) {
+      const conv = JSON.parse(row.value)
+      // Evita duplicata
+      const jaExiste = (conv.mensagens||[]).some(m =>
+        m.texto === texto && Math.abs(new Date(m.at||0) - new Date(ts)) < 5000
+      )
+      if (!jaExiste) {
+        conv.mensagens      = [...(conv.mensagens||[]), msgBot]
+        conv.ultimaMensagem = texto.slice(0, 100)
+        conv.ultimaAt       = ts
+        conv.ultimaDe       = 'empresa'
+        conv.naoLidas       = 0
+        await sb.from('vx_storage').upsert(
+          { key: `wpp_conv:${empresaId}:${num}`, value: JSON.stringify(conv), updated_at: ts },
+          { onConflict: 'key' }
+        )
+        // Atualiza índice
+        const { data: idxRow } = await sb.from('vx_storage').select('value')
+          .eq('key', `wpp_idx:${empresaId}`).maybeSingle()
+        if (idxRow?.value) {
+          const idx = JSON.parse(idxRow.value)
+          if (idx[num]) {
+            idx[num].ultimaMensagem = conv.ultimaMensagem
+            idx[num].ultimaAt       = ts
+            idx[num].updatedAt      = ts
+            idx[num].naoLidas       = 0
+            await sb.from('vx_storage').upsert(
+              { key: `wpp_idx:${empresaId}`, value: JSON.stringify(idx), updated_at: ts },
+              { onConflict: 'key' }
+            )
+          }
+        }
+      }
+    }
+  } catch(e) { console.error('[bot] salvar msg err:', e.message) }
 }
 
 async function enviarMidia(cfg, instancia, numero, mediaType, mediaUrl, caption) {
